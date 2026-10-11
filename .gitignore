@@ -2,9 +2,10 @@
 .env
 **/.env
 .sync/
-server-data/secrets.cfg
-server-data/server.cfg
-server-data/server.cfg.bkp
+# Live configs and any backup copies of them (server.cfg.bkp, server.cfg.bak-*, ...)
+server-data/secrets.cfg*
+!server-data/secrets.cfg.example
+server-data/server.cfg*
 txData/
 server-data/db/
 backups/

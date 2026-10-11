@@ -31,7 +31,7 @@ const FLORIDA_BAY = [
   ace("Florida Bay · Roleplay", "fbrp.headtags.manage", "Headtag management", "Create, delete, grant and revoke headtags and gang tags (/headtag)."),
   ace("Florida Bay · Roleplay", "fbrp.organizations.manage", "Organization management", "Create organizations, manage their rosters and view duty hours (/organization)."),
   ace("Florida Bay · Roleplay", "fbrp.radio.manage", "Radio management", "Create public or organization-duty radio channels with /radio or the web panel."),
-  ace("Florida Bay · Staff", "fbrp.staff.assign", "Assign staff ranks", "Use /staff add and /staff remove to place members into staff rank ACE groups below your own."),
+  ace("Florida Bay · Staff", "fbrp.staff.assign", "Assign staff ranks", "Use /staff add, /staff move and /staff remove to place members into staff rank ACE groups below your own."),
   ace("Florida Bay · Staff", "fbrp.staff.manage", "Staff duty management", "View staff hours and the leaderboard, and force members off duty."),
   ace("Florida Bay · Staff", "fbrp.roster.view", "View staff roster", "View the roster and member profiles (/roster list, /roster profile)."),
   ace("Florida Bay · Staff", "fbrp.roster.manage", "Manage roster members", "Add, remove and update roster members, callsigns, statuses, notes and jobs."),

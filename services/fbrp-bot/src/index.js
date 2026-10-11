@@ -1236,7 +1236,7 @@ async function staffRank(id) {
   return row;
 }
 
-/** Autocomplete for /staff add rank: only ranks whose ACE group sits below the caller. */
+/** Autocomplete for /staff add and /staff move rank: only ranks whose ACE group sits below the caller. */
 async function staffRankAutocomplete(i) {
   const needle = String(i.options.getFocused() || "").toLowerCase();
   const level = await staffLevel(i.user.id);
@@ -1284,7 +1284,8 @@ async function staffLadder(rank) {
 /** Every ACE group a staff rank maps to; /staff moves members between these. */
 const STAFF_GROUPS_SQL = "SELECT DISTINCT ace_group FROM staff_roster_ranks WHERE ace_group IS NOT NULL";
 
-async function staffAdd(i) {
+/** /staff add, or /staff move (existing staff only: no welcome DM, optional reason). */
+async function staffAdd(i, move = false) {
   await requirePermission(i, "fbrp.staff.assign");
   const user = i.options.getUser("member", true);
   if (user.bot) throw new Error("Bots cannot be staff.");
@@ -1298,6 +1299,9 @@ async function staffAdd(i) {
     [user.id],
   );
   const active = previous && previous.status !== "removed";
+  const reason = move ? clean(i.options.getString("reason") || "", 300) || null : null;
+  if (move && !active) throw new Error("That member is not on the staff roster. Use /staff add instead.");
+  if (move && Number(previous.rank_id) === Number(rank.id)) throw new Error(`That member is already ${rank.name}.`);
   let callsign = i.options.getInteger("callsign");
   if (callsign) await checkCallsign(callsign, rank, user.id);
   else {
@@ -1333,7 +1337,7 @@ async function staffAdd(i) {
     );
     await q(
       "INSERT INTO staff_roster_history(discord_id,action,actor_id,details,created_at) VALUES(?,?,?,?,?)",
-      [user.id, "staff_add", i.user.id, JSON.stringify({ rank: rank.id, group: rank.ace_group, callsign, from: previous?.rank_id || null }), stamp],
+      [user.id, move ? "staff_move" : "staff_add", i.user.id, JSON.stringify({ rank: rank.id, group: rank.ace_group, callsign, from: previous?.rank_id || null, ...(reason ? { reason } : {}) }), stamp],
     );
     return old.map((row) => String(row.group_name));
   });
@@ -1342,10 +1346,10 @@ async function staffAdd(i) {
     if (!ladderIds.has(Number(row.id))) await dropRankRole(row, user.id);
   for (const row of ladder) await setRankRole(row, user.id, true);
   if (!active || Number(previous.callsign) !== Number(callsign)) await announceCallsign(user.id, callsign);
-  await audit(i.user.id, "staff.add", user.id, { rank: rank.id, rankName: rank.name, group: rank.ace_group, groups, callsign, removedGroups });
+  await audit(i.user.id, move ? "staff.move" : "staff.add", user.id, { rank: rank.id, rankName: rank.name, from: previous?.rank_name || null, group: rank.ace_group, groups, callsign, removedGroups, reason });
   await refreshGame();
   await syncUserAcrossNetwork(client, user.id);
-  const welcome = await sendStaffWelcome(user, rank, callsign);
+  const welcome = move ? null : await sendStaffWelcome(user, rank, callsign);
   const rows = [
     ["Rank", `${clean(rank.name)}\n${clean(rank.category_name)}`],
     ["ACE group", `\`${rank.ace_group}\` (rank ${rank.group_rank})`],
@@ -1353,11 +1357,12 @@ async function staffAdd(i) {
     ["Callsign", String(callsign)],
     ...(active && previous.rank_name && Number(previous.rank_id) !== Number(rank.id) ? [["Previous rank", clean(previous.rank_name)]] : []),
     ...(removedGroups.length ? [["Left groups", removedGroups.map((g) => `\`${g}\``).join(" ")]] : []),
-    ["Welcome DM", welcome.sent ? (welcome.invited ? "Sent with a single-use staff-server invite" : "Sent") : "Could not deliver (their DMs may be closed)"],
+    ...(welcome ? [["Welcome DM", welcome.sent ? (welcome.invited ? "Sent with a single-use staff-server invite" : "Sent") : "Could not deliver (their DMs may be closed)"]] : []),
+    ...(reason ? [["Reason", reason, false]] : []),
   ];
   await log(i.guild, { content: movementLine(user.id, clean(rank.name), i.user.id) }, "roster");
   await log(i.guild, { title: "Staff ACE membership set", color: COLORS.success, actor: i.user.id, target: user.id, fields: [["Groups", groups.map((g) => `\`${g}\``).join(" ")], ...(removedGroups.length ? [["Removed from", removedGroups.map((g) => `\`${g}\``).join(" ")]] : [])] }, "role_sync");
-  return card(active ? "Staff rank changed" : "Staff member added", {
+  return card(move ? "Staff member moved" : active ? "Staff rank changed" : "Staff member added", {
     color: COLORS.success,
     description: `${mention(user.id)} now has the ${clean(rank.name)} permissions${rank.group_staff_only ? " (in game they apply while clocked in)" : ""}.`,
     rows: [["Member", who(user.id)], ...rows],
@@ -1415,6 +1420,7 @@ async function staffRemove(i) {
 
 async function staffCommand(i, sub) {
   if (sub === "add") return staffAdd(i);
+  if (sub === "move") return staffAdd(i, true);
   if (sub === "remove") return staffRemove(i);
   await requirePermission(i, "fbrp.staff.manage");
   const cutoff = Date.now() - 7 * 86400000;
@@ -3240,7 +3246,7 @@ const COMMAND_PERMISSIONS = {
   globalsync: "`fbrp.network.manage`",
   mod: "`fbrp.discord.mod`; ban/kick may use `fbrp.discord.mod.<action>`",
   server: "`/server status`: Everyone; other actions: `fbrp.ops`",
-  staff: "`add`/`remove`: `fbrp.staff.assign` (ranks below yours only); others: `fbrp.staff.manage`",
+  staff: "`add`/`move`/`remove`: `fbrp.staff.assign` (ranks below yours only); others: `fbrp.staff.manage`",
   protectrole: "`fbrp.roles.protect`",
   botguard: "`fbrp.security.manage`",
   security: "`fbrp.security.manage`",
@@ -3257,7 +3263,7 @@ function commandPermission(command, sub = "") {
     return "`fbrp.tickets.support`";
   }
   if (command === "server" && sub === "status") return "Everyone";
-  if (command === "staff") return ["add", "remove"].includes(sub) ? "`fbrp.staff.assign` (ranks below yours only)" : "`fbrp.staff.manage`";
+  if (command === "staff") return ["add", "move", "remove"].includes(sub) ? "`fbrp.staff.assign` (ranks below yours only)" : "`fbrp.staff.manage`";
   if (command === "global") return `\`${GLOBAL_ACE[sub] || "fbrp.global"}\`${sub === "lookup" ? "" : "; target must rank below you"}`;
   if (command === "roster") {
     if (["list", "profile"].includes(sub)) return "`fbrp.roster.view`";

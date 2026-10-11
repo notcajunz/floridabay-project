@@ -56,6 +56,30 @@ local function drawText(text, x, y, font, scale, r, g, b, a, px, py)
 end
 
 local visible = {}
+local noclipActive = false
+local lastNoclipSignal = 0
+
+-- vMenu keeps its noclip flag internal, but while noclip is active it makes
+-- the controlled ped/vehicle hidden with 20% alpha every frame. Detect that
+-- exact combination and publish a small privacy state for every other client.
+-- The short grace period bridges vMenu's per-frame property reset.
+CreateThread(function()
+    LocalPlayer.state:set('fbrp:noclip', false, true)
+    while true do
+        local ped = PlayerPedId()
+        local entity = GetVehiclePedIsIn(ped, false)
+        if entity == 0 then entity = ped end
+        if DoesEntityExist(entity) and not IsEntityVisible(entity) and GetEntityAlpha(entity) < 200 then
+            lastNoclipSignal = GetGameTimer()
+        end
+        local active = lastNoclipSignal > 0 and GetGameTimer() - lastNoclipSignal < 650
+        if active ~= noclipActive then
+            noclipActive = active
+            LocalPlayer.state:set('fbrp:noclip', active, true)
+        end
+        Wait(0)
+    end
+end)
 
 -- Gather who should have a tag a few times a second; draw every frame.
 CreateThread(function()
@@ -72,14 +96,17 @@ CreateThread(function()
                     local serverId = GetPlayerServerId(player)
                     local bag = Player(serverId).state
                     local head, gang = bag['fbrp:headtag'], bag['fbrp:gangtag']
-                    rows[#rows+1] = {
-                        player = player,
-                        ped = ped,
-                        id = ('[%d]'):format(serverId),
-                        head = head and clean(head.label) and { label=clean(head.label), color={hexColor(head.color)} } or nil,
-                        gang = gang and clean(gang.label) and { label=clean(gang.label), color={hexColor(gang.color)} } or nil,
-                        distance = distance
-                    }
+                    if bag['fbrp:noclip'] ~= true then
+                        rows[#rows+1] = {
+                            player = player,
+                            serverId = serverId,
+                            ped = ped,
+                            id = ('[%d]'):format(serverId),
+                            head = head and clean(head.label) and { label=clean(head.label), color={hexColor(head.color)} } or nil,
+                            gang = gang and clean(gang.label) and { label=clean(gang.label), color={hexColor(gang.color)} } or nil,
+                            distance = distance
+                        }
+                    end
                 end
             end
         end
@@ -99,7 +126,7 @@ CreateThread(function()
             local px, py = 1.0 / resX, 1.0 / resY
             local maxDistance = FBRP.Config.tagDistance
             for _,row in ipairs(visible) do
-                if DoesEntityExist(row.ped) then
+                if DoesEntityExist(row.ped) and Player(row.serverId).state['fbrp:noclip'] ~= true then
                     local anchor = GetPedBoneCoords(row.ped, HEAD_BONE, 0.0, 0.0, 0.0) + vector3(0.0, 0.0, 0.36)
                     local onScreen, x, y = GetScreenCoordFromWorldCoord(anchor.x, anchor.y, anchor.z)
                     if onScreen then

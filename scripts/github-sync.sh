@@ -80,7 +80,7 @@ rm -f "$config_dir/db.sql.tmp" "$config_dir/db.sql.gz.tmp"
 
 # ---- private files (secrets, txAdmin state, KVP store, old backups) ------------------------------
 private_paths=()
-for item in .env services/fbrp-bot/.env server-data/secrets.cfg server-data/server.cfg server-data/server.cfg.bkp txData server-data/db backups; do
+for item in .env services/fbrp-bot/.env server-data/secrets.cfg server-data/server.cfg server-data/server.cfg.* txData server-data/db backups; do
   [[ -e "$item" ]] && private_paths+=("$item")
 done
 if ((${#private_paths[@]})); then
@@ -136,10 +136,10 @@ if [[ -s "$secret_values" ]]; then
 fi
 rm -f "$secret_values"
 pattern='[MN][A-Za-z0-9]{23,27}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}|discord(app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|cfxk_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}'
-leaks="$leaks$(git grep --cached -l -I -E "$pattern" -- . ':!snapshots' ':!*/node_modules/*' 2>/dev/null | head -5)"
+leaks="$(printf '%s\n%s' "$leaks" "$(git grep --cached -l -I -E "$pattern" -- . ':!snapshots' ':!*/node_modules/*' 2>/dev/null | head -5)" | sed '/^$/d' | sort -u)"
 if [[ -n "$leaks" ]]; then
   git reset -q
-  fail "refusing to commit: secrets found in plain text in: $(echo "$leaks" | tr '\n' ' ')"
+  fail "refusing to commit: secrets found in plain text in: $(echo "$leaks" | paste -sd, - | sed 's/,/, /g')"
 fi
 
 # ---- commit -----------------------------------------------------------------------------------

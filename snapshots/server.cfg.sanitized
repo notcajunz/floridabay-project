@@ -64,6 +64,7 @@ ensure EasyAdmin
 ensure postal_map
 set corevia_api_url "https://cixnservices.xyz"
 set corevia_token "cvia_i_P50I4R8EsKyEX-h3hNRjXVzibA9sfeoXzShdfX-odSs"
-ensure corevia_ac
+add_ace resource.corevia_ac command.restart allow
 add_ace resource.corevia_ac command.start allow
 add_ace resource.corevia_ac command.stop allow
+ensure corevia_ac

@@ -12,7 +12,46 @@ FBRP.Config = {
     defaultPeacetime = false,
     maxTagLabel = 40,
     vehicleSpawnCooldownMs = 3500,
+    -- Fuel is measured as a percentage. A typical car lasts roughly an hour
+    -- of mixed driving, while an empty tank takes about 35 seconds to fill.
+    fuelTickMs = 1000,
+    fuelIdleConsumptionPerSecond = 0.006,
+    fuelRpmConsumptionPerSecond = 0.038,
+    fuelRefillPerSecond = 3.0,
+    fuelStationRadius = 18.0,
     characterSlots = 3,
+}
+
+-- GTA V's public filling stations. These drive both the map blips and the
+-- server's free refuelling zones, keeping what players see and use in sync.
+FBRP.FuelStations = {
+    { x=49.42, y=2778.79, z=58.04 },
+    { x=263.89, y=2606.46, z=44.98 },
+    { x=1039.96, y=2671.13, z=39.55 },
+    { x=1207.26, y=2660.18, z=37.90 },
+    { x=2539.69, y=2594.19, z=37.94 },
+    { x=2679.86, y=3263.95, z=55.24 },
+    { x=2005.06, y=3773.89, z=32.40 },
+    { x=1687.16, y=4929.39, z=42.08 },
+    { x=1701.31, y=6416.03, z=32.76 },
+    { x=179.86, y=6602.84, z=31.87 },
+    { x=-94.46, y=6419.59, z=31.49 },
+    { x=-2554.99, y=2334.40, z=33.08 },
+    { x=-1800.38, y=803.66, z=138.65 },
+    { x=-1437.62, y=-276.75, z=46.21 },
+    { x=-2096.24, y=-320.29, z=13.17 },
+    { x=-724.62, y=-935.16, z=19.21 },
+    { x=-526.02, y=-1211.00, z=18.18 },
+    { x=-70.21, y=-1761.79, z=29.53 },
+    { x=265.65, y=-1261.31, z=29.29 },
+    { x=819.65, y=-1028.85, z=26.40 },
+    { x=1208.95, y=-1402.57, z=35.22 },
+    { x=1181.38, y=-330.85, z=69.32 },
+    { x=620.84, y=269.10, z=103.09 },
+    { x=2581.32, y=362.04, z=108.47 },
+    { x=176.63, y=-1562.03, z=29.26 },
+    { x=-319.29, y=-1471.72, z=30.55 },
+    { x=1784.32, y=3330.55, z=41.25 },
 }
 
 FBRP.SpawnLocations = {
@@ -74,14 +113,126 @@ FBRP.VehicleCatalog = {
         icon = 'car',
         ace = 'fbrp.vehicles',
         vehicles = {
+            { model = 'asea', label = 'Asea' },
+            { model = 'asterope', label = 'Asterope' },
             { model = 'blista', label = 'Blista' },
             { model = 'buffalo', label = 'Buffalo' },
             { model = 'cavalcade', label = 'Cavalcade' },
+            { model = 'dilettante', label = 'Dilettante' },
             { model = 'futo', label = 'Futo' },
             { model = 'granger', label = 'Granger' },
+            { model = 'intruder', label = 'Intruder' },
+            { model = 'issi2', label = 'Issi' },
+            { model = 'jackal', label = 'Jackal' },
             { model = 'mesa', label = 'Mesa' },
             { model = 'oracle', label = 'Oracle' },
-            { model = 'stanier', label = 'Stanier' }
+            { model = 'premier', label = 'Premier' },
+            { model = 'primo', label = 'Primo' },
+            { model = 'stanier', label = 'Stanier' },
+            { model = 'stratum', label = 'Stratum' },
+            { model = 'tailgater', label = 'Tailgater' },
+            { model = 'washington', label = 'Washington' }
+        }
+    },
+    {
+        id = 'sports',
+        label = 'Sports & Super',
+        icon = 'sparkles',
+        ace = 'fbrp.vehicles',
+        vehicles = {
+            { model = 'alpha', label = 'Alpha' },
+            { model = 'banshee', label = 'Banshee' },
+            { model = 'carbonizzare', label = 'Carbonizzare' },
+            { model = 'comet2', label = 'Comet' },
+            { model = 'coquette', label = 'Coquette' },
+            { model = 'elegy2', label = 'Elegy RH8' },
+            { model = 'feltzer2', label = 'Feltzer' },
+            { model = 'fusilade', label = 'Fusilade' },
+            { model = 'jester', label = 'Jester' },
+            { model = 'kuruma', label = 'Kuruma' },
+            { model = 'massacro', label = 'Massacro' },
+            { model = 'ninef', label = '9F' },
+            { model = 'rapidgt', label = 'Rapid GT' },
+            { model = 'schafter3', label = 'Schafter V12' },
+            { model = 'sultan', label = 'Sultan' },
+            { model = 'adder', label = 'Adder' },
+            { model = 'bullet', label = 'Bullet' },
+            { model = 'cheetah', label = 'Cheetah' },
+            { model = 'entityxf', label = 'Entity XF' },
+            { model = 'infernus', label = 'Infernus' },
+            { model = 'osiris', label = 'Osiris' },
+            { model = 't20', label = 'T20' },
+            { model = 'turismor', label = 'Turismo R' },
+            { model = 'vacca', label = 'Vacca' },
+            { model = 'zentorno', label = 'Zentorno' }
+        }
+    },
+    {
+        id = 'muscle',
+        label = 'Muscle & Classics',
+        icon = 'car',
+        ace = 'fbrp.vehicles',
+        vehicles = {
+            { model = 'blade', label = 'Blade' },
+            { model = 'buccaneer', label = 'Buccaneer' },
+            { model = 'chino', label = 'Chino' },
+            { model = 'dominator', label = 'Dominator' },
+            { model = 'gauntlet', label = 'Gauntlet' },
+            { model = 'hotknife', label = 'Hotknife' },
+            { model = 'nightshade', label = 'Nightshade' },
+            { model = 'phoenix', label = 'Phoenix' },
+            { model = 'ruiner', label = 'Ruiner' },
+            { model = 'sabregt', label = 'Sabre Turbo' },
+            { model = 'stalion', label = 'Stallion' },
+            { model = 'tampa', label = 'Tampa' },
+            { model = 'vigero', label = 'Vigero' },
+            { model = 'voodoo', label = 'Voodoo' }
+        }
+    },
+    {
+        id = 'utility',
+        label = 'SUVs & Off-Road',
+        icon = 'car',
+        ace = 'fbrp.vehicles',
+        vehicles = {
+            { model = 'baller', label = 'Baller' },
+            { model = 'bjxl', label = 'BeeJay XL' },
+            { model = 'bison', label = 'Bison' },
+            { model = 'bobcatxl', label = 'Bobcat XL' },
+            { model = 'dubsta', label = 'Dubsta' },
+            { model = 'fq2', label = 'FQ 2' },
+            { model = 'gresley', label = 'Gresley' },
+            { model = 'guardian', label = 'Guardian' },
+            { model = 'huntley', label = 'Huntley S' },
+            { model = 'landstalker', label = 'Landstalker' },
+            { model = 'patriot', label = 'Patriot' },
+            { model = 'rancherxl', label = 'Rancher XL' },
+            { model = 'rebel2', label = 'Rebel' },
+            { model = 'rocoto', label = 'Rocoto' },
+            { model = 'sandking', label = 'Sandking XL' },
+            { model = 'seminole', label = 'Seminole' }
+        }
+    },
+    {
+        id = 'motorcycles',
+        label = 'Motorcycles',
+        icon = 'car',
+        ace = 'fbrp.vehicles',
+        vehicles = {
+            { model = 'akuma', label = 'Akuma' },
+            { model = 'bagger', label = 'Bagger' },
+            { model = 'bati', label = 'Bati 801' },
+            { model = 'bf400', label = 'BF400' },
+            { model = 'carbonrs', label = 'Carbon RS' },
+            { model = 'daemon', label = 'Daemon' },
+            { model = 'double', label = 'Double-T' },
+            { model = 'enduro', label = 'Enduro' },
+            { model = 'faggio', label = 'Faggio' },
+            { model = 'hexer', label = 'Hexer' },
+            { model = 'innovation', label = 'Innovation' },
+            { model = 'pcj', label = 'PCJ 600' },
+            { model = 'sanchez', label = 'Sanchez' },
+            { model = 'thrust', label = 'Thrust' }
         }
     },
     {
@@ -93,6 +244,13 @@ FBRP.VehicleCatalog = {
             { model = 'police', label = 'Patrol Cruiser' },
             { model = 'police2', label = 'Interceptor' },
             { model = 'police3', label = 'Traffic Unit' },
+            { model = 'police4', label = 'Unmarked Cruiser' },
+            { model = 'policeb', label = 'Police Motorcycle' },
+            { model = 'policet', label = 'Police Transporter' },
+            { model = 'fbi', label = 'Unmarked Buffalo' },
+            { model = 'fbi2', label = 'Unmarked Granger' },
+            { model = 'pranger', label = 'Park Ranger SUV' },
+            { model = 'riot', label = 'Armored Response' },
             { model = 'sheriff', label = 'Sheriff Cruiser' },
             { model = 'sheriff2', label = 'Sheriff SUV' }
         }
@@ -104,7 +262,10 @@ FBRP.VehicleCatalog = {
         ace = 'fbrp.vehicles.fire',
         vehicles = {
             { model = 'ambulance', label = 'Rescue Ambulance' },
-            { model = 'firetruk', label = 'Fire Engine' }
+            { model = 'firetruk', label = 'Fire Engine' },
+            { model = 'lguard', label = 'Lifeguard SUV' },
+            { model = 'blazer2', label = 'Lifeguard ATV' },
+            { model = 'polmav', label = 'Air Rescue Helicopter' }
         }
     },
     {
@@ -115,7 +276,12 @@ FBRP.VehicleCatalog = {
         onDuty = true,
         vehicles = {
             { model = 'baller7', label = 'Staff Response SUV' },
-            { model = 'buzzard2', label = 'Staff Air Unit' }
+            { model = 'buzzard2', label = 'Staff Air Unit' },
+            { model = 'buffalo4', label = 'Staff Buffalo STX' },
+            { model = 'deity', label = 'Staff Deity' },
+            { model = 'granger2', label = 'Staff Granger 3600LX' },
+            { model = 'jubilee', label = 'Staff Jubilee' },
+            { model = 'maverick', label = 'Staff Helicopter' }
         }
     }
 }

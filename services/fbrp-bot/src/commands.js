@@ -635,6 +635,27 @@ const staff = new SlashCommandBuilder()
   )
   .addSubcommand((s) =>
     s
+      .setName("move")
+      .setDescription("Move an existing staff member to another rank (promote or demote)")
+      .addUserOption(user)
+      .addStringOption((o) =>
+        o
+          .setName("rank")
+          .setDescription("New staff rank (only ranks below your own are allowed)")
+          .setRequired(true)
+          .setAutocomplete(true),
+      )
+      .addIntegerOption((o) =>
+        o
+          .setName("callsign")
+          .setDescription("Specific callsign; blank keeps theirs if it fits the new rank")
+          .setMinValue(1)
+          .setMaxValue(9999),
+      )
+      .addStringOption((o) => o.setName("reason").setDescription("Reason for the move").setMaxLength(300)),
+  )
+  .addSubcommand((s) =>
+    s
       .setName("remove")
       .setDescription("Remove a member's staff rank, ACE group, and callsign")
       .addUserOption(user)
