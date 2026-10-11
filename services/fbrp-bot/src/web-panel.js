@@ -1224,7 +1224,10 @@ export function startWebPanel(context) {
           players: Number(health?.players || 0),
           aop: health?.aop || "Statewide",
           peacetime: Boolean(health?.peacetime),
-          priority: health?.priority && typeof health.priority === "object" ? health.priority : {},
+          priority: Object.fromEntries(Object.entries(health?.priority && typeof health.priority === "object" ? health.priority : {}).map(([zone, item]) => [zone, {
+            status: String(item?.status || "available"),
+            remaining: Math.max(0, Number(item?.remaining) || 0),
+          }])),
           bot: client.isReady(),
           staff: Number(staff?.count || 0),
           ticketsResolved: Number(cases?.count || 0),
