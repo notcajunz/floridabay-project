@@ -44,6 +44,12 @@ fetch("api/public/status", { cache: "no-store" })
     countTo($("#stat-explorers"), status.passportLandmarks || 10);
     $("#brief-aop").textContent = status.aop || "Statewide";
     $("#brief-peacetime").textContent = status.peacetime ? "In effect" : "Off";
+    $("#brief-scenes").textContent = `${Number(status.activeScenes || 0)} live`;
+    if (status.communityEvent) {
+      $("#brief-event-row").hidden = false;
+      $("#brief-event").textContent = `${status.communityEvent.title} · ${status.communityEvent.location}`;
+      $("#server-detail").textContent = `Live event: ${status.communityEvent.title} · ${status.players} in the city`;
+    }
     const priorities = Object.values(status.priority || {});
     const active = priorities.find((item) => item?.status === "active");
     const cooldown = priorities.find((item) => item?.status === "cooldown");

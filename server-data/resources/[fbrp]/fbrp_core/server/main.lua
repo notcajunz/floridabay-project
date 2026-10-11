@@ -1162,10 +1162,19 @@ SetHttpHandler(function(req,res)
         }))
     end
     if not authorized(req) then res.writeHead(401,{['Content-Type']='application/json'}); return res.send('{"ok":false,"error":"unauthorized"}') end
+    if req.path=='/ops' and req.method=='GET' then
+        local snapshot=FBRP.Server and FBRP.Server.liveOpsSnapshot and FBRP.Server.liveOpsSnapshot() or {online=true,players={},scenes={},calls={}}
+        res.writeHead(200,headers); return res.send(json.encode(snapshot))
+    end
     req.setDataHandler(function(body)
         local ok,payload=pcall(json.decode,body~='' and body or '{}'); if not ok then payload={} end
         if req.path=='/refresh' then loadPermissionModel(); for src in pairs(sessions) do refreshPlayer(src) end; TriggerEvent('fbrp:radio:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/announce' then broadcast('FLORIDA BAY',clean(payload.message,300)); res.writeHead(200,headers); return res.send('{"ok":true}') end
+        if req.path=='/ops/action' and FBRP.Server and FBRP.Server.liveOpsAction then
+            local actionOk,actionError=FBRP.Server.liveOpsAction(payload)
+            res.writeHead(actionOk and 200 or 400,headers)
+            return res.send(json.encode({ok=actionOk==true,error=actionError}))
+        end
         if req.path=='/state' and payload.key and (payload.key=='aop' or payload.key=='peacetime' or payload.key=='priority') then setSharedState(payload.key,payload.value,'discord-bot'); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/forceout' and payload.discord then
             local changed=false

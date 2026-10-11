@@ -68,6 +68,8 @@ const ICONS = {
   book: '<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5zM4 21.5A2.5 2.5 0 0 1 6.5 19H20v3H6.5"/>',
   phone: '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>',
   music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
 };
 const icon = (name) =>
   `<svg class="i" viewBox="0 0 24 24">${ICONS[name] || ICONS.info}</svg>`;
@@ -593,6 +595,27 @@ function renderPassport(data) {
     <div class="passport-layout"><section><div class="eyebrow">Today's field notes</div><div class="passport-goals">${goals}</div></section><section><div class="eyebrow">Map stamps · tap any stop to route</div><div class="passport-stops">${landmarks}</div></section></div>`;
 }
 
+function renderScenes(data) {
+  const event = data.event;
+  const rows = data.scenes || [];
+  const eventCard = event ? `<section class="scene-event">
+    <span class="scene-live"><i></i> Live community event</span>
+    <h3>${esc(event.title)}</h3>
+    <p>${esc(event.description || "A staff-hosted event is happening now.")}</p>
+    <div><span>${icon("pin")} ${esc(event.location || "Florida Bay")}</span><span>${icon("clock")} Ends ${when(event.expiresAt)}</span></div>
+    <button data-event-waypoint ${event.coords ? "" : "disabled"}>${icon("pin")} Route to event</button>
+  </section>` : `<section class="scene-event quiet"><span class="scene-live">Community calendar</span><h3>No staff event right now</h3><p>Player-hosted scenes below are still open for drop-in roleplay.</p></section>`;
+  const cards = rows.map((scene) => `<article class="scene-card">
+    <div class="scene-number">#${Number(scene.id)}</div>
+    <div><small>Hosted by ${esc(scene.hostName)} · ${ago(scene.createdAt)}</small><h3>${esc(scene.title)}</h3><p>${esc(scene.description || "Open roleplay scene")}</p><span>${icon("users")} ${Number(scene.attendees) || 1} interested · closes ${when(scene.expiresAt)}</span></div>
+    <button data-scene-waypoint="${Number(scene.id)}">${icon("pin")} Join scene</button>
+  </article>`).join("");
+  return `${head("Scene Hub", "Find spontaneous roleplay, host your own with /scenehost, or join the current community event.", `<b>${rows.length}</b> live scenes`)}
+    ${eventCard}
+    <div class="scene-guide"><span><b>/scenehost &lt;title&gt;</b> Host where you stand</span><span><b>/sceneend</b> End your scene</span><span><b>/eventgo</b> Route to staff event</span></div>
+    <section class="scene-list">${cards || '<div class="empty">No player scenes yet. Be the first: close this menu and use <b>/scenehost &lt;title&gt;</b>.</div>'}</section>`;
+}
+
 function renderMenu() {
   const titles = {
     tags: "Tags",
@@ -605,6 +628,7 @@ function renderMenu() {
     mdt: "Mobile data terminal",
     emotes: "Emotes",
     passport: "Coastal Passport",
+    scenes: "Scene Hub",
   };
   setText("#menu-title", titles[currentView] || "Menu");
   const renderers = {
@@ -618,6 +642,7 @@ function renderMenu() {
     mdt: renderMdt,
     emotes: renderEmotes,
     passport: renderPassport,
+    scenes: renderScenes,
   };
   const content = $("#menu-content");
   const scroll = content.scrollTop;
@@ -1215,6 +1240,15 @@ $("#menu-content").addEventListener("click", (event) => {
   const passport = event.target.closest("[data-passport-waypoint]");
   if (passport) {
     post("passportWaypoint", { id: passport.dataset.passportWaypoint });
+    return;
+  }
+  const scene = event.target.closest("[data-scene-waypoint]");
+  if (scene) {
+    post("sceneWaypoint", { id: Number(scene.dataset.sceneWaypoint) });
+    return;
+  }
+  if (event.target.closest("[data-event-waypoint]")) {
+    post("eventWaypoint");
     return;
   }
   const ctl = event.target.closest("[data-ctl]");

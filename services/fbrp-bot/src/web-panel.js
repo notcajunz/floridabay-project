@@ -4,7 +4,7 @@ import { readFile, stat } from "node:fs/promises";
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { NETWORK_KINDS } from "./sync.js";
+import { NETWORK_KINDS, callGame } from "./sync.js";
 import { PERMISSION_BUNDLES, PERMISSION_CATALOG, VMENU_BUNDLES } from "./permission-catalog.js";
 import { connectUrl } from "./site-url.js";
 
@@ -831,10 +831,16 @@ export function startWebPanel(context) {
     const owner = String(discordId) === ownerDiscordId;
     const roster = await db.one("SELECT status FROM staff_roster_members WHERE discord_id=?", [String(discordId)]);
     const staff = owner || Boolean(roster && roster.status !== "removed");
+    const [opsControl, sceneModerate] = await Promise.all([
+      owner ? true : hasPermission?.(discordId, "fbrp.announce"),
+      owner ? true : hasPermission?.(discordId, "fbrp.staff.manage"),
+    ]);
     return {
       owner,
       staff,
       support: owner || staff || Boolean(await hasPermission?.(discordId, "fbrp.tickets.support")),
+      opsControl: Boolean(opsControl),
+      sceneModerate: Boolean(sceneModerate),
     };
   }
 
@@ -1131,19 +1137,22 @@ export function startWebPanel(context) {
       generatedAt: Date.now(),
     };
     if (access.staff) {
-      const [banLog, ticketQueue, appealQueue] = await Promise.all([
+      const [banLog, ticketQueue, appealQueue, handoffNotes, liveOps] = await Promise.all([
         db.query(`SELECT c.*,COUNT(a.id) appeal_count FROM moderation_cases c LEFT JOIN moderation_appeals a ON a.case_id=c.id
                    WHERE c.action IN ('ban','blacklist') GROUP BY c.id ORDER BY c.id DESC LIMIT 300`),
         db.query("SELECT id,guild_id,channel_id,author_id,type,subject,status,priority,due_at,claimed_by,created_at,last_activity,close_requested_by FROM support_tickets ORDER BY status='closed',priority,due_at,id DESC LIMIT 200"),
         db.query(`SELECT a.*,c.ban_id,c.action,c.reason case_reason,c.target_id FROM moderation_appeals a JOIN moderation_cases c ON c.id=a.case_id
                    WHERE a.status IN ('submitted','under_review') ORDER BY FIELD(a.status,'submitted','under_review'),a.created_at LIMIT 100`),
+        db.query("SELECT id,author_id,body,pinned,resolved_at,resolved_by,created_at FROM staff_handoff_notes ORDER BY resolved_at IS NULL DESC,pinned DESC,created_at DESC LIMIT 100"),
+        callGame("/ops", {}, "GET").catch(() => ({ online: false, players: [], scenes: [], calls: [], event: null })),
       ]);
-      Object.assign(data, { banLog, ticketQueue, appealQueue });
+      Object.assign(data, { banLog, ticketQueue, appealQueue, handoffNotes, liveOps });
     }
     data.people = await resolvePeople([
       ...(data.banLog || []).flatMap((row) => [row.target_id, row.actor_id]),
       ...(data.ticketQueue || []).flatMap((row) => [row.author_id, row.claimed_by]),
       ...(data.appealQueue || []).flatMap((row) => [row.author_id, row.reviewed_by]),
+      ...(data.handoffNotes || []).flatMap((row) => [row.author_id, row.resolved_by]),
       ...appeals.map((row) => row.reviewed_by),
     ]);
     return data;
@@ -1212,12 +1221,13 @@ export function startWebPanel(context) {
         return sendJson(response, 403, { error: "Cross-site request blocked." });
 
       if (request.method === "GET" && url.pathname === "/api/public/status") {
-        const [staff, cases, health] = await Promise.all([
+        const [staff, cases, health, operations] = await Promise.all([
           db.one("SELECT COUNT(*) count FROM staff_roster_members WHERE status<>'removed'"),
           db.one("SELECT COUNT(*) count FROM support_tickets WHERE status='closed'"),
           fetch(`${String(process.env.FBRP_FIVEM_ORIGIN || "http://127.0.0.1:30120/fbrp_core").replace(/\/$/, "")}/health`)
             .then((result) => result.ok ? result.json() : null)
             .catch(() => null),
+          callGame("/ops", {}, "GET").catch(() => null),
         ]);
         return sendJson(response, 200, {
           online: Boolean(health?.ok),
@@ -1232,6 +1242,12 @@ export function startWebPanel(context) {
           staff: Number(staff?.count || 0),
           ticketsResolved: Number(cases?.count || 0),
           passportLandmarks: 10,
+          activeScenes: Number(operations?.scenes?.length || 0),
+          communityEvent: operations?.event ? {
+            title: String(operations.event.title || "Community event"),
+            location: String(operations.event.location || "Florida Bay"),
+            expiresAt: Number(operations.event.expiresAt || 0),
+          } : null,
           connectUrl: connectUrl() || "fivem://connect/join.floridabay.net",
         });
       }
@@ -1383,6 +1399,43 @@ export function startWebPanel(context) {
               await websiteTicketAction(appeal.ticket_id, session.id, "close", { reason: verdict }).catch((error) => console.error("[FBRP panel] appeal ticket close:", error.message));
           }
           result = { ok: true, lifted };
+        } else if (url.pathname === "/api/portal/liveops/action") {
+          if (!access.staff) return sendJson(response, 403, { error: "Staff access is required." });
+          const action = String(input.action || "");
+          if (action === "handoff_add") {
+            const body = textValue(input.body, 1000);
+            if (body.length < 4) throw new Error("Handoff notes need at least 4 characters.");
+            const inserted = await db.query("INSERT INTO staff_handoff_notes(author_id,body,pinned,created_at) VALUES(?,?,?,?)", [session.id, body, input.pinned ? 1 : 0, Date.now()]);
+            await audit(session.id, "handoff.add", inserted.insertId, { pinned: Boolean(input.pinned) });
+            result = { id: inserted.insertId };
+          } else if (action === "handoff_resolve") {
+            const note = await db.one("SELECT id,resolved_at FROM staff_handoff_notes WHERE id=?", [Number(input.noteId)]);
+            if (!note || note.resolved_at) throw new Error("That handoff note is no longer open.");
+            await db.query("UPDATE staff_handoff_notes SET resolved_at=?,resolved_by=? WHERE id=?", [Date.now(), session.id, note.id]);
+            await audit(session.id, "handoff.resolve", note.id, {});
+            result = { id: note.id };
+          } else if (action === "handoff_pin") {
+            const note = await db.one("SELECT id,pinned FROM staff_handoff_notes WHERE id=?", [Number(input.noteId)]);
+            if (!note) throw new Error("Handoff note not found.");
+            await db.query("UPDATE staff_handoff_notes SET pinned=? WHERE id=?", [input.pinned ? 1 : 0, note.id]);
+            await audit(session.id, "handoff.pin", note.id, { pinned: Boolean(input.pinned) });
+            result = { id: note.id };
+          } else if (["announce", "event_start", "event_end"].includes(action)) {
+            if (!access.opsControl) return sendJson(response, 403, { error: "The fbrp.announce permission is required." });
+            const payload = { action, actor: session.id, actorName: session.username || `Staff ${session.id.slice(-4)}` };
+            if (action === "announce") payload.message = textValue(input.message, 300);
+            if (action === "event_start") Object.assign(payload, {
+              title: textValue(input.title, 80), description: textValue(input.description, 300),
+              location: textValue(input.location, 80), duration: Math.max(10, Math.min(180, Number(input.duration) || 60)),
+              x: input.x === "" || input.x == null ? null : Number(input.x),
+              y: input.y === "" || input.y == null ? null : Number(input.y),
+              z: input.z === "" || input.z == null ? null : Number(input.z),
+            });
+            result = await callGame("/ops/action", payload);
+          } else if (action === "scene_end") {
+            if (!access.sceneModerate) return sendJson(response, 403, { error: "The fbrp.staff.manage permission is required." });
+            result = await callGame("/ops/action", { action, sceneId: Number(input.sceneId), actor: session.id });
+          } else throw new Error("Unknown live operations action.");
         } else throw new Error("Unknown portal action.");
         return sendJson(response, 200, { ok: true, result, data: await portalBootstrap(session) });
       }

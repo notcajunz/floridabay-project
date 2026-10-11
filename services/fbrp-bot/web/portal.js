@@ -51,6 +51,9 @@ const PATHS = {
   gavel: '<path d="m14 13-7.5 7.5a2.1 2.1 0 0 1-3-3L11 10"/><path d="m16 16 6-6M8 8l6-6M9 7l8 8M15 3l6 6"/>',
   dots: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
   inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1Z"/>',
+  activity: '<path d="M3 12h4l2-7 4 14 2-7h6"/>',
+  radio: '<path d="M5 13a7 7 0 0 1 14 0M8 13a4 4 0 0 1 8 0"/><circle cx="12" cy="16" r="2"/><path d="M12 18v3"/>',
+  pin: '<path d="M12 22s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[name] || ""}</svg>`;
 
@@ -128,6 +131,7 @@ function nav() {
       ...(data.profile ? [["profile", "My staff profile", "user"]] : []),
     ]],
     ...(access.staff ? [["Staff workspace", [
+      ["liveops", "Live operations", "activity", (data.liveOps?.scenes?.length || 0) + (data.liveOps?.calls?.length || 0)],
       ["banlog", "Ban registry", "ban"],
       ["appeals", "Appeal queue", "scale", pendingAppeals],
       ["ticketops", "Tickets", "ticket", openTickets],
@@ -399,6 +403,35 @@ function ticketOps() {
     </section>`;
 }
 
+function liveOps() {
+  if (!state.data.access.staff) return go("dashboard");
+  setTitle("Staff workspace", "Live operations");
+  const ops = state.data.liveOps || { online: false, players: [], scenes: [], calls: [] };
+  const notes = state.data.handoffNotes || [];
+  const openNotes = notes.filter((n) => !n.resolved_at);
+  const activeEvent = ops.event;
+  const controls = state.data.access.opsControl ? `<button class="btn btn-glass" type="button" data-ops-dialog="announce">${icon("radio")} Broadcast</button><button class="btn btn-sun" type="button" data-ops-dialog="event">${icon("plus")} Launch event</button>` : "";
+  const playerRows = (ops.players || []).map((p) => `<tr><td><span class="strong mono" style="color:var(--ink)">#${Number(p.id)}</span></td><td><span class="strong" style="color:var(--ink)">${esc(p.name)}</span><br><small style="color:var(--ink-3)">${p.joined ? "Discord linked" : "Discord unlinked"}</small></td><td>${p.organization ? `<span class="pill pill-sea">${esc(p.organization)}</span>` : '<span style="color:var(--ink-3)">Civilian</span>'}</td><td>${p.staffDuty ? '<span class="pill pill-good">Staff on duty</span>' : '<span style="color:var(--ink-3)">—</span>'}</td></tr>`).join("");
+  const calls = (ops.calls || []).map((c) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3;background:rgba(255,95,109,.1)">${icon("radio")}</div><div class="txt"><b>${esc(c.kind)} #${Number(c.id)} · ${esc(c.callerName)}</b><small>${esc(c.message)}</small></div><div style="display:grid;justify-items:end;gap:5px"><span class="pill plain">${Number(c.responders)} responding</span><time>${esc(ago(c.at))}</time></div></div>`).join("");
+  const scenes = (ops.scenes || []).map((s) => `<article class="ops-scene"><div class="feed-ico">${icon("pin")}</div><div><small>#${Number(s.id)} · ${esc(s.hostName)} · ${esc(ago(s.createdAt))}</small><b>${esc(s.title)}</b><span>${esc(s.description)} · ${plural(s.attendees, "interested player")}</span></div>${state.data.access.sceneModerate ? `<button class="btn btn-ghost btn-sm" type="button" data-live-action="scene_end" data-id="${Number(s.id)}">End</button>` : ""}</article>`).join("");
+  const handoffs = notes.map((n) => `<article class="handoff${n.pinned ? " pinned" : ""}${n.resolved_at ? " resolved" : ""}"><div>${person(n.author_id, "Staff", { size: "av-xs", sub: ago(n.created_at) })}<p>${esc(n.body)}</p>${n.resolved_at ? `<small>Resolved ${esc(ago(n.resolved_at))}${n.resolved_by ? ` by ${esc(state.data.people?.[n.resolved_by]?.name || "staff")}` : ""}</small>` : ""}</div>${!n.resolved_at ? `<div class="actions"><button class="icon-btn" type="button" data-live-action="handoff_pin" data-id="${n.id}" data-pinned="${n.pinned ? 0 : 1}" title="${n.pinned ? "Unpin" : "Pin"}">${icon("pin")}</button><button class="btn btn-glass btn-sm" type="button" data-live-action="handoff_resolve" data-id="${n.id}">Resolve</button></div>` : ""}</article>`).join("");
+  $("#portal-content").innerHTML = `
+    <div class="toolbar"><div class="ops-status ${ops.online ? "online" : ""}"><i></i><div><b>${ops.online ? "Game server connected" : "Game API unavailable"}</b><small>${ops.generatedAt ? `Snapshot ${esc(ago(ops.generatedAt))}` : "Live controls are paused"}</small></div></div><div class="actions">${controls}<button class="icon-btn" type="button" data-live-refresh title="Refresh">${icon("history")}</button></div></div>
+    <div class="stats">
+      <div class="stat-tile tone-sky"><div class="ico">${icon("users")}</div><span>Players online</span><strong>${fmt(ops.players?.length)}</strong><small>${fmt((ops.players || []).filter((p) => p.staffDuty).length)} staff on duty</small></div>
+      <div class="stat-tile tone-sea"><div class="ico">${icon("pin")}</div><span>Live scenes</span><strong>${fmt(ops.scenes?.length)}</strong><small>Player-hosted roleplay</small></div>
+      <div class="stat-tile tone-bad"><div class="ico">${icon("radio")}</div><span>Dispatch calls</span><strong>${fmt(ops.calls?.length)}</strong><small>Last 30 minutes</small></div>
+      <div class="stat-tile tone-warn"><div class="ico">${icon("history")}</div><span>Open handoffs</span><strong>${fmt(openNotes.length)}</strong><small>${fmt(openNotes.filter((n) => n.pinned).length)} pinned</small></div>
+    </div>
+    ${activeEvent ? `<section class="ops-event"><div><span class="pill pill-sun">Live community event</span><h2>${esc(activeEvent.title)}</h2><p>${esc(activeEvent.description || "Community event in progress")}</p><small>${icon("pin")} ${esc(activeEvent.location || "Florida Bay")} · ends ${esc(date(activeEvent.expiresAt))}</small></div>${state.data.access.opsControl ? `<button class="btn btn-danger" type="button" data-live-action="event_end">End event</button>` : ""}</section>` : ""}
+    <div class="grid-2 even">
+      <section class="card"><div class="card-head"><div><h2>Community scenes</h2><p>Live player-led roleplay across the map.</p></div></div><div class="ops-scenes">${scenes || empty("No hosted scenes", "Players can start one in-game with /scenehost.", "pin")}</div></section>
+      <section class="card"><div class="card-head"><div><h2>Dispatch pulse</h2><p>Active 911, 311, and panic calls.</p></div></div>${calls ? `<div class="feed">${calls}</div>` : empty("No active calls", "The dispatch queue is quiet.", "check", "61 220 151")}</section>
+    </div>
+    <section class="card"><div class="card-head"><div><h2>Connected players</h2><p>Character, organization, and duty visibility.</p></div></div>${playerRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Player</th><th>Role</th><th>Duty</th></tr></thead><tbody>${playerRows}</tbody></table></div>` : empty("Server is empty", "Connected players will appear here.", "users")}</section>
+    <section class="card"><div class="card-head"><div><h2>Shift handoff board</h2><p>Persistent context for the next staff team.</p></div><button class="btn btn-glass btn-sm" type="button" data-ops-dialog="handoff">${icon("plus")} Add handoff</button></div><div class="handoffs">${handoffs || empty("No handoffs", "Leave context, watch items, or follow-ups for the next shift.", "check", "61 220 151")}</div></section>`;
+}
+
 function settings() {
   if (!state.data.access.owner) return go("dashboard");
   setTitle("Owner", "Live configuration");
@@ -414,7 +447,7 @@ function settings() {
     </section>`;
 }
 
-const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, settings };
+const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings };
 function render() {
   nav();
   (renders[state.view] || dashboard)();
@@ -517,6 +550,18 @@ function reviewAppealDialog(id) {
   });
 }
 
+function announcementDialog() {
+  openDialog({ kicker: "Live operations", title: "Server-wide broadcast", submit: "Broadcast now", action: "ops-announce", body: `<div class="callout warn">${icon("radio")}<div>This is delivered immediately to every connected player as a Florida Bay announcement.</div></div><label class="field">Message<textarea name="message" minlength="3" maxlength="300" required placeholder="Clear, useful information for everyone online."></textarea></label>` });
+}
+
+function eventDialog() {
+  openDialog({ kicker: "Community programming", title: "Launch a live event", submit: "Launch event", action: "ops-event", body: `<label class="field">Event title<input name="title" minlength="4" maxlength="80" required placeholder="Sunset cruise & car meet"></label><label class="field">Description<textarea name="description" maxlength="300" placeholder="What is happening and how should players participate?"></textarea></label><div class="form-split"><label class="field">Location label<input name="location" maxlength="80" placeholder="Del Perro Pier"></label><label class="field">Duration (minutes)<input name="duration" type="number" min="10" max="180" value="60" required></label></div><details class="ops-coords"><summary>Optional exact GPS waypoint</summary><div class="form-split"><label class="field">X<input name="x" type="number" step="0.1" placeholder="-1600"></label><label class="field">Y<input name="y" type="number" step="0.1" placeholder="-1000"></label></div><label class="field">Z<input name="z" type="number" step="0.1" placeholder="13"></label></details>` });
+}
+
+function handoffDialog() {
+  openDialog({ kicker: "Shift continuity", title: "Add a handoff note", submit: "Post handoff", action: "ops-handoff", body: `<label class="field">What should the next staff shift know?<textarea name="body" minlength="4" maxlength="1000" required placeholder="Player situation, event follow-up, watch item, or unresolved operational context."></textarea></label><label class="check-row"><input type="checkbox" name="pinned"><span><b>Pin this note</b><small>Keep it above routine handoffs until resolved.</small></span></label>` });
+}
+
 /* ---------- events ---------- */
 async function copy(text) {
   try { await navigator.clipboard.writeText(text); toast(`Copied ${text}`); } catch { toast(text); }
@@ -541,6 +586,32 @@ $("#portal-content").addEventListener("click", async (event) => {
   const view = target.closest("[data-view]");
   if (view) return go(view.dataset.view);
   if (target.closest("[data-open-ticket]")) return ticketDialog();
+  const opsDialog = target.closest("[data-ops-dialog]");
+  if (opsDialog) {
+    if (opsDialog.dataset.opsDialog === "announce") return announcementDialog();
+    if (opsDialog.dataset.opsDialog === "event") return eventDialog();
+    if (opsDialog.dataset.opsDialog === "handoff") return handoffDialog();
+  }
+  if (target.closest("[data-live-refresh]")) {
+    try { await load({ quiet: true }); toast("Live operations refreshed."); } catch (error) { toast(error.message, true); }
+    return;
+  }
+  const liveAction = target.closest("[data-live-action]");
+  if (liveAction) {
+    const action = liveAction.dataset.liveAction;
+    liveAction.disabled = true;
+    try {
+      const input = { action };
+      if (action === "scene_end") input.sceneId = Number(liveAction.dataset.id);
+      if (action === "handoff_resolve" || action === "handoff_pin") input.noteId = Number(liveAction.dataset.id);
+      if (action === "handoff_pin") input.pinned = liveAction.dataset.pinned === "1";
+      const result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify(input) });
+      state.data = result.data;
+      render();
+      toast(action === "event_end" ? "Community event ended." : action === "scene_end" ? "Scene ended and players notified." : "Handoff updated.");
+    } catch (error) { toast(error.message, true); liveAction.disabled = false; }
+    return;
+  }
   const appeal = target.closest("[data-appeal]");
   if (appeal) return appealDialog(appeal.dataset.appeal);
   const requestClose = target.closest("[data-request-close]");
@@ -641,6 +712,15 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       if (!status) throw new Error("Choose a decision.");
       result = await api("portal/appeal/review", { method: "POST", body: JSON.stringify({ appealId: data.appealId, status, response: form.get("response") }) });
       toast(status === "approved" ? `Appeal approved - ${data.banId} has been lifted.` : status === "denied" ? "Appeal denied." : "Marked as in review.");
+    } else if (action === "ops-announce") {
+      result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify({ action: "announce", message: form.get("message") }) });
+      toast("Broadcast delivered to the game server.");
+    } else if (action === "ops-event") {
+      result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify({ action: "event_start", title: form.get("title"), description: form.get("description"), location: form.get("location"), duration: Number(form.get("duration")), x: form.get("x"), y: form.get("y"), z: form.get("z") }) });
+      toast("Community event is live and players were notified.");
+    } else if (action === "ops-handoff") {
+      result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify({ action: "handoff_add", body: form.get("body"), pinned: form.get("pinned") === "on" }) });
+      toast("Handoff posted for the staff team.");
     }
     if (result?.data) state.data = result.data;
     $("#portal-dialog").close();

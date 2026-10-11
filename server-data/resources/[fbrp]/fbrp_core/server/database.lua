@@ -14,7 +14,8 @@ local migrationFiles = {
     'migrations/018_justice_medical_life.sql',
     'migrations/019_alt_account_bans.sql',
     'migrations/020_member_verification.sql',
-    'migrations/021_coastal_passport.sql'
+    'migrations/021_coastal_passport.sql',
+    'migrations/022_live_operations.sql'
 }
 
 local function splitSql(contents)
