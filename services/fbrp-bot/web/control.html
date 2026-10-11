@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#08131f">
+    <title>Live configuration · Florida Bay</title>
+    <link rel="stylesheet" href="styles.css?v=20261011">
+  </head>
+  <body>
+    <div id="login" class="login">
+      <form id="login-form" class="login-card">
+        <div class="logo" aria-hidden="true">FB</div>
+        <h1>Owner authentication required</h1>
+        <p class="muted">The live configuration plane is only available to Discord user 1090083387638812755.</p>
+        <button type="submit" class="btn primary block" style="margin-top:22px">Verify in the portal</button>
+        <p id="login-error" class="error" role="alert"></p>
+      </form>
+    </div>
+
+    <div id="app" class="shell" hidden>
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="logo">FB</div>
+          <div><strong>Florida Bay</strong><span>Live configuration</span></div>
+        </div>
+        <label class="nav-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="nav-search" type="search" placeholder="Jump to…" aria-label="Filter sections">
+        </label>
+        <nav id="nav" aria-label="Configuration"></nav>
+        <div class="sidebar-foot">
+          <span id="connection-dot" class="dot"></span>
+          <span id="connection-label">Connecting…</span>
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div class="topbar-title">
+            <p class="crumb" id="section-kicker">Live configuration</p>
+            <h1 id="section-title">Overview</h1>
+          </div>
+          <div class="top-actions">
+            <a href="portal.html" class="btn ghost">Portal</a>
+            <span id="saved-state" class="saved-state">All changes apply live</span>
+            <button id="reconcile" class="btn ghost" title="Re-sync Discord roles and FiveM permissions now">Reconcile</button>
+            <button id="refresh" class="btn ghost icon" aria-label="Reload data" title="Reload data">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+            </button>
+          </div>
+        </header>
+        <div id="content" class="content"><div class="loading">Loading…</div></div>
+      </main>
+    </div>
+
+    <dialog id="editor" class="sheet">
+      <form id="editor-form" method="dialog">
+        <header class="sheet-head">
+          <div><p class="crumb" id="editor-kicker">Configuration</p><h2 id="editor-title">Edit record</h2></div>
+          <button type="button" class="btn ghost icon" data-close aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div id="editor-fields" class="sheet-body"></div>
+        <footer class="sheet-foot">
+          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <button type="submit" class="btn primary">Save &amp; apply</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="app.js?v=20261011"></script>
+  </body>
+</html>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#05090f">
+    <meta name="color-scheme" content="dark">
+    <title>Verify · Florida Bay</title>
+    <link rel="icon" href="logo-128.webp" type="image/webp">
+    <link rel="stylesheet" href="site.css?v=6">
+  </head>
+  <body class="app">
+    <main class="callback">
+      <div class="callback-card" style="width:min(480px,100%)">
+        <img src="logo-128.webp" alt="Florida Bay Roleplay">
+        <div id="verify-start" style="display:grid;gap:16px;justify-items:center">
+          <h1 style="margin:0;font-size:1.5rem">Verify to join Florida Bay</h1>
+          <p>Every Florida Bay Discord server and the city itself require a verified account. Sign in with Discord once and you are done.</p>
+          <button class="btn btn-sun btn-lg" id="verify-button" type="button">Verify with Discord</button>
+          <p id="verify-message" class="form-message" role="status"></p>
+          <p style="font-size:.85rem">Discord sign-in not working? <a href="portal.html" style="text-decoration:underline">Use a one-time code instead</a>.</p>
+          <p style="font-size:.82rem">To keep the community safe from ban evasion, we store an irreversible hash of your IP address and of the accounts linked to your Discord (such as Steam or Xbox). We never store your IP address itself, and we only use this to link accounts that belong to the same person.</p>
+        </div>
+        <div id="verify-done" style="display:none;gap:16px;justify-items:center">
+          <h1 style="margin:0;font-size:1.5rem">You are verified</h1>
+          <p id="verify-done-text">You can now join the Florida Bay Discord servers. Your member role is applied automatically.</p>
+          <p>In FiveM, press <kbd>F8</kbd> and enter</p>
+          <p class="mono" data-connect-text>connect join.floridabay.net</p>
+          <a class="btn btn-glass" href="portal.html">Open the portal</a>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="verify.js?v=1"></script>
+  </body>
+</html>

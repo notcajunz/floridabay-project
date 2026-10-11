@@ -1,0 +1,327 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>corevia_ac live</title>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  canvas { display: none; }
+</style>
+</head>
+<body>
+<script>
+/*
+ * QuantiX Anticheat - Constellation live video capture.
+ *
+ * Idle until the resource's client script relays a start message from the
+ * game server. While idle it renders nothing and encodes nothing.
+ *
+ * Capture: FiveM's browser exposes the game's rendered frame to WebGL through
+ * a specific texture set-up - a 1x1 RGB texture followed by a WRAP_T
+ * parameter sequence (CLAMP, MIRRORED_REPEAT, REPEAT) - which is the same
+ * mechanism screenshot-basic's CfxTexture uses. Drawing that texture into a
+ * canvas every frame gives a live copy of the screen.
+ *
+ * Encode: MediaRecorder on the canvas stream (VP8 WebM), cut into slices and
+ * posted in order to the QuantiX API with a token that is valid for this one
+ * stream only. If the browser cannot encode video, a JPEG sequence is sent
+ * instead over the same channel.
+ *
+ * Several staff may watch the same player; each subject is its own stream,
+ * sharing one renderer.
+ */
+(function () {
+  'use strict';
+
+  var MAX_STREAMS = 3;
+  var MAX_WEBM_BACKLOG = 40;
+  var streams = new Map();
+  var renderer = null;
+
+  window.addEventListener('message', function (event) {
+    var m = event.data;
+    if (!m || typeof m !== 'object') return;
+    if (m.type === 'corevia:live:start') start(m);
+    else if (m.type === 'corevia:live:stop') {
+      if (m.subjectId) stop(m.subjectId, 'stopped');
+      else Array.from(streams.keys()).forEach(function (id) { stop(id, 'stopped'); });
+    }
+  });
+
+  /* ---------------- Renderer ---------------- */
+
+  function createRenderer() {
+    var canvas = document.createElement('canvas');
+    document.body.appendChild(canvas);
+    var gl = canvas.getContext('webgl', {
+      alpha: false, antialias: false, depth: false, stencil: false,
+      preserveDrawingBuffer: true, powerPreference: 'low-power'
+    });
+    if (!gl) throw new Error('webgl_unavailable');
+
+    // The game texture's rows arrive bottom-up relative to a canvas drawn
+    // straight to screen. screenshot-basic flips v because it renders into an
+    // offscreen target and reads pixels back (which flips again); drawing
+    // directly into the canvas that is encoded needs no flip at all.
+    var vs = 'attribute vec2 p; varying vec2 uv;' +
+      'void main(){ uv = vec2((p.x + 1.0) * 0.5, (p.y + 1.0) * 0.5); gl_Position = vec4(p, 0.0, 1.0); }';
+    // Four taps a quarter of a destination pixel apart: a cheap box filter so
+    // downscaling a nearest-sampled game frame does not shimmer.
+    var fs = 'precision mediump float; varying vec2 uv; uniform sampler2D t; uniform vec2 d;' +
+      'void main(){ vec3 c = texture2D(t, uv + vec2(-d.x, -d.y)).rgb + texture2D(t, uv + vec2(d.x, -d.y)).rgb' +
+      ' + texture2D(t, uv + vec2(-d.x, d.y)).rgb + texture2D(t, uv + vec2(d.x, d.y)).rgb;' +
+      ' gl_FragColor = vec4(c * 0.25, 1.0); }';
+
+    function shader(type, src) {
+      var s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error('shader: ' + gl.getShaderInfoLog(s));
+      return s;
+    }
+    var program = gl.createProgram();
+    gl.attachShader(program, shader(gl.VERTEX_SHADER, vs));
+    gl.attachShader(program, shader(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(program));
+    gl.useProgram(program);
+
+    var buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(program, 'p');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    // The game-frame texture. Order matters: this mirrors CfxTexture exactly.
+    var tex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE, new Uint8Array(3));
+    gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.MIRRORED_REPEAT);
+    gl.texParameterf(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.uniform1i(gl.getUniformLocation(program, 't'), 0);
+    var dLoc = gl.getUniformLocation(program, 'd');
+
+    var r = { canvas: canvas, gl: gl, raf: 0, width: 0, height: 0 };
+
+    r.resize = function (maxWidth) {
+      var srcW = Math.max(1, Math.round(window.innerWidth * (window.devicePixelRatio || 1)));
+      var srcH = Math.max(1, Math.round(window.innerHeight * (window.devicePixelRatio || 1)));
+      var w = Math.min(maxWidth, srcW);
+      var h = Math.round(w * srcH / srcW);
+      // Even dimensions: VP8 encodes 4:2:0.
+      w -= w % 2; h -= h % 2;
+      if (w === r.width && h === r.height) return;
+      r.width = w; r.height = h;
+      canvas.width = w; canvas.height = h;
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(dLoc, 0.25 / w, 0.25 / h);
+    };
+
+    r.draw = function () {
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    };
+
+    r.loop = function () {
+      if (streams.size === 0) { r.raf = 0; return; }
+      r.draw();
+      r.raf = requestAnimationFrame(r.loop);
+    };
+
+    r.ensureRunning = function () {
+      if (!r.raf) r.raf = requestAnimationFrame(r.loop);
+    };
+
+    return r;
+  }
+
+  function maxWidthWanted() {
+    var w = 0;
+    streams.forEach(function (s) { w = Math.max(w, s.cfg.maxWidth); });
+    return w || 1280;
+  }
+
+  /* ---------------- Streams ---------------- */
+
+  function start(cfg) {
+    if (typeof cfg.subjectId !== 'string' || typeof cfg.url !== 'string' || typeof cfg.token !== 'string') return;
+    var existing = streams.get(cfg.subjectId);
+    if (existing) {
+      if (existing.cfg.generation === cfg.generation) return;
+      stop(cfg.subjectId, null);
+    }
+    if (streams.size >= MAX_STREAMS) {
+      var oldest = streams.keys().next().value;
+      stop(oldest, 'stopped');
+    }
+
+    var s = {
+      cfg: cfg, seq: 0, queue: [], sending: false, stopped: false,
+      recorder: null, timer: 0, kind: null, mime: null, reportedStreaming: false
+    };
+    streams.set(cfg.subjectId, s);
+    report(s, 'starting', null);
+
+    try {
+      if (!renderer) renderer = createRenderer();
+      renderer.resize(maxWidthWanted());
+      renderer.draw();
+      renderer.ensureRunning();
+    } catch (err) {
+      fail(s, 'capture_unavailable: ' + (err && err.message ? err.message : String(err)));
+      return;
+    }
+
+    var mime = pickMime();
+    if (mime && typeof renderer.canvas.captureStream === 'function') {
+      try {
+        startWebm(s, mime);
+        return;
+      } catch (err) {
+        // Fall through to JPEG.
+      }
+    }
+    startMjpeg(s);
+  }
+
+  function pickMime() {
+    if (typeof window.MediaRecorder !== 'function' || typeof MediaRecorder.isTypeSupported !== 'function') return null;
+    var candidates = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'];
+    for (var i = 0; i < candidates.length; i++) {
+      if (MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+    }
+    return null;
+  }
+
+  function startWebm(s, mime) {
+    var mediaStream = renderer.canvas.captureStream(s.cfg.fps || 24);
+    var recorder = new MediaRecorder(mediaStream, {
+      mimeType: mime,
+      videoBitsPerSecond: s.cfg.videoBitsPerSecond || 1500000
+    });
+    s.kind = 'webm';
+    s.mime = mime;
+    s.recorder = recorder;
+    recorder.ondataavailable = function (event) {
+      if (s.stopped || !event.data || event.data.size === 0) return;
+      // WebM cannot skip bytes. If the uplink cannot keep up, stop and let
+      // the viewer ask for a fresh generation rather than send a broken file.
+      if (s.queue.length >= MAX_WEBM_BACKLOG) {
+        fail(s, 'upload_too_slow');
+        return;
+      }
+      enqueue(s, event.data);
+    };
+    recorder.onerror = function (event) {
+      fail(s, 'encoder_error: ' + (event && event.error ? event.error.name : 'unknown'));
+    };
+    recorder.start(s.cfg.timesliceMs || 500);
+  }
+
+  function startMjpeg(s) {
+    s.kind = 'mjpeg';
+    s.mime = 'image/jpeg';
+    var interval = Math.max(50, Math.round(1000 / (s.cfg.jpegFps || 8)));
+    s.timer = setInterval(function () {
+      if (s.stopped) return;
+      // Frames are independent: keep only the newest one waiting.
+      if (s.queue.length > 1) s.queue.splice(0, s.queue.length - 1);
+      renderer.canvas.toBlob(function (blob) {
+        if (blob && !s.stopped) enqueue(s, blob);
+      }, 'image/jpeg', s.cfg.jpegQuality || 0.6);
+    }, interval);
+  }
+
+  function enqueue(s, blob) {
+    s.queue.push({ seq: s.seq++, blob: blob });
+    pump(s);
+  }
+
+  function pump(s) {
+    if (s.sending || s.stopped || s.queue.length === 0) return;
+    var item = s.queue.shift();
+    s.sending = true;
+    send(s, item, 0).then(function () {
+      s.sending = false;
+      pump(s);
+    });
+  }
+
+  function send(s, item, attempt) {
+    return fetch(s.cfg.url + '/chunk', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-live-token': s.cfg.token,
+        'x-live-generation': String(s.cfg.generation),
+        'x-live-seq': String(item.seq),
+        'x-live-kind': s.kind,
+        'x-live-mime': s.mime
+      },
+      body: item.blob
+    }).then(function (res) {
+      if (res.status === 410 || res.status === 409 || res.status === 403) {
+        // Nobody watching, a newer generation, or a token that no longer
+        // applies: this encoder is finished either way.
+        stop(s.cfg.subjectId, null);
+        return;
+      }
+      if (!res.ok && attempt < 2 && res.status >= 500) return send(s, item, attempt + 1);
+      if (res.ok && !s.reportedStreaming) {
+        s.reportedStreaming = true;
+        report(s, 'streaming', null);
+      }
+    }, function () {
+      if (attempt < 2 && !s.stopped) {
+        return new Promise(function (resolve) { setTimeout(resolve, 250 * (attempt + 1)); })
+          .then(function () { return send(s, item, attempt + 1); });
+      }
+    });
+  }
+
+  function report(s, state, error) {
+    try {
+      fetch(s.cfg.url + '/status', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-live-token': s.cfg.token },
+        body: JSON.stringify({
+          generation: s.cfg.generation,
+          state: state,
+          kind: s.kind,
+          error: error,
+          width: renderer ? renderer.width : null,
+          height: renderer ? renderer.height : null
+        })
+      }).catch(function () {});
+    } catch (e) { /* best effort */ }
+  }
+
+  function fail(s, message) {
+    report(s, 'error', String(message).slice(0, 300));
+    stop(s.cfg.subjectId, null);
+  }
+
+  function stop(subjectId, state) {
+    var s = streams.get(subjectId);
+    if (!s) return;
+    s.stopped = true;
+    streams.delete(subjectId);
+    try { if (s.recorder && s.recorder.state !== 'inactive') s.recorder.stop(); } catch (e) { /* ignore */ }
+    if (s.timer) clearInterval(s.timer);
+    s.queue.length = 0;
+    if (state) report(s, state, null);
+    if (renderer && streams.size > 0) renderer.resize(maxWidthWanted());
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Florida Bay Roleplay</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="hud" class="hud is-hidden">
+      <!-- Top centre: street + compass tape -->
+      <div class="compass scaled">
+        <div class="compass-street">
+          <strong id="street">Florida Bay</strong>
+          <span id="zone">San Andreas</span>
+        </div>
+        <div class="tape">
+          <div id="tape-track" class="tape-track"></div>
+          <i class="tape-needle"></i>
+        </div>
+        <div class="compass-heading">
+          <b id="direction">N</b><span id="heading">000</span>
+        </div>
+      </div>
+
+      <!-- Top right: server state + your identity -->
+      <section class="status scaled">
+        <header class="status-brand">
+          <img src="fbrp-logo.png" alt="" />
+          <div><b>Florida Bay</b><small>Roleplay</small></div>
+          <time id="game-time">12:00</time>
+        </header>
+        <div class="status-rows">
+          <div class="srow"><span>AOP</span><b id="aop">Statewide</b></div>
+          <div class="srow"><span id="priority-label">Priority</span><b id="priority" class="tone-ok">Available</b></div>
+          <div class="srow"><span>Peacetime</span><b id="peacetime" class="tone-dim">Off</b></div>
+        </div>
+        <div class="status-rows status-self">
+          <div class="srow"><span>Headtag</span><b id="hud-headtag">None</b></div>
+          <div class="srow"><span>Gang tag</span><b id="hud-gangtag">None</b></div>
+          <div class="srow"><span>Job</span><b id="hud-org">Off duty</b></div>
+        </div>
+        <div id="staff-pill" class="staff-pill hidden"><i></i>Staff on duty</div>
+      </section>
+
+      <!-- Bottom left, flush against the radar -->
+      <div id="dock" class="dock scaled">
+        <div class="id-badge"><small>ID</small><b id="player-id">0</b></div>
+        <div id="voice-box" class="voice">
+          <span class="voice-mic" data-icon="mic"></span>
+          <div class="voice-text"><b id="voice">Normal</b><small id="radio">Local</small></div>
+          <div id="voice-range" class="voice-range"><i></i><i></i><i></i></div>
+        </div>
+      </div>
+
+      <!-- Bottom right: vehicle cluster -->
+      <section id="vehicle-hud" class="speedo scaled hidden">
+        <div class="gauge">
+          <svg viewBox="0 0 220 150" aria-hidden="true">
+            <g id="gauge-ticks"></g>
+            <path class="gauge-track" pathLength="100" d="M 37.25 134 A 84 84 0 1 1 182.75 134" />
+            <path class="gauge-red" pathLength="100" d="M 37.25 134 A 84 84 0 1 1 182.75 134" />
+            <path id="rpm-arc" class="gauge-fill" pathLength="100" d="M 37.25 134 A 84 84 0 1 1 182.75 134" />
+          </svg>
+          <div class="speed-readout"><b id="speed">0</b><small>MPH</small></div>
+          <div class="gear"><b id="gear">N</b></div>
+        </div>
+        <div class="fuel">
+          <span data-icon="fuel"></span>
+          <div class="fuel-bar"><i id="fuel-bar"></i></div>
+          <b id="fuel">100</b>
+        </div>
+        <div class="vflags">
+          <span id="engine-flag" data-icon="power" title="Engine"></span>
+          <span id="belt-flag" data-icon="belt" title="Seatbelt"></span>
+          <span id="lock-flag" data-icon="lock" title="Locks"></span>
+          <span id="cruise-flag" data-icon="gauge" title="Cruise"></span>
+        </div>
+      </section>
+
+      <div id="restraint" class="restraint scaled hidden">
+        <span data-icon="cuffs"></span><b id="restraint-text">Restrained</b>
+      </div>
+
+      <!-- Left middle: prison sentence -->
+      <section id="jail-hud" class="jail-hud scaled hidden">
+        <header><span data-icon="gavel"></span><div><small id="jail-prison">Bolingbroke Penitentiary</small><b>Inmate</b></div></header>
+        <div class="jail-clock"><b id="jail-remaining">0:00</b><small>remaining · <span id="jail-months">0</span> months</small></div>
+        <div class="jail-bar"><i id="jail-bar"></i></div>
+        <p id="jail-charges" class="jail-charges"></p>
+        <p id="jail-task" class="jail-task"></p>
+      </section>
+    </div>
+
+    <div id="bodycam" class="bodycam hidden">
+      <div class="bodycam-mark"><i></i>REC</div>
+      <div class="bodycam-meta"><b>AXON BODY 4</b><span id="bodycam-unit">Unit</span><span id="bodycam-dept">Florida Bay</span><time id="bodycam-time">00:00:00</time></div>
+    </div>
+
+    <div id="downed" class="downed hidden">
+      <div class="downed-card">
+        <small>Incapacitated</small>
+        <h2 id="downed-cause">Unknown injuries</h2>
+        <div class="downed-timer"><b id="downed-time">5:00</b><span id="downed-label">until you bleed out</span></div>
+        <div class="downed-keys">
+          <span><kbd>G</kbd> Send distress signal</span>
+          <span id="downed-respawn" class="locked"><kbd>E</kbd> Hold to respawn at hospital</span>
+        </div>
+        <div class="downed-hold"><i id="downed-hold"></i></div>
+      </div>
+    </div>
+
+    <div id="progress" class="progress scaled hidden">
+      <span id="progress-label">Working</span>
+      <div class="progress-bar"><i id="progress-fill"></i></div>
+    </div>
+
+    <div id="fishing" class="fishing scaled hidden">
+      <header><span data-icon="fish"></span><b id="fishing-title">Waiting for a bite…</b></header>
+      <div id="fishing-game" class="fishing-game hidden">
+        <div class="reel"><i id="reel-zone" class="reel-zone"></i><i id="reel-needle" class="reel-needle"></i></div>
+        <div class="reel-hits"><i></i><i></i></div>
+        <small>Press <kbd>E</kbd> in the green · 2 hits to land it</small>
+      </div>
+      <div id="fishing-catch" class="fishing-catch hidden"></div>
+    </div>
+
+    <div id="cards" class="cards scaled"></div>
+
+    <div id="alerts" class="alerts scaled">
+      <div id="dispatch" class="dispatch-stack"></div>
+      <div id="notifications" class="notifications"></div>
+    </div>
+
+    <div id="menu" class="menu-backdrop hidden">
+      <main class="menu-shell scaled">
+        <header class="menu-header">
+          <div class="brand-lockup">
+            <img src="fbrp-logo.png" alt="" />
+            <div>
+              <small>Florida Bay Roleplay</small>
+              <h1 id="menu-title">Menu</h1>
+            </div>
+          </div>
+          <div class="menu-actions">
+            <span id="menu-esc" class="keycap-hint"><kbd>ESC</kbd> Close</span>
+            <button id="close" class="icon-button" aria-label="Close" data-icon="x"></button>
+          </div>
+        </header>
+        <div id="menu-content" class="menu-content"></div>
+      </main>
+    </div>
+
+    <div id="third-eye" class="third-eye scaled hidden">
+      <div class="third-eye-mark"><span data-icon="eye"></span></div>
+      <section class="third-eye-panel">
+        <header>
+          <div><small>THIRD EYE</small><strong id="third-eye-name">Player</strong></div>
+          <button id="third-eye-close" class="icon-button" aria-label="Close" data-icon="x"></button>
+        </header>
+        <div id="third-eye-actions" class="third-eye-actions"></div>
+        <footer><kbd>F5</kbd> Look at a nearby player · <kbd>ESC</kbd> Close</footer>
+      </section>
+    </div>
+
+    <div id="car-controls" class="car-controls scaled hidden">
+      <div class="car-control-head">
+        <strong>Vehicle</strong><button id="car-close" data-icon="x" aria-label="Close"></button>
+      </div>
+      <div class="car-grid">
+        <button data-car="engine"><span data-icon="power"></span>Engine</button>
+        <button data-car="belt"><span data-icon="belt"></span>Seatbelt</button>
+        <button data-car="lock"><span data-icon="lock"></span>Locks</button>
+        <button data-car="cruise"><span data-icon="gauge"></span>Cruise</button>
+        <button data-car="hood"><span data-icon="hood"></span>Hood</button>
+        <button data-car="trunk"><span data-icon="trunk"></span>Trunk</button>
+        <button data-car="lf"><span data-icon="door"></span>Left door</button>
+        <button data-car="rf"><span data-icon="door" class="flip"></span>Right door</button>
+      </div>
+    </div>
+
+    <div id="blindfold" class="blindfold hidden">
+      <span>Blindfolded</span>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

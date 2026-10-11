@@ -1,0 +1,20 @@
+# Secrets and personal data are saved only as encrypted bundles in snapshots/ (see scripts/github-sync.sh)
+.env
+**/.env
+.sync/
+server-data/secrets.cfg
+server-data/server.cfg
+server-data/server.cfg.bkp
+txData/
+server-data/db/
+backups/
+
+# Re-downloadable or regenerated at runtime
+node_modules/
+artifacts/
+server-data/cache/
+*.log
+*.pid
+.replxx_history
+**/.replxx_history
+.console-history

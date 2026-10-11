@@ -1,0 +1,1333 @@
+import { SlashCommandBuilder } from "discord.js";
+
+const reason = (option) =>
+  option
+    .setName("reason")
+    .setDescription("Reason recorded in the audit log")
+    .setRequired(true)
+    .setMaxLength(300);
+const user = (option) =>
+  option.setName("member").setDescription("Discord member").setRequired(true);
+
+const ace = new SlashCommandBuilder()
+  .setName("ace")
+  .setDescription("Manage MariaDB-backed ACE groups")
+  .addSubcommand((s) =>
+    s
+      .setName("group-create")
+      .setDescription("Create an ACE group")
+      .addStringOption((o) =>
+        o.setName("name").setDescription("Machine name").setRequired(true),
+      )
+      .addStringOption((o) =>
+        o.setName("label").setDescription("Display label").setRequired(true),
+      )
+      .addIntegerOption((o) =>
+        o
+          .setName("rank")
+          .setDescription("Higher groups sort first")
+          .setMinValue(0)
+          .setMaxValue(10000),
+      )
+      .addBooleanOption((o) =>
+        o
+          .setName("staff_only")
+          .setDescription("Only apply in game while /clockin is active"),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("group-delete")
+      .setDescription("Delete an ACE group and its mappings")
+      .addStringOption((o) =>
+        o.setName("name").setDescription("Group name").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("permission")
+      .setDescription("Allow or deny an ACE object for a group")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("Group name").setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("object")
+          .setDescription("ACE object or prefix.*")
+          .setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("mode")
+          .setDescription("Permission mode")
+          .setRequired(true)
+          .addChoices(
+            { name: "Allow", value: "allow" },
+            { name: "Deny", value: "deny" },
+            { name: "Remove", value: "remove" },
+          ),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("bundle")
+      .setDescription("Grant or remove a curated permission bundle")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("Group name").setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("bundle")
+          .setDescription("Bundle name from /ace catalog")
+          .setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("mode")
+          .setDescription("Grant or remove the bundle")
+          .setRequired(true)
+          .addChoices(
+            { name: "Grant", value: "grant" },
+            { name: "Remove", value: "remove" },
+          ),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("member-add")
+      .setDescription("Add a direct group member")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("Group name").setRequired(true),
+      )
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("member-remove")
+      .setDescription("Remove direct group membership")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("Group name").setRequired(true),
+      )
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("bind-role")
+      .setDescription("Gate a Discord role behind direct ACE membership")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("Group name").setRequired(true),
+      )
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Role to bind").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("unbind-role")
+      .setDescription("Stop gating a Discord role behind an ACE group")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Bound role").setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("group")
+          .setDescription("Only remove this group's binding (default: every binding of the role)")
+          .setAutocomplete(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("list")
+      .setDescription("List groups, ACE entries, and role bindings"),
+  )
+  .addSubcommand((s) =>
+    s.setName("catalog").setDescription("Show permission objects and bundles"),
+  );
+
+const headtag = new SlashCommandBuilder()
+  .setName("headtag")
+  .setDescription("Create and manage overhead tags")
+  .addSubcommand((s) =>
+    s
+      .setName("create")
+      .setDescription("Create a Discord-gated headtag or gang tag")
+      .addStringOption((o) =>
+        o
+          .setName("kind")
+          .setDescription("Tag slot")
+          .setRequired(true)
+          .addChoices(
+            { name: "Headtag (top)", value: "head" },
+            { name: "Gang tag (bottom)", value: "gang" },
+          ),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("label")
+          .setDescription("Text shown in game")
+          .setRequired(true)
+          .setMaxLength(40),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("color")
+          .setDescription("Hex color, e.g. #43E8D8")
+          .setRequired(true),
+      )
+      .addRoleOption((o) =>
+        o
+          .setName("role")
+          .setDescription("Existing role; leave blank to create one"),
+      )
+      .addIntegerOption((o) =>
+        o
+          .setName("priority")
+          .setDescription("Wardrobe order")
+          .setMinValue(-1000)
+          .setMaxValue(1000),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("delete")
+      .setDescription("Delete a tag definition")
+      .addIntegerOption((o) =>
+        o
+          .setName("id")
+          .setDescription("Tag ID")
+          .setRequired(true)
+          .setMinValue(1),
+      )
+      .addBooleanOption((o) =>
+        o
+          .setName("delete_role")
+          .setDescription("Also delete the bot-created role"),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("grant")
+      .setDescription("Grant a tag directly")
+      .addIntegerOption((o) =>
+        o.setName("id").setDescription("Tag ID").setRequired(true),
+      )
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("revoke")
+      .setDescription("Revoke direct tag access")
+      .addIntegerOption((o) =>
+        o.setName("id").setDescription("Tag ID").setRequired(true),
+      )
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s.setName("list").setDescription("List all headtags and gang tags"),
+  );
+
+const organization = new SlashCommandBuilder()
+  .setName("organization")
+  .setDescription("Manage gangs, businesses, and departments")
+  .addSubcommand((s) =>
+    s
+      .setName("create")
+      .setDescription(
+        "Create an organization, its in-game tag, and ACE group",
+      )
+      .addStringOption((o) =>
+        o
+          .setName("slug")
+          .setDescription("Short command name")
+          .setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("name")
+          .setDescription("Display name")
+          .setRequired(true)
+          .setMaxLength(80),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("type")
+          .setDescription("Organization type")
+          .setRequired(true)
+          .addChoices(
+            { name: "Gang", value: "gang" },
+            { name: "Business", value: "business" },
+            { name: "Law enforcement", value: "leo" },
+            { name: "Fire & rescue", value: "fire" },
+            { name: "Government", value: "government" },
+            { name: "Other", value: "other" },
+          ),
+      )
+      .addStringOption((o) =>
+        o.setName("color").setDescription("Hex color").setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("tag")
+          .setDescription("Text of the in-game tag (defaults to the display name)")
+          .setMaxLength(40),
+      )
+      .addRoleOption((o) =>
+        o
+          .setName("access_role")
+          .setDescription("Role in this server required to clock in"),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("network_role_id")
+          .setDescription("Required role ID from another network server"),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("network_guild_id")
+          .setDescription("Server ID that owns network_role_id"),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("delete")
+      .setDescription("Deactivate an organization")
+      .addStringOption((o) =>
+        o.setName("slug").setDescription("Organization slug").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("hours")
+      .setDescription("Show organization duty hours")
+      .addStringOption((o) =>
+        o.setName("slug").setDescription("Organization slug").setRequired(true),
+      )
+      .addUserOption((o) =>
+        o.setName("member").setDescription("Optional member filter"),
+      ),
+  )
+  .addSubcommand((s) => s.setName("list").setDescription("List organizations"));
+
+const radio = new SlashCommandBuilder()
+  .setName("radio")
+  .setDescription("Configure in-game radio channels")
+  .addSubcommand((s) =>
+    s.setName("create").setDescription("Create or update a managed frequency")
+      .addIntegerOption((o) => o.setName("channel").setDescription("Frequency number").setRequired(true).setMinValue(1).setMaxValue(999))
+      .addStringOption((o) => o.setName("name").setDescription("Channel display name").setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName("organization").setDescription("Organization slug; omit for a public channel").setMaxLength(40))
+      .addStringOption((o) => o.setName("description").setDescription("Short channel description").setMaxLength(180))
+      .addStringOption((o) => o.setName("color").setDescription("Six-digit hex color").setMaxLength(7)),
+  )
+  .addSubcommand((s) =>
+    s.setName("delete").setDescription("Delete a managed frequency")
+      .addIntegerOption((o) => o.setName("channel").setDescription("Frequency number").setRequired(true).setMinValue(1).setMaxValue(999)),
+  )
+  .addSubcommand((s) => s.setName("list").setDescription("List managed radio frequencies"));
+
+const network = new SlashCommandBuilder()
+  .setName("network")
+  .setDescription("Manage the Florida Bay Discord network (global roles live in /globalsync)")
+  .addSubcommand((s) =>
+    s
+      .setName("add")
+      .setDescription("Add this Discord server to the network")
+      .addStringOption((o) =>
+        o
+          .setName("kind")
+          .setDescription("Server type")
+          .setRequired(true)
+          .addChoices(
+            { name: "Main", value: "main" },
+            { name: "Staff", value: "staff" },
+            { name: "Gang", value: "gang" },
+            { name: "Department", value: "department" },
+            { name: "Community", value: "community" },
+            { name: "Business", value: "business" },
+            { name: "Partner", value: "partner" },
+            { name: "Other", value: "other" },
+          ),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("remove")
+      .setDescription("Remove this Discord server from the network"),
+  )
+  .addSubcommand((s) =>
+    s.setName("list").setDescription("List network servers and synced roles"),
+  );
+
+const syncScope = (option) =>
+  option
+    .setName("scope")
+    .setDescription("Which servers get the role: a server type, or pick individual servers")
+    .addChoices(
+      { name: "All servers", value: "all" },
+      { name: "Every server except main", value: "satellites" },
+      { name: "Main server", value: "main" },
+      { name: "Staff servers", value: "staff" },
+      { name: "Gang servers", value: "gang" },
+      { name: "Department servers", value: "department" },
+      { name: "Community servers", value: "community" },
+      { name: "Business servers", value: "business" },
+      { name: "Partner servers", value: "partner" },
+      { name: "Other servers", value: "other" },
+      { name: "Pick individual servers", value: "custom" },
+    );
+
+const syncOptions = (subcommand, editing = false) =>
+  subcommand
+    .addStringOption((o) =>
+      o
+        .setName("group")
+        .setDescription(editing ? "Synced group to edit" : "ACE group whose members wear the role")
+        .setRequired(true)
+        .setAutocomplete(true),
+    )
+    .addStringOption((o) =>
+      o
+        .setName("name")
+        .setDescription(editing ? "New role name" : "Role name (defaults to the group name)")
+        .setMaxLength(100),
+    )
+    .addStringOption(syncScope)
+    .addStringOption((o) =>
+      o
+        .setName("permissions")
+        .setDescription("Discord permissions integer; 0 grants no base permissions")
+        .setMaxLength(20),
+    )
+    .addBooleanOption((o) =>
+      o
+        .setName("all_channels")
+        .setDescription("See/chat in every text channel and see/join every voice channel"),
+    )
+    .addStringOption((o) =>
+      o.setName("color").setDescription("Hex color, e.g. #43E8D8").setMaxLength(7),
+    )
+    .addBooleanOption((o) =>
+      o.setName("hoist").setDescription("Show separately in the member list"),
+    )
+    .addBooleanOption((o) =>
+      o.setName("mentionable").setDescription("Allow members to mention the role"),
+    )
+    .addRoleOption((o) =>
+      o.setName("existing_role").setDescription("Optional: use this existing role in this server instead of creating one"),
+    )
+    .addStringOption((o) =>
+      o
+        .setName("existing_roles")
+        .setDescription("Optional: existing role IDs to use in other servers (comma separated)")
+        .setMaxLength(1000),
+    );
+
+const globalsync = new SlashCommandBuilder()
+  .setName("globalsync")
+  .setDescription("Sync an ACE group's Discord role across every Florida Bay server")
+  .addSubcommand((s) =>
+    syncOptions(
+      s.setName("add").setDescription("Create a synced role: group members get it in every matching server"),
+    ),
+  )
+  .addSubcommand((s) =>
+    syncOptions(
+      s.setName("edit").setDescription("Edit an existing global role sync and apply the changes everywhere"),
+      true,
+    ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("remove")
+      .setDescription("Stop syncing a group's role")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("Synced group").setRequired(true).setAutocomplete(true),
+      )
+      .addBooleanOption((o) =>
+        o.setName("delete_roles").setDescription("Delete roles created by the bot (default: yes)"),
+      ),
+  )
+  .addSubcommand((s) =>
+    s.setName("list").setDescription("List every synced role and where it lives"),
+  )
+  .addSubcommand((s) =>
+    s.setName("push").setDescription("Re-create missing synced roles everywhere and re-sync every member"),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("servers")
+      .setDescription("Pick exactly which network servers a synced role lives in")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("Synced group").setRequired(true).setAutocomplete(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("order")
+      .setDescription("Show or set which synced roles sit above others in every server")
+      .addStringOption((o) =>
+        o
+          .setName("groups")
+          .setDescription("Comma-separated ACE groups from top to bottom")
+          .setMaxLength(1000),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("move")
+      .setDescription("Move one synced role to a spot in the network order (1 = top)")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("Synced group").setRequired(true).setAutocomplete(true),
+      )
+      .addIntegerOption((o) =>
+        o.setName("position").setDescription("1 is highest").setRequired(true).setMinValue(1).setMaxValue(250),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("bind")
+      .setDescription("Bind an ACE group to an existing role here (creates the global sync if needed)")
+      .addStringOption((o) =>
+        o.setName("group").setDescription("ACE group whose members wear the role").setRequired(true).setAutocomplete(true),
+      )
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Existing role in this server").setRequired(true),
+      ),
+  );
+
+const mod = new SlashCommandBuilder()
+  .setName("mod")
+  .setDescription("Discord moderation with MariaDB case logging")
+  .addSubcommand((s) =>
+    s
+      .setName("ban")
+      .setDescription("Ban a member")
+      .addUserOption(user)
+      .addStringOption(reason)
+      .addIntegerOption((o) =>
+        o
+          .setName("delete_days")
+          .setDescription("Delete recent messages")
+          .setMinValue(0)
+          .setMaxValue(7),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("unban")
+      .setDescription("Unban a Discord user ID")
+      .addStringOption((o) =>
+        o
+          .setName("user_id")
+          .setDescription("Discord user ID")
+          .setRequired(true),
+      )
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("kick")
+      .setDescription("Kick a member")
+      .addUserOption(user)
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("timeout")
+      .setDescription("Timeout a member")
+      .addUserOption(user)
+      .addIntegerOption((o) =>
+        o
+          .setName("minutes")
+          .setDescription("0 removes timeout")
+          .setRequired(true)
+          .setMinValue(0)
+          .setMaxValue(40320),
+      )
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("warn")
+      .setDescription("Warn a member and record a case")
+      .addUserOption(user)
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("purge")
+      .setDescription("Delete recent messages")
+      .addIntegerOption((o) =>
+        o
+          .setName("count")
+          .setDescription("Messages to delete")
+          .setRequired(true)
+          .setMinValue(1)
+          .setMaxValue(100),
+      )
+      .addStringOption(reason),
+  );
+
+const server = new SlashCommandBuilder()
+  .setName("server")
+  .setDescription("Control live Florida Bay state")
+  .addSubcommand((s) =>
+    s.setName("status").setDescription("Show bot, database, and FiveM health"),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("aop")
+      .setDescription("Set the area of play")
+      .addStringOption((o) =>
+        o
+          .setName("value")
+          .setDescription("AOP label")
+          .setRequired(true)
+          .setMaxLength(60),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("peacetime")
+      .setDescription("Set peacetime")
+      .addBooleanOption((o) =>
+        o
+          .setName("enabled")
+          .setDescription("Peacetime state")
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("announce")
+      .setDescription("Send an in-game announcement")
+      .addStringOption((o) =>
+        o
+          .setName("message")
+          .setDescription("Announcement")
+          .setRequired(true)
+          .setMaxLength(300),
+      ),
+  );
+
+const staff = new SlashCommandBuilder()
+  .setName("staff")
+  .setDescription("Staff ranks and duty tracking")
+  .addSubcommand((s) =>
+    s
+      .setName("add")
+      .setDescription("Put a member in a staff rank's ACE group and give them a callsign")
+      .addUserOption(user)
+      .addStringOption((o) =>
+        o
+          .setName("rank")
+          .setDescription("Staff rank (only ranks below your own are allowed)")
+          .setRequired(true)
+          .setAutocomplete(true),
+      )
+      .addIntegerOption((o) =>
+        o
+          .setName("callsign")
+          .setDescription("Specific callsign; blank keeps theirs or picks the next free one")
+          .setMinValue(1)
+          .setMaxValue(9999),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("remove")
+      .setDescription("Remove a member's staff rank, ACE group, and callsign")
+      .addUserOption(user)
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("hours")
+      .setDescription("Show a member’s staff hours")
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("leaderboard")
+      .setDescription("Show staff hours leaderboard")
+      .addIntegerOption((o) =>
+        o
+          .setName("days")
+          .setDescription("Window in days")
+          .setMinValue(1)
+          .setMaxValue(365),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("forceout")
+      .setDescription("Close a member’s active staff shift")
+      .addUserOption(user)
+      .addStringOption(reason),
+  );
+
+const protectrole = new SlashCommandBuilder()
+  .setName("protectrole")
+  .setDescription("Guard sensitive Discord roles")
+  .addSubcommand((s) =>
+    s
+      .setName("add")
+      .setDescription("Protect a role")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Protected role").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("remove")
+      .setDescription("Stop protecting a role")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Protected role").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("allow-user")
+      .setDescription("Allow a user to manage a protected role")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Protected role").setRequired(true),
+      )
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("allow-role")
+      .setDescription("Allow members of a role to manage a protected role")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Protected role").setRequired(true),
+      )
+      .addRoleOption((o) =>
+        o
+          .setName("manager_role")
+          .setDescription("Manager role")
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("deny-user")
+      .setDescription("Remove a user from protected-role access")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Protected role").setRequired(true),
+      )
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("deny-role")
+      .setDescription("Remove a role from protected-role access")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Protected role").setRequired(true),
+      )
+      .addRoleOption((o) =>
+        o
+          .setName("manager_role")
+          .setDescription("Manager role")
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s.setName("list").setDescription("List protected roles"),
+  );
+
+const botguard = new SlashCommandBuilder()
+  .setName("botguard")
+  .setDescription("Network bot admission and anti-nuke controls")
+  .addSubcommand((s) =>
+    s
+      .setName("allow-bot")
+      .setDescription("Allow a bot application network-wide")
+      .addStringOption((o) =>
+        o.setName("bot_id").setDescription("Bot user ID").setRequired(true),
+      )
+      .addStringOption((o) =>
+        o.setName("label").setDescription("Friendly name"),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("deny-bot")
+      .setDescription("Remove an allowed bot")
+      .addStringOption((o) =>
+        o.setName("bot_id").setDescription("Bot user ID").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("trust-user")
+      .setDescription("Allow a user to add approved bots")
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("trust-role")
+      .setDescription("Allow a role to add approved bots")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Trusted role").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("untrust-user")
+      .setDescription("Remove a trusted bot adder")
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("untrust-role")
+      .setDescription("Remove a trusted bot-adder role")
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Trusted role").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("exempt-add")
+      .setDescription("Exempt an account from automated security")
+      .addUserOption(user)
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("exempt-remove")
+      .setDescription("Remove a security exemption")
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("sweep")
+      .setDescription("Remove unapproved bots from this server"),
+  )
+  .addSubcommand((s) =>
+    s.setName("list").setDescription("Show Bot Guard policy"),
+  );
+
+const ticket = new SlashCommandBuilder()
+  .setName("ticket")
+  .setDescription("Open and manage support tickets")
+  .addSubcommand((s) =>
+    s
+      .setName("open")
+      .setDescription("Open a private support channel")
+      .addStringOption((o) =>
+        o
+          .setName("type")
+          .setDescription("Ticket category")
+          .setRequired(true)
+          .setAutocomplete(true),
+      ),
+  )
+  .addSubcommand((s) => s.setName("mine").setDescription("List your tickets"))
+  .addSubcommand((s) =>
+    s.setName("claim").setDescription("Claim or release the ticket in this channel")
+      .addBooleanOption((o) => o.setName("claimed").setDescription("True claims; false releases")),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("close")
+      .setDescription("Close the ticket in this channel")
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) => s.setName("request-close").setDescription("Ask staff to close this ticket").addStringOption(reason))
+  .addSubcommand((s) => s.setName("transfer").setDescription("Transfer the ticket to another staff member").addUserOption(user))
+  .addSubcommand((s) => s.setName("add").setDescription("Add a participant to this ticket").addUserOption(user))
+  .addSubcommand((s) => s.setName("remove").setDescription("Remove a participant from this ticket").addUserOption(user))
+  .addSubcommand((s) => s.setName("priority").setDescription("Change ticket priority")
+    .addStringOption((o) => o.setName("level").setDescription("Priority").setRequired(true).setAutocomplete(true)).addStringOption(reason))
+  .addSubcommand((s) => s.setName("move").setDescription("Move the ticket to another category")
+    .addStringOption((o) => o.setName("type").setDescription("Ticket category").setRequired(true).setAutocomplete(true)))
+  .addSubcommand((s) => s.setName("rename").setDescription("Rename this ticket channel")
+    .addStringOption((o) => o.setName("name").setDescription("New channel name").setRequired(true).setMaxLength(80)))
+  .addSubcommand((s) => s.setName("note").setDescription("Add a private staff note")
+    .addStringOption((o) => o.setName("text").setDescription("Note text").setRequired(true).setMaxLength(1000)))
+  .addSubcommand((s) => s.setName("notes").setDescription("View private staff notes"))
+  .addSubcommand((s) => s.setName("reopen").setDescription("Reopen a closed ticket")
+    .addIntegerOption((o) => o.setName("id").setDescription("Ticket number").setRequired(true).setMinValue(1)))
+  .addSubcommand((s) => s.setName("transcript").setDescription("Export a ticket transcript")
+    .addIntegerOption((o) => o.setName("id").setDescription("Ticket number; current channel if blank").setMinValue(1)))
+  .addSubcommand((s) =>
+    s.setName("list").setDescription("List open support tickets"),
+  );
+
+const support = new SlashCommandBuilder()
+  .setName("support")
+  .setDescription("Configure the ticket system")
+  .addSubcommand((s) => s.setName("panel").setDescription("Post or move the ticket panel")
+    .addChannelOption((o) => o.setName("channel").setDescription("Panel channel").setRequired(true)))
+  .addSubcommand((s) => s.setName("config").setDescription("Show ticket configuration"))
+  .addSubcommand((s) => s.setName("category").setDescription("Set a Discord category for a ticket type")
+    .addStringOption((o) => o.setName("type").setDescription("Ticket type or all").setRequired(true).setAutocomplete(true))
+    .addChannelOption((o) => o.setName("category").setDescription("Discord category").setRequired(true)))
+  .addSubcommand((s) => s.setName("role").setDescription("Add or remove a support role")
+    .addStringOption((o) => o.setName("type").setDescription("Ticket type or all").setRequired(true).setAutocomplete(true))
+    .addRoleOption((o) => o.setName("role").setDescription("Support role").setRequired(true))
+    .addStringOption((o) => o.setName("level").setDescription("Access level").setRequired(true).addChoices({ name: "Support", value: "support" }, { name: "Manager", value: "manager" }))
+    .addStringOption((o) => o.setName("mode").setDescription("Add or remove").setRequired(true).addChoices({ name: "Add", value: "add" }, { name: "Remove", value: "remove" })))
+  .addSubcommand((s) => s.setName("limit").setDescription("Set ticket limits")
+    .addIntegerOption((o) => o.setName("max_open").setDescription("Maximum open tickets per user").setRequired(true).setMinValue(1).setMaxValue(10))
+    .addIntegerOption((o) => o.setName("cooldown_seconds").setDescription("Seconds between new tickets").setRequired(true).setMinValue(0).setMaxValue(86400)));
+
+const vmenu = new SlashCommandBuilder()
+  .setName("vmenu")
+  .setDescription("Manage vMenu permissions for ACE groups")
+  .addSubcommand((s) => s.setName("permission").setDescription("Grant, deny, or remove a vMenu permission")
+    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true))
+    .addStringOption((o) => o.setName("permission").setDescription("vMenu permission object").setRequired(true))
+    .addStringOption((o) => o.setName("mode").setDescription("Permission mode").setRequired(true).addChoices({ name: "Allow", value: "allow" }, { name: "Deny", value: "deny" }, { name: "Remove", value: "remove" })))
+  .addSubcommand((s) => s.setName("bundle").setDescription("Apply or remove a vMenu bundle")
+    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true))
+    .addStringOption((o) => o.setName("bundle").setDescription("player, staff, or full").setRequired(true).addChoices({ name: "Player", value: "player" }, { name: "Staff", value: "staff" }, { name: "Full", value: "full" }))
+    .addStringOption((o) => o.setName("mode").setDescription("Grant or remove").setRequired(true).addChoices({ name: "Grant", value: "grant" }, { name: "Remove", value: "remove" })))
+  .addSubcommand((s) => s.setName("show").setDescription("Show a group's vMenu permissions")
+    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true)))
+  .addSubcommand((s) => s.setName("catalog").setDescription("List vMenu permissions and bundles"));
+
+const invite = new SlashCommandBuilder()
+  .setName("invite")
+  .setDescription("Get the link to add this bot to a server with Administrator");
+
+const join = new SlashCommandBuilder()
+  .setName("join")
+  .setDescription("Join any Florida Bay network server")
+  .addStringOption((o) =>
+    o.setName("server").setDescription("Network server to join").setRequired(true).setAutocomplete(true),
+  )
+  .addUserOption((o) =>
+    o.setName("user").setDescription("Send the invite to this member instead (needs fbrp.network.join.others)"),
+  );
+
+const help = new SlashCommandBuilder()
+  .setName("help")
+  .setDescription("Show all commands, descriptions, and required permissions")
+  .addStringOption((o) => o.setName("command").setDescription("Optional command name to filter"));
+
+const roster = new SlashCommandBuilder()
+  .setName("roster")
+  .setDescription("Manage the staff roster and discipline")
+  .addSubcommand((s) =>
+    s
+      .setName("add")
+      .setDescription("Add or update a roster member")
+      .addUserOption(user)
+      .addIntegerOption((o) =>
+        o
+          .setName("rank")
+          .setDescription("Rank ID from /roster list")
+          .setRequired(true)
+          .setMinValue(1),
+      )
+      .addIntegerOption((o) =>
+        o
+          .setName("callsign")
+          .setDescription("Unique staff callsign")
+          .setMinValue(1)
+          .setMaxValue(9999),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("remove")
+      .setDescription("Remove a roster member")
+      .addUserOption(user)
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("status")
+      .setDescription("Change roster status")
+      .addUserOption(user)
+      .addStringOption((o) =>
+        o
+          .setName("status")
+          .setDescription("Roster status")
+          .setRequired(true)
+          .addChoices(
+            { name: "Active", value: "active" },
+            { name: "Inactive", value: "inactive" },
+            { name: "LOA", value: "loa" },
+          ),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("discipline")
+      .setDescription("Issue a warning or strike")
+      .addUserOption(user)
+      .addStringOption((o) =>
+        o
+          .setName("kind")
+          .setDescription("Discipline type")
+          .setRequired(true)
+          .addChoices(
+            { name: "Warning", value: "warning" },
+            { name: "Strike", value: "strike" },
+          ),
+      )
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("profile")
+      .setDescription("Show one member's complete roster record")
+      .addUserOption(user),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("callsign")
+      .setDescription("Set or automatically allocate a callsign")
+      .addUserOption(user)
+      .addIntegerOption((o) =>
+        o.setName("callsign").setDescription("Leave blank for next available").setMinValue(1).setMaxValue(9999),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("note")
+      .setDescription("Set a private roster activity note")
+      .addUserOption(user)
+      .addStringOption((o) => o.setName("note").setDescription("Activity note").setRequired(true).setMaxLength(500)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("discipline-revoke")
+      .setDescription("Revoke a warning or strike")
+      .addIntegerOption((o) => o.setName("id").setDescription("Discipline record ID").setRequired(true).setMinValue(1))
+      .addStringOption(reason),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("category-upsert")
+      .setDescription("Create or update a callsign category")
+      .addStringOption((o) => o.setName("name").setDescription("Category name").setRequired(true).setMaxLength(80))
+      .addIntegerOption((o) => o.setName("start").setDescription("First callsign").setRequired(true).setMinValue(1).setMaxValue(9999))
+      .addIntegerOption((o) => o.setName("end").setDescription("Last callsign").setRequired(true).setMinValue(1).setMaxValue(9999))
+      .addIntegerOption((o) => o.setName("id").setDescription("Existing category ID; blank creates"))
+      .addIntegerOption((o) => o.setName("order").setDescription("Display order")),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("category-delete")
+      .setDescription("Delete an unused roster category")
+      .addIntegerOption((o) => o.setName("id").setDescription("Category ID").setRequired(true).setMinValue(1)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("rank-upsert")
+      .setDescription("Create or update a staff rank and role mapping")
+      .addIntegerOption((o) => o.setName("category").setDescription("Category ID").setRequired(true).setMinValue(1))
+      .addStringOption((o) => o.setName("name").setDescription("Rank name").setRequired(true).setMaxLength(80))
+      .addIntegerOption((o) => o.setName("id").setDescription("Existing rank ID; blank creates"))
+      .addRoleOption((o) => o.setName("role").setDescription("Rank role in this server"))
+      .addStringOption((o) => o.setName("ace_group").setDescription("ACE group /staff add puts this rank in").setAutocomplete(true))
+      .addIntegerOption((o) => o.setName("weekly_hours").setDescription("Weekly activity requirement").setMinValue(0).setMaxValue(168))
+      .addIntegerOption((o) => o.setName("minimum_days").setDescription("Minimum days before promotion").setMinValue(0).setMaxValue(3650))
+      .addIntegerOption((o) => o.setName("order").setDescription("Display order")),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("rank-delete")
+      .setDescription("Delete an unused staff rank")
+      .addIntegerOption((o) => o.setName("id").setDescription("Rank ID").setRequired(true).setMinValue(1)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("job-upsert")
+      .setDescription("Create or update a staff secondary job")
+      .addStringOption((o) => o.setName("name").setDescription("Job name").setRequired(true).setMaxLength(80))
+      .addIntegerOption((o) => o.setName("id").setDescription("Existing job ID; blank creates"))
+      .addStringOption((o) => o.setName("description").setDescription("Job description").setMaxLength(300))
+      .addRoleOption((o) => o.setName("role").setDescription("Job role in this server"))
+      .addIntegerOption((o) => o.setName("order").setDescription("Display order")),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("job-delete")
+      .setDescription("Delete a staff secondary job")
+      .addIntegerOption((o) => o.setName("id").setDescription("Job ID").setRequired(true).setMinValue(1)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("job-assign")
+      .setDescription("Assign a secondary job to a roster member")
+      .addUserOption(user)
+      .addIntegerOption((o) => o.setName("job").setDescription("Job ID").setRequired(true).setMinValue(1)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("job-remove")
+      .setDescription("Remove a secondary job from a roster member")
+      .addUserOption(user)
+      .addIntegerOption((o) => o.setName("job").setDescription("Job ID").setRequired(true).setMinValue(1)),
+  )
+  .addSubcommand((s) =>
+    s.setName("sync").setDescription("Sync roster ranks from Discord roles"),
+  )
+  .addSubcommand((s) =>
+    s.setName("list").setDescription("List the staff roster"),
+  );
+
+const globalUser = (option) =>
+  option.setName("user").setDescription("Member").setRequired(true);
+const globalReason = (required = true) => (option) =>
+  option.setName("reason").setDescription("Reason").setMaxLength(300).setRequired(required);
+
+const global = new SlashCommandBuilder()
+  .setName("global")
+  .setDescription("Manage a member across every Florida Bay Discord server")
+  .addSubcommand((s) =>
+    s.setName("warn").setDescription("Warn a member on a network-wide record")
+      .addUserOption(globalUser).addStringOption(globalReason()),
+  )
+  .addSubcommand((s) =>
+    s.setName("timeout").setDescription("Time a member out in every Florida Bay server")
+      .addUserOption(globalUser)
+      .addStringOption((o) => o.setName("duration").setDescription("e.g. 10m, 2h, 7d (max 28d)").setRequired(true))
+      .addStringOption(globalReason()),
+  )
+  .addSubcommand((s) =>
+    s.setName("untimeout").setDescription("Lift a member's timeout in every Florida Bay server")
+      .addUserOption(globalUser).addStringOption(globalReason(false)),
+  )
+  .addSubcommand((s) =>
+    s.setName("kick").setDescription("Kick a member from every Florida Bay server")
+      .addUserOption(globalUser).addStringOption(globalReason()),
+  )
+  .addSubcommand((s) =>
+    s.setName("ban").setDescription("Ban a member from every Florida Bay server (and servers added later)")
+      .addUserOption(globalUser)
+      .addStringOption(globalReason())
+      .addStringOption((o) => o.setName("duration").setDescription("e.g. 7d; empty = permanent"))
+      .addIntegerOption((o) => o.setName("delete_days").setDescription("Delete message history (days)").setMinValue(0).setMaxValue(7))
+      .addBooleanOption((o) => o.setName("game").setDescription("Also ban the linked game account through EasyAdmin"))
+      .addBooleanOption((o) => o.setName("alts").setDescription("Also ban alt accounts linked by game identifiers/IP (default: yes)")),
+  )
+  .addSubcommand((s) =>
+    s.setName("blacklist").setDescription("Ban from every other server and restrict to support in the main server")
+      .addUserOption(globalUser).addStringOption(globalReason()),
+  )
+  .addSubcommand((s) =>
+    s.setName("unblacklist").setDescription("Lift a global blacklist (other servers are unbanned, main roles are not restored)")
+      .addStringOption((o) => o.setName("user_id").setDescription("User ID").setRequired(true))
+      .addStringOption(globalReason(false)),
+  )
+  .addSubcommand((s) =>
+    s.setName("unban").setDescription("Lift a network-wide ban")
+      .addStringOption((o) => o.setName("user_id").setDescription("User ID").setRequired(true))
+      .addStringOption(globalReason(false))
+      .addBooleanOption((o) => o.setName("game").setDescription("Also lift the linked game ban")),
+  )
+  .addSubcommand((s) =>
+    s.setName("invite").setDescription("Invite a member to every Florida Bay network server")
+      .addUserOption(globalUser),
+  )
+  .addSubcommand((s) =>
+    s.setName("restore").setDescription("Invite a former member back and restore their roles in each server")
+      .addStringOption((o) => o.setName("user_id").setDescription("Former member's Discord user ID").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s.setName("lookup").setDescription("See which Florida Bay servers a member is in and their network record")
+      .addUserOption(globalUser),
+  );
+
+const blacklist = new SlashCommandBuilder()
+  .setName("blacklist")
+  .setDescription("Globally blacklist a member across the Florida Bay network")
+  .addUserOption(globalUser)
+  .addStringOption(globalReason());
+
+const acelist = new SlashCommandBuilder()
+  .setName("acelist")
+  .setDescription("List every possible ACE permission: vMenu, EasyAdmin, and Florida Bay")
+  .addStringOption((o) =>
+    o
+      .setName("source")
+      .setDescription("Which permissions to list (default: all)")
+      .addChoices(
+        { name: "Everything", value: "all" },
+        { name: "vMenu", value: "vmenu" },
+        { name: "EasyAdmin", value: "easyadmin" },
+        { name: "Florida Bay", value: "fbrp" },
+      ),
+  )
+  .addStringOption((o) =>
+    o.setName("search").setDescription("Filter by name, object, or description").setMaxLength(60),
+  );
+
+const userinfo = new SlashCommandBuilder()
+  .setName("userinfo")
+  .setDescription("Investigate a member across game and Discord records")
+  .addUserOption(user);
+
+const office = new SlashCommandBuilder()
+  .setName("office")
+  .setDescription("Assign organization or staff office voice channels")
+  .addSubcommand((s) =>
+    s
+      .setName("set")
+      .setDescription("Assign an office owner")
+      .addChannelOption((o) =>
+        o
+          .setName("channel")
+          .setDescription("Office voice channel")
+          .setRequired(true),
+      )
+      .addUserOption((o) =>
+        o.setName("member").setDescription("Office owner").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("clear")
+      .setDescription("Remove an office assignment")
+      .addChannelOption((o) =>
+        o
+          .setName("channel")
+          .setDescription("Office voice channel")
+          .setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s.setName("list").setDescription("List office assignments"),
+  );
+
+const security = new SlashCommandBuilder()
+  .setName("security")
+  .setDescription("Anti-nuke, anti-raid, anti-spam and lockdown controls")
+  .addSubcommand((s) => s.setName("status").setDescription("Show protections, lockdowns and the last 24 hours of events"))
+  .addSubcommand((s) =>
+    s
+      .setName("exempt-add")
+      .setDescription("Owner-only: bypass automated security globally or in this server")
+      .addUserOption((o) => o.setName("member").setDescription("Trusted account").setRequired(true))
+      .addStringOption((o) =>
+        o
+          .setName("scope")
+          .setDescription("Where the bypass applies")
+          .setRequired(true)
+          .addChoices(
+            { name: "Every network server", value: "global" },
+            { name: "This server only", value: "server" },
+          ),
+      )
+      .addStringOption((o) => o.setName("reason").setDescription("Why this account is trusted").setRequired(true).setMaxLength(200)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("exempt-remove")
+      .setDescription("Owner-only: remove an automated-security bypass")
+      .addUserOption((o) => o.setName("member").setDescription("Account to remove").setRequired(true))
+      .addStringOption((o) =>
+        o
+          .setName("scope")
+          .setDescription("Bypass to remove")
+          .setRequired(true)
+          .addChoices(
+            { name: "Every network server", value: "global" },
+            { name: "This server only", value: "server" },
+          ),
+      ),
+  )
+  .addSubcommand((s) => s.setName("exempt-list").setDescription("Owner-only: list global and server-specific bypasses"))
+  .addSubcommand((s) =>
+    s
+      .setName("config")
+      .setDescription("Change a network-wide security setting")
+      .addStringOption((o) =>
+        o
+          .setName("setting")
+          .setDescription("Setting to change")
+          .setRequired(true)
+          .setAutocomplete(true),
+      )
+      .addStringOption((o) => o.setName("value").setDescription("on/off, a number, or an option; leave blank to see the current value").setMaxLength(20)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("lockdown")
+      .setDescription("Lock this server (or the whole network) down")
+      .addStringOption(reason)
+      .addIntegerOption((o) => o.setName("minutes").setDescription("Auto-unlock after this many minutes (0 = manual)").setMinValue(0).setMaxValue(1440))
+      .addBooleanOption((o) => o.setName("network").setDescription("Lock every network server down")),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("unlock")
+      .setDescription("Lift a lockdown")
+      .addStringOption((o) => o.setName("reason").setDescription("Reason recorded in the audit log").setMaxLength(300))
+      .addBooleanOption((o) => o.setName("network").setDescription("Unlock every network server")),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("events")
+      .setDescription("Recent security events")
+      .addBooleanOption((o) => o.setName("all_servers").setDescription("Include every network server")),
+  );
+
+const backup = new SlashCommandBuilder()
+  .setName("backup")
+  .setDescription("Owner-only: back up and restore every Florida Bay Discord server")
+  .addSubcommand((s) =>
+    s
+      .setName("save")
+      .setDescription("Save a backup of EVERY network server (roles, channels, permissions, member roles)")
+      .addStringOption((o) => o.setName("label").setDescription("Optional note for this backup").setMaxLength(100)),
+  )
+  .addSubcommand((s) => s.setName("list").setDescription("List saved backups"))
+  .addSubcommand((s) =>
+    s
+      .setName("restore")
+      .setDescription("Restore EVERY network server from a backup (additive; preview unless confirm is true)")
+      .addIntegerOption((o) => o.setName("backup_id").setDescription("Backup ID (default: newest)").setMinValue(1))
+      .addBooleanOption((o) => o.setName("confirm").setDescription("true = apply the restore; otherwise only preview"))
+      .addBooleanOption((o) => o.setName("members").setDescription("Also re-give lost roles to members (default: yes)")),
+  );
+
+const verification = new SlashCommandBuilder()
+  .setName("verification")
+  .setDescription("Owner-only: website verification status and overrides")
+  .addSubcommand((s) =>
+    s.setName("status").setDescription("Show verification totals, or one member's status")
+      .addUserOption((o) => o.setName("user").setDescription("Member to inspect")),
+  )
+  .addSubcommand((s) =>
+    s.setName("grant").setDescription("Verify a member by hand and give the verified role")
+      .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s.setName("revoke").setDescription("Remove a member's verification and role")
+      .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true)),
+  );
+
+export const commands = [
+  verification,
+  backup,
+  ace,
+  headtag,
+  organization,
+  radio,
+  network,
+  globalsync,
+  mod,
+  server,
+  staff,
+  protectrole,
+  botguard,
+  security,
+  ticket,
+  support,
+  vmenu,
+  help,
+  roster,
+  global,
+  blacklist,
+  acelist,
+  userinfo,
+  office,
+  join,
+  invite,
+].map((command) => command.toJSON());

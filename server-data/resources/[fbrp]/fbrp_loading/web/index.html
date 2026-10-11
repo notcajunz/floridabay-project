@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#061722" />
+    <title>Florida Bay Roleplay</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="sky">
+      <div class="sun"></div>
+      <div class="cloud cloud-a"></div>
+      <div class="cloud cloud-b"></div>
+    </div>
+    <div class="horizon"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="water">
+      <div class="reflection"></div>
+      <div class="wave one"></div>
+      <div class="wave two"></div>
+      <div class="wave three"></div>
+    </div>
+    <div class="grain"></div>
+
+    <audio id="loading-music" autoplay loop preload="auto">
+      <source src="assets/florida-bay-night-drive.ogg" type="audio/ogg" />
+    </audio>
+    <div class="music-player" aria-label="Loading music controls">
+      <button id="music-toggle" type="button" aria-label="Pause music"><span>♫</span><b>Night Drive</b></button>
+      <input id="music-volume" type="range" min="0" max="100" value="22" aria-label="Music volume" />
+    </div>
+
+    <header class="topbar">
+      <div><span class="live"></span> FLORIDA BAY NETWORK</div>
+      <nav>
+        <span>VMenu RP</span><span>No economy</span
+        ><span>Player-led stories</span>
+      </nav>
+    </header>
+
+    <main>
+      <aside class="side-card left-card">
+        <p class="eyebrow">BUILT FOR ROLEPLAY</p>
+        <h2>Your city.<br />Your story.</h2>
+        <div class="feature">
+          <b>01</b
+          ><span
+            ><strong>Stay in character</strong
+            ><small
+              >Build scenes together. Give others room to respond.</small
+            ></span
+          >
+        </div>
+        <div class="feature">
+          <b>02</b
+          ><span
+            ><strong>Value every life</strong
+            ><small
+              >Choose believable actions and respect active scenes.</small
+            ></span
+          >
+        </div>
+        <div class="feature">
+          <b>03</b
+          ><span
+            ><strong>Use the tools</strong
+            ><small>F5 third eye · F6 tags · F7 vehicles · M vMenu</small></span
+          >
+        </div>
+      </aside>
+
+      <section class="hero">
+        <div class="logo-wrap">
+          <div class="logo-glow"></div>
+          <img src="assets/fbrp-logo.png" alt="Florida Bay Roleplay" />
+        </div>
+        <p class="welcome">WELCOME TO THE COAST</p>
+        <div class="status-line">
+          <span id="status-text">Establishing a secure session</span
+          ><strong id="percent">0%</strong>
+        </div>
+        <div class="track">
+          <div id="progress" class="progress"></div>
+          <i></i>
+        </div>
+        <p id="tip" class="tip">
+          Your server ID is always visible above your character.
+        </p>
+      </section>
+
+      <aside class="side-card right-card">
+        <p class="eyebrow">COASTAL FREQUENCY</p>
+        <div class="radio-visual">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <h3>VOICE READY</h3>
+        <p>
+          Use F9 to set your proximity. Radio channels become available through
+          your department or organization.
+        </p>
+        <div class="quote">“Create the scene you would want to join.”</div>
+      </aside>
+    </main>
+
+    <footer>
+      <span>FLORIDA BAY ROLEPLAY</span>
+      <div class="keys">
+        <b>M</b> VMENU <b>F5</b> THIRD EYE <b>F6</b> TAGS <b>F7</b> GARAGE <b>F11</b> ADMIN
+      </div>
+      <span id="clock">00:00</span>
+    </footer>
+    <script src="loading.js"></script>
+  </body>
+</html>

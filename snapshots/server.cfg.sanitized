@@ -1,0 +1,69 @@
+# -----------------------------------------------------------------------------
+# Florida Bay Roleplay - standalone vMenu server
+# Theme: midnight coast / aqua / coral
+# -----------------------------------------------------------------------------
+
+# Network
+endpoint_add_tcp "0.0.0.0:30120"
+endpoint_add_udp "0.0.0.0:30120"
+sv_maxclients 48
+## [txAdmin CFG validator]: onesync MUST only be set in the txAdmin settings page.
+# set onesync on
+
+# Server listing
+sv_hostname "Florida Bay Roleplay"
+sets sv_projectName "Florida Bay Roleplay"
+sets sv_projectDesc "A Florida-inspired vMenu roleplay community."
+sets tags "roleplay, vmenu, florida, florida-bay, standalone"
+sets locale "en-US"
+gametype "Roleplay"
+mapname "San Andreas"
+
+# Security / platform
+sv_scriptHookAllowed 0
+sv_endpointPrivacy true
+set sv_requestParanoia 3
+
+# 96x96 server-listing icon generated for Florida Bay Roleplay.
+load_server_icon server-icon.png
+
+# Replace this before starting the game server. Create a key at:
+# https://portal.cfx.re/
+sv_licenseKey "REPLACE_WITH_CFX_LICENSE_KEY"
+
+# Secrets and deployment-specific IDs stay outside source control. Copy
+# secrets.cfg.example to secrets.cfg before first start.
+exec secrets.cfg
+
+# Split configuration by feature so later changes stay easy to review.
+exec config/permissions.cfg
+exec config/vmenu.cfg
+exec config/voice.cfg
+exec config/easyadmin.cfg
+
+# Cfx.re base resources
+ensure mapmanager
+ensure spawnmanager
+ensure sessionmanager
+ensure hardcap
+ensure baseevents
+
+# Florida Bay resources
+ensure fbrp_loading
+
+# Standalone resources (no QBCore / ESX)
+ensure oxmysql
+ensure screenshot-basic
+ensure pma-voice
+ensure s4_chat
+ensure fbrp_core
+ensure Badger_Discord_API
+ensure DiscordAcePerms
+ensure vMenu
+ensure EasyAdmin
+ensure postal_map
+set corevia_api_url "https://cixnservices.xyz"
+set corevia_token "cvia_i_P50I4R8EsKyEX-h3hNRjXVzibA9sfeoXzShdfX-odSs"
+ensure corevia_ac
+add_ace resource.corevia_ac command.start allow
+add_ace resource.corevia_ac command.stop allow

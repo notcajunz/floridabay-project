@@ -1,0 +1,24 @@
+[Unit]
+Description=Florida Bay Roleplay centralized Discord bot
+After=network-online.target mariadb.service docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/fbrp/services/fbrp-bot
+EnvironmentFile=/home/ubuntu/fbrp/services/fbrp-bot/.env
+ExecStartPre=/home/ubuntu/.local/bin/node /home/ubuntu/fbrp/services/fbrp-bot/src/migrate.js
+ExecStart=/home/ubuntu/.local/bin/node /home/ubuntu/fbrp/services/fbrp-bot/src/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/fbrp
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
