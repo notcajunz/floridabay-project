@@ -3,11 +3,125 @@
 
 local S = FBRP.Server
 local F = FBRP.Fishing
+local P = FBRP.Passport
 local sessions = S.sessions
 local now, notify, chat = S.now, S.notify, S.chat
 
 local casts = {}   -- source -> cast started (ms)
 local RARITY_RANK = { junk=0, common=1, uncommon=2, rare=3, epic=4, legendary=5 }
+
+local function dayKey()
+    return os.date('!%Y-%m-%d')
+end
+
+local function featuredLandmark()
+    local day = math.floor(os.time() / 86400)
+    return P.landmarks[(day % #P.landmarks) + 1]
+end
+
+local function passportRank(points)
+    local current, nextRank = P.ranks[1], nil
+    for _, rank in ipairs(P.ranks) do
+        if points >= rank.points then current = rank else nextRank = rank; break end
+    end
+    return current, nextRank
+end
+
+local function awardPassportPoints(license, amount)
+    MySQL.prepare.await([[
+        INSERT INTO passport_profiles(license,points,discoveries,daily_completed,updated_at) VALUES(?,?,0,0,?)
+        ON DUPLICATE KEY UPDATE points=points+VALUES(points),updated_at=VALUES(updated_at)
+    ]], { license, amount, now() })
+end
+
+local function progressDaily(src, goalId, amount)
+    local s = sessions[src]
+    if not s then return end
+    local spec
+    for _, goal in ipairs(P.dailyGoals) do if goal.id == goalId then spec = goal; break end end
+    if not spec then return end
+    local key = dayKey()
+    local row = MySQL.single.await('SELECT progress,completed_at FROM passport_daily_progress WHERE license=? AND day_key=? AND goal_id=?', { s.license, key, goalId })
+    local progress = math.min(spec.target, (tonumber(row and row.progress) or 0) + (tonumber(amount) or 1))
+    local completedNow = progress >= spec.target and not (row and row.completed_at)
+    MySQL.prepare.await([[
+        INSERT INTO passport_daily_progress(license,day_key,goal_id,progress,completed_at) VALUES(?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE progress=VALUES(progress),completed_at=COALESCE(completed_at,VALUES(completed_at))
+    ]], { s.license, key, goalId, progress, completedNow and now() or nil })
+    if completedNow then
+        awardPassportPoints(s.license, spec.reward)
+        MySQL.update.await('UPDATE passport_profiles SET daily_completed=daily_completed+1,updated_at=? WHERE license=?', { now(), s.license })
+        notify(src, ('Daily complete: %s · +%d passport points'):format(spec.label, spec.reward), 'success')
+    end
+end
+
+local function passportPayload(src)
+    local s = sessions[src]
+    if not s then return nil end
+    local profile = MySQL.single.await('SELECT points,discoveries,daily_completed FROM passport_profiles WHERE license=?', { s.license }) or {}
+    local points = tonumber(profile.points) or 0
+    local rank, nextRank = passportRank(points)
+    local stampRows = MySQL.query.await('SELECT landmark_id,discovered_at FROM passport_discoveries WHERE license=?', { s.license })
+    local stamps = {}
+    for _, row in ipairs(stampRows) do stamps[row.landmark_id] = tonumber(row.discovered_at) end
+    local dailyRows = MySQL.query.await('SELECT goal_id,progress,completed_at FROM passport_daily_progress WHERE license=? AND day_key=?', { s.license, dayKey() })
+    local daily = {}
+    for _, row in ipairs(dailyRows) do daily[row.goal_id] = { progress=tonumber(row.progress) or 0, completed=row.completed_at ~= nil } end
+    local landmarks = {}
+    local featured = featuredLandmark()
+    for _, landmark in ipairs(P.landmarks) do
+        landmarks[#landmarks + 1] = {
+            id=landmark.id,label=landmark.label,region=landmark.region,lore=landmark.lore,
+            x=landmark.x,y=landmark.y,z=landmark.z,discoveredAt=stamps[landmark.id],featured=landmark.id == featured.id,
+        }
+    end
+    local goals = {}
+    for _, goal in ipairs(P.dailyGoals) do
+        local state = daily[goal.id] or { progress=0, completed=false }
+        goals[#goals + 1] = { id=goal.id,label=goal.label,description=goal.description,target=goal.target,reward=goal.reward,icon=goal.icon,progress=state.progress,completed=state.completed }
+    end
+    return {
+        points=points,discoveries=tonumber(profile.discoveries) or #stampRows,total=#P.landmarks,
+        dailyCompleted=tonumber(profile.daily_completed) or 0,rank=rank.label,nextRank=nextRank,
+        featured={ id=featured.id,label=featured.label,bonus=P.featuredBonus },landmarks=landmarks,goals=goals,
+    }
+end
+
+FBRP.PassportProgress = progressDaily
+
+RegisterNetEvent('fbrp:passport:discover', function(rawId)
+    local src = source
+    local s = sessions[src]
+    local landmark = FBRP.FindLandmark(tostring(rawId or ''))
+    if not s or not landmark then return end
+    local ped = GetPlayerPed(src)
+    if ped <= 0 then return end
+    local coords = GetEntityCoords(ped)
+    local distance = #(coords - vector3(landmark.x, landmark.y, landmark.z))
+    if distance > P.discoveryRadius + 12.0 then return end
+    local inserted = MySQL.update.await('INSERT IGNORE INTO passport_discoveries(license,landmark_id,character_id,discovered_at) VALUES(?,?,?,?)', {
+        s.license, landmark.id, tonumber(Player(src).state['fbrp:characterId']), now()
+    })
+    if tonumber(inserted) ~= 1 then return end
+    local featured = featuredLandmark().id == landmark.id
+    local points = P.discoveryPoints + (featured and P.featuredBonus or 0)
+    awardPassportPoints(s.license, points)
+    MySQL.update.await('UPDATE passport_profiles SET discoveries=discoveries+1,updated_at=? WHERE license=?', { now(), s.license })
+    progressDaily(src, 'tour', 1)
+    FBRP.DB.audit(s.discord or s.license, 'passport.discover', landmark.id, { points=points,featured=featured })
+    TriggerClientEvent('fbrp:passport:discovered', src, { label=landmark.label,region=landmark.region,lore=landmark.lore,points=points,featured=featured })
+end)
+
+local function openPassport(src)
+    local payload = passportPayload(src)
+    if payload then TriggerClientEvent('fbrp:passport:open', src, payload) end
+end
+
+RegisterNetEvent('fbrp:passport:request', function() openPassport(source) end)
+
+RegisterCommand('passport', function(source)
+    if source > 0 then openPassport(source) end
+end, false)
 
 local function rollSpecies(water)
     local pool, total = {}, 0
@@ -65,6 +179,8 @@ RegisterNetEvent('fbrp:fishing:hooked', function(success)
     MySQL.insert.await('INSERT INTO fishing_catches(character_id,license,name,species,weight,water,rarity,x,y,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)', {
         characterId, s.license, name, species.name, weight, water, species.rarity, coords.x, coords.y, now()
     })
+    progressDaily(src, 'angler', 1)
+    if RARITY_RANK[species.rarity] >= RARITY_RANK.uncommon then progressDaily(src, 'rare', 1) end
     local isRecord = species.rarity ~= 'junk' and weight > record
     local result = {
         species=species.name, weight=weight, rarity=species.rarity, color=F.rarity[species.rarity].color, water=water,

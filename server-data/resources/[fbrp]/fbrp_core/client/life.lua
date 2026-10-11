@@ -301,3 +301,57 @@ AddEventHandler('onResourceStop', function(name)
     if current then deleteProps(current.props) end
     if fishing then deleteProps({ fishing.rod }) end
 end)
+
+-- ───────────────────── coastal passport ─────────────────────
+
+local passportReported = {}
+
+RegisterCommand('passport', function()
+    if FBRP.IsMenuOpen() then return end
+    TriggerServerEvent('fbrp:passport:request')
+end, false)
+RegisterKeyMapping('passport', 'Open Coastal Passport', 'keyboard', 'F4')
+
+RegisterNetEvent('fbrp:passport:open', function(data)
+    FBRP.OpenMenu('passport', data)
+end)
+
+RegisterNetEvent('fbrp:passport:discovered', function(data)
+    ui({ type='passportDiscovery', data=data })
+    notify(('Passport stamped: %s · +%d points'):format(data.label or 'Landmark', tonumber(data.points) or 0), 'success')
+    if FBRP.IsMenuOpen() and FBRP.MenuView() == 'passport' then TriggerServerEvent('fbrp:passport:request') end
+end)
+
+RegisterNUICallback('passportWaypoint', function(data, cb)
+    local landmark = FBRP.FindLandmark(type(data) == 'table' and tostring(data.id or '') or '')
+    if landmark then
+        SetNewWaypoint(landmark.x + 0.0, landmark.y + 0.0)
+        PlaySoundFrontend(-1, 'WAYPOINT_SET', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
+        notify(('Route set for %s.'):format(landmark.label), 'info')
+        cb({ ok=true })
+        return
+    end
+    cb({ ok=false })
+end)
+
+CreateThread(function()
+    while not NetworkIsSessionStarted() do Wait(500) end
+    Wait(4000)
+    while true do
+        local coords = GetEntityCoords(PlayerPedId())
+        local nearest, distance = nil, 999999.0
+        for _, landmark in ipairs(FBRP.Passport.landmarks) do
+            if not passportReported[landmark.id] then
+                local d = #(coords - vector3(landmark.x, landmark.y, landmark.z))
+                if d < distance then nearest, distance = landmark, d end
+            end
+        end
+        if nearest and distance <= FBRP.Passport.discoveryRadius then
+            passportReported[nearest.id] = true
+            TriggerServerEvent('fbrp:passport:discover', nearest.id)
+            Wait(2500)
+        else
+            Wait(distance < FBRP.Passport.nearbyRadius and 400 or 1800)
+        end
+    end
+end)

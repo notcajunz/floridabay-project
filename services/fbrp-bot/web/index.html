@@ -13,7 +13,7 @@
     <link rel="icon" href="logo-128.webp" type="image/webp">
     <link rel="preload" href="fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="site.css?v=6">
+    <link rel="stylesheet" href="site.css?v=7">
   </head>
   <body class="landing">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -27,6 +27,7 @@
         <nav class="topnav-links" id="topnav-links" aria-label="Main">
           <a href="#features">Features</a>
           <a href="#departments">Departments</a>
+          <a href="#explore">Explore</a>
           <a href="#join">How to join</a>
           <a href="#faq">FAQ</a>
         </nav>
@@ -206,6 +207,18 @@
               </div>
             </article>
 
+            <article class="tile tile-wide tile-passport reveal">
+              <div class="tile-art passport-art" aria-hidden="true">
+                <span class="passport-ring"><b>7</b><small>/ 10 stamps</small></span>
+                <div><i class="stamped">✓</i><i class="stamped">✓</i><i class="stamped">✓</i><i>04</i><i class="featured">★</i></div>
+              </div>
+              <div class="tile-copy">
+                <span class="tile-tag">New · Coastal Passport</span>
+                <h3>The map is part of the game.</h3>
+                <p>Find ten hand-picked landmarks, collect permanent stamps, climb five explorer ranks, and clear rotating daily field notes.</p>
+              </div>
+            </article>
+
             <article class="tile reveal">
               <div class="tile-art art-case" aria-hidden="true">
                 <div class="case-card">
@@ -270,7 +283,7 @@
           <div class="stat reveal"><b data-count id="stat-players">0</b><span>players in the city right now</span></div>
           <div class="stat reveal"><b data-count id="stat-staff">0</b><span>members on the staff roster</span></div>
           <div class="stat reveal"><b data-count id="stat-tickets">0</b><span>support tickets resolved</span></div>
-          <div class="stat reveal"><b>24/7</b><span>connected Discord ↔ game sync</span></div>
+          <div class="stat reveal"><b id="stat-explorers">10</b><span>Coastal Passport landmarks to discover</span></div>
         </div>
       </section>
 
@@ -309,6 +322,56 @@
               <p>Businesses, creators, government, and the stories that never needed a badge to matter.</p>
               <ul><li>Businesses</li><li>Government</li><li>Your own story</li></ul>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- INTERACTIVE CITY EXPLORER -->
+      <section id="explore" class="section explorer-section">
+        <div class="wrap">
+          <header class="section-head split reveal">
+            <div><span class="kicker">City explorer</span><h2>Pick a direction. <em>Find a story.</em></h2></div>
+            <p>Preview six distinct corners of the map, then let the field guide suggest a first scene built around how you like to play.</p>
+          </header>
+          <div class="explorer reveal">
+            <div class="explorer-map" aria-label="Interactive region map">
+              <div class="map-coast" aria-hidden="true"><i></i><i></i><i></i></div>
+              <button class="map-point active" style="--x:38%;--y:77%" data-region="city"><i></i><span>Los Santos</span></button>
+              <button class="map-point" style="--x:48%;--y:46%" data-region="desert"><i></i><span>Grand Senora</span></button>
+              <button class="map-point" style="--x:61%;--y:34%" data-region="alamo"><i></i><span>Alamo Sea</span></button>
+              <button class="map-point" style="--x:39%;--y:12%" data-region="paleto"><i></i><span>Paleto Bay</span></button>
+              <button class="map-point" style="--x:24%;--y:49%" data-region="tongva"><i></i><span>Tongva Hills</span></button>
+              <button class="map-point" style="--x:77%;--y:24%" data-region="east"><i></i><span>East Coast</span></button>
+              <div class="map-compass">N</div>
+            </div>
+            <article class="region-card" id="region-card" aria-live="polite">
+              <span class="region-number" id="region-number">01</span>
+              <small id="region-kicker">CITY STORIES</small>
+              <h3 id="region-title">Los Santos</h3>
+              <p id="region-copy">Dense calls, late-night traffic stops, businesses, nightlife, and stories that collide block by block.</p>
+              <div class="region-tags" id="region-tags"><span>Fast-paced</span><span>Police</span><span>Nightlife</span></div>
+              <div class="region-scene"><small>TRY THIS SCENE</small><b id="region-scene">Open a late-night food stand and see who becomes a regular.</b></div>
+              <a class="btn btn-sun" data-connect href="fivem://connect/join.floridabay.net">Start here</a>
+            </article>
+          </div>
+
+          <div class="field-guide reveal">
+            <div>
+              <span class="kicker">First-scene generator</span>
+              <h3>What sounds fun tonight?</h3>
+              <div class="guide-options" role="group" aria-label="Choose a play style">
+                <button data-guide="action">I want action</button><button data-guide="social">Meet people</button><button data-guide="slow">Take it slow</button>
+              </div>
+            </div>
+            <div class="guide-result" id="guide-result">
+              <small>YOUR FIELD NOTE</small><b>Pick a mood and we’ll give you a scene starter.</b><p>No application or grind required—just bring a character idea.</p>
+            </div>
+            <aside class="city-brief">
+              <small>LIVE CITY BRIEF</small>
+              <div><span>Area of play</span><b id="brief-aop">Statewide</b></div>
+              <div><span>Priority</span><b id="brief-priority">Checking…</b></div>
+              <div><span>Peacetime</span><b id="brief-peacetime">Checking…</b></div>
+            </aside>
           </div>
         </div>
       </section>
@@ -422,13 +485,13 @@
       <div class="wrap footer-inner">
         <a class="brand" href="./"><img src="logo-128.webp" alt="" width="36" height="36"><span><b>Florida Bay</b><small>Roleplay</small></span></a>
         <nav aria-label="Footer">
-          <a href="#features">Features</a><a href="#departments">Departments</a><a href="#join">Join</a><a href="portal.html">Portal</a>
+          <a href="#features">Features</a><a href="#departments">Departments</a><a href="#explore">Explore</a><a href="#join">Join</a><a href="portal.html">Portal</a>
         </nav>
         <small>© <span id="year">2026</span> Florida Bay Roleplay. Not affiliated with Rockstar Games or Cfx.re.</small>
       </div>
     </footer>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="landing.js?v=3"></script>
+    <script type="module" src="landing.js?v=4"></script>
   </body>
 </html>

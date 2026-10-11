@@ -1223,9 +1223,12 @@ export function startWebPanel(context) {
           online: Boolean(health?.ok),
           players: Number(health?.players || 0),
           aop: health?.aop || "Statewide",
+          peacetime: Boolean(health?.peacetime),
+          priority: health?.priority && typeof health.priority === "object" ? health.priority : {},
           bot: client.isReady(),
           staff: Number(staff?.count || 0),
           ticketsResolved: Number(cases?.count || 0),
+          passportLandmarks: 10,
           connectUrl: connectUrl() || "fivem://connect/join.floridabay.net",
         });
       }

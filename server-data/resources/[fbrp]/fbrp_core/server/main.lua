@@ -1154,7 +1154,13 @@ end
 
 SetHttpHandler(function(req,res)
     local headers={['Content-Type']='application/json',['Cache-Control']='no-store'}
-    if req.path=='/health' and req.method=='GET' then res.writeHead(200,headers); return res.send(json.encode({ok=ready,players=#GetPlayers(),aop=GlobalState['fbrp:aop']})) end
+    if req.path=='/health' and req.method=='GET' then
+        res.writeHead(200,headers)
+        return res.send(json.encode({
+            ok=ready,players=#GetPlayers(),aop=GlobalState['fbrp:aop'],
+            peacetime=GlobalState['fbrp:peacetime']==true,priority=GlobalState['fbrp:priority'] or {}
+        }))
+    end
     if not authorized(req) then res.writeHead(401,{['Content-Type']='application/json'}); return res.send('{"ok":false,"error":"unauthorized"}') end
     req.setDataHandler(function(body)
         local ok,payload=pcall(json.decode,body~='' and body or '{}'); if not ok then payload={} end

@@ -41,6 +41,13 @@ fetch("api/public/status", { cache: "no-store" })
     countTo($("#stat-players"), status.players);
     countTo($("#stat-staff"), status.staff);
     countTo($("#stat-tickets"), status.ticketsResolved);
+    countTo($("#stat-explorers"), status.passportLandmarks || 10);
+    $("#brief-aop").textContent = status.aop || "Statewide";
+    $("#brief-peacetime").textContent = status.peacetime ? "In effect" : "Off";
+    const priorities = Object.values(status.priority || {});
+    const active = priorities.find((item) => item?.status === "active");
+    const cooldown = priorities.find((item) => item?.status === "cooldown");
+    $("#brief-priority").textContent = active ? `In progress · ${active.label || active.zone || "city"}` : cooldown ? `Cooldown · ${cooldown.remaining || 0}m` : "Available";
     if (status.connectUrl) {
       $$("[data-connect]").forEach((link) => (link.href = status.connectUrl));
       const address = String(status.connectUrl).replace(/^fivem:\/\/connect\//, "");
@@ -52,7 +59,50 @@ fetch("api/public/status", { cache: "no-store" })
     $("#server-state").textContent = "Status unavailable";
     $("#server-detail").textContent = "Try the portal or connect in FiveM";
     $("#dock-state").textContent = "Unknown";
+    $("#brief-priority").textContent = "Status unavailable";
+    $("#brief-peacetime").textContent = "—";
   });
+
+const regions = {
+  city: { number: "01", kicker: "CITY STORIES", title: "Los Santos", copy: "Dense calls, late-night traffic stops, businesses, nightlife, and stories that collide block by block.", tags: ["Fast-paced", "Police", "Nightlife"], scene: "Open a late-night food stand and see who becomes a regular." },
+  desert: { number: "02", kicker: "OPEN-ROAD STORIES", title: "Grand Senora", copy: "Long roads, roadside trouble, dusty hideouts, and room for a strange idea to breathe.", tags: ["Road trips", "Outlaws", "Mechanics"], scene: "Break down on Route 68 with a suspicious package in the trunk." },
+  alamo: { number: "03", kicker: "WATERFRONT STORIES", title: "Alamo Sea", copy: "Quiet marinas and scrubland surround fresh-water fishing, boat calls, and patient small-town scenes.", tags: ["Fishing", "EMS", "Slow burn"], scene: "Launch before sunrise and chase the freshwater server record." },
+  paleto: { number: "04", kicker: "SMALL-TOWN STORIES", title: "Paleto Bay", copy: "A close-knit northern town where everybody recognizes the cruiser—and remembers your last scene.", tags: ["Community", "Fire & Rescue", "Local life"], scene: "Start a volunteer search party when a hiker misses check-in." },
+  tongva: { number: "05", kicker: "HIDDEN STORIES", title: "Tongva Hills", copy: "Vineyards, switchbacks, waterfalls, and secluded overlooks made for intimate character work.", tags: ["Exploration", "Photography", "Civilian"], scene: "Plan a photo shoot that accidentally captures evidence of a crime." },
+  east: { number: "06", kicker: "COASTAL STORIES", title: "East Coast", copy: "Cliff roads and a lonely lighthouse make the eastern shore perfect for patrols, rescues, and secrets.", tags: ["Coast guard", "Chases", "Passport"], scene: "Follow a distress flare to the lighthouse after the storm rolls in." },
+};
+
+$$('[data-region]').forEach((button) => button.addEventListener('click', () => {
+  const region = regions[button.dataset.region];
+  if (!region) return;
+  $$('[data-region]').forEach((node) => node.classList.toggle('active', node === button));
+  const card = $('#region-card');
+  card.classList.remove('region-swap');
+  void card.offsetWidth;
+  card.classList.add('region-swap');
+  $('#region-number').textContent = region.number;
+  $('#region-kicker').textContent = region.kicker;
+  $('#region-title').textContent = region.title;
+  $('#region-copy').textContent = region.copy;
+  $('#region-tags').innerHTML = region.tags.map((tag) => `<span>${tag}</span>`).join('');
+  $('#region-scene').textContent = region.scene;
+}));
+
+const guide = {
+  action: ["Report a stolen sports car, then play both the frantic owner and the officers hunting it.", "Best fit: Los Santos or Grand Senora · try /911 when the scene is ready."],
+  social: ["Host a sunset meet at Del Perro Pier and give every arrival one question that reveals their character.", "Best fit: Los Santos · make the pier your first Passport stamp."],
+  slow: ["Take a battered truck north, fish the Alamo Sea, and stop anywhere the road gives you an excuse.", "Best fit: Alamo Sea to Paleto Bay · press F4 for your Passport."],
+};
+$$('[data-guide]').forEach((button) => button.addEventListener('click', () => {
+  const result = guide[button.dataset.guide];
+  if (!result) return;
+  $$('[data-guide]').forEach((node) => node.classList.toggle('active', node === button));
+  const box = $('#guide-result');
+  box.classList.remove('pop');
+  void box.offsetWidth;
+  box.classList.add('pop');
+  box.innerHTML = `<small>YOUR FIELD NOTE</small><b>${result[0]}</b><p>${result[1]}</p>`;
+}));
 
 async function copyConnect() {
   try {

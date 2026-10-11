@@ -2,8 +2,8 @@ fx_version 'cerulean'
 game 'gta5'
 
 author 'Florida Bay Roleplay'
-description 'Standalone vMenu roleplay systems, Discord ACE bridge, duty, organizations, tags, interactions, HUD, vehicle garage, prison, MDT, medical and civilian activities'
-version '1.1.0'
+description 'Standalone vMenu roleplay systems, Discord ACE bridge, duty, organizations, tags, interactions, HUD, vehicle garage, prison, MDT, medical, fishing and Coastal Passport exploration'
+version '1.2.0'
 
 lua54 'yes'
 

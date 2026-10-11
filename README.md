@@ -20,6 +20,7 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 - ID cards (`/showid`, third eye "Show my ID"; police checks flag active warrants).
 - Emotes: F3 menu or `/e <name>` (55 emotes, some with props), X hands up / cancel, B point.
 - Fishing (`/fish`): salt- and freshwater species around Florida Bay, a reel-in mini-game, personal bests, server records (`/fishlog`, `/fishtop`).
+- Coastal Passport (`F4` or `/passport`): ten server-validated landmarks, permanent discovery stamps, five explorer ranks, a rotating featured stop, route setting, and three daily field notes tied to exploration and fishing.
 - Original Florida Bay loading screen and generated Florida Bay Roleplay logo.
 - AOP, peacetime, priority, announcements, dispatch calls, audit records, moderation cases, security incidents, tag selection, rosters, and all shift data in MariaDB.
 - Badger-compatible `GetDiscordRoles`, identity, role-list exports plus `DiscordAcePerms`-style role-to-ACE syncing, backed by the centralized bot cache. The Discord bot token is not exposed to FXServer.
@@ -116,6 +117,7 @@ Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11
 | Control | Action |
 |---|---|
 | M | vMenu |
+| F4 | Coastal Passport and daily field notes |
 | F5 | Third-eye player interactions (look at a nearby player) |
 | F6 | Headtag/gang-tag wardrobe |
 | F7 | Custom vehicle garage |

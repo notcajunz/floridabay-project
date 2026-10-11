@@ -3784,6 +3784,28 @@ function welcomePayload(guild) {
   return { embeds: [embed], components };
 }
 
+/** Publicly answers !f8 in every registered network server with the current connect command. */
+async function replyWithF8Command(message) {
+  if (message.author.bot || !message.guild || message.content.trim().toLowerCase() !== "!f8") return;
+  const registered = (await networkRows()).some((row) => String(row.guild_id) === message.guild.id);
+  if (!registered) return;
+
+  const address = connectUrl().replace(/^fivem:\/\/connect\//, "") || "join.floridabay.net";
+  const response = card("Connect to Florida Bay Roleplay", {
+    color: COLORS.primary,
+    description: "Open FiveM, press **F8**, paste the command below, and press **Enter**.",
+    rows: [
+      ["F8 connect command", `\`connect ${address}\``, false],
+      ["Before you join", "Keep the Discord desktop app open so FiveM can verify your account and sync your roles.", false],
+    ],
+    footer: "Florida Bay Roleplay · See you beyond the bridge",
+  });
+  await message.reply({
+    embeds: [response],
+    allowedMentions: { parse: [], repliedUser: false },
+  });
+}
+
 /** /welcome: owner-only. Creates (or refreshes) the welcome channel and its verification guide. */
 async function welcomeCommand(i) {
   if (i.user.id !== OWNER_DISCORD_ID && !superuserIds().has(i.user.id)) throw new Error("Only a Florida Bay owner can use /welcome.");
@@ -4208,7 +4230,12 @@ client.on("roleUpdate", () => {
 });
 client.on("guildBanAdd", (ban) => void recordNativeDiscordBan(ban).catch(securityError("ban record")));
 client.on("guildUpdate", (oldGuild, newGuild) => void guardGuildUpdate(oldGuild, newGuild, securityLog).catch(securityError("guild update")));
-client.on("messageCreate", (message) => void guardMessage(message, securityLog).catch(securityError("message")));
+client.on("messageCreate", (message) => {
+  void guardMessage(message, securityLog).catch(securityError("message"));
+  void replyWithF8Command(message).catch((error) =>
+    console.error("[FBRP bot] !f8 reply:", error.message || error),
+  );
+});
 
 const shutdown = async (signal) => {
   console.log(`[FBRP bot] ${signal}, shutting down.`);

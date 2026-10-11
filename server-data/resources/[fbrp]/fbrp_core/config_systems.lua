@@ -198,6 +198,47 @@ FBRP.Fishing = {
     },
 }
 
+-- The Coastal Passport turns the map itself into a long-running activity. A
+-- player discovers each stop by physically visiting it; the server validates
+-- the distance and persists the stamp. Daily goals deliberately overlap with
+-- normal roleplay (exploration and fishing) instead of creating an economy.
+FBRP.Passport = {
+    discoveryRadius = 38.0,
+    nearbyRadius = 110.0,
+    discoveryPoints = 100,
+    featuredBonus = 50,
+    ranks = {
+        { points=0, label='New Arrival' },
+        { points=300, label='Coast Wanderer' },
+        { points=700, label='Bay Pathfinder' },
+        { points=1200, label='Florida Local' },
+        { points=1900, label='Coastal Legend' },
+    },
+    dailyGoals = {
+        { id='tour', label='Coastal Tour', description='Stamp 2 new passport stops', target=2, reward=125, icon='pin' },
+        { id='angler', label='Tight Lines', description='Land 3 fish', target=3, reward=75, icon='fish' },
+        { id='rare', label='Rare Find', description='Land an uncommon-or-better fish', target=1, reward=100, icon='sparkles' },
+    },
+    landmarks = {
+        { id='del_perro', label='Del Perro Pier', region='Los Santos', lore='Neon, salt air, and the city skyline at your back.', x=-1847.2, y=-1195.8, z=19.2 },
+        { id='observatory', label='Galileo Observatory', region='Vinewood Hills', lore='The whole basin opens beneath the domes.', x=-438.7, y=1075.0, z=352.4 },
+        { id='vinewood', label='Vinewood Sign', region='Vinewood Hills', lore='A postcard view from above the letters.', x=741.3, y=1200.5, z=325.2 },
+        { id='sandy_airfield', label='Sandy Airfield', region='Blaine County', lore='Dust, hangars, and stories waiting to take off.', x=1747.0, y=3273.7, z=41.1 },
+        { id='alamo', label='Alamo Sea Lookout', region='Blaine County', lore='The inland sea at its quietest edge.', x=1304.3, y=4227.4, z=33.9 },
+        { id='quarry', label='Davis Quartz', region='Grand Senora', lore='An industrial canyon cut into the desert.', x=2956.4, y=2787.2, z=41.5 },
+        { id='paleto_pier', label='Paleto Pier', region='Paleto Bay', lore='The north coast where the mountains meet the Pacific.', x=-278.1, y=6638.7, z=7.5 },
+        { id='chiliad', label='Mount Chiliad Summit', region='San Andreas', lore='The highest stamp in the passport.', x=450.2, y=5566.1, z=806.2 },
+        { id='lighthouse', label='El Gordo Lighthouse', region='East Coast', lore='A lonely beacon above the eastern surf.', x=3315.4, y=5175.0, z=18.6 },
+        { id='tongva', label='Tongva Falls', region='Tongva Hills', lore='A hidden ribbon of water beyond the vineyards.', x=-1577.7, y=2102.7, z=67.6 },
+    },
+}
+
+function FBRP.FindLandmark(id)
+    for _, landmark in ipairs(FBRP.Passport.landmarks) do
+        if landmark.id == id then return landmark end
+    end
+end
+
 function FBRP.FindCharge(id)
     for _, charge in ipairs(FBRP.PenalCode) do
         if charge.id == id then return charge end

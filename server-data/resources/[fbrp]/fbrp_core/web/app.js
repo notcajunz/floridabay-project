@@ -561,6 +561,38 @@ function renderControl(data) {
   return `${head(data.focus === "aop" ? "Area of play" : "Priority", "Changes are announced to the whole server.", `AOP <b>${esc(data.aop)}</b>`)}${sections.join("")}`;
 }
 
+function renderPassport(data) {
+  const total = Math.max(1, Number(data.total) || 1);
+  const found = Number(data.discoveries) || 0;
+  const percent = clamp((found / total) * 100, 0, 100);
+  const next = data.nextRank;
+  const rankProgress = next ? clamp(((Number(data.points) || 0) / Number(next.points || 1)) * 100, 0, 100) : 100;
+  const goals = (data.goals || []).map((goal) => {
+    const progress = Math.min(Number(goal.target) || 1, Number(goal.progress) || 0);
+    const pct = clamp((progress / Math.max(1, Number(goal.target))) * 100, 0, 100);
+    return `<article class="passport-goal${goal.completed ? " complete" : ""}">
+      <span class="passport-goal-icon">${icon(goal.icon || "sparkles")}</span>
+      <div><strong>${esc(goal.label)}</strong><small>${esc(goal.description)}</small><i><b style="width:${pct}%"></b></i></div>
+      <em>${goal.completed ? "Done" : `${progress}/${Number(goal.target)}`}<small>+${Number(goal.reward)} pts</small></em>
+    </article>`;
+  }).join("");
+  const landmarks = (data.landmarks || []).map((landmark, index) => {
+    const discovered = Boolean(landmark.discoveredAt);
+    return `<button class="passport-stop${discovered ? " stamped" : ""}${landmark.featured ? " featured" : ""}" data-passport-waypoint="${esc(landmark.id)}">
+      <span class="passport-stamp">${discovered ? icon("check") : String(index + 1).padStart(2, "0")}</span>
+      <span><small>${esc(landmark.region)}${landmark.featured ? " · Today's featured stop" : ""}</small><strong>${esc(landmark.label)}</strong><p>${esc(landmark.lore)}</p></span>
+      <em>${icon("pin")} Route</em>
+    </button>`;
+  }).join("");
+  return `${head("Coastal Passport", "Explore the map, collect permanent stamps, and finish optional daily goals.", `<b>${found}/${total}</b> stamped`)}
+    <section class="passport-hero">
+      <div class="passport-seal">${icon("pin")}<span>${Math.round(percent)}%</span></div>
+      <div><span class="eyebrow">${esc(data.rank || "New Arrival")}</span><h3>${Number(data.points) || 0} passport points</h3><p>${next ? `${Number(next.points) - Number(data.points || 0)} points to ${esc(next.label)}` : "Top rank reached · you know every road home."}</p><div class="passport-rank"><i style="width:${rankProgress}%"></i></div></div>
+      <aside><small>Featured today</small><b>${esc(data.featured?.label || "The coast")}</b><span>+${Number(data.featured?.bonus) || 0} bonus points</span></aside>
+    </section>
+    <div class="passport-layout"><section><div class="eyebrow">Today's field notes</div><div class="passport-goals">${goals}</div></section><section><div class="eyebrow">Map stamps · tap any stop to route</div><div class="passport-stops">${landmarks}</div></section></div>`;
+}
+
 function renderMenu() {
   const titles = {
     tags: "Tags",
@@ -572,6 +604,7 @@ function renderMenu() {
     control: "Server control",
     mdt: "Mobile data terminal",
     emotes: "Emotes",
+    passport: "Coastal Passport",
   };
   setText("#menu-title", titles[currentView] || "Menu");
   const renderers = {
@@ -584,6 +617,7 @@ function renderMenu() {
     control: renderControl,
     mdt: renderMdt,
     emotes: renderEmotes,
+    passport: renderPassport,
   };
   const content = $("#menu-content");
   const scroll = content.scrollTop;
@@ -737,6 +771,11 @@ function plateCard(r) {
   showCard(`<header class="card-head ${bad ? "red" : "green"}">${icon("car")}<b>Plate check</b><em class="plate-tag">${esc(r.plate)}</em></header>
     <div class="card-body">${r.registered ? `<div class="card-row"><span>Vehicle</span><b>${esc(r.model)}</b></div><div class="card-row"><span>Owner</span><b>${esc(r.owner)}</b></div>` : ""}
     ${flags.length ? flags.map(([t, f]) => `<div class="flag ${t}">${esc(f)}</div>`).join("") : '<div class="flag ok">No flags</div>'}</div>`, "plate", 12000);
+}
+
+function passportDiscovery(d) {
+  showCard(`<header class="card-head green">${icon("pin")}<b>Passport stamped</b><em>+${Number(d.points) || 0}</em></header>
+    <div class="card-body"><small>${esc(d.region || "Florida Bay")}</small><h3>${esc(d.label || "Landmark")}</h3><p>${esc(d.lore || "A new corner of the coast is now in your passport.")}</p>${d.featured ? '<div class="flag ok">Featured-stop bonus earned</div>' : ""}</div>`, "passport-pop", 11000);
 }
 
 /* ───────── Fishing ───────── */
@@ -1100,6 +1139,7 @@ window.addEventListener("message", ({ data }) => {
   if (data.type === "idcard") idCard(data.data || {});
   if (data.type === "citation") citationCard(data.data || {});
   if (data.type === "plate") plateCard(data.data || {});
+  if (data.type === "passportDiscovery") passportDiscovery(data.data || {});
   if (data.type === "mdtData" && currentView === "mdt") mdtData(data.kind, data.data);
 });
 
@@ -1170,6 +1210,11 @@ $("#menu-content").addEventListener("click", (event) => {
     vehicle.classList.add("spawning");
     setTimeout(() => vehicle.classList.remove("spawning"), 1200);
     post("spawnVehicle", { category: vehicle.dataset.category, model: vehicle.dataset.model });
+    return;
+  }
+  const passport = event.target.closest("[data-passport-waypoint]");
+  if (passport) {
+    post("passportWaypoint", { id: passport.dataset.passportWaypoint });
     return;
   }
   const ctl = event.target.closest("[data-ctl]");
