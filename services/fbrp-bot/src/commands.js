@@ -1287,6 +1287,12 @@ const backup = new SlashCommandBuilder()
       .addBooleanOption((o) => o.setName("members").setDescription("Also re-give lost roles to members (default: yes)")),
   );
 
+const github = new SlashCommandBuilder()
+  .setName("github")
+  .setDescription("Owner-only: save the whole project to the private GitHub repository")
+  .addSubcommand((s) => s.setName("sync").setDescription("Save the code, website, game server and database to GitHub now"))
+  .addSubcommand((s) => s.setName("status").setDescription("Show the last GitHub sync"));
+
 const verification = new SlashCommandBuilder()
   .setName("verification")
   .setDescription("Owner-only: website verification status and overrides")
@@ -1304,6 +1310,7 @@ const verification = new SlashCommandBuilder()
   );
 
 export const commands = [
+  github,
   verification,
   backup,
   ace,

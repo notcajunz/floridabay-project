@@ -15,6 +15,7 @@ import {
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
 import { publicBase, refreshSiteUrls } from "./site-url.js";
+import { runGithubSync, githubStatus } from "./github-sync.js";
 import {
   VERIFIED_ROLE_ID,
   verificationRequired,
@@ -3721,7 +3722,36 @@ async function verificationCommand(i, sub) {
   return card("Verification revoked", { color: COLORS.warning, description: `${mention(user.id)} must verify again before rejoining a network server.` });
 }
 
+/** /github: owner-only. Saves the whole project (code, website, game server, database) to the private repository. */
+async function githubCommand(i, sub) {
+  if (i.user.id !== OWNER_DISCORD_ID) throw new Error("Only the Florida Bay owner can use /github.");
+  if (sub === "status") {
+    const state = await githubStatus();
+    return card("GitHub sync", {
+      color: state.last?.ok ? COLORS.success : COLORS.warning,
+      rows: [
+        ["Repository", state.configured ? `\`${state.repo}\` (private)` : "Not configured. Add `GITHUB_TOKEN` and `GITHUB_REPO` to the bot .env."],
+        ["Last sync", state.last ? `${state.last.ok ? "✓" : "✗"} <t:${Math.floor(Date.parse(state.last.at) / 1000)}:R> · \`${state.last.commit || "-"}\`${state.last.pushed ? " · pushed" : " · local only"}` : "Never"],
+        ["Details", clean(state.last?.message || "-", 300), false],
+        ["Running now", state.running ? "Yes" : "No"],
+      ],
+    });
+  }
+  const result = await runGithubSync();
+  await audit(i.user.id, "github.sync", result.repo || "local", { ok: result.ok, pushed: result.pushed, commit: result.commit });
+  return card(result.ok ? (result.pushed ? "GitHub is up to date" : "Saved locally") : "GitHub sync failed", {
+    color: result.ok ? (result.pushed ? COLORS.success : COLORS.warning) : COLORS.danger,
+    rows: [
+      ["Result", clean(result.message, 400), false],
+      ["Commit", result.commit ? `\`${result.commit}\`` : "-"],
+      ["Repository", result.repo ? `\`${result.repo}\`` : "Not configured"],
+      ["Log", `\`\`\`\n${clean(result.log || "-", 900)}\n\`\`\``, false],
+    ],
+  });
+}
+
 const handlers = {
+  github: (i) => githubCommand(i, i.options.getSubcommand()),
   verification: (i) => verificationCommand(i, i.options.getSubcommand()),
   backup: backupCommand,
   invite: inviteCommand,
