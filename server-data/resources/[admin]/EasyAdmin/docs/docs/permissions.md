@@ -5,7 +5,7 @@ You can manage permissions in your server configuration file using **ACE (Access
 Each permission can be assigned an `allow` value. Permissions **not assigned** are considered **denied**.
 
 > ❗ **Important:**  
-> Do **not** use `deny` to deny permissions — it doesn't work.
+> Do **not** use `deny` to deny permissions - it doesn't work.
 
 ---
 

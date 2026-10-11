@@ -378,7 +378,7 @@ RegisterCommand('jailtime', function(source)
     chat(source, 'BOLINGBROKE', ('%s remaining of %d months. Charges: %s'):format(formatDuration(j.remaining), j.months, chargeTitles(j.charges) ~= '' and chargeTitles(j.charges) or 'none listed'), AMBER)
 end, false)
 
--- /jail <id> <months> [reason] — quick sentence without the MDT.
+-- /jail <id> <months> [reason] - quick sentence without the MDT.
 RegisterCommand('jail', function(source, args)
     if source > 0 and not canJail(source) then return S.deny(source, FBRP.Ace.policeJail) end
     local target, months = tonumber(args[1]), tonumber(args[2])

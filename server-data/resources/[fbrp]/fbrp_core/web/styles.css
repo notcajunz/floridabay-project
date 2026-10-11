@@ -1,4 +1,4 @@
-/* Florida Bay Roleplay — in-game UI
+/* Florida Bay Roleplay - in-game UI
    Midnight coast palette, condensed display type, minimal plates. All sizes are
    authored for 1080p; --s rescales anchored groups for other resolutions. */
 
@@ -398,7 +398,7 @@ kbd {
 .action-card.tone-red:hover .ic { background: var(--coral); color: var(--ink); }
 .action-card.fired { animation: fired 0.4s var(--ease); }
 
-/* Third-eye player interactions — compact, targeted and separate from full menus. */
+/* Third-eye player interactions - compact, targeted and separate from full menus. */
 .third-eye {
   position: fixed; left: calc(50% + 34px); top: 50%; z-index: 40;
   display: flex; align-items: center; gap: 14px; pointer-events: auto;

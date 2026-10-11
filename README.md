@@ -9,7 +9,7 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 - `s4_chat` is installed as the active chat UI, including branded automated messages and compatibility exports used by the framework.
 - Three-line overhead identity: role-gated headtag on top, server ID/name always visible, role-gated or on-duty organization tag on the bottom.
 - F6 tag wardrobe with two independently selected slots. Players can only select tags granted by synchronized Discord roles or direct bot grants.
-- Staff `/clockin` and `/clockout`. Staff-only ACE principals—and therefore EasyAdmin/vMenu staff permissions—exist only during an open shift. Every shift has a MariaDB heartbeat and duration.
+- Staff `/clockin` and `/clockout`. Staff-only ACE principals - and therefore EasyAdmin/vMenu staff permissions - exist only during an open shift. Every shift has a MariaDB heartbeat and duration.
 - Bot-created organizations for gangs, businesses, LEO, fire/rescue, government, and other groups. Every organization is gated by a required role in any registered network Discord. `/duty <slug>` applies its job, ACEs, and organization tag; `/offduty` removes them. Shift hours are reportable from Discord.
 - F7 vehicle garage with server-side model validation and per-section ACE rules, plus engine, locks, seatbelt/ejection, cruise control, doors, and a K-key control panel.
 - Original HUD for AOP, priority status, peacetime, road/zone, heading, voice/radio, selected tags, organization duty, staff duty, speed, gear, RPM, fuel, locks, belt, and cruise.

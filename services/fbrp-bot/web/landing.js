@@ -57,7 +57,7 @@ fetch("api/public/status", { cache: "no-store" })
 async function copyConnect() {
   try {
     await navigator.clipboard.writeText(connectCommand);
-    toast("Copied — press F8 in FiveM and paste.");
+    toast("Copied - press F8 in FiveM and paste.");
   } catch {
     toast(connectCommand);
   }

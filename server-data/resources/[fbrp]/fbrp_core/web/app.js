@@ -207,7 +207,7 @@ function updateHud(data) {
   setTone("#hud-org", data.organization ? "" : "dim");
   $("#staff-pill").classList.toggle("hidden", !data.staffDuty);
 
-  // Dock — flush against the radar
+  // Dock - flush against the radar
   const L = data.layout;
   if (L) {
     const dock = $("#dock");
@@ -460,7 +460,7 @@ function characterForm() {
       <label>Date of birth<input name="dateOfBirth" type="date" required></label>
       <label>Gender<input name="gender" maxlength="24" required autocomplete="off"></label>
     </div>
-    <label>Biography<textarea name="backstory" maxlength="500" rows="3" placeholder="Optional — a few lines about who they are"></textarea></label>
+    <label>Biography<textarea name="backstory" maxlength="500" rows="3" placeholder="Optional - a few lines about who they are"></textarea></label>
     <div class="form-foot"><button type="submit" class="primary-action">${icon("plus")}Create character</button></div>
   </form>`;
 }

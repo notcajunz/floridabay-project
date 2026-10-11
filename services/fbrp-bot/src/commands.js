@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from "discord.js";
+import { ChannelType, SlashCommandBuilder } from "discord.js";
 
 const reason = (option) =>
   option
@@ -1287,6 +1287,13 @@ const backup = new SlashCommandBuilder()
       .addBooleanOption((o) => o.setName("members").setDescription("Also re-give lost roles to members (default: yes)")),
   );
 
+const welcome = new SlashCommandBuilder()
+  .setName("welcome")
+  .setDescription("Owner-only: create or refresh the welcome channel with the verification guide")
+  .addChannelOption((o) =>
+    o.setName("category").setDescription("Category to put the welcome channel in (default: the configured one)").addChannelTypes(ChannelType.GuildCategory),
+  );
+
 const github = new SlashCommandBuilder()
   .setName("github")
   .setDescription("Owner-only: save the whole project to the private GitHub repository")
@@ -1310,6 +1317,7 @@ const verification = new SlashCommandBuilder()
   );
 
 export const commands = [
+  welcome,
   github,
   verification,
   backup,

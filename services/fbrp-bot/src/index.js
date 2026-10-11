@@ -14,7 +14,7 @@ import {
 } from "discord.js";
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
-import { publicBase, refreshSiteUrls } from "./site-url.js";
+import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
 import { runGithubSync, githubStatus } from "./github-sync.js";
 import {
   VERIFIED_ROLE_ID,
@@ -264,7 +264,7 @@ async function aceCommand(i, sub) {
   await requirePermission(i, "fbrp.perms.manage");
   if (sub === "catalog") {
     const bundles = Object.entries(PERMISSION_BUNDLES)
-      .map(([name, objects]) => `\`${name}\` — ${objects.length} permissions`)
+      .map(([name, objects]) => `\`${name}\` - ${objects.length} permissions`)
       .join("\n");
     return embed(
       "Permission bundles",
@@ -3722,6 +3722,111 @@ async function verificationCommand(i, sub) {
   return card("Verification revoked", { color: COLORS.warning, description: `${mention(user.id)} must verify again before rejoining a network server.` });
 }
 
+const WELCOME_CATEGORY_ID = "1558252351624585246";
+
+/** The welcome channel message: how to fully verify, plus what Florida Bay is. */
+function welcomePayload(guild) {
+  const site = publicBase();
+  const connect = `connect ${connectUrl().replace(/^fivem:\/\/connect\//, "") || "join.floridabay.net"}`;
+  const ticketChannel = String(process.env.FBRP_TICKET_PANEL_CHANNEL_ID || "");
+  const help = ticketChannel && guild.channels.cache.has(ticketChannel) ? `open a ticket in <#${ticketChannel}>` : "open a support ticket";
+  const embed = card("Welcome to Florida Bay Roleplay", {
+    color: COLORS.primary,
+    description:
+      "A Florida-inspired roleplay city where police, fire/rescue, EMS and civilians share one living world, run by staff you can hold accountable. Follow the steps below to go from new member to in the city.",
+    rows: [
+      [
+        "✅ How to fully verify",
+        [
+          `**1.** Open **${site}/verify.html** and press **Verify with Discord**.`,
+          `**2.** Approve the Discord prompt. Your <@&${VERIFIED_ROLE_ID}> role is applied automatically.`,
+          "**3.** Keep the **Discord desktop app** open on the PC you play on, so FiveM can see your Discord account.",
+          `**4.** In FiveM press **F8** and enter \`${connect}\`.`,
+          `Sign-in not working? Use the one-time code option on the portal, or ${help}.`,
+        ].join("\n"),
+        false,
+      ],
+      [
+        "🔒 Why verification is required",
+        "Every Florida Bay server and the city itself require a verified account. This keeps ban evasion out of the whole network: we store only an irreversible hash of your IP address and of accounts linked to your Discord (such as Steam or Xbox), never the IP itself. Accounts linked to a banned account are banned with it.",
+        false,
+      ],
+      [
+        "🌴 What the city offers",
+        [
+          "• **Police:** cuffing, searches, police MDT with warrants and citations, and Bolingbroke prison.",
+          "• **Fire, rescue & EMS:** downed state with EMS revive, treatment and diagnosis.",
+          "• **Civilians:** IDs, registered vehicles, the F7 garage, fishing and a full emote menu.",
+          "• **Organizations:** gangs, businesses and departments with their own duty, tags and ranks.",
+          "• **Custom HUD, proximity voice and role-based head tags.**",
+        ].join("\n"),
+        false,
+      ],
+      [
+        "🎮 Key controls",
+        "**M** vMenu · **F5** third-eye interactions · **F6** tags · **F7** garage · **K** vehicle panel · **F9** voice range · **G** engine · **B** seatbelt",
+        false,
+      ],
+      [
+        "🛡️ Community & moderation",
+        `Moderation is network-wide: a global ban applies to every Florida Bay server and the city. Punishments can be appealed from the member portal. Need help? ${help[0].toUpperCase()}${help.slice(1)}.`,
+        false,
+      ],
+    ],
+    footer: "Florida Bay Roleplay · Verify once, play everywhere",
+  });
+  const components = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setLabel("Verify now").setStyle(ButtonStyle.Link).setURL(`${site}/verify.html`),
+      new ButtonBuilder().setLabel("Member portal").setStyle(ButtonStyle.Link).setURL(`${site}/portal.html`),
+    ),
+  ];
+  return { embeds: [embed], components };
+}
+
+/** /welcome: owner-only. Creates (or refreshes) the welcome channel and its verification guide. */
+async function welcomeCommand(i) {
+  if (i.user.id !== OWNER_DISCORD_ID && !superuserIds().has(i.user.id)) throw new Error("Only a Florida Bay owner can use /welcome.");
+  const categoryId = i.options.getChannel("category")?.id || WELCOME_CATEGORY_ID;
+  const category = await client.channels.fetch(categoryId).catch(() => null);
+  if (!category || category.type !== ChannelType.GuildCategory)
+    throw new Error(`Category ${categoryId} was not found, or it is not a category the bot can see.`);
+  const guild = category.guild;
+  let channel = guild.channels.cache.find((item) => item.parentId === category.id && item.type === ChannelType.GuildText && item.name === "welcome");
+  const created = !channel;
+  if (!channel)
+    channel = await guild.channels.create({
+      name: "welcome",
+      type: ChannelType.GuildText,
+      parent: category.id,
+      position: 0,
+      topic: "Start here: how to verify and join Florida Bay Roleplay.",
+      permissionOverwrites: [
+        {
+          id: guild.roles.everyone.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+          deny: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.AddReactions, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads],
+        },
+        {
+          id: client.user.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages],
+        },
+      ],
+      reason: `Welcome channel created by ${i.user.tag}`,
+    });
+  const payload = welcomePayload(guild);
+  const title = payload.embeds[0].data.title;
+  const recent = await channel.messages.fetch({ limit: 25 }).catch(() => null);
+  const existing = recent?.find((message) => message.author.id === client.user.id && message.embeds[0]?.title === title);
+  const message = existing ? await existing.edit(payload) : await channel.send(payload);
+  await audit(i.user.id, "welcome.setup", channel.id, { created, guild: guild.id, message: message.id });
+  return card(created ? "Welcome channel created" : "Welcome channel updated", {
+    color: COLORS.success,
+    description: `${existing ? "Refreshed the guide in" : "Posted the guide in"} <#${channel.id}> (${clean(guild.name, 80)}).`,
+    rows: [["Message", `[Jump to it](${message.url})`]],
+  });
+}
+
 /** /github: owner-only. Saves the whole project (code, website, game server, database) to the private repository. */
 async function githubCommand(i, sub) {
   if (i.user.id !== OWNER_DISCORD_ID) throw new Error("Only the Florida Bay owner can use /github.");
@@ -3751,6 +3856,7 @@ async function githubCommand(i, sub) {
 }
 
 const handlers = {
+  welcome: welcomeCommand,
   github: (i) => githubCommand(i, i.options.getSubcommand()),
   verification: (i) => verificationCommand(i, i.options.getSubcommand()),
   backup: backupCommand,

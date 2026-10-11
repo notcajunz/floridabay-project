@@ -2,10 +2,10 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 const fmt = (value) => new Intl.NumberFormat().format(Number(value || 0));
-const date = (value) => value ? new Date(Number(value)).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—";
-const day = (value) => value ? new Date(Number(value)).toLocaleDateString([], { dateStyle: "medium" }) : "—";
+const date = (value) => value ? new Date(Number(value)).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "-";
+const day = (value) => value ? new Date(Number(value)).toLocaleDateString([], { dateStyle: "medium" }) : "-";
 const ago = (value) => {
-  if (!value) return "—";
+  if (!value) return "-";
   const diff = Date.now() - Number(value);
   if (diff < 60000) return "just now";
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
@@ -151,7 +151,7 @@ function dashboard() {
   const greeting = hour < 5 ? "Late night in the bay" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const activity = [
     ...d.punishments.slice(0, 4).map((p) => ({ ico: "shield", tone: isActive(p) ? "255 95 109" : "109 124 143", title: `${titleCase(p.action)} · ${p.ban_id}`, text: p.reason, at: p.created_at })),
-    ...d.tickets.slice(0, 4).map((t) => ({ ico: "ticket", tone: "85 196 255", title: `Ticket #${t.id} · ${t.subject}`, text: `${titleCase(t.type)} — ${titleCase(t.status)}`, at: t.created_at })),
+    ...d.tickets.slice(0, 4).map((t) => ({ ico: "ticket", tone: "85 196 255", title: `Ticket #${t.id} · ${t.subject}`, text: `${titleCase(t.type)} - ${titleCase(t.status)}`, at: t.created_at })),
     ...d.appeals.slice(0, 3).map((a) => ({ ico: "scale", tone: "143 124 255", title: `Appeal for ${a.ban_id}`, text: a.response || titleCase(a.status), at: a.updated_at })),
   ].sort((a, b) => Number(b.at) - Number(a.at)).slice(0, 6);
 
@@ -206,7 +206,7 @@ function punishments() {
   const rows = state.data.punishments;
   const appeals = state.data.appeals;
   $("#portal-content").innerHTML = `
-    <p class="page-intro">Every ban and blacklist — from Discord, the network, or in-game — has one Florida Bay case ID. You can appeal any active ban attached to your verified account. If staff approve your appeal, the ban is lifted automatically.</p>
+    <p class="page-intro">Every ban and blacklist - from Discord, the network, or in-game - has one Florida Bay case ID. You can appeal any active ban attached to your verified account. If staff approve your appeal, the ban is lifted automatically.</p>
     ${rows.length ? `<div class="cases">${rows.map((row) => {
       const live = isActive(row);
       const st = caseState(row);
@@ -294,7 +294,7 @@ function profileView() {
           <p>${esc(p.rank_name)} · ${esc(p.category_name || "Staff")}${p.discord_name ? ` · @${esc(p.discord_name)}` : ""}</p>
           <div class="chips">${pill(!p.status || p.status === "active" ? "on_staff" : p.status)}${(p.jobs || []).map((j) => `<span class="pill plain" title="${esc(j.description || "")}">${esc(j.name)}</span>`).join("")}</div>
         </div>
-        <div class="callsign-badge"><small>Callsign</small><b>${esc(p.callsign || "—")}</b></div>
+        <div class="callsign-badge"><small>Callsign</small><b>${esc(p.callsign || "-")}</b></div>
       </div>
     </section>
     <div class="stats">
@@ -318,7 +318,7 @@ function profileView() {
     </div>
     ${p.discipline?.length ? `<section class="card">
       <div class="card-head"><div><h2>Discipline</h2><p>Visible only to this member and staff.</p></div></div>
-      <div class="feed">${p.discipline.map((x) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3;background:rgba(255,95,109,.1)">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(x.kind))}${x.revoked_at ? " · revoked" : ""}</b><small>${esc(x.reason)}${x.actor?.name ? ` — ${esc(x.actor.name)}` : ""}</small></div><time>${esc(date(x.created_at))}</time></div>`).join("")}</div>
+      <div class="feed">${p.discipline.map((x) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3;background:rgba(255,95,109,.1)">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(x.kind))}${x.revoked_at ? " · revoked" : ""}</b><small>${esc(x.reason)}${x.actor?.name ? ` - ${esc(x.actor.name)}` : ""}</small></div><time>${esc(date(x.created_at))}</time></div>`).join("")}</div>
     </section>` : ""}`;
 }
 
@@ -358,7 +358,7 @@ function appealsQueue() {
   setTitle("Staff workspace", "Appeal queue");
   const rows = state.data.appealQueue || [];
   $("#portal-content").innerHTML = `
-    <div class="callout good">${icon("info")}<div>Approving an appeal <b>lifts the punishment immediately</b> — network bans in every server, blacklists, single-server Discord bans, and linked EasyAdmin bans. You need the same permission as the matching manual unban.</div></div>
+    <div class="callout good">${icon("info")}<div>Approving an appeal <b>lifts the punishment immediately</b> - network bans in every server, blacklists, single-server Discord bans, and linked EasyAdmin bans. You need the same permission as the matching manual unban.</div></div>
     ${rows.length ? `<div class="cases">${rows.map((a) => `<article class="appeal-card">
       <div class="head">${person(a.author_id)}<div class="chips" style="margin:0">${idChip(a.ban_id)}<span class="pill plain">${esc(titleCase(a.action))}</span>${pill(a.status)}</div></div>
       <div class="kv"><div class="wide"><small>Original reason</small><b>${esc(a.case_reason)}</b></div></div>
@@ -390,7 +390,7 @@ function ticketOps() {
           <td><span class="strong clip" style="color:var(--ink)" title="${esc(t.subject)}">${esc(t.subject)}</span><small style="color:var(--ink-3)">${esc(titleCase(t.type))}</small></td>
           <td>${pill(t.status)}${t.close_requested_by ? `<br><span class="pill pill-warn" style="margin-top:5px">Close requested</span>` : ""}</td>
           <td><span class="prio p${Number(t.priority)}"><i></i>${esc(priorities[Number(t.priority)]?.label || `P${t.priority}`)}</span>${overdue ? `<br><small style="color:#ff9aa3">Overdue</small>` : ""}</td>
-          <td>${t.claimed_by ? person(t.claimed_by, "", { size: "av-xs", sub: "" }) : `<span style="color:var(--ink-3)">—</span>`}</td>
+          <td>${t.claimed_by ? person(t.claimed_by, "", { size: "av-xs", sub: "" }) : `<span style="color:var(--ink-3)">-</span>`}</td>
           <td><div class="actions">${t.status !== "closed"
             ? `<a class="icon-btn" href="https://discord.com/channels/${esc(t.guild_id)}/${esc(t.channel_id)}" target="_blank" rel="noopener" title="Open in Discord">${icon("external")}</a><button class="btn btn-glass btn-sm" type="button" data-ticket-action="${t.id}:${t.claimed_by === me ? "release" : "claim"}">${t.claimed_by === me ? "Release" : "Claim"}</button><button class="icon-btn" type="button" data-ticket-manage="${t.id}" title="Priority, note, or close" aria-label="Manage ticket #${t.id}">${icon("dots")}</button>`
             : `<button class="btn btn-ghost btn-sm" type="button" data-ticket-action="${t.id}:reopen">Reopen</button>`}</div></td>
@@ -456,7 +456,7 @@ function ticketDialog() {
     title: "Open a ticket",
     submit: "Create ticket",
     action: "ticket-open",
-    body: `<label class="field">What do you need help with?<select name="type" id="ticket-type">${types.map((t) => `<option value="${esc(t.key)}">${esc(t.label)}${t.description ? ` — ${esc(t.description)}` : ""}</option>`).join("")}</select></label><div id="ticket-fields" style="display:grid;gap:16px"></div><div class="callout">${icon("info")}<div>A private channel is created in the Florida Bay Discord. You'll get a link as soon as it's ready.</div></div>`,
+    body: `<label class="field">What do you need help with?<select name="type" id="ticket-type">${types.map((t) => `<option value="${esc(t.key)}">${esc(t.label)}${t.description ? ` - ${esc(t.description)}` : ""}</option>`).join("")}</select></label><div id="ticket-fields" style="display:grid;gap:16px"></div><div class="callout">${icon("info")}<div>A private channel is created in the Florida Bay Discord. You'll get a link as soon as it's ready.</div></div>`,
   });
   renderTicketFields(types[0]);
 }
@@ -475,7 +475,7 @@ function appealDialog(banId) {
     action: "appeal",
     data: { banId },
     body: `${row ? `<div class="kv"><div><small>Punishment</small><b>${esc(titleCase(row.action))} · ${esc(scope(row))}</b></div><div><small>Issued</small><b>${esc(date(row.created_at))}</b></div><div class="wide"><small>Reason given</small><b>${esc(row.reason)}</b></div></div>` : ""}
-      <label class="field">Why should this be reconsidered?<textarea name="statement" minlength="40" maxlength="4000" required placeholder="Explain what happened, what you'd like staff to reconsider, and anything you've learned or changed."></textarea><small>At least 40 characters. Be specific and honest — this opens a private Ban Appeal ticket with staff.</small></label>`,
+      <label class="field">Why should this be reconsidered?<textarea name="statement" minlength="40" maxlength="4000" required placeholder="Explain what happened, what you'd like staff to reconsider, and anything you've learned or changed."></textarea><small>At least 40 characters. Be specific and honest - this opens a private Ban Appeal ticket with staff.</small></label>`,
   });
 }
 
@@ -624,7 +624,7 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       const values = {};
       for (const [key, value] of form) if (key.startsWith("field:")) values[key.slice(6)] = value;
       result = await api("portal/ticket/open", { method: "POST", body: JSON.stringify({ type: form.get("type"), form: values }) });
-      toast(`Ticket #${result.result.id} is open — find it under Support or in Discord.`);
+      toast(`Ticket #${result.result.id} is open - find it under Support or in Discord.`);
       state.view = "support";
       history.pushState(null, "", "#support");
     } else if (action === "appeal") {
@@ -640,7 +640,7 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       const status = form.get("status");
       if (!status) throw new Error("Choose a decision.");
       result = await api("portal/appeal/review", { method: "POST", body: JSON.stringify({ appealId: data.appealId, status, response: form.get("response") }) });
-      toast(status === "approved" ? `Appeal approved — ${data.banId} has been lifted.` : status === "denied" ? "Appeal denied." : "Marked as in review.");
+      toast(status === "approved" ? `Appeal approved - ${data.banId} has been lifted.` : status === "denied" ? "Appeal denied." : "Marked as in review.");
     }
     if (result?.data) state.data = result.data;
     $("#portal-dialog").close();
@@ -680,7 +680,7 @@ $("#dm-start-form").addEventListener("submit", async (event) => {
     $("#dm-start-form").hidden = true;
     $("#dm-verify-form").hidden = false;
     $("#dm-verify-form").elements.code.focus();
-    message.textContent = "Code sent — check your Discord DMs from Florida Bay Network.";
+    message.textContent = "Code sent - check your Discord DMs from Florida Bay Network.";
   } catch (error) { message.className = "form-message"; message.textContent = error.message; }
 });
 

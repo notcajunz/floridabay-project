@@ -2,14 +2,14 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 const fmt = (value) => new Intl.NumberFormat().format(Number(value || 0));
-const time = (value) => value ? new Date(Number(value)).toLocaleString() : "—";
+const time = (value) => value ? new Date(Number(value)).toLocaleString() : "-";
 const colorHex = (value) => `#${Number(value || 0).toString(16).padStart(6, "0")}`;
 
 /** "3m ago", "2d ago"; falls back to a date for anything older than a month. */
 function ago(value) {
-  if (!value) return "—";
+  if (!value) return "-";
   const ms = Number(value), diff = Date.now() - ms;
-  if (!Number.isFinite(ms)) return "—";
+  if (!Number.isFinite(ms)) return "-";
   if (diff < 0) return new Date(ms).toLocaleDateString();
   const units = [[60000, "s", 1000], [3600000, "m", 60000], [86400000, "h", 3600000], [2592000000, "d", 86400000]];
   for (const [limit, unit, size] of units) if (diff < limit) return `${Math.max(1, Math.floor(diff / size))}${unit} ago`;
@@ -226,7 +226,7 @@ function renderOverview() {
 
 /* --------------------------------- resources --------------------------------- */
 function displayValue(meta, value) {
-  if (value === null || value === undefined || value === "") return `<span class="faint">—</span>`;
+  if (value === null || value === undefined || value === "") return `<span class="faint">-</span>`;
   if (meta.type === "boolean") return `<span class="chip ${value ? "on" : ""}">${value ? "Yes" : "No"}</span>`;
   if (meta.type === "color") return `<span class="chip"><span class="swatch" style="background:${esc(value)}"></span>${esc(value)}</span>`;
   if (meta.type === "timestamp") return `<span title="${esc(time(value))}">${esc(ago(value))}</span>`;

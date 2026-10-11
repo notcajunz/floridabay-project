@@ -850,7 +850,7 @@ export function resolveNetworkRoles(client, roleIds) {
 }
 
 /**
- * existing_roles: [{guild_id, role_id}] — a role_id reuses that existing role in its server; an empty
+ * existing_roles: [{guild_id, role_id}] - a role_id reuses that existing role in its server; an empty
  * role_id switches a server that used an existing role back to a bot-created one (the old role is kept).
  */
 async function applyExistingRoles(client, actor, sync, entries) {
