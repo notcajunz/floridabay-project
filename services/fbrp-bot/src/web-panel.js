@@ -740,6 +740,7 @@ async function serveStatic(request, response) {
     "/": "index.html",
     "/portal": "portal.html",
     "/verify": "verify.html",
+    "/transcript": "transcript.html",
     "/control": "control.html",
     "/auth/callback": "callback.html",
     "/auth/callback.html": "callback.html",
@@ -788,7 +789,7 @@ export function startWebPanel(context) {
     client, db, audit, refreshGame, syncAll, saveGlobalSync, deleteGlobalSync,
     bindSyncRole, setGlobalSyncOrder, pushGlobalSyncs, ensureTicketPanel,
     createWebsiteTicket, websiteTicketAction, websiteTicketTypes,
-    websiteTicketPriorities, ensureProtectedRoleBoard, announceCallsign,
+    websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard, announceCallsign,
     hasPermission, liftAppealedCase, recordVerification,
   } = context;
 
@@ -1256,7 +1257,9 @@ export function startWebPanel(context) {
         if (oauthStates.size > 1000)
           for (const [key, value] of oauthStates) if (value.expires < Date.now()) oauthStates.delete(key);
         const state = randomBytes(24).toString("base64url");
-        oauthStates.set(state, { expires: Date.now() + 10 * 60000, address: clientAddress(request), next: url.searchParams.get("next") === "verify" ? "verify" : "portal" });
+        const requestedNext = String(url.searchParams.get("next") || "");
+        const next = requestedNext === "verify" ? "verify" : /^transcript:\d{1,20}$/.test(requestedNext) ? requestedNext : "portal";
+        oauthStates.set(state, { expires: Date.now() + 10 * 60000, address: clientAddress(request), next });
         const authorize = new URL("https://discord.com/oauth2/authorize");
         authorize.searchParams.set("client_id", String(process.env.DISCORD_APPLICATION_ID || client.application?.id || client.user.id));
         authorize.searchParams.set("redirect_uri", `${baseUrl(request)}/auth/callback.html`);
@@ -1352,6 +1355,22 @@ export function startWebPanel(context) {
       if (request.method === "GET" && url.pathname === "/api/auth/session")
         return sendJson(response, 200, { authenticated: Boolean(session), user: session });
       if (!session) return sendJson(response, 401, { error: "Sign in with Discord to continue." });
+
+      if (request.method === "GET" && url.pathname === "/api/transcript") {
+        const ticketId = Number(url.searchParams.get("id"));
+        if (!Number.isSafeInteger(ticketId) || ticketId < 1) throw new Error("Choose a valid ticket transcript.");
+        const [access, ticket, participant] = await Promise.all([
+          accessFor(session.id),
+          db.one("SELECT id,author_id,status FROM support_tickets WHERE id=?", [ticketId]),
+          db.one("SELECT 1 allowed FROM ticket_participants WHERE ticket_id=? AND user_id=?", [ticketId, session.id]),
+        ]);
+        if (!ticket) return sendJson(response, 404, { error: "Transcript not found." });
+        if (String(ticket.author_id) !== session.id && !participant && !access.support)
+          return sendJson(response, 403, { error: "You do not have access to this private transcript." });
+        const transcript = await websiteTicketTranscript(ticketId, session.id, { refresh: url.searchParams.get("refresh") === "1" });
+        await audit(session.id, "transcript.view", ticketId, { source: "website" });
+        return sendJson(response, 200, { transcript, viewer: { id: session.id, staff: access.staff, canRefresh: access.support || ticket.status !== "closed" } });
+      }
 
       if (request.method === "GET" && url.pathname === "/api/portal/bootstrap")
         return sendJson(response, 200, await portalBootstrap(session));

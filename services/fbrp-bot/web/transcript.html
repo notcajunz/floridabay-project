@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#05090f">
+    <meta name="color-scheme" content="dark">
+    <title>Ticket transcript · Florida Bay</title>
+    <link rel="icon" href="logo-128.webp" type="image/webp">
+    <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="site.css?v=8">
+  </head>
+  <body class="transcript-page">
+    <header class="transcript-nav">
+      <a class="brand" href="./"><img src="logo-128.webp" alt="" width="36" height="36"><span><b>Florida Bay</b><small>Ticket archive</small></span></a>
+      <a class="btn btn-ghost btn-sm" href="portal.html#support">Back to support</a>
+    </header>
+
+    <main class="transcript-shell">
+      <section id="transcript-loading" class="transcript-loading"><div class="spinner"></div><h1>Opening secure transcript</h1><p>Checking your Discord access…</p></section>
+
+      <section id="transcript-auth" class="transcript-auth card" hidden>
+        <img src="logo-128.webp" alt="" width="68" height="68">
+        <span class="kicker">Private ticket archive</span>
+        <h1>Sign in to continue</h1>
+        <p>Transcripts can contain private support conversations. Sign in with the Discord account that opened the ticket, participated in it, or has staff access.</p>
+        <button id="transcript-login" class="btn btn-discord btn-lg" type="button">Continue with Discord</button>
+        <div class="divider"><span>or use a one-time code</span></div>
+        <form id="transcript-dm-start" class="auth-form"><label class="field">Discord user ID<input name="discordId" inputmode="numeric" pattern="[0-9]{15,24}" required placeholder="Your Discord user ID"></label><button class="btn btn-glass" type="submit">Send code</button></form>
+        <form id="transcript-dm-verify" class="auth-form" hidden><input name="discordId" type="hidden"><label class="field">Six-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label><button class="btn btn-sun" type="submit">Open transcript</button></form>
+        <p id="transcript-auth-message" class="form-message"></p>
+      </section>
+
+      <section id="transcript-error" class="transcript-auth card" hidden>
+        <span class="kicker">Ticket archive</span><h1>Transcript unavailable</h1><p id="transcript-error-message"></p><a class="btn btn-glass" href="portal.html#support">Return to support</a>
+      </section>
+
+      <section id="transcript-view" hidden>
+        <header class="transcript-hero">
+          <div><span class="kicker" id="transcript-type">Support ticket</span><h1 id="transcript-title">Ticket transcript</h1><p id="transcript-subtitle"></p></div>
+          <div class="transcript-seal"><small>Verified archive</small><b id="transcript-number">#—</b><span id="transcript-status">Private</span></div>
+        </header>
+        <div class="transcript-facts" id="transcript-facts"></div>
+        <div id="transcript-notice" class="callout warn" hidden></div>
+        <div class="transcript-tools">
+          <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="transcript-search" type="search" placeholder="Search this conversation" aria-label="Search transcript"></label>
+          <span id="transcript-result-count"></span>
+          <button id="transcript-refresh" class="btn btn-glass btn-sm" type="button" hidden>Refresh archive</button>
+        </div>
+        <div id="transcript-messages" class="transcript-messages"></div>
+        <footer class="transcript-footer"><img src="logo-128.webp" alt="" width="34" height="34"><div><b>Florida Bay secure ticket archive</b><small id="transcript-generated"></small></div></footer>
+      </section>
+    </main>
+    <script type="module" src="transcript.js?v=1"></script>
+  </body>
+</html>

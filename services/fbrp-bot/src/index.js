@@ -4004,6 +4004,7 @@ client.once("clientReady", async () => {
     websiteTicketAction: ticketSystem.webAction,
     websiteTicketTypes: ticketSystem.ticketTypes,
     websiteTicketPriorities: ticketSystem.priorities,
+    websiteTicketTranscript: ticketSystem.websiteTranscript,
     ensureProtectedRoleBoard,
     announceCallsign,
     ownerDiscordId: OWNER_DISCORD_ID,
@@ -4035,6 +4036,9 @@ client.once("clientReady", async () => {
   await ticketSystem.backfillControls().catch((error) =>
     console.error("[FBRP bot] ticket controls:", error),
   );
+  await ticketSystem.backfillTranscripts()
+    .then(({ found, saved }) => found && console.log(`[FBRP bot] Hosted ticket transcripts: ${saved}/${found} backfilled.`))
+    .catch((error) => console.error("[FBRP bot] transcript backfill:", error));
   await ensureProtectedRoleBoard().catch((error) =>
     console.error("[FBRP bot] protected-role board:", error),
   );

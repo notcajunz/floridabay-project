@@ -6,7 +6,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "start": "node --env-file=.env src/index.js",
-    "check": "node --check src/index.js && node --check src/commands.js && node --check src/database.js && node --check src/sync.js && node --check src/security.js && node --check src/ticket-system.js && node --check src/web-panel.js && node --check src/backup.js && node --check src/alts.js && node --check src/github-sync.js && node --check src/site-url.js && node --check src/verification.js && node --check web/verify.js && node --check web/app.js && node --check web/portal.js && node --check web/landing.js && node --check web/callback.js",
+    "check": "node --check src/index.js && node --check src/commands.js && node --check src/database.js && node --check src/sync.js && node --check src/security.js && node --check src/ticket-system.js && node --check src/web-panel.js && node --check src/backup.js && node --check src/alts.js && node --check src/github-sync.js && node --check src/site-url.js && node --check src/verification.js && node --check web/verify.js && node --check web/app.js && node --check web/portal.js && node --check web/transcript.js && node --check web/landing.js && node --check web/callback.js",
     "migrate": "node --env-file=.env src/migrate.js"
   },
   "dependencies": {

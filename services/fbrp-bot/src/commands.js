@@ -848,7 +848,7 @@ const ticket = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("notes").setDescription("View private staff notes"))
   .addSubcommand((s) => s.setName("reopen").setDescription("Reopen a closed ticket")
     .addIntegerOption((o) => o.setName("id").setDescription("Ticket number").setRequired(true).setMinValue(1)))
-  .addSubcommand((s) => s.setName("transcript").setDescription("Export a ticket transcript")
+  .addSubcommand((s) => s.setName("transcript").setDescription("Open the hosted ticket transcript")
     .addIntegerOption((o) => o.setName("id").setDescription("Ticket number; current channel if blank").setMinValue(1)))
   .addSubcommand((s) =>
     s.setName("list").setDescription("List open support tickets"),

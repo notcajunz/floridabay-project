@@ -15,7 +15,9 @@ async function finish() {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || "Discord sign-in failed.");
-  location.replace(result.next === "verify" ? `../verify.html?done=1&role=${encodeURIComponent(result.role || "")}` : "../portal.html");
+  if (String(result.next || "").startsWith("transcript:"))
+    location.replace(`../transcript.html?id=${encodeURIComponent(result.next.slice("transcript:".length))}`);
+  else location.replace(result.next === "verify" ? `../verify.html?done=1&role=${encodeURIComponent(result.role || "")}` : "../portal.html");
 }
 
 finish().catch((error) => {

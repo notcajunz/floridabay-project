@@ -1,6 +1,5 @@
 import {
   ActionRowBuilder,
-  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
@@ -52,6 +51,12 @@ const quote = (value) => clip(value, 1000).split("\n").map((row) => `> ${row}`).
 
 const button = (id, label, emoji, style = ButtonStyle.Secondary) =>
   new ButtonBuilder().setCustomId(id).setLabel(label).setEmoji(emoji).setStyle(style);
+
+const publicBase = () => String(process.env.FBRP_PUBLIC_URL || "https://floridabay.net").replace(/\/$/, "");
+const transcriptUrl = (id) => `${publicBase()}/transcript.html?id=${Number(id)}`;
+const transcriptLink = (id, label = "View hosted transcript") => new ActionRowBuilder().addComponents(
+  new ButtonBuilder().setLabel(label).setEmoji("📄").setStyle(ButtonStyle.Link).setURL(transcriptUrl(id)),
+);
 
 export function createTicketSystem(ctx) {
   const { client, db, audit, hasPermission, clean, safeName, embed, card, colors, log } = ctx;
@@ -253,48 +258,109 @@ export function createTicketSystem(ctx) {
     } catch (error) { await db.query("DELETE FROM support_tickets WHERE id=?",[insert.insertId]); throw error; }
   }
 
-  /** Builds a readable plain-text transcript of the ticket channel. */
-  async function transcript(row, channel) {
+  /** Captures a ticket as structured data and stores it for the authenticated website viewer. */
+  async function hostTranscript(row, actorId = client.user.id, channel) {
     channel ??= await fetchChannel(row);
     if (!channel?.isTextBased()) throw new Error("The ticket channel is unavailable.");
     const messages=[]; let before;
     while(messages.length<2000){const batch=await channel.messages.fetch({limit:100,before});if(!batch.size)break;messages.push(...batch.values());before=batch.last().id;if(batch.size<100)break;}
     messages.reverse();
     const types = await ticketTypes({ includeDisabled: true });
-    const time = (ms) => new Date(Number(ms)).toISOString().replace("T", " ").slice(0, 19) + " UTC";
-    const rule = "─".repeat(64);
-    const body = [];
-    for (const m of messages) {
-      if (m.system) continue;
-      const name = m.member?.displayName || m.author.globalName || m.author.username;
-      body.push(`[${time(m.createdTimestamp)}] ${name} (@${m.author.username})${m.author.bot ? " [BOT]" : ""}`);
-      if (m.cleanContent) body.push(...m.cleanContent.split("\n").map((text) => `    ${text}`));
-      for (const e of m.embeds) {
-        const head = [e.author?.name, e.title].filter(Boolean).join(" · ");
-        if (head) body.push(`    [embed] ${head}`);
-        if (e.description) body.push(...e.description.split("\n").map((text) => `      ${text}`));
-        for (const f of e.fields) body.push(`      ${f.name}: ${f.value.replace(/\n/g, " ")}`);
-      }
-      for (const a of m.attachments.values()) body.push(`    [attachment] ${a.name} · ${a.url}`);
-      body.push("");
-    }
-    const text = [
-      `${BRAND} · Ticket #${row.id}`,
-      rule,
-      `Type:      ${types[row.type]?.label || row.type}`,
-      `Subject:   ${row.subject}`,
-      `Opened by: ${row.author_id} at ${time(row.created_at)}`,
-      `Claimed:   ${row.claimed_by || "never"}`,
-      `Status:    ${row.status}${row.closed_at ? ` at ${time(row.closed_at)} by ${row.closed_by}` : ""}`,
-      ...(row.close_reason ? [`Reason:    ${row.close_reason}`] : []),
-      `Messages:  ${body.length ? messages.filter((m) => !m.system).length : 0}`,
-      rule,
-      "",
-      ...body,
-    ].join("\n");
-    return { buffer: Buffer.from(text, "utf8"), name: `ticket-${row.id}-transcript.txt`, count: messages.length };
+    const visible = messages.filter((m) => !m.system).map((m) => ({
+      id: String(m.id),
+      at: Number(m.createdTimestamp),
+      content: String(m.cleanContent || ""),
+      author: {
+        id: String(m.author.id),
+        name: String(m.member?.displayName || m.author.globalName || m.author.username),
+        username: String(m.author.username),
+        avatar: m.author.displayAvatarURL({ extension: "webp", size: 128 }),
+        bot: Boolean(m.author.bot),
+      },
+      embeds: m.embeds.map((e) => ({
+        author: e.author?.name || null, title: e.title || null, description: e.description || null,
+        color: e.color || null, fields: e.fields.map((f) => ({ name: f.name, value: f.value, inline: Boolean(f.inline) })),
+      })),
+      attachments: [...m.attachments.values()].map((a) => ({ name: a.name, url: a.url, contentType: a.contentType, size: a.size })),
+      reactions: [...m.reactions.cache.values()].map((r) => ({ emoji: r.emoji.toString(), count: r.count })),
+    }));
+    const content = {
+      version: 1,
+      ticket: {
+        id: Number(row.id), type: row.type, typeLabel: types[row.type]?.label || row.type,
+        subject: row.subject, authorId: String(row.author_id), claimedBy: row.claimed_by ? String(row.claimed_by) : null,
+        status: row.status, createdAt: Number(row.created_at), closedAt: row.closed_at ? Number(row.closed_at) : null,
+        closedBy: row.closed_by ? String(row.closed_by) : null, closeReason: row.close_reason || null,
+        guildId: String(row.guild_id), guildName: channel.guild?.name || BRAND,
+      },
+      messages: visible,
+    };
+    const generatedAt = Date.now();
+    await db.query(
+      `INSERT INTO ticket_transcripts(ticket_id,content,message_count,generated_at,generated_by,revision) VALUES(?,?,?,?,?,1)
+       ON DUPLICATE KEY UPDATE content=VALUES(content),message_count=VALUES(message_count),generated_at=VALUES(generated_at),generated_by=VALUES(generated_by),revision=revision+1`,
+      [row.id, JSON.stringify(content), visible.length, generatedAt, String(actorId || client.user.id)],
+    );
+    return { url: transcriptUrl(row.id), count: visible.length, generatedAt, content };
   }
-  const attachment = (file) => new AttachmentBuilder(file.buffer, { name: file.name });
+
+  /** Preserves a useful lifecycle archive when an older ticket channel was already deleted. */
+  async function fallbackTranscript(row, actorId = client.user.id) {
+    const [types, events] = await Promise.all([
+      ticketTypes({ includeDisabled: true }),
+      db.query("SELECT event_type,actor_id,detail,created_at FROM ticket_events WHERE ticket_id=? ORDER BY id", [row.id]),
+    ]);
+    const form = parseJson(row.form_data, {}) || {};
+    const messages = [];
+    const archiveAuthor = { id: String(client.user.id), name: "Florida Bay Archive", username: "archive", avatar: `${publicBase()}/logo-128.webp`, bot: true };
+    const answers = Object.entries(form).filter(([, value]) => String(value || "").trim());
+    if (answers.length) messages.push({
+      id: `form-${row.id}`, at: Number(row.created_at), author: archiveAuthor,
+      content: "Original ticket form",
+      embeds: [{ title: row.subject, description: null, color: 4372696, fields: answers.map(([name, value]) => ({ name: humanize(name), value: String(value), inline: false })) }],
+      attachments: [], reactions: [],
+    });
+    const labels = { open: "Ticket opened", claim: "Ticket claimed", release: "Ticket released", transfer: "Ticket transferred", close_request: "Closure requested", close: "Ticket closed", reopen: "Ticket reopened", priority: "Priority changed", move: "Category changed", add: "Participant added", remove: "Participant removed", rename: "Ticket renamed" };
+    for (const [index, event] of events.filter((item) => !["control", "transcript", "note"].includes(item.event_type)).entries()) {
+      const detail = parseJson(event.detail, {}) || {};
+      const notes = [detail.reason, detail.subject, detail.to && `To: ${detail.to}`, detail.from && `From: ${detail.from}`].filter(Boolean).join(" · ");
+      messages.push({ id: `event-${row.id}-${index}`, at: Number(event.created_at), author: archiveAuthor, content: `${labels[event.event_type] || humanize(event.event_type)}${notes ? ` — ${notes}` : ""}`, embeds: [], attachments: [], reactions: [] });
+    }
+    const generatedAt = Date.now();
+    const content = {
+      version: 1, partial: true,
+      archiveNotice: "The original Discord channel had already been deleted or was unavailable. This archive was rebuilt from the preserved ticket form and lifecycle history.",
+      ticket: { id: Number(row.id), type: row.type, typeLabel: types[row.type]?.label || row.type, subject: row.subject, authorId: String(row.author_id), claimedBy: row.claimed_by ? String(row.claimed_by) : null, status: row.status, createdAt: Number(row.created_at), closedAt: row.closed_at ? Number(row.closed_at) : null, closedBy: row.closed_by ? String(row.closed_by) : null, closeReason: row.close_reason || null, guildId: String(row.guild_id), guildName: BRAND },
+      messages,
+    };
+    await db.query(
+      `INSERT INTO ticket_transcripts(ticket_id,content,message_count,generated_at,generated_by,revision) VALUES(?,?,?,?,?,1)
+       ON DUPLICATE KEY UPDATE content=VALUES(content),message_count=VALUES(message_count),generated_at=VALUES(generated_at),generated_by=VALUES(generated_by),revision=revision+1`,
+      [row.id, JSON.stringify(content), messages.length, generatedAt, String(actorId || client.user.id)],
+    );
+    return { url: transcriptUrl(row.id), count: messages.length, generatedAt, content, partial: true };
+  }
+
+  const captureTranscript = (row, actorId, channel) => hostTranscript(row, actorId, channel).catch(() => fallbackTranscript(row, actorId));
+
+  async function websiteTranscript(ticketId, actorId, { refresh = false } = {}) {
+    const row = await db.one("SELECT * FROM support_tickets WHERE id=?", [Number(ticketId)]);
+    if (!row) throw new Error("Ticket not found.");
+    let stored = !refresh && await db.one("SELECT * FROM ticket_transcripts WHERE ticket_id=?", [row.id]);
+    if (!stored) await captureTranscript(row, actorId);
+    stored = await db.one("SELECT * FROM ticket_transcripts WHERE ticket_id=?", [row.id]);
+    if (!stored) throw new Error("Transcript is unavailable.");
+    return { ...parseJson(stored.content, {}), messageCount: Number(stored.message_count), generatedAt: Number(stored.generated_at), revision: Number(stored.revision) };
+  }
+
+  async function backfillTranscripts() {
+    const rows = await db.query("SELECT t.* FROM support_tickets t LEFT JOIN ticket_transcripts x ON x.ticket_id=t.id WHERE x.ticket_id IS NULL AND t.channel_id IS NOT NULL ORDER BY t.id");
+    let saved = 0;
+    for (const row of rows) {
+      if (await captureTranscript(row, client.user.id).then(() => true, () => false)) saved += 1;
+    }
+    return { found: rows.length, saved };
+  }
 
   async function claim(guild, row, actorId, claimed = row.claimed_by !== actorId) {
     if (row.status === "closed") throw new Error("This ticket is closed. Reopen it first.");
@@ -321,7 +387,7 @@ export function createTicketSystem(ctx) {
     await addEvent(row,"close",actorId,{reason});
     await audit(actorId,"ticket.close",row.id,{reason});
     const updated = await refresh(row.id, guild.id) || { ...row, status: "closed", closed_at: closedAt, closed_by: actorId, close_reason: reason };
-    const file = channel ? await transcript(updated, channel).catch(() => null) : null;
+    const hosted = await captureTranscript(updated, actorId, channel).catch(() => null);
     const summary = [
       ["Opened by", mention(row.author_id)],
       ["Handled by", row.claimed_by ? mention(row.claimed_by) : "Unclaimed"],
@@ -333,7 +399,7 @@ export function createTicketSystem(ctx) {
       allowedMentions: { parse: [] },
     }).catch(() => {});
     await channel?.setName(`closed-${row.id}-${row.type}`).catch(()=>{});
-    await ticketLog(guild,row,{title:"Ticket closed",color:colors.warning,actor:actorId,target:row.author_id,fields:[["Ticket",`**#${row.id}**${row.channel_id?` · <#${row.channel_id}>`:""}`],...summary.slice(1),["Reason",reason,false],["Transcript",file?`${file.count} messages attached`:"Unavailable",false]],files:file?[attachment(file)]:[]});
+    await ticketLog(guild,row,{title:"Ticket closed",color:colors.warning,actor:actorId,target:row.author_id,fields:[["Ticket",`**#${row.id}**${row.channel_id?` · <#${row.channel_id}>`:""}`],...summary.slice(1),["Reason",reason,false],["Transcript",hosted?`[View ${hosted.count}-message hosted transcript](${hosted.url})`:"Unavailable",false]]});
     const owner = await client.users.fetch(String(row.author_id)).catch(() => null);
     const types = await ticketTypes({ includeDisabled: true });
     await owner?.send({
@@ -343,9 +409,9 @@ export function createTicketSystem(ctx) {
         rows: [["Subject", clip(row.subject, 200), false], ["Handled by", row.claimed_by ? mention(row.claimed_by) : "Unclaimed"], ["Open for", duration(closedAt - Number(row.created_at))]],
         footer: `${BRAND} · Ticket #${row.id}`,
       })],
-      files: file ? [attachment(file)] : [],
+      components: hosted ? [transcriptLink(row.id)] : [],
     }).catch(() => {});
-    return card("Ticket closed", { color: colors.warning, description: `Ticket **#${row.id}** is now read-only.${file ? " The transcript was saved to the ticket log and sent to the owner." : ""}\n> ${reason}` });
+    return card("Ticket closed", { color: colors.warning, description: `Ticket **#${row.id}** is now read-only.${hosted ? ` The transcript is hosted securely at ${hosted.url}.` : ""}\n> ${reason}` });
   }
 
   async function reopen(guild, row, actorId) {
@@ -451,10 +517,10 @@ export function createTicketSystem(ctx) {
       return card("Closure requested",{color:colors.warning,description:"Staff have been asked to close this ticket."});
     }
     if(sub==="transcript"){
-      if(!owner&&!isStaff)throw new Error("Only ticket participants or support staff can export this transcript.");
-      const file=await transcript(row);
-      await addEvent(row,"transcript",i.user.id,{messages:file.count});
-      return {embeds:[card("Transcript exported",{color:colors.success,description:`Ticket **#${row.id}** · ${file.count} messages.`})],files:[attachment(file)]};
+      if(!owner&&!isStaff)throw new Error("Only ticket participants or support staff can view this transcript.");
+      const hosted=await captureTranscript(row,i.user.id);
+      await addEvent(row,"transcript",i.user.id,{messages:hosted.count,hosted:true});
+      return {embeds:[card("Transcript hosted",{color:colors.success,description:`Ticket **#${row.id}** · ${hosted.count} messages. Sign in with Discord to view it securely.`})],components:[transcriptLink(row.id)]};
     }
     if(sub==="close"){
       if(!owner&&!isStaff)throw new Error("Only the ticket owner or support staff may close it.");
@@ -595,9 +661,9 @@ export function createTicketSystem(ctx) {
       if (action === "reopen") { await staffOnly(); return i.editReply({ embeds: [await reopen(i.guild, row, i.user.id)] }); }
       if (action === "transcript") {
         await ownerOrStaff();
-        const file = await transcript(row);
-        await addEvent(row, "transcript", i.user.id, { messages: file.count });
-        return i.editReply({ embeds: [card("Transcript ready", { color: colors.success, description: `Ticket **#${row.id}** · ${file.count} messages.` })], files: [attachment(file)] });
+        const hosted = await captureTranscript(row, i.user.id);
+        await addEvent(row, "transcript", i.user.id, { messages: hosted.count, hosted: true });
+        return i.editReply({ embeds: [card("Transcript hosted", { color: colors.success, description: `Ticket **#${row.id}** · ${hosted.count} messages. Sign in with Discord to view it securely.` })], components: [transcriptLink(row.id)] });
       }
       if (action === "delete") {
         await staffOnly();
@@ -665,5 +731,5 @@ export function createTicketSystem(ctx) {
     else throw new Error("Unknown ticket action.");
     return db.one("SELECT * FROM support_tickets WHERE id=?", [row.id]);
   }
-  return {command,supportCommand,ensurePanel,backfillControls,component,modal,create,autocomplete,ticketTypes,priorities,webAction};
+  return {command,supportCommand,ensurePanel,backfillControls,backfillTranscripts,component,modal,create,autocomplete,ticketTypes,priorities,webAction,websiteTranscript};
 }

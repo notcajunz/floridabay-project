@@ -240,7 +240,7 @@ function support() {
       <div class="card-head"><div><h2>Your tickets</h2><p>Website and Discord tickets share one history.</p></div></div>
       ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Ticket</th><th>Subject</th><th>Type</th><th>Status</th><th>Opened</th><th></th></tr></thead><tbody>${rows.map((t) => `<tr>
         <td class="strong mono">#${t.id}</td><td class="strong"><span class="clip" title="${esc(t.subject)}">${esc(t.subject)}</span></td><td>${esc(titleCase(t.type))}</td><td>${pill(t.status)}</td><td title="${esc(date(t.created_at))}">${esc(ago(t.created_at))}</td>
-        <td><div class="actions">${t.status !== "closed" ? `<a class="btn btn-ghost btn-sm" href="https://discord.com/channels/${esc(t.guild_id)}/${esc(t.channel_id)}" target="_blank" rel="noopener">Open in Discord ${icon("external")}</a><button class="btn btn-glass btn-sm" type="button" data-request-close="${t.id}">Request close</button>` : ""}</div></td>
+        <td><div class="actions"><a class="btn btn-ghost btn-sm" href="transcript.html?id=${t.id}${t.status !== "closed" ? "&refresh=1" : ""}">Transcript ${icon("external")}</a>${t.status !== "closed" ? `<a class="btn btn-ghost btn-sm" href="https://discord.com/channels/${esc(t.guild_id)}/${esc(t.channel_id)}" target="_blank" rel="noopener">Discord ${icon("external")}</a><button class="btn btn-glass btn-sm" type="button" data-request-close="${t.id}">Request close</button>` : ""}</div></td>
       </tr>`).join("")}</tbody></table></div>` : empty("No tickets yet", "When you need a hand, open a ticket and staff will reply in a private channel.", "inbox", "85 196 255")}
     </section>`;
 }
@@ -395,7 +395,7 @@ function ticketOps() {
           <td>${pill(t.status)}${t.close_requested_by ? `<br><span class="pill pill-warn" style="margin-top:5px">Close requested</span>` : ""}</td>
           <td><span class="prio p${Number(t.priority)}"><i></i>${esc(priorities[Number(t.priority)]?.label || `P${t.priority}`)}</span>${overdue ? `<br><small style="color:#ff9aa3">Overdue</small>` : ""}</td>
           <td>${t.claimed_by ? person(t.claimed_by, "", { size: "av-xs", sub: "" }) : `<span style="color:var(--ink-3)">-</span>`}</td>
-          <td><div class="actions">${t.status !== "closed"
+          <td><div class="actions"><a class="icon-btn" href="transcript.html?id=${t.id}${t.status !== "closed" ? "&refresh=1" : ""}" title="View hosted transcript">${icon("history")}</a>${t.status !== "closed"
             ? `<a class="icon-btn" href="https://discord.com/channels/${esc(t.guild_id)}/${esc(t.channel_id)}" target="_blank" rel="noopener" title="Open in Discord">${icon("external")}</a><button class="btn btn-glass btn-sm" type="button" data-ticket-action="${t.id}:${t.claimed_by === me ? "release" : "claim"}">${t.claimed_by === me ? "Release" : "Claim"}</button><button class="icon-btn" type="button" data-ticket-manage="${t.id}" title="Priority, note, or close" aria-label="Manage ticket #${t.id}">${icon("dots")}</button>`
             : `<button class="btn btn-ghost btn-sm" type="button" data-ticket-action="${t.id}:reopen">Reopen</button>`}</div></td>
         </tr>`;
