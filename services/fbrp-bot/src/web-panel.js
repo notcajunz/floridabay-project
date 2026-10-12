@@ -602,7 +602,7 @@ export const PANEL_RESOURCES = {
   "org-shop": {
     label: "Organization shop",
     group: "Economy",
-    description: "What gangs and businesses can buy with organization money. Properties need business, x, y, z (the terminal / MLO entrance); vehicles a model; weapon permits a weapons list; outfits male/female components; perks perk + value.",
+    description: "What organizations (gangs, businesses and departments) can buy with organization money. Properties need business, x, y, z (the terminal / MLO entrance); vehicles a model; weapon permits a weapons list; outfits male/female components; perks perk + value.",
     table: "org_shop_items",
     pk: ["item_key"],
     order: "FIELD(kind,'property','vehicle','weapon','outfit','perk'),sort_order,label",
@@ -613,7 +613,9 @@ export const PANEL_RESOURCES = {
       field("label", "Name", "text", { required: true }),
       field("description", "Description", "text", { default: "" }),
       field("price", "Price ($)", "number", { required: true }),
-      field("org_types", "Organization types (comma separated)", "text", { default: "gang,business" }),
+      field("org_types", "Organization types (comma separated: gang, business, leo, fire, government, other)", "text", { default: "gang,business" }),
+      field("stock", "Stock (max organizations owning it; blank = unlimited)", "number"),
+      field("requires", "Requires item key (must be owned first)", "text"),
       field("data", "Item data (JSON)", "json", { required: true, default: {} }),
       field("enabled", "For sale", "boolean", { default: true }),
       field("sort_order", "Display order", "number", { default: 0 }),
@@ -1247,7 +1249,7 @@ export function startWebPanel(context) {
       ...(data.handoffNotes || []).flatMap((row) => [row.author_id, row.resolved_by]),
       ...appealData.appeals.map((row) => row.reviewed_by),
       ...(exams?.reviewQueue || []).flatMap((row) => [row.discord_id, row.reviewer_id]),
-      ...(orgEconomy?.organizations || []).flatMap((org) => [...org.leaders, ...org.transactions.map((row) => row.actor_id), ...org.purchases.map((row) => row.purchased_by)]),
+      ...(orgEconomy?.organizations || []).flatMap((org) => [...org.leaders, ...org.transactions.map((row) => row.actor_id), ...org.purchases.map((row) => row.purchased_by), ...(org.roster || []).map((row) => row.discord_id)]),
     ]);
     return data;
   }
@@ -1488,7 +1490,12 @@ export function startWebPanel(context) {
         else if (url.pathname === "/api/portal/exam/review") result = await staffExams.review(session, input);
         else if (url.pathname === "/api/portal/exam/withdraw") result = await staffExams.withdraw(session, input);
         else if (url.pathname === "/api/portal/org/purchase") result = await economy.purchase(session, input);
-        else if (url.pathname === "/api/portal/org/sell") result = await economy.sellProperty(session, input);
+        else if (url.pathname === "/api/portal/org/sell") result = await economy.sellItem(session, input);
+        else if (url.pathname === "/api/portal/org/transfer") result = await economy.transfer(session.id, input);
+        else if (url.pathname === "/api/portal/org/rank") result = await economy.saveRank(session.id, input);
+        else if (url.pathname === "/api/portal/org/rank/delete") result = await economy.deleteRank(session.id, input);
+        else if (url.pathname === "/api/portal/org/member") result = await economy.setMemberRank(session.id, input);
+        else if (url.pathname === "/api/portal/org/motd") result = await economy.setMotd(session.id, input);
         else if (url.pathname === "/api/portal/org/adjust") result = await economy.adjust(session.id, input);
         else if (url.pathname === "/api/portal/org/leader") result = await economy.setLeader(session.id, input);
         else if (url.pathname === "/api/portal/ticket/request-close") {

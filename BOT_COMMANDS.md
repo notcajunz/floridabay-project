@@ -1,6 +1,6 @@
 # Florida Bay bot command reference
 
-This file documents every command registered by the Discord bot: **30 top-level slash commands**, **150 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
+This file documents every command registered by the Discord bot: **30 top-level slash commands**, **152 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
 
 ## How permissions work
 
@@ -40,11 +40,14 @@ Organization wallets: balances, ledger and management
 | `/orgbank ledger [organization]` | Recent wallet transactions<br><small>Arguments: `organization` (optional text) — Organization slug (defaults to yours).</small> | Membership in the selected organization, or `fbrp.organizations.manage` |
 | `/orgbank adjust <organization> <amount> <reason>` | Add or remove money from a wallet<br><small>Arguments: `organization` (required text) — Organization slug. `amount` (required integer) — Positive to add, negative to remove. `reason` (required text) — Reason recorded in the ledger.</small> | `fbrp.organizations.manage` |
 | `/orgbank leader <organization> <member> <leader>` | Grant or remove spending (leader) access<br><small>Arguments: `organization` (required text) — Organization slug. `member` (required user) — Discord member. `leader` (required true/false) — true to grant, false to remove.</small> | `fbrp.organizations.manage` |
+| `/orgbank transfer <to> <amount> <memo> [organization]` | Send money from your organization's wallet to another organization<br><small>Arguments: `to` (required text) — Receiving organization slug. `amount` (required integer) — Amount in dollars. `memo` (required text) — What the money is for (shown in both ledgers). `organization` (optional text) — Sending organization slug (defaults to yours).</small> | Leader of the sending organization, a rank with spending access (within its daily limit), or `fbrp.organizations.manage` |
+| `/orgbank roster [organization]` | Members, ranks and duty hours this week<br><small>Arguments: `organization` (optional text) — Organization slug (defaults to yours).</small> | Membership in the selected organization, or `fbrp.organizations.manage` |
 
 Important behavior:
 
 - Balance and ledger access is limited to the selected organization's members unless the caller has organization-management access.
-- An adjustment cannot reduce a wallet below zero. Leader access controls portal spending.
+- An adjustment cannot reduce a wallet below zero. Leaders, and ranks with spending access, can buy from the portal and send transfers. A leader must hold the organization's access role.
+- Leaders build a rank ladder on the portal (level 1-99 with spending, roster, armory and garage access and an optional daily spend limit). Ranks with roster access can promote and demote members ranked below them.
 
 ## /welcome
 

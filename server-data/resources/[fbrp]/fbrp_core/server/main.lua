@@ -1141,7 +1141,7 @@ RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
     if orgGarage then
         for _,vehicle in ipairs(orgGarage.vehicles) do
             if vehicle.model:lower()==model then
-                TriggerClientEvent('fbrp:vehicles:approved',src,model,vehicle.label)
+                TriggerClientEvent('fbrp:vehicles:approved',src,model,vehicle.label,orgGarage.style)
                 return FBRP.DB.audit(sessions[src].discord or src,'vehicle.spawn',model,{category='org',organization=orgGarage.label})
             end
         end

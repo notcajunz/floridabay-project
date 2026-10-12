@@ -1245,3 +1245,7 @@ button.stat-tile:hover { transform: translateY(-3px); border-color: rgb(var(--to
 .appeal-nav { display: flex !important; justify-content: space-between; align-items: center; }
 .choice label.disabled { opacity: .45; cursor: not-allowed; }
 @media (max-width: 640px) { .appeal-steps span { font-size: 0; padding: 4px; } .appeal-steps span i { font-size: .74rem; } .appeal-side { justify-items: start; text-align: left; } }
+.row-person { display: inline-flex; align-items: center; gap: 10px; }
+.duty-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--ink-3); opacity: .45; }
+.duty-dot.on { background: #3ddc97; opacity: 1; box-shadow: 0 0 0 3px rgba(61, 220, 151, .18); }
+.org-manage { flex-wrap: wrap; }

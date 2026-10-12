@@ -100,7 +100,7 @@ RegisterNUICallback('spawnVehicle',function(data,cb)
     cb({ok=true})
 end)
 
-RegisterNetEvent('fbrp:vehicles:approved',function(model,label)
+RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     local hash=joaat(model)
     if not IsModelInCdimage(hash) or not IsModelAVehicle(hash) then return TriggerEvent('fbrp:notify','Vehicle model is not installed.','error') end
     RequestModel(hash)
@@ -110,7 +110,10 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label)
     local ped=PlayerPedId(); local coords=GetOffsetFromEntityInWorldCoords(ped,0.0,4.5,0.2); local heading=GetEntityHeading(ped)
     local vehicle=CreateVehicle(hash,coords.x,coords.y,coords.z,heading,true,false)
     SetVehicleOnGroundProperly(vehicle)
-    SetVehicleNumberPlateText(vehicle,'FBRP'..math.random(100,999))
+    SetVehicleNumberPlateText(vehicle,type(style)=='table' and type(style.plate)=='string' and style.plate:sub(1,8) or 'FBRP'..math.random(100,999))
+    -- Organization vehicles wear the organization's color.
+    local hex=type(style)=='table' and type(style.color)=='string' and style.color:match('^#(%x%x%x%x%x%x)$')
+    if hex then SetVehicleCustomPrimaryColour(vehicle,tonumber(hex:sub(1,2),16),tonumber(hex:sub(3,4),16),tonumber(hex:sub(5,6),16)) end
     SetEntityAsMissionEntity(vehicle,true,true)
     initialiseFuel(vehicle,true)
     TaskWarpPedIntoVehicle(ped,vehicle,-1)

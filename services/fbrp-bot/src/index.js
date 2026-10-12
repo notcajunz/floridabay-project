@@ -229,8 +229,36 @@ async function orgbankCommand(i, sub) {
       rows: [["Member", who(member.id)], ["Spending access", result.leader ? "Yes - can buy from the portal" : "No"]],
     });
   }
+  if (sub === "transfer") {
+    let from = i.options.getString("organization") || "";
+    if (!from) {
+      const mine = await economy.memberships(i.user.id);
+      if (!mine.length) throw new Error("You are not a member of any organization. Pass `organization:` if you manage them.");
+      from = mine.find((row) => row.perms.spend)?.slug || mine[0].slug;
+    }
+    const result = await economy.transfer(i.user.id, { orgId: from, toOrgId: i.options.getString("to", true), amount: i.options.getInteger("amount", true), memo: i.options.getString("memo", true) });
+    return card(`Transfer sent · ${result.org.name} → ${result.target.name}`, {
+      color: COLORS.success,
+      rows: [["Amount", economy.money(result.amount)], [`${result.org.name} balance`, economy.money(result.balance)], ["Memo", clean(i.options.getString("memo", true), 120), false]],
+    });
+  }
   const detail = await economy.summary(i.user.id, i.options.getString("organization") || "");
   const site = publicBase();
+  if (sub === "roster") {
+    const hours = (seconds) => `${(Number(seconds || 0) / 3600).toFixed(1)}h`;
+    const lines = detail.roster.slice(0, 25).map((row) =>
+      `${row.on_duty ? "🟢" : "⚫"} ${mention(row.discord_id)} · **${clean(row.rank, 40)}** · ${hours(row.week_seconds)} this week${row.last_shift ? ` · last shift <t:${Math.floor(row.last_shift / 1000)}:R>` : ""}`);
+    return card(`${detail.name} · roster`, {
+      description: lines.length ? lines.join("\n") : "Nobody holds this organization's role yet.",
+      color: COLORS.primary,
+      rows: [
+        ["Members", String(detail.roster.length)],
+        ["On duty now", String(detail.roster.filter((row) => row.on_duty).length)],
+        ["Ranks", detail.ranks.length ? clip(detail.ranks.map((r) => `${r.name} (${r.level})`).join(", "), 900) : "None - leaders can add them on the portal"],
+      ],
+      footer: site ? `Manage ranks at ${site}/portal#organizations` : undefined,
+    });
+  }
   if (sub === "ledger") {
     const lines = detail.transactions.slice(0, 15).map((row) =>
       `\`${Number(row.amount) >= 0 ? "+" : "-"}${economy.money(Math.abs(Number(row.amount)))}\` ${clean(row.description, 70)} · <t:${Math.floor(Number(row.created_at) / 1000)}:R>`);
@@ -3452,7 +3480,7 @@ const COMMAND_PERMISSIONS = {
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
   userinfo: "`fbrp.investigate`",
   office: "`fbrp.office.manage`",
-  orgbank: "`balance`/`ledger`: organization members; `adjust`/`leader`: `fbrp.organizations.manage`",
+  orgbank: "`balance`/`ledger`/`roster`: organization members; `transfer`: members whose rank can spend; `adjust`/`leader`: `fbrp.organizations.manage`",
   exam: "Head of Management and above",
 };
 

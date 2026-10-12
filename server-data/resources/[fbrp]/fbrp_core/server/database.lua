@@ -22,7 +22,8 @@ local migrationFiles = {
     'migrations/026_corrections_cad.sql',
     'migrations/027_staff_exam_grants.sql',
     'migrations/028_appeal_workflow.sql',
-    'migrations/029_activities.sql'
+    'migrations/029_activities.sql',
+    'migrations/031_org_management.sql'
 }
 
 local function splitSql(contents)

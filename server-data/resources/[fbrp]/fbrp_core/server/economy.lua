@@ -17,6 +17,10 @@ local runs = {}          -- source -> { drop, started, deadline, from, org }
 local tasks = {}         -- source -> { key, started, ms }
 local lastProduce, lastTask, lastService, armoryUsed = {}, {}, {}, {}
 local hourly = {}        -- org id -> { hour, earned }
+local orgInfo = {}       -- org id -> { slug, color, motd }
+local access = {}        -- source -> { orgId, leader, rank, level, armory, garage }
+local stipend = {}       -- org id -> { amount, minutes }
+local D = E.departments or { stipendPerHour={}, stations={}, seizureBounty=0, stipendFlushMinutes=10, armoryRadius=35.0 }
 
 local GREEN, AMBER, PURPLE = { 79, 224, 140 }, { 255, 181, 71 }, { 196, 139, 255 }
 
@@ -65,6 +69,40 @@ local function isGang(org)
     return org and org.type == 'gang'
 end
 
+local function isDepartment(org)
+    return org and D.stipendPerHour[org.type] ~= nil
+end
+
+local function flag(value, default)
+    if value == nil then return default end
+    return value == 1 or value == true
+end
+
+-- What the on-duty member may do inside their organization: leaders can do everything,
+-- ranked members follow their rank, everyone else keeps the default member access.
+local function accessOf(source)
+    local org = orgOf(source)
+    if not org then return nil end
+    local cached = access[source]
+    if cached and cached.orgId == org.id then return cached end
+    local s = sessions[source]
+    local row = s and s.discord and MySQL.single.await([[
+        SELECT m.manager,r.name rank_label,r.level,r.can_armory,r.can_garage
+          FROM organization_members m LEFT JOIN org_ranks r ON r.id=m.rank_id AND r.org_id=m.org_id
+         WHERE m.org_id=? AND m.discord_id=?
+    ]], { org.id, s.discord }) or nil
+    local leader = row ~= nil and flag(row.manager, false)
+    cached = {
+        orgId=org.id, leader=leader,
+        rank=leader and 'Leader' or (row and row.rank_label) or 'Member',
+        level=leader and 100 or tonumber(row and row.level) or 0,
+        armory=leader or flag(row and row.can_armory, true),
+        garage=leader or flag(row and row.can_garage, true),
+    }
+    access[source] = cached
+    return cached
+end
+
 -- ─────────────────────────── catalog & ownership ───────────────────────────
 
 local function perksOf(orgId)
@@ -111,8 +149,14 @@ local function loadCatalog()
             }
         end
     end
+    local nextInfo = {}
+    for _, row in ipairs(MySQL.query.await('SELECT id,slug,color,motd FROM organizations WHERE active=TRUE')) do
+        nextInfo[tonumber(row.id)] = { slug=row.slug, color=row.color, motd=row.motd }
+    end
     catalog = nextCatalog
     owned = nextOwned
+    orgInfo = nextInfo
+    access = {}
 end
 
 local function propertyByKey(orgId, key)
@@ -126,6 +170,18 @@ local function nearOwnedProperty(source, orgId, radius)
     for _, property in ipairs(owned[orgId] and owned[orgId].properties or {}) do
         if near(coords, property, radius or property.radius) then return property end
     end
+end
+
+local function nearStation(source, org)
+    if not org then return nil end
+    local coords = pedCoords(source)
+    for _, station in ipairs(D.stations or {}) do
+        if station.types[org.type] and near(coords, station, D.armoryRadius or 35.0) then return station end
+    end
+end
+
+local function atArmory(source, org)
+    return nearOwnedProperty(source, org.id) ~= nil or nearStation(source, org) ~= nil
 end
 
 -- ─────────────────────────── wallets ───────────────────────────
@@ -202,9 +258,9 @@ local function logRun(source, status, extra)
     if not c then return end
     local s = sessions[source]
     local characterId, name = characterOf(source)
-    MySQL.insert('INSERT INTO org_drug_runs(org_id,discord_id,character_id,name,drug,units,payout,status,seized_by,location,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)', {
+    MySQL.insert('INSERT INTO org_drug_runs(org_id,discord_id,character_id,name,drug,units,payout,status,seized_by,seized_org_id,location,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', {
         c.org, s and s.discord or nil, characterId, name or GetPlayerName(source) or 'Unknown', c.drug, c.units,
-        extra.payout or 0, status, extra.by, extra.location, now()
+        extra.payout or 0, status, extra.by, extra.seizedOrg, extra.location, now()
     })
 end
 
@@ -277,7 +333,30 @@ local function hubPayload(source)
         for _, weapon in ipairs(package.weapons) do names[#names + 1] = tostring(weapon.name):gsub('^WEAPON_', ''):lower() end
         payload.armory[#payload.armory + 1] = { key=package.key, label=package.label, weapons=names, cooldown=ready }
     end
+    local me = accessOf(source)
     payload.atProperty = nearOwnedProperty(source, org.id) ~= nil
+    payload.atArmory = atArmory(source, org)
+    payload.station = nearStation(source, org) and nearStation(source, org).label or nil
+    payload.rank = me and me.rank or 'Member'
+    payload.leader = me and me.leader or false
+    payload.can = { armory=me and me.armory or false, garage=me and me.garage or false }
+    payload.motd = orgInfo[org.id] and orgInfo[org.id].motd or nil
+    payload.isDepartment = isDepartment(org)
+    if payload.isDepartment then
+        local rate = math.floor((D.stipendPerHour[org.type] or 0) * (1 + (perksOf(org.id).stipend or 0) / 100))
+        payload.department = { stipendPerHour=rate, bounty=math.floor((D.seizureBounty or 0) * (1 + (perksOf(org.id).bounty or 0) / 100)), stations={} }
+        for _, station in ipairs(D.stations or {}) do
+            if station.types[org.type] then payload.department.stations[#payload.department.stations + 1] = { label=station.label, x=station.x, y=station.y, z=station.z } end
+        end
+    end
+    payload.crew = {}
+    for src, other in pairs(sessions) do
+        if other.org and other.org.id == org.id then
+            local them = accessOf(src)
+            payload.crew[#payload.crew + 1] = { id=src, name=S.displayName(src), rank=them and them.rank or 'Member', level=them and them.level or 0, me=src == source }
+        end
+    end
+    table.sort(payload.crew, function(a, b) if a.level ~= b.level then return a.level > b.level end return a.name < b.name end)
     payload.perks = {}
     for perk, value in pairs(b.perks) do payload.perks[#payload.perks + 1] = { perk=perk, value=value } end
     local entry, cap = businessCapacity(org.id)
@@ -289,6 +368,12 @@ end
 
 AddEventHandler('fbrp:organizationDutyChanged', function(source, orgId)
     source = tonumber(source)
+    access[source] = nil
+    local info = orgId and orgInfo[tonumber(orgId)]
+    if info and info.motd and info.motd ~= '' then
+        local org = orgOf(source)
+        chat(source, (org and org.name or 'ORGANIZATION'):upper() .. ' · MOTD', info.motd, PURPLE)
+    end
     if not orgId and runs[source] then
         runs[source] = nil
         notify(source, 'You went off duty - the delivery was called off. You still have the product.', 'warning')
@@ -334,7 +419,7 @@ end)
 
 AddEventHandler('playerDropped', function()
     local src = source
-    carry[src], producing[src], runs[src], tasks[src] = nil, nil, nil, nil
+    carry[src], producing[src], runs[src], tasks[src], access[src] = nil, nil, nil, nil, nil
     lastProduce[src], lastTask[src], lastService[src] = nil, nil, nil
 end)
 
@@ -475,11 +560,11 @@ local function contrabandText(source)
     return ('%dx %s (packaged for sale)'):format(c.units, E.drugs[c.drug].label)
 end
 
-local function removeCarry(source, status, byName)
+local function removeCarry(source, status, byName, seizedOrg)
     local c = carry[source]
     if not c or c.units <= 0 then return nil end
     local coords = pedCoords(source)
-    logRun(source, status, { by=byName, location=coords and ('%.0f, %.0f'):format(coords.x, coords.y) or nil })
+    logRun(source, status, { by=byName, seizedOrg=seizedOrg, location=coords and ('%.0f, %.0f'):format(coords.x, coords.y) or nil })
     local text = contrabandText(source)
     carry[source] = nil
     if runs[source] then runs[source] = nil TriggerClientEvent('fbrp:economy:run', source, nil) end
@@ -493,11 +578,21 @@ FBRP.Economy.contrabandText = contrabandText
 -- Police search: the product is listed and seized.
 FBRP.Economy.seize = function(source, actor)
     local name = actor and S.displayName(actor) or 'Police'
-    local text, c = removeCarry(source, 'seized', name)
+    local department = actor and orgOf(actor)
+    if not isDepartment(department) then department = nil end
+    local text, c = removeCarry(source, 'seized', name, department and department.id or nil)
     if not text then return nil end
-    notify(source, ('%s seized your %s.'):format(name, E.drugs[c.drug].label:lower()), 'error')
+    local drug = E.drugs[c.drug]
+    notify(source, ('%s seized your %s.'):format(name, drug.label:lower()), 'error')
     local s, a = sessions[source], actor and sessions[actor]
-    FBRP.DB.audit(a and a.discord or 'police', 'economy.seizure', s and s.discord or source, { drug=E.drugs[c.drug].label, units=c.units, officer=name })
+    local bounty = 0
+    if department then
+        local percent = (D.seizureBounty or 0) * (1 + (perksOf(department.id).bounty or 0) / 100)
+        bounty = credit(department.id, c.units * drug.price * percent / 100, 'seizure',
+            ('Seized %d %s (%s)'):format(c.units, drug.label:lower(), name), a and a.discord or nil, tostring(source)) or 0
+        if bounty > 0 then notify(actor, ('Seizure logged. +%s to the %s budget.'):format(money(bounty), department.name), 'success') end
+    end
+    FBRP.DB.audit(a and a.discord or 'police', 'economy.seizure', s and s.discord or source, { drug=drug.label, units=c.units, officer=name, department=department and department.name or nil, bounty=bounty })
     return text
 end
 
@@ -606,7 +701,9 @@ RegisterNetEvent('fbrp:economy:armory', function(key)
     local org = orgOf(src)
     if not org then return notify(src, 'Clock in with /duty first.', 'error') end
     if FBRP.Justice.IsJailed(src) or (FBRP.Justice.IsServing and FBRP.Justice.IsServing(src)) then return end
-    if not nearOwnedProperty(src, org.id) then return notify(src, 'The armory is at your organization\'s property.', 'error') end
+    local me = accessOf(src)
+    if not (me and me.armory) then return notify(src, 'Your rank does not have armory access.', 'error') end
+    if not atArmory(src, org) then return notify(src, isDepartment(org) and 'The armory is at your department\'s stations or properties.' or 'The armory is at your organization\'s property.', 'error') end
     local package
     for _, entry in ipairs(owned[org.id] and owned[org.id].weapons or {}) do
         if entry.key == clean(key, 40) then package = entry end
@@ -644,7 +741,62 @@ FBRP.Economy.garageCategory = function(source)
     local org = orgOf(source)
     local list = org and owned[org.id] and owned[org.id].vehicles or nil
     if not list or #list == 0 then return nil end
-    return { id='org', label=org.name, icon='car', vehicles=list }
+    local me = accessOf(source)
+    if not (me and me.garage) then return nil end
+    local style = nil
+    if E.orgPlates ~= false then
+        local info = orgInfo[org.id] or {}
+        local prefix = tostring(info.slug or org.slug or 'ORG'):upper():gsub('[^%w]', ''):sub(1, 4)
+        style = { plate=prefix .. tostring(math.random(math.floor(10 ^ (7 - #prefix)), math.floor(10 ^ (8 - #prefix)) - 1)), color=not isDepartment(org) and info.color or nil }
+    end
+    return { id='org', label=org.name, icon='car', vehicles=list, style=style }
 end
 
 FBRP.Economy.Reload = reload
+
+-- ─────────────────────────── departments ───────────────────────────
+
+-- Members on duty for a department earn its budget by the minute, batched into one ledger line.
+CreateThread(function()
+    local minutes = 0
+    while true do
+        Wait(60000)
+        if S.isReady() then
+            for _, s in pairs(sessions) do
+                local org = s.org
+                local rate = org and D.stipendPerHour[org.type]
+                if rate and rate > 0 then
+                    local entry = stipend[org.id] or { amount=0, minutes=0 }
+                    entry.amount = entry.amount + rate / 60 * (1 + (perksOf(org.id).stipend or 0) / 100)
+                    entry.minutes = entry.minutes + 1
+                    stipend[org.id] = entry
+                end
+            end
+            minutes = minutes + 1
+            if minutes >= (D.stipendFlushMinutes or 10) then
+                minutes = 0
+                local batch = stipend
+                stipend = {}
+                for orgId, entry in pairs(batch) do
+                    credit(orgId, entry.amount, 'stipend', ('Duty pay: %d member-minute%s on duty'):format(entry.minutes, entry.minutes == 1 and '' or 's'))
+                end
+            end
+        end
+    end
+end)
+
+-- /crew: who in your organization is on duty right now.
+RegisterCommand('crew', function(source)
+    if source <= 0 then return end
+    local org = orgOf(source)
+    if not org then return notify(source, 'Clock in with /duty to see your crew.', 'info') end
+    local lines = {}
+    for src, other in pairs(sessions) do
+        if other.org and other.org.id == org.id then
+            local them = accessOf(src)
+            lines[#lines + 1] = ('%s [%d] - %s'):format(S.displayName(src), src, them and them.rank or 'Member')
+        end
+    end
+    table.sort(lines)
+    chat(source, org.name:upper() .. ' · ON DUTY', table.concat(lines, ', '), PURPLE)
+end, false)

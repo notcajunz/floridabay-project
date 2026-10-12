@@ -1321,6 +1321,21 @@ const orgbank = new SlashCommandBuilder()
       .addStringOption((o) => o.setName("organization").setDescription("Organization slug").setRequired(true).setMaxLength(40))
       .addUserOption((o) => o.setName("member").setDescription("Discord member").setRequired(true))
       .addBooleanOption((o) => o.setName("leader").setDescription("true to grant, false to remove").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("transfer")
+      .setDescription("Send money from your organization's wallet to another organization")
+      .addStringOption((o) => o.setName("to").setDescription("Receiving organization slug").setRequired(true).setMaxLength(40))
+      .addIntegerOption((o) => o.setName("amount").setDescription("Amount in dollars").setRequired(true).setMinValue(1).setMaxValue(100000000))
+      .addStringOption((o) => o.setName("memo").setDescription("What the money is for (shown in both ledgers)").setRequired(true).setMaxLength(120))
+      .addStringOption((o) => o.setName("organization").setDescription("Sending organization slug (defaults to yours)").setMaxLength(40)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("roster")
+      .setDescription("Members, ranks and duty hours this week")
+      .addStringOption((o) => o.setName("organization").setDescription("Organization slug (defaults to yours)").setMaxLength(40)),
   );
 
 const examChoice = (o) =>

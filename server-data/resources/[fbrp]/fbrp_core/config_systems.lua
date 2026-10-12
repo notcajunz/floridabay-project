@@ -156,6 +156,29 @@ FBRP.Economy = {
         },
     },
     armoryCooldownSeconds = 600,
+    -- Purchased organization vehicles spawn in the organization's color with its plate prefix.
+    orgPlates = true,
+    -- Departments (leo / fire / government) are funded by duty time and seizures
+    -- instead of product or businesses. Money goes to the department wallet.
+    departments = {
+        stipendPerHour = { leo=450, fire=450, government=300 },  -- per member on duty, before perks
+        stipendFlushMinutes = 10,                                -- batch duty pay into one ledger line
+        seizureBounty = 40,                                      -- % of street value paid to the seizing department
+        armoryRadius = 35.0,
+        -- Department armories (no property needed). Types decide who may use each one.
+        stations = {
+            { label='Mission Row PD', types={ leo=true }, x=452.6, y=-980.0, z=30.7 },
+            { label='Vespucci PD', types={ leo=true }, x=-1098.6, y=-831.6, z=19.0 },
+            { label='Davis Sheriff', types={ leo=true }, x=362.4, y=-1592.4, z=29.3 },
+            { label='Sandy Shores Sheriff', types={ leo=true }, x=1853.5, y=3689.6, z=34.3 },
+            { label='Paleto Bay Sheriff', types={ leo=true }, x=-448.6, y=6012.9, z=31.7 },
+            { label='Davis Fire Station', types={ fire=true }, x=207.0, y=-1645.0, z=29.8 },
+            { label='Paleto Fire Station', types={ fire=true }, x=-379.5, y=6118.3, z=31.8 },
+            { label='Sandy Shores Fire Station', types={ fire=true }, x=1692.0, y=3586.0, z=35.6 },
+            { label='Pillbox Medical', types={ fire=true }, x=307.0, y=-595.0, z=43.3 },
+            { label='City Hall', types={ government=true }, x=-544.9, y=-204.0, z=38.2 },
+        },
+    },
 }
 
 -- CAD/MDT options.
