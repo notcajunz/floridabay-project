@@ -58,6 +58,7 @@ const PATHS = {
   review: '<path d="M4 5h16M4 12h10M4 19h7"/><circle cx="17.5" cy="16.5" r="3"/><path d="m20 19 2 2"/>',
   wallet: '<path d="M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-4a2 2 0 0 0 0 4h4v2a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V6"/><circle cx="17" cy="15" r=".6"/>',
   building: '<path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 9h4a1 1 0 0 1 1 1v11M3 21h18M8 8h3M8 12h3M8 16h3"/>',
+  code: '<path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/>',
   car: '<path d="M3 17v-4l2-5.5A2 2 0 0 1 6.9 6h10.2a2 2 0 0 1 1.9 1.5L21 13v4h-3v2h-2v-2H8v2H6v-2z"/><path d="M3 13h18"/>',
   target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
   shirt: '<path d="M8 3 4 6l2 4 2-1v12h8V9l2 1 2-4-4-3c0 2-2 3-4 3s-4-1-4-3Z"/>',
@@ -68,7 +69,7 @@ const PATHS = {
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[name] || ""}</svg>`;
 
 /* ---------- state ---------- */
-const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, filters: {} };
+const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, filters: {}, commandReference: null };
 const filter = (key, fallback = "") => state.filters[key] ?? fallback;
 
 async function api(path, options = {}) {
@@ -146,7 +147,7 @@ function nav() {
       ...(orgs.length ? [["organizations", "Organizations", "wallet"]] : []),
     ]],
     ...(showExams ? [["Career", [["exams", "Staff exams", "exam", (exams.exams || []).filter((e) => e.eligible).length]]]] : []),
-    ...(access.staff || exams.reviewer ? [["Staff workspace", [
+    ...(access.staff || exams.reviewer || access.commandReference ? [["Staff workspace", [
       ...(access.staff ? [
         ["liveops", "Live operations", "activity", (data.liveOps?.scenes?.length || 0) + (data.liveOps?.calls?.length || 0)],
         ["banlog", "Ban registry", "ban"],
@@ -154,6 +155,7 @@ function nav() {
         ["ticketops", "Tickets", "ticket", openTickets],
       ] : []),
       ...(exams.reviewer ? [["examreviews", "Exam reviews", "review", pendingExams]] : []),
+      ...(access.commandReference ? [["commands", "Bot commands", "code"]] : []),
     ]]] : []),
     ...(access.owner ? [["Owner", [["settings", "Live configuration", "gear"]]]] : []),
   ];
@@ -843,7 +845,95 @@ function orgLeaderDialog(id) {
       <div class="field">Access<div class="choice"><label class="approve"><input type="radio" name="leader" value="1" checked><span>Make leader<small>Can buy from the shop</small></span></label><label class="deny"><input type="radio" name="leader" value="0"><span>Remove<small>Back to member</small></span></label></div></div>` });
 }
 
-const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView };
+const inlineMarkdown = (value) => {
+  let html = esc(value);
+  html = html.replace(/&lt;br&gt;/gi, "<br>").replace(/&lt;small&gt;/gi, "<small>").replace(/&lt;\/small&gt;/gi, "</small>");
+  html = html.replace(/\[([^\]]+)]\((#[^)]+)\)/g, '<a href="$2">$1</a>');
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(^|\s)\*([^*]+)\*(?=\s|[.,;:]|$)/g, "$1<em>$2</em>");
+  return html;
+};
+
+function markdownCells(line) {
+  const cells = [];
+  let cell = "";
+  for (let index = 1; index < line.length - 1; index++) {
+    const char = line[index];
+    if (char === "|" && line[index - 1] !== "\\") {
+      cells.push(cell.trim().replaceAll("\\|", "|"));
+      cell = "";
+    } else cell += char;
+  }
+  cells.push(cell.trim().replaceAll("\\|", "|"));
+  return cells;
+}
+
+function markdownBlock(source) {
+  const lines = String(source || "").trim().split("\n");
+  const html = [];
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index].trim();
+    if (!line) { index++; continue; }
+    if (/^\|.+\|$/.test(line) && /^\|[-: |]+\|$/.test((lines[index + 1] || "").trim())) {
+      const header = markdownCells(line);
+      const rows = [];
+      index += 2;
+      while (index < lines.length && /^\|.+\|$/.test(lines[index].trim())) rows.push(markdownCells(lines[index++].trim()));
+      html.push(`<div class="command-table-wrap"><table class="command-table"><thead><tr>${header.map((cell) => `<th>${inlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      continue;
+    }
+    if (line.startsWith("- ")) {
+      const items = [];
+      while (index < lines.length && lines[index].trim().startsWith("- ")) items.push(`<li>${inlineMarkdown(lines[index++].trim().slice(2))}</li>`);
+      html.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+    if (line.startsWith("### ")) html.push(`<h3>${inlineMarkdown(line.slice(4))}</h3>`);
+    else if (line.startsWith("## ")) html.push(`<h2>${inlineMarkdown(line.slice(3))}</h2>`);
+    else if (line.startsWith("# ")) html.push(`<h1>${inlineMarkdown(line.slice(2))}</h1>`);
+    else if (line === "Important behavior:") html.push("<h3>Important behavior</h3>");
+    else html.push(`<p>${inlineMarkdown(line)}</p>`);
+    index++;
+  }
+  return html.join("");
+}
+
+function commandReferenceView() {
+  if (!state.data.access.commandReference) return go("dashboard");
+  setTitle("Management library", "Bot commands");
+  const reference = state.commandReference;
+  if (!reference || reference.loading) {
+    $("#portal-content").innerHTML = `<div class="loading"><div class="spinner"></div>Loading command reference</div>`;
+    if (!reference) {
+      state.commandReference = { loading: true };
+      api("portal/command-reference")
+        .then((result) => { state.commandReference = result; if (state.view === "commands") render(); })
+        .catch((error) => { state.commandReference = { error: error.message }; if (state.view === "commands") render(); });
+    }
+    return;
+  }
+  if (reference.error) {
+    $("#portal-content").innerHTML = `<section class="card"><div class="card-body">${empty("Reference unavailable", reference.error, "alert", "255 95 109")}</div></section>`;
+    return;
+  }
+  const markdown = String(reference.markdown || "");
+  const guide = markdown.match(/## How permissions work\n([\s\S]*?)(?=\n## Command index)/)?.[1] || "";
+  const sections = [...markdown.matchAll(/(?:^|\n)## (\/[^\n]+|Message command)\n([\s\S]*?)(?=\n## |$)/g)]
+    .map((match) => ({ title: match[1], source: `## ${match[1]}\n${match[2]}` }));
+  const query = filter("command-q").trim().toLowerCase();
+  const shown = sections.filter((section) => !query || `${section.title} ${section.source}`.toLowerCase().includes(query));
+  $("#portal-content").innerHTML = `
+    <section class="command-doc-hero">
+      <div><span class="kicker">Community Manager+</span><h2>Every bot command, in one place.</h2><p>Live from the repository reference. Search by command, action, argument, or ACE permission.</p></div>
+      <div class="command-doc-meta"><strong>${fmt(sections.length - 1)}</strong><span>slash commands</span><small>Updated ${esc(date(reference.updatedAt))}</small></div>
+    </section>
+    <div class="toolbar command-doc-tools">${searchBox("command-q", "Search commands or permissions…")}<span class="pill pill-sea">${fmt(shown.length)} sections</span></div>
+    ${!query ? `<section class="card command-doc-guide"><div class="card-head"><div><h2>How access works</h2><p>ACE inheritance, owner locks, and Discord-side requirements.</p></div></div><div class="card-body">${markdownBlock(guide)}</div></section>` : ""}
+    <div class="command-doc-list">${shown.length ? shown.map((section) => `<section class="card command-doc-section" id="command-${esc(section.title.replace(/^\//, "").replace(/\s+/g, "-"))}">${markdownBlock(section.source)}</section>`).join("") : `<section class="card"><div class="card-body">${empty("No commands found", "Try a command name, action, or ACE permission.", "search")}</div></section>`}</div>`;
+}
+
+const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, commands: commandReferenceView };
 function render() {
   nav();
   (renders[state.view] || dashboard)();

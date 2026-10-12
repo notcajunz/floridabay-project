@@ -16,6 +16,7 @@ const ACE_OBJECT = /^[A-Za-z0-9_.*:-]{1,120}$/;
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web");
 const logoFile = path.resolve(webRoot, "../../../server-data/resources/[fbrp]/fbrp_loading/web/assets/fbrp-logo.png");
+const commandReferenceFile = path.resolve(webRoot, "../../../BOT_COMMANDS.md");
 const ACTOR = OWNER_DISCORD_ID;
 const now = () => Date.now();
 
@@ -918,16 +919,26 @@ export function startWebPanel(context) {
     const owner = String(discordId) === ownerDiscordId;
     const roster = await db.one("SELECT status FROM staff_roster_members WHERE discord_id=?", [String(discordId)]);
     const staff = owner || Boolean(roster && roster.status !== "removed");
-    const [opsControl, sceneModerate] = await Promise.all([
+    const [opsControl, sceneModerate, staffRank, communityManager] = await Promise.all([
       owner ? true : hasPermission?.(discordId, "fbrp.announce"),
       owner ? true : hasPermission?.(discordId, "fbrp.staff.manage"),
+      db.one(
+        `SELECT MAX(g.rank_order) level
+           FROM ace_memberships m JOIN ace_groups g ON g.name=m.group_name
+          WHERE m.discord_id=?
+            AND (m.origin NOT LIKE 'discord:%' OR m.group_name='ban_blacklist_moderator')`,
+        [String(discordId)],
+      ),
+      db.one("SELECT rank_order FROM ace_groups WHERE name='community_manager'"),
     ]);
+    const commandReference = owner || Number(staffRank?.level ?? -1) >= Number(communityManager?.rank_order ?? 850);
     return {
       owner,
       staff,
       support: owner || staff || Boolean(await hasPermission?.(discordId, "fbrp.tickets.support")),
       opsControl: Boolean(opsControl),
       sceneModerate: Boolean(sceneModerate),
+      commandReference,
     };
   }
 
@@ -1460,6 +1471,16 @@ export function startWebPanel(context) {
 
       if (request.method === "GET" && url.pathname === "/api/portal/bootstrap")
         return sendJson(response, 200, await portalBootstrap(session));
+      if (request.method === "GET" && url.pathname === "/api/portal/command-reference") {
+        const access = await accessFor(session.id);
+        if (!access.commandReference)
+          return sendJson(response, 403, { error: "Community Manager rank or higher is required." });
+        const [markdown, info] = await Promise.all([
+          readFile(commandReferenceFile, "utf8"),
+          stat(commandReferenceFile),
+        ]);
+        return sendJson(response, 200, { markdown, updatedAt: info.mtimeMs });
+      }
       if (request.method === "GET" && url.pathname === "/api/portal/staff-profile") {
         const access = await accessFor(session.id);
         const id = String(url.searchParams.get("id") || session.id);
