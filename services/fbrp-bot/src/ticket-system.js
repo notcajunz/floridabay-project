@@ -100,7 +100,21 @@ export function createTicketSystem(ctx) {
   const setSetting = (guild,key,value) => db.query("INSERT INTO ticket_settings(guild_id,`key`,value) VALUES(?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)", [guild,key,JSON.stringify(value)]);
   const addEvent = (ticket,type,actor,detail={}) => db.query("INSERT INTO ticket_events(ticket_id,guild_id,event_type,actor_id,detail,created_at) VALUES(?,?,?,?,?,?)", [ticket?.id||null,ticket?.guild_id||detail.guild,type,actor||null,JSON.stringify(detail),Date.now()]);
   const staff = (id, object="fbrp.tickets.support") => hasPermission(id,object);
+  const configuredTicketRoles = (guildId, type) => db.query(
+    "SELECT role_id,level FROM ticket_support_roles WHERE guild_id=? AND ticket_type IN (?, 'all')",
+    [guildId,type],
+  );
+  const ownerIds = () => new Set(String(process.env.FBRP_SUPERUSER_IDS||"").split(",").map((id)=>id.trim()).filter(Boolean));
   const ticketAccess = async (i, type = "all", object = "fbrp.tickets.support", managersOnly = false) => {
+    const configured = await configuredTicketRoles(i.guildId, type);
+    if (configured.length) {
+      if (ownerIds().has(String(i.user.id))) return true;
+      const member = await i.guild.members.fetch(i.user.id).catch(() => null);
+      if (!member) return false;
+      return configured
+        .filter((row) => !managersOnly || row.level === "manager")
+        .some((row) => member.roles.cache.has(String(row.role_id)));
+    }
     if (await staff(i.user.id, object)) return true;
     const member = await i.guild.members.fetch(i.user.id).catch(() => null);
     if (!member) return false;
@@ -109,6 +123,33 @@ export function createTicketSystem(ctx) {
       [i.guildId, type],
     );
     return rows.some((row) => member.roles.cache.has(String(row.role_id)));
+  };
+  const ticketRoleIds = async (guild, type) => {
+    const configured = await configuredTicketRoles(guild.id, type);
+    const rows = configured.length ? configured : await db.query(
+      "SELECT DISTINCT b.role_id FROM discord_role_bindings b JOIN ace_entries e ON e.group_name=b.group_name WHERE b.guild_id=? AND e.mode='allow' AND e.object IN ('*','fbrp.*','fbrp.tickets','fbrp.tickets.*','fbrp.tickets.support')",
+      [guild.id],
+    );
+    return [...new Set(rows.map((row)=>String(row.role_id)))].filter((id)=>guild.roles.cache.has(id));
+  };
+  const ticketOverwrites = async (guild, row, participantIds = []) => {
+    const allow = [PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.EmbedLinks];
+    const overwrites = new Map();
+    overwrites.set(guild.roles.everyone.id,{id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]});
+    for (const id of new Set([String(row.author_id),...participantIds.map(String)])) overwrites.set(id,{id,allow});
+    overwrites.set(client.user.id,{id:client.user.id,allow:[...allow,PermissionFlagsBits.ManageChannels,PermissionFlagsBits.ManageMessages]});
+    for (const id of await ticketRoleIds(guild,row.type)) overwrites.set(id,{id,allow});
+    for (const id of ownerIds()) if (!overwrites.has(id)) overwrites.set(id,{id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]});
+    return [...overwrites.values()];
+  };
+  const syncTicketPermissions = async (guild, row) => {
+    const channel = await guild.channels.fetch(String(row.channel_id)).catch(()=>null);
+    if (!channel) throw new Error("The ticket channel is unavailable.");
+    const participants = await db.query("SELECT user_id FROM ticket_participants WHERE ticket_id=?",[row.id]);
+    await channel.permissionOverwrites.set(
+      await ticketOverwrites(guild,row,participants.map((entry)=>entry.user_id)),
+      `Sync support roles for ticket #${row.id}`,
+    );
   };
   const ticketById = (guildId, id) => db.one("SELECT * FROM support_tickets WHERE guild_id=? AND id=?", [guildId, id]);
   const fetchChannel = (row) => (row?.channel_id ? client.channels.fetch(String(row.channel_id)).catch(() => null) : null);
@@ -228,17 +269,7 @@ export function createTicketSystem(ctx) {
     const dueAt = createdAt+priority(levels,spec.priority).sla*60000;
     const insert = await db.query("INSERT INTO support_tickets(guild_id,author_id,type,subject,status,priority,due_at,form_data,created_at,last_activity) VALUES(?,?,?,?,?,?,?,?,?,?)",[guild.id,user.id,type,subject,"open",spec.priority,dueAt,JSON.stringify(form),createdAt,createdAt]);
     const ticket = {id:insert.insertId,guild_id:guild.id,type};
-    const configured = await db.query("SELECT DISTINCT role_id FROM ticket_support_roles WHERE guild_id=? AND ticket_type IN (?, 'all')",[guild.id,type]);
-    const fallback = await db.query("SELECT DISTINCT b.role_id FROM discord_role_bindings b JOIN ace_entries e ON e.group_name=b.group_name WHERE b.guild_id=? AND e.mode='allow' AND e.object IN ('*','fbrp.*','fbrp.tickets','fbrp.tickets.*','fbrp.tickets.support')",[guild.id]);
-    const roles = [...new Set([...configured,...fallback].map((row)=>String(row.role_id)))].filter((id)=>guild.roles.cache.has(id));
-    const owners = String(process.env.FBRP_SUPERUSER_IDS||"").split(",").map((id)=>id.trim()).filter(Boolean);
-    const overwrites = [
-      {id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},
-      {id:user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.EmbedLinks]},
-      {id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels,PermissionFlagsBits.ManageMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.EmbedLinks]},
-      ...roles.map((id)=>({id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles,PermissionFlagsBits.EmbedLinks]})),
-      ...owners.map((id)=>({id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]})),
-    ];
+    const overwrites = await ticketOverwrites(guild,{author_id:user.id,type},[user.id]);
     try {
       const category = await setting(guild.id,`category_${type}`,await setting(guild.id,"category_all",null));
       const panelBinding = await db.one("SELECT channel_id FROM discord_channel_bindings WHERE purpose='ticket_panel'");
@@ -546,7 +577,7 @@ export function createTicketSystem(ctx) {
     if(sub==="priority") return setPriority(i.guild,row,i.user.id,Number(i.options.getString("level",true)),clean(i.options.getString("reason",true),300));
     if(sub==="move"){
       const type=i.options.getString("type",true),spec=await ticketType(type,{includeDisabled:true}),category=await setting(i.guildId,`category_${type}`,await setting(i.guildId,"category_all",null));
-      await db.query("UPDATE support_tickets SET type=? WHERE id=?",[type,row.id]);if(category)await i.channel.setParent(String(category),{lockPermissions:false}).catch(()=>{});await addEvent(row,"move",i.user.id,{from:row.type,to:type});
+      await db.query("UPDATE support_tickets SET type=? WHERE id=?",[type,row.id]);if(category)await i.channel.setParent(String(category),{lockPermissions:false}).catch(()=>{});await syncTicketPermissions(i.guild,{...row,type});await addEvent(row,"move",i.user.id,{from:row.type,to:type});
       await refresh(row.id,i.guildId);
       await notice(i.channel,`📂 ${mention(i.user.id)} moved this ticket to **${typeEmoji(type)} ${spec.label}**.`);
       return card("Ticket moved",{color:colors.success,description:`Ticket **#${row.id}** is now **${spec.label}**.`});

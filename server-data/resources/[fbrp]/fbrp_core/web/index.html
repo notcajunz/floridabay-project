@@ -168,6 +168,30 @@
       <div id="notifications" class="notifications"></div>
     </div>
 
+    <div id="radial-menu" class="radial-menu hidden" aria-hidden="true">
+      <div id="radial-caption" class="radial-caption">
+        <small>INTERACTION WHEEL</small>
+        <strong>Choose a section</strong>
+      </div>
+      <div id="radial-wheel" class="radial-wheel">
+        <svg viewBox="0 0 720 390" aria-hidden="true">
+          <g id="radial-segments"></g>
+        </svg>
+        <div id="radial-labels" class="radial-labels"></div>
+        <button id="radial-center" class="radial-center" type="button" aria-label="Close interaction wheel"></button>
+      </div>
+      <form id="radial-dispatch" class="radial-dispatch hidden">
+        <div class="radial-dispatch-head">
+          <span data-icon="siren"></span>
+          <div><small id="radial-dispatch-kicker">EMERGENCY SERVICES</small><strong id="radial-dispatch-title">Call 911</strong></div>
+        </div>
+        <textarea name="message" maxlength="300" required placeholder="What is happening and where?"></textarea>
+        <input id="radial-dispatch-kind" type="hidden" name="kind" value="911" />
+        <div><button id="radial-dispatch-cancel" type="button">Cancel</button><button class="primary-action" type="submit">Send call</button></div>
+      </form>
+      <div class="radial-hint"><kbd>M</kbd> close <span></span> click a section to see actions</div>
+    </div>
+
     <div id="menu" class="menu-backdrop hidden">
       <main class="menu-shell scaled">
         <header class="menu-header">

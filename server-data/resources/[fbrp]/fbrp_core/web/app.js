@@ -53,6 +53,7 @@ const ICONS = {
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   check: '<path d="M20 6L9 17l-5-5"/>',
   x: '<path d="M18 6L6 18M6 6l12 12"/>',
+  back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
   alert: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
   siren: '<path d="M7 18v-6a5 5 0 0 1 10 0v6M5 21h14v-3H5zM12 3v2M4.2 6.2l1.4 1.4M19.8 6.2l-1.4 1.4"/>',
@@ -88,6 +89,145 @@ function hydrate(root = document) {
     node.innerHTML = icon(node.dataset.icon);
     node.dataset.drawn = node.dataset.icon;
   });
+}
+
+/* ───────── M interaction wheel ───────── */
+let radialPayload = {};
+let radialCategory = null;
+
+const RADIAL_CATEGORIES = [
+  {
+    id: "explore", label: "Explore", hint: "Play & discover", icon: "target", color: "#3fe3d2",
+    actions: [
+      { action: "activities", label: "Challenges", hint: "Records & caches", icon: "target" },
+      { action: "fish", label: "Fishing", hint: "Cast or reel", icon: "fish" },
+      { action: "passport", label: "Passport", hint: "Explore landmarks", icon: "pin" },
+      { action: "scenes", label: "Scene Hub", hint: "Find live RP", icon: "users" },
+    ],
+  },
+  {
+    id: "roleplay", label: "Roleplay", hint: "Character actions", icon: "sparkles", color: "#ff529a",
+    actions: [
+      { action: "interactions", label: "Interact", hint: "Nearby players", icon: "eye" },
+      { action: "emotes", label: "Emotes", hint: "Gestures & props", icon: "sparkles" },
+      { action: "showid", label: "Show ID", hint: "Present identity", icon: "id" },
+      { action: "handsup", label: "Hands Up", hint: "Toggle stance", icon: "user" },
+      { action: "point", label: "Point", hint: "Toggle pointing", icon: "back" },
+    ],
+  },
+  {
+    id: "vehicle", label: "Vehicle", hint: "Garage & controls", icon: "car", color: "#6fb6ff",
+    actions: [
+      { action: "vehicles", label: "Garage", hint: "Browse vehicles", icon: "car" },
+      { action: "carcontrols", label: "Controls", hint: "Engine, doors & belt", icon: "gauge" },
+    ],
+  },
+  {
+    id: "services", label: "Services", hint: "Comms & groups", icon: "grid", color: "#c48bff",
+    actions: [
+      { action: "radio", label: "Radio", hint: "Tune a channel", icon: "radio" },
+      { action: "org", label: "Organization", hint: "Duty & properties", icon: "building" },
+      { action: "tags", label: "Tag Wardrobe", hint: "Choose headtags", icon: "shirt" },
+    ],
+  },
+  {
+    id: "duty", label: "Duty", hint: "Police tools", icon: "shield", color: "#ffb547",
+    actions: [
+      { action: "mdt", label: "Police MDT", hint: "Dispatch & reports", icon: "file" },
+      { action: "bodycam", label: "Bodycam", hint: "Toggle recording", icon: "eye" },
+      { action: "spikes", label: "Spike Strips", hint: "Deploy or collect", icon: "alert" },
+    ],
+  },
+  {
+    id: "emergency", label: "Emergency", hint: "911 & 311 calls", icon: "siren", color: "#ff6b57",
+    actions: [
+      { compose: "911", label: "Call 911", hint: "Police or EMS", icon: "siren" },
+      { compose: "311", label: "Call 311", hint: "Non-emergency", icon: "phone" },
+    ],
+  },
+];
+
+function radialCategories() {
+  const rows = [...RADIAL_CATEGORIES];
+  if (radialPayload.jailed || radialPayload.communityService) {
+    rows.push({
+      id: "custody", label: "Custody", hint: radialPayload.jailed ? "Prison sentence" : "Community service", icon: "gavel", color: "#ff8c54",
+      actions: radialPayload.jailed
+        ? [
+            { action: "prisonwork", label: "Prison Jobs", hint: "Work down time", icon: "gavel" },
+            { action: "custody", label: "Sentence", hint: "Check remaining", icon: "clock" },
+          ]
+        : [{ action: "custody", label: "Service Status", hint: "Check remaining", icon: "trash" }],
+    });
+  }
+  return rows;
+}
+
+function radialPoint(cx, cy, radius, degrees) {
+  const angle = (degrees * Math.PI) / 180;
+  return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
+}
+
+function radialSegmentPath(start, end) {
+  const cx = 360, cy = 350, inner = 108, outer = 325;
+  const a = radialPoint(cx, cy, outer, start);
+  const b = radialPoint(cx, cy, outer, end);
+  const c = radialPoint(cx, cy, inner, end);
+  const d = radialPoint(cx, cy, inner, start);
+  return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${outer} ${outer} 0 0 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)} L ${c.x.toFixed(2)} ${c.y.toFixed(2)} A ${inner} ${inner} 0 0 0 ${d.x.toFixed(2)} ${d.y.toFixed(2)} Z`;
+}
+
+function renderRadial() {
+  const categories = radialCategories();
+  const category = categories.find((row) => row.id === radialCategory);
+  const rows = category ? category.actions : categories;
+  const width = 180 / Math.max(1, rows.length);
+  const gap = Math.min(1.3, width * .07);
+  const accent = category?.color || "#3fe3d2";
+  const segments = rows.map((row, index) => {
+    const start = 180 + index * width + gap;
+    const end = 180 + (index + 1) * width - gap;
+    const attrs = category
+      ? row.compose ? `data-radial-compose="${esc(row.compose)}"` : `data-radial-action="${esc(row.action)}"`
+      : `data-radial-category="${esc(row.id)}"`;
+    const color = category ? accent : row.color;
+    return `<g class="radial-segment" style="--accent:${color}" ${attrs} role="button" tabindex="0"><path d="${radialSegmentPath(start, end)}"></path></g>`;
+  }).join("");
+  const labels = rows.map((row, index) => {
+    const angle = 180 + (index + .5) * width;
+    const point = radialPoint(360, 350, 224, angle);
+    const attrs = category
+      ? row.compose ? `data-radial-compose="${esc(row.compose)}"` : `data-radial-action="${esc(row.action)}"`
+      : `data-radial-category="${esc(row.id)}"`;
+    const color = category ? accent : row.color;
+    return `<button type="button" class="radial-label" style="--x:${point.x.toFixed(1)}px;--y:${point.y.toFixed(1)}px;--accent:${color}" ${attrs}>${icon(row.icon)}<span>${esc(row.label)}</span><small>${esc(row.hint || "")}</small></button>`;
+  }).join("");
+  $("#radial-segments").innerHTML = segments;
+  $("#radial-labels").innerHTML = labels;
+  $("#radial-caption").innerHTML = category
+    ? `<small>${esc(category.label)} SECTION</small><strong>Choose an action</strong>`
+    : `<small>INTERACTION WHEEL</small><strong>Choose a section</strong>`;
+  $("#radial-center").innerHTML = category
+    ? `${icon("back")}<strong>Sections</strong><small>Back</small>`
+    : `${icon("x")}<strong>Close</strong><small>M key</small>`;
+  $("#radial-center").setAttribute("aria-label", category ? "Back to sections" : "Close interaction wheel");
+}
+
+function openRadialDispatch(kind) {
+  const emergency = kind === "911";
+  $("#radial-dispatch-kind").value = kind;
+  setText("#radial-dispatch-kicker", emergency ? "EMERGENCY SERVICES" : "NON-EMERGENCY SERVICES");
+  setText("#radial-dispatch-title", emergency ? "Call 911" : "Call 311");
+  $("#radial-dispatch").classList.remove("hidden");
+  $("#radial-menu").classList.add("composing");
+  const box = $("#radial-dispatch textarea");
+  box.value = "";
+  box.focus();
+}
+
+function closeRadialDispatch() {
+  $("#radial-dispatch").classList.add("hidden");
+  $("#radial-menu").classList.remove("composing");
 }
 
 /* ───────── Scaling ───────── */
@@ -1647,6 +1787,22 @@ window.addEventListener("message", ({ data }) => {
   if (data.type === "hud") updateHud(data.data || {});
   if (data.type === "notify") notice(data.message, data.tone);
   if (data.type === "dispatch") dispatch(data.data || {});
+  if (data.type === "radial") {
+    const root = $("#radial-menu");
+    if (data.open) {
+      radialPayload = data.payload || {};
+      radialCategory = null;
+      closeRadialDispatch();
+      renderRadial();
+      root.classList.remove("hidden");
+      root.setAttribute("aria-hidden", "false");
+    } else {
+      root.classList.add("hidden");
+      root.setAttribute("aria-hidden", "true");
+      closeRadialDispatch();
+      radialCategory = null;
+    }
+  }
   if (data.type === "menu") {
     if (data.open) {
       if (data.view !== currentView) ui.showCharacterForm = false;
@@ -1705,6 +1861,42 @@ window.addEventListener("message", ({ data }) => {
 $("#close").addEventListener("click", () => post("close"));
 $("#car-close").addEventListener("click", () => post("closeCarControls"));
 $("#third-eye-close").addEventListener("click", () => post("closeThirdEye"));
+$("#radial-center").addEventListener("click", () => {
+  if (!$("#radial-dispatch").classList.contains("hidden")) {
+    closeRadialDispatch();
+  } else if (radialCategory) {
+    radialCategory = null;
+    renderRadial();
+  } else {
+    post("closeRadial");
+  }
+});
+$("#radial-labels").addEventListener("click", radialClick);
+$("#radial-segments").addEventListener("click", radialClick);
+$("#radial-segments").addEventListener("keyup", (event) => {
+  if (event.key === "Enter" || event.key === " ") radialClick(event);
+});
+$("#radial-dispatch-cancel").addEventListener("click", closeRadialDispatch);
+$("#radial-dispatch").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const values = Object.fromEntries(new FormData(event.target).entries());
+  post("hubDispatch", values);
+});
+
+function radialClick(event) {
+  const target = event.target.closest("[data-radial-category],[data-radial-action],[data-radial-compose]");
+  if (!target) return;
+  if (target.dataset.radialCategory) {
+    radialCategory = target.dataset.radialCategory;
+    renderRadial();
+    return;
+  }
+  if (target.dataset.radialCompose) {
+    openRadialDispatch(target.dataset.radialCompose);
+    return;
+  }
+  if (target.dataset.radialAction) post("hubAction", { action: target.dataset.radialAction });
+}
 $("#third-eye-actions").addEventListener("click", (event) => {
   const action = event.target.closest("[data-third-eye-action]");
   if (!action || !thirdEyePayload) return;
@@ -1884,7 +2076,12 @@ $$("[data-car]").forEach((button) =>
 );
 
 document.addEventListener("keyup", (event) => {
+  if (event.key.toLowerCase() === "m" && !$("#radial-menu").classList.contains("hidden") && !event.target.closest("input,textarea")) {
+    post("closeRadial");
+    return;
+  }
   if (event.key === "Escape") {
+    if (!$("#radial-menu").classList.contains("hidden")) post("closeRadial");
     if (thirdEyePayload) post("closeThirdEye");
     if (!menuLocked) post("close");
     post("closeCarControls");

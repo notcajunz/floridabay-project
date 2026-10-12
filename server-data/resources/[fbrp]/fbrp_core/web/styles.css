@@ -319,6 +319,81 @@ kbd {
 .dispatch-kind small { margin-top: 3px; color: var(--dim); font-size: 10px; }
 .dispatch-kind input:checked + span { border-color: rgba(63,227,210,.55); background: rgba(63,227,210,.08); }
 
+/* M interaction radial — a compact, world-visible fan inspired by GTA's dial. */
+.radial-menu {
+  position: fixed; inset: 0; z-index: 40; pointer-events: auto;
+  background: linear-gradient(180deg, transparent 46%, rgba(2,5,8,.1) 62%, rgba(2,5,8,.54) 100%);
+  animation: fade .14s ease both;
+}
+.radial-wheel {
+  position: absolute; left: 50%; bottom: 18px; width: 720px; height: 390px;
+  transform: translateX(-50%) scale(var(--s)); transform-origin: bottom center;
+  filter: drop-shadow(0 22px 42px rgba(0,0,0,.56));
+  animation: radial-rise .22s var(--ease) both;
+}
+.radial-wheel > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.radial-segment { cursor: pointer; outline: none; }
+.radial-segment path {
+  fill: rgba(8,13,18,.86); stroke: rgba(255,255,255,.12); stroke-width: 1.5;
+  transition: fill .12s ease, stroke .12s ease, filter .12s ease;
+}
+.radial-segment:hover path, .radial-segment:focus path {
+  fill: rgba(17,25,32,.96); stroke: var(--accent, var(--aqua)); stroke-width: 2.5;
+  filter: drop-shadow(0 0 11px var(--accent, rgba(63,227,210,.7)));
+}
+.radial-labels { position: absolute; inset: 0; pointer-events: none; }
+.radial-label {
+  position: absolute; left: var(--x); top: var(--y); width: 118px; min-height: 72px;
+  transform: translate(-50%,-50%); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  padding: 7px 5px; pointer-events: auto; cursor: pointer; color: rgba(238,243,245,.88); text-align: center;
+  border: 0; border-radius: 12px; background: transparent; text-shadow: var(--shadow-text); transition: color .12s ease, transform .12s ease;
+}
+.radial-label .i { width: 27px; height: 27px; color: var(--accent, var(--aqua)); filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent, var(--aqua)) 45%, transparent)); }
+.radial-label span { font: 700 16px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.radial-label small { margin-top: -3px; color: var(--dim); font: 600 10px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; }
+.radial-label:hover, .radial-label:focus { color: #fff; outline: none; transform: translate(-50%,-50%) scale(1.07); }
+.radial-center {
+  position: absolute; left: 50%; top: 296px; width: 112px; height: 112px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 5px; padding: 19px 10px 0;
+  cursor: pointer; color: #fff; border: 1px solid rgba(255,255,255,.18); border-radius: 56px;
+  background: radial-gradient(circle at 50% 28%, rgba(255,82,154,.96), rgba(128,24,85,.94) 65%, rgba(24,10,20,.96));
+  box-shadow: 0 0 26px rgba(255,82,154,.28), inset 0 1px 0 rgba(255,255,255,.18); text-shadow: var(--shadow-text);
+}
+.radial-center:hover { box-shadow: 0 0 34px rgba(255,82,154,.48), inset 0 1px 0 rgba(255,255,255,.25); }
+.radial-center .i { width: 23px; height: 23px; }
+.radial-center strong { font: 700 14px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; }
+.radial-center small { color: rgba(255,255,255,.72); font: 600 9px/1 var(--display); letter-spacing: .12em; text-transform: uppercase; }
+.radial-caption {
+  position: absolute; left: 50%; bottom: calc(408px * var(--s)); transform: translateX(-50%);
+  min-width: 280px; text-align: center; text-shadow: var(--shadow-text); animation: fade .2s .06s ease both;
+}
+.radial-caption small { display: block; color: var(--aqua); font: 700 11px/1 var(--display); letter-spacing: .27em; }
+.radial-caption strong { display: block; margin-top: 6px; font: 700 24px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; }
+.radial-menu.composing .radial-caption { opacity: 0; }
+.radial-hint {
+  position: absolute; left: 50%; bottom: 9px; transform: translateX(-50%); color: rgba(255,255,255,.58);
+  font: 600 11px/1 var(--display); letter-spacing: .12em; text-transform: uppercase; text-shadow: var(--shadow-text);
+}
+.radial-hint span { display: inline-block; width: 3px; height: 3px; margin: 0 10px 3px; border-radius: 50%; background: var(--aqua); }
+.radial-dispatch {
+  position: absolute; left: 50%; bottom: calc(425px * var(--s)); width: 430px; transform: translateX(-50%) scale(var(--s)); transform-origin: bottom center;
+  padding: 16px; border: 1px solid rgba(255,107,87,.42); border-radius: 12px;
+  background: linear-gradient(180deg, rgba(13,19,25,.98), rgba(6,10,14,.98)); box-shadow: 0 18px 50px rgba(0,0,0,.64);
+  animation: pop .18s var(--ease) both;
+}
+.radial-dispatch-head { display: flex; align-items: center; gap: 11px; margin-bottom: 11px; }
+.radial-dispatch-head > span { width: 37px; height: 37px; color: var(--coral); border-radius: 9px; background: rgba(255,107,87,.1); }
+.radial-dispatch-head .i { width: 21px; height: 21px; }
+.radial-dispatch-head small, .radial-dispatch-head strong { display: block; }
+.radial-dispatch-head small { color: var(--coral); font: 700 10px/1 var(--display); letter-spacing: .18em; }
+.radial-dispatch-head strong { margin-top: 4px; font: 700 21px/1 var(--display); text-transform: uppercase; }
+.radial-dispatch textarea { width: 100%; min-height: 78px; resize: none; padding: 11px; color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; outline: none; background: rgba(255,255,255,.035); font: 500 14px/1.4 var(--body); user-select: text; }
+.radial-dispatch textarea:focus { border-color: rgba(63,227,210,.55); }
+.radial-dispatch > div:last-child { display: flex; justify-content: flex-end; gap: 8px; margin-top: 9px; }
+.radial-dispatch button { padding: 9px 15px; cursor: pointer; color: var(--text); border: 1px solid var(--line-2); border-radius: 7px; background: rgba(255,255,255,.04); font-weight: 600; }
+.radial-dispatch .primary-action { border-color: rgba(255,107,87,.5); background: rgba(255,107,87,.14); }
+@keyframes radial-rise { from { opacity: 0; transform: translateX(-50%) translateY(18px) scale(calc(var(--s) * .96)); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(var(--s)); } }
+
 /* Activities, records, daily cache */
 .activity-profile { display: grid; grid-template-columns: repeat(3, 145px) 1fr; gap: 8px; margin-bottom: 12px; }
 .activity-profile > div, .activity-profile aside { padding: 11px 13px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.025); }

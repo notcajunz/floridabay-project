@@ -1,13 +1,22 @@
 local menuOpen = false
 local menuLocked = false
 local menuView = nil
+local radialOpen = false
 local sessionInfo = {}
 
 local function ui(message)
     SendNUIMessage(message)
 end
 
+local function closeRadial()
+    if not radialOpen then return end
+    radialOpen = false
+    SetNuiFocus(false, false)
+    ui({ type='radial',open=false })
+end
+
 function FBRP.OpenMenu(view, payload, locked)
+    closeRadial()
     menuOpen = true
     menuView = view
     menuLocked = locked == true
@@ -70,12 +79,15 @@ RegisterNetEvent('fbrp:session', function(data)
     ui({ type='session',data=data })
 end)
 
--- M is the everyday interaction hub. The underlying commands/events remain
--- available for power users, while the menu makes the systems discoverable.
+-- M is the everyday interaction wheel. Categories fan out into a second ring
+-- of actions, while detailed systems can still open their purpose-built menu.
 local function openHub()
     if menuOpen then return FBRP.CloseMenu() end
+    if radialOpen then return closeRadial() end
     local state = LocalPlayer.state
-    FBRP.OpenMenu('hub', {
+    radialOpen = true
+    SetNuiFocus(true, true)
+    ui({ type='radial',open=true,payload={
         jailed=state['fbrp:jailed'] == true,
         communityService=state['fbrp:communityService'] == true,
         restrained=state['fbrp:restrained'] ~= nil,
@@ -83,11 +95,21 @@ local function openHub()
         discordLinked=sessionInfo.discordLinked == true,
         staff=sessionInfo.staff == true,
         inVehicle=IsPedInAnyVehicle(PlayerPedId(),false),
-    })
+    } })
 end
 
 RegisterCommand('fbrp_hub', openHub, false)
 RegisterKeyMapping('fbrp_hub', 'Open Florida Bay interaction menu', 'keyboard', 'M')
+
+RegisterNUICallback('closeRadial', function(_, cb)
+    closeRadial()
+    cb({ok=true})
+end)
+
+local function closeInteractionMenus()
+    closeRadial()
+    if menuOpen then FBRP.CloseMenu() end
+end
 
 RegisterNUICallback('hubAction', function(data, cb)
     local action = type(data) == 'table' and tostring(data.action or '') or ''
@@ -98,13 +120,13 @@ RegisterNUICallback('hubAction', function(data, cb)
         org='org', bodycam='bodycam', spikes='spikes', handsup='handsup', point='point',
     }
     if action == 'activities' then
-        FBRP.CloseMenu(); TriggerServerEvent('fbrp:activities:request')
+        closeInteractionMenus(); TriggerServerEvent('fbrp:activities:request')
     elseif action == 'custody' then
-        FBRP.CloseMenu(); TriggerServerEvent('fbrp:justice:status')
+        closeInteractionMenus(); TriggerServerEvent('fbrp:justice:status')
     elseif action == 'mdt' then
-        FBRP.CloseMenu(); TriggerServerEvent('fbrp:mdt:request')
+        closeInteractionMenus(); TriggerServerEvent('fbrp:mdt:request')
     elseif commands[action] then
-        FBRP.CloseMenu(); ExecuteCommand(commands[action])
+        closeInteractionMenus(); ExecuteCommand(commands[action])
     end
     cb({ok=true})
 end)
@@ -113,7 +135,7 @@ RegisterNUICallback('hubDispatch', function(data, cb)
     local kind = type(data) == 'table' and tostring(data.kind or '') or ''
     local message = type(data) == 'table' and tostring(data.message or '') or ''
     TriggerServerEvent('fbrp:hub:dispatch', kind, message)
-    FBRP.CloseMenu()
+    closeInteractionMenus()
     cb({ok=true})
 end)
 
