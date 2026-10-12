@@ -1086,7 +1086,12 @@ RegisterNetEvent('fbrp:interaction:searchResult', function(items)
     local src=source; local pending=pendingSearches[src]; pendingSearches[src]=nil
     if not pending or pending.expires<GetGameTimer() or not playersNear(src,pending.actor,FBRP.Config.interactionDistance+1.0) then return end
     local safe={}; if type(items)=='table' then for _,item in ipairs(items) do safe[#safe+1]=clean(item,50); if #safe>=20 then break end end end
-    chat(pending.actor,'SEARCH · '..GetPlayerName(src),#safe>0 and table.concat(safe,', ') or 'No visible weapons found.')
+    -- Packaged product is found and, by police, seized on the spot.
+    if FBRP.Economy and FBRP.Economy.contrabandText and FBRP.Economy.contrabandText(src) then
+        local found=hasPermission(pending.actor,FBRP.Ace.policeSearch) and FBRP.Economy.seize(src,pending.actor) or FBRP.Economy.contrabandText(src)
+        if found then safe[#safe+1]=found..(hasPermission(pending.actor,FBRP.Ace.policeSearch) and ' - SEIZED' or '') end
+    end
+    chat(pending.actor,'SEARCH · '..GetPlayerName(src),#safe>0 and table.concat(safe,', ') or 'No visible weapons or contraband found.')
 end)
 
 RegisterNetEvent('fbrp:vehicles:request', function()
@@ -1094,11 +1099,22 @@ RegisterNetEvent('fbrp:vehicles:request', function()
     for _,category in ipairs(FBRP.VehicleCatalog) do
         if hasPermission(src,category.ace) and (not category.onDuty or (sessions[src] and sessions[src].staffDuty)) then categories[#categories+1]=category end
     end
+    local orgGarage=FBRP.Economy and FBRP.Economy.garageCategory and FBRP.Economy.garageCategory(src)
+    if orgGarage then table.insert(categories,1,orgGarage) end
     TriggerClientEvent('fbrp:vehicles:data',src,categories)
 end)
 
 RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
     local src=source; categoryId=clean(categoryId,32); model=clean(model,40):lower()
+    local orgGarage=categoryId=='org' and FBRP.Economy and FBRP.Economy.garageCategory and FBRP.Economy.garageCategory(src)
+    if orgGarage then
+        for _,vehicle in ipairs(orgGarage.vehicles) do
+            if vehicle.model:lower()==model then
+                TriggerClientEvent('fbrp:vehicles:approved',src,model,vehicle.label)
+                return FBRP.DB.audit(sessions[src].discord or src,'vehicle.spawn',model,{category='org',organization=orgGarage.label})
+            end
+        end
+    end
     for _,category in ipairs(FBRP.VehicleCatalog) do
         if category.id==categoryId and hasPermission(src,category.ace) and (not category.onDuty or (sessions[src] and sessions[src].staffDuty)) then
             for _,vehicle in ipairs(category.vehicles) do
@@ -1169,6 +1185,7 @@ SetHttpHandler(function(req,res)
     req.setDataHandler(function(body)
         local ok,payload=pcall(json.decode,body~='' and body or '{}'); if not ok then payload={} end
         if req.path=='/refresh' then loadPermissionModel(); for src in pairs(sessions) do refreshPlayer(src) end; TriggerEvent('fbrp:radio:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
+        if req.path=='/economy/refresh' then TriggerEvent('fbrp:economy:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/announce' then broadcast('FLORIDA BAY',clean(payload.message,300)); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/ops/action' and FBRP.Server and FBRP.Server.liveOpsAction then
             local actionOk,actionError=FBRP.Server.liveOpsAction(payload)

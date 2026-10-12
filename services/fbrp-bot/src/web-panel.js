@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { NETWORK_KINDS, callGame } from "./sync.js";
 import { PERMISSION_BUNDLES, PERMISSION_CATALOG, VMENU_BUNDLES } from "./permission-catalog.js";
 import { connectUrl } from "./site-url.js";
+import { createAppeals } from "./appeals.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -124,7 +125,7 @@ export const PANEL_RESOURCES = {
     order: "purpose",
     effect: "panels",
     fields: [
-      field("purpose", "Purpose", "text", { required: true, suggestions: ["ticket_panel", "tickets", "security", "moderation", "bans", "unbans", "blacklists", "staff_audit", "staff_duty", "roster", "role_sync", "protected_roles", "game", "organizations"].map((value) => ({ value })) }),
+      field("purpose", "Purpose", "text", { required: true, suggestions: ["ticket_panel", "tickets", "security", "moderation", "bans", "unbans", "blacklists", "staff_audit", "staff_exams", "staff_exams_head_admin", "staff_exams_management", "staff_duty", "roster", "role_sync", "protected_roles", "game", "organizations"].map((value) => ({ value })) }),
       field("guild_id", "Discord server", "guild", { required: true }),
       field("channel_id", "Channel", "channel", { guildField: "guild_id", required: true }),
       field("updated_by", "Updated by", "text", { default: ACTOR, advanced: true }),
@@ -589,6 +590,65 @@ export const PANEL_RESOURCES = {
       field("updated_at", "Updated at", "timestamp", { default: "now", advanced: true, alwaysNow: true }),
     ],
   },
+  "staff-exams": {
+    label: "Staff exams",
+    group: "Staff",
+    description: "Promotion exams on the member portal. Choice questions use {\"id\",\"type\":\"choice\",\"prompt\",\"options\":[...],\"answer\":index}; written ones {\"id\",\"type\":\"text\",\"prompt\",\"min\",\"max\"}.",
+    table: "staff_exams",
+    pk: ["exam_key"],
+    order: "exam_key",
+    effect: "none",
+    fields: [
+      field("exam_key", "Exam key", "slug", { required: true }),
+      field("title", "Title", "text", { required: true }),
+      field("target_rank", "Rank it leads to", "text", { required: true }),
+      field("eligible_group", "Only this current rank may sit it", "relation", { source: "ace-groups", value: "name", display: "label", required: true }),
+      field("description", "Description", "text", { default: "" }),
+      field("pass_role_name", "Passed role name (staff Discord)", "text", { required: true }),
+      field("pass_role_id", "Passed role ID (auto-created when empty)", "text", { advanced: true }),
+      field("questions", "Questions (JSON)", "json", { required: true }),
+      field("pass_mark", "Pass mark (%)", "number", { default: 70 }),
+      field("cooldown_days", "Retake cooldown (days)", "number", { default: 14 }),
+      field("enabled", "Open for applications", "boolean", { default: true }),
+      field("updated_at", "Updated at", "timestamp", { default: "now", advanced: true, alwaysNow: true }),
+    ],
+  },
+  "org-shop": {
+    label: "Organization shop",
+    group: "Economy",
+    description: "What gangs and businesses can buy with organization money. Properties need business, x, y, z (the terminal / MLO entrance); vehicles a model; weapon permits a weapons list; outfits male/female components; perks perk + value.",
+    table: "org_shop_items",
+    pk: ["item_key"],
+    order: "FIELD(kind,'property','vehicle','weapon','outfit','perk'),sort_order,label",
+    effect: "economy",
+    fields: [
+      field("item_key", "Item key", "slug", { required: true }),
+      field("kind", "Kind", "select", { options: ["property", "vehicle", "weapon", "outfit", "perk"], default: "property" }),
+      field("label", "Name", "text", { required: true }),
+      field("description", "Description", "text", { default: "" }),
+      field("price", "Price ($)", "number", { required: true }),
+      field("org_types", "Organization types (comma separated)", "text", { default: "gang,business" }),
+      field("data", "Item data (JSON)", "json", { required: true, default: {} }),
+      field("enabled", "For sale", "boolean", { default: true }),
+      field("sort_order", "Display order", "number", { default: 0 }),
+    ],
+  },
+  "org-wallets": {
+    label: "Organization wallets",
+    group: "Economy",
+    description: "Raw balances. Prefer /orgbank adjust or the portal so every change lands in the ledger.",
+    table: "org_wallets",
+    pk: ["org_id"],
+    order: "balance DESC",
+    effect: "none",
+    fields: [
+      field("org_id", "Organization", "relation", { source: "organizations", value: "id", display: "name", required: true }),
+      field("balance", "Balance", "number", { default: 0 }),
+      field("lifetime_earned", "Lifetime earned", "number", { default: 0, advanced: true }),
+      field("lifetime_spent", "Lifetime spent", "number", { default: 0, advanced: true }),
+      field("updated_at", "Updated at", "timestamp", { default: "now", advanced: true, alwaysNow: true }),
+    ],
+  },
   "bot-config": {
     label: "Bot internals",
     group: "Advanced",
@@ -790,7 +850,7 @@ export function startWebPanel(context) {
     bindSyncRole, setGlobalSyncOrder, pushGlobalSyncs, ensureTicketPanel,
     createWebsiteTicket, websiteTicketAction, websiteTicketTypes,
     websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard, announceCallsign,
-    hasPermission, liftAppealedCase, recordVerification,
+    hasPermission, liftAppealedCase, recordVerification, staffExams, economy, log,
   } = context;
 
   const cookieFor = (request, name, value, maxAge) => {
@@ -856,6 +916,7 @@ export function startWebPanel(context) {
       await refreshGame();
     } else if (resource.effect === "game") await refreshGame();
     else if (resource.effect === "tickets") await ensureTicketPanel();
+    else if (resource.effect === "economy") await callGame("/economy/refresh", {}).catch(() => null);
     else if (resource.effect === "security") await ensureProtectedRoleBoard();
     else if (resource.effect === "panels") {
       await ensureTicketPanel().catch(() => {});
@@ -1110,7 +1171,7 @@ export function startWebPanel(context) {
       displayName: discordUser?.globalName || session.username,
       avatar: discordUser?.displayAvatarURL({ size: 128 }) || session.avatar,
     };
-    const [roster, profile, punishments, appeals, tickets, player, ticketTypeMap, priorities] = await Promise.all([
+    const [roster, profile, punishments, , tickets, player, ticketTypeMap, priorities] = await Promise.all([
       rosterDirectory(),
       staffProfile(session.id, viewer),
       db.query(
@@ -1118,20 +1179,30 @@ export function startWebPanel(context) {
            FROM moderation_cases c WHERE c.target_id=? ORDER BY c.id DESC LIMIT 100`,
         [session.id, session.id],
       ),
-      db.query("SELECT a.*,c.ban_id,c.action,c.reason case_reason FROM moderation_appeals a JOIN moderation_cases c ON c.id=a.case_id WHERE a.author_id=? ORDER BY a.id DESC", [session.id]),
+      Promise.resolve(null),
       db.query("SELECT id,guild_id,channel_id,type,subject,status,priority,claimed_by,created_at,closed_at,close_reason FROM support_tickets WHERE author_id=? ORDER BY id DESC LIMIT 50", [session.id]),
       db.one("SELECT id,name,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 1", [session.id]),
       websiteTicketTypes(),
       websiteTicketPriorities(),
     ]);
+    const appealData = await appeals.memberData(session.id, punishments);
+    const [exams, orgEconomy] = await Promise.all([
+      staffExams ? staffExams.portalData(session.id).catch((error) => { console.error("[FBRP panel] exams:", error); return null; }) : null,
+      economy ? economy.portalData(session.id).catch((error) => { console.error("[FBRP panel] economy:", error); return null; }) : null,
+    ]);
     const data = {
       user,
       access,
+      exams,
+      economy: orgEconomy,
       verified: { discord: true, game: Boolean(player), gameName: player?.name || null, lastSeen: player?.last_seen || null },
       roster,
       profile,
       punishments,
-      appeals,
+      appeals: appealData.appeals,
+      appealRules: appealData.rules,
+      appealQuestions: appealData.questions,
+      appealLimits: appealData.limits,
       tickets,
       ticketTypes: Object.entries(ticketTypeMap).map(([key, spec]) => ({ key, ...spec })),
       priorities,
@@ -1142,8 +1213,7 @@ export function startWebPanel(context) {
         db.query(`SELECT c.*,COUNT(a.id) appeal_count FROM moderation_cases c LEFT JOIN moderation_appeals a ON a.case_id=c.id
                    WHERE c.action IN ('ban','blacklist') GROUP BY c.id ORDER BY c.id DESC LIMIT 300`),
         db.query("SELECT id,guild_id,channel_id,author_id,type,subject,status,priority,due_at,claimed_by,created_at,last_activity,close_requested_by FROM support_tickets ORDER BY status='closed',priority,due_at,id DESC LIMIT 200"),
-        db.query(`SELECT a.*,c.ban_id,c.action,c.reason case_reason,c.target_id FROM moderation_appeals a JOIN moderation_cases c ON c.id=a.case_id
-                   WHERE a.status IN ('submitted','under_review') ORDER BY FIELD(a.status,'submitted','under_review'),a.created_at LIMIT 100`),
+        appeals.staffQueue(),
         db.query("SELECT id,author_id,body,pinned,resolved_at,resolved_by,created_at FROM staff_handoff_notes ORDER BY resolved_at IS NULL DESC,pinned DESC,created_at DESC LIMIT 100"),
         callGame("/ops", {}, "GET").catch(() => ({ online: false, players: [], scenes: [], calls: [], event: null })),
       ]);
@@ -1152,9 +1222,11 @@ export function startWebPanel(context) {
     data.people = await resolvePeople([
       ...(data.banLog || []).flatMap((row) => [row.target_id, row.actor_id]),
       ...(data.ticketQueue || []).flatMap((row) => [row.author_id, row.claimed_by]),
-      ...(data.appealQueue || []).flatMap((row) => [row.author_id, row.reviewed_by]),
+      ...(data.appealQueue || []).flatMap((row) => [row.author_id, row.reviewed_by, row.assigned_to, row.case_actor, ...row.events.map((e) => e.actor_id)]),
       ...(data.handoffNotes || []).flatMap((row) => [row.author_id, row.resolved_by]),
-      ...appeals.map((row) => row.reviewed_by),
+      ...appealData.appeals.map((row) => row.reviewed_by),
+      ...(exams?.reviewQueue || []).flatMap((row) => [row.discord_id, row.reviewer_id]),
+      ...(orgEconomy?.organizations || []).flatMap((org) => [...org.leaders, ...org.transactions.map((row) => row.actor_id), ...org.purchases.map((row) => row.purchased_by)]),
     ]);
     return data;
   }
@@ -1183,26 +1255,10 @@ export function startWebPanel(context) {
     return { id: ticket.id, channelId: channel.id, url: `https://discord.com/channels/${guild.id}/${channel.id}` };
   }
 
-  async function submitAppeal(session, input) {
-    const banId = textValue(input.banId, 24).toUpperCase();
-    const statement = textValue(input.statement, 4000);
-    if (statement.length < 40) throw new Error("Please explain your appeal in at least 40 characters.");
-    const moderationCase = await db.one(
-      "SELECT * FROM moderation_cases WHERE ban_id=? AND target_id=? AND action IN ('ban','blacklist') LIMIT 1",
-      [banId, session.id],
-    );
-    if (!moderationCase) throw new Error("That ban ID is not attached to your verified Discord account.");
-    const existing = await db.one("SELECT id FROM moderation_appeals WHERE case_id=? AND author_id=? AND status IN ('submitted','under_review')", [moderationCase.id, session.id]);
-    if (existing) throw new Error("An appeal for this punishment is already being reviewed.");
-    const ticket = await openWebsiteTicket(session, { type: "appeal", form: { ban: banId, why: statement } });
-    const stamp = Date.now();
-    const inserted = await db.query(
-      "INSERT INTO moderation_appeals(case_id,author_id,ticket_id,status,statement,created_at,updated_at) VALUES(?,?,?,'submitted',?,?,?)",
-      [moderationCase.id, session.id, ticket.id, statement, stamp, stamp],
-    );
-    await audit(session.id, "appeal.submit", moderationCase.id, { appealId: inserted.insertId, banId, ticketId: ticket.id });
-    return { id: inserted.insertId, ticket };
-  }
+  const appeals = createAppeals({
+    client, db, audit, log: log || (async () => {}), hasPermission, liftAppealedCase,
+    openTicket: openWebsiteTicket, ticketAction: websiteTicketAction,
+  });
 
   const server = createServer(async (request, response) => {
     try {
@@ -1390,7 +1446,16 @@ export function startWebPanel(context) {
         const access = await accessFor(session.id);
         let result;
         if (url.pathname === "/api/portal/ticket/open") result = await openWebsiteTicket(session, input);
-        else if (url.pathname === "/api/portal/appeal") result = await submitAppeal(session, input);
+        else if (url.pathname === "/api/portal/appeal") result = await appeals.submit(session, input);
+        else if (url.pathname === "/api/portal/appeal/reply") result = await appeals.reply(session, input);
+        else if (url.pathname === "/api/portal/appeal/withdraw") result = await appeals.withdraw(session, input);
+        else if (url.pathname === "/api/portal/exam/submit") result = await staffExams.submit(session, input);
+        else if (url.pathname === "/api/portal/exam/review") result = await staffExams.review(session, input);
+        else if (url.pathname === "/api/portal/exam/withdraw") result = await staffExams.withdraw(session, input);
+        else if (url.pathname === "/api/portal/org/purchase") result = await economy.purchase(session, input);
+        else if (url.pathname === "/api/portal/org/sell") result = await economy.sellProperty(session, input);
+        else if (url.pathname === "/api/portal/org/adjust") result = await economy.adjust(session.id, input);
+        else if (url.pathname === "/api/portal/org/leader") result = await economy.setLeader(session.id, input);
         else if (url.pathname === "/api/portal/ticket/request-close") {
           const ticket = await db.one("SELECT * FROM support_tickets WHERE id=? AND author_id=?", [Number(input.ticketId), session.id]);
           if (!ticket || ticket.status === "closed") throw new Error("That open ticket was not found.");
@@ -1402,22 +1467,7 @@ export function startWebPanel(context) {
           result = await websiteTicketAction(input.ticketId, session.id, String(input.action || ""), input);
         } else if (url.pathname === "/api/portal/appeal/review") {
           if (!access.staff) return sendJson(response, 403, { error: "Staff access is required." });
-          const status = String(input.status || "");
-          if (!["under_review", "approved", "denied"].includes(status)) throw new Error("Choose a valid appeal status.");
-          const appeal = await db.one("SELECT * FROM moderation_appeals WHERE id=?", [Number(input.appealId)]);
-          if (!appeal || !["submitted", "under_review"].includes(appeal.status)) throw new Error("That appeal is no longer open.");
-          const responseText = textValue(input.response, 4000);
-          // Approval is the unban: lift first so a failed lift never records an approved appeal.
-          const lifted = status === "approved" ? await liftAppealedCase(appeal.case_id, session.id, responseText) : null;
-          await db.query("UPDATE moderation_appeals SET status=?,response=?,reviewed_by=?,updated_at=? WHERE id=?", [status, responseText || null, session.id, Date.now(), appeal.id]);
-          await audit(session.id, "appeal.review", appeal.id, { status, lifted: lifted?.results });
-          if (appeal.ticket_id && status !== "under_review") {
-            const verdict = `Appeal ${status}${responseText ? `: ${responseText}` : "."}`.slice(0, 900);
-            const ticket = await db.one("SELECT status FROM support_tickets WHERE id=?", [appeal.ticket_id]);
-            if (ticket && ticket.status !== "closed")
-              await websiteTicketAction(appeal.ticket_id, session.id, "close", { reason: verdict }).catch((error) => console.error("[FBRP panel] appeal ticket close:", error.message));
-          }
-          result = { ok: true, lifted };
+          result = await appeals.staffAction(session, input);
         } else if (url.pathname === "/api/portal/liveops/action") {
           if (!access.staff) return sendJson(response, 403, { error: "Staff access is required." });
           const action = String(input.action || "");

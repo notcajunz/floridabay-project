@@ -38,6 +38,153 @@ FBRP.Justice = {
         escapeSpot = vector3(1625.10, 2575.99, 45.56),
         escapeExit = vector4(1468.0, 2560.0, 50.0, 90.0),
     },
+    -- Work and good behaviour can never cut more than this share of a sentence.
+    maxReductionPercent = 60,
+    -- Good behaviour: 0-100. Calm minutes and finished jobs raise it, leash
+    -- breaks and failed breakouts drop it. The tier scales every job reduction,
+    -- and at "Good" or better a good-time credit quietly shortens the sentence.
+    behaviour = {
+        start = 60,
+        calmMinuteGain = 2,
+        jobGain = 4,
+        leashPenalty = 12,
+        escapePenalty = 30,
+        goodTimeThreshold = 75,
+        goodTimeSecondsPerMinute = 6,
+        tiers = {
+            { min=90, label='Exemplary', mult=1.5 },
+            { min=75, label='Good', mult=1.25 },
+            { min=45, label='Fair', mult=1.0 },
+            { min=0, label='Poor', mult=0.5 },
+        },
+    },
+    -- Prison jobs (/prisonwork). Each job walks the inmate through `steps`
+    -- spots; every finished step takes `reduction` seconds off (scaled by the
+    -- behaviour tier). Markers snap to the ground client side.
+    jobs = {
+        { id='electrical', label='Electrical repair', icon='power', description='Fix the yard wiring and junction boxes.',
+          steps=1, holdMs=9000, reduction=45, scenario='WORLD_HUMAN_WELDING', prompt='repair the electrical box',
+          spots={ vector3(1761.46, 2540.41, 45.56), vector3(1718.54, 2527.80, 45.56), vector3(1700.20, 2474.81, 45.56), vector3(1664.83, 2501.58, 45.56), vector3(1621.62, 2509.30, 45.56), vector3(1627.94, 2538.39, 45.56) } },
+        { id='cleaning', label='Yard cleaning', icon='sparkles', description='Sweep and mop three areas of the yard.',
+          steps=3, holdMs=7000, reduction=20, scenario='WORLD_HUMAN_JANITOR', prompt='sweep this area',
+          spots={ vector3(1663.5, 2528.0, 45.56), vector3(1655.0, 2551.0, 45.56), vector3(1690.0, 2530.0, 45.56), vector3(1678.0, 2512.0, 45.56), vector3(1702.0, 2518.0, 45.56), vector3(1646.0, 2536.0, 45.56) } },
+        { id='farming', label='Prison farm', icon='leaf', description='Till the beds, plant seedlings and bring in the harvest.',
+          steps=3, holdMs=8000, reduction=25, scenario='WORLD_HUMAN_GARDENER_PLANT', prompt='work the vegetable bed',
+          stepLabels={ 'Till the soil', 'Plant seedlings', 'Harvest the crop' },
+          spots={ vector3(1695.0, 2480.0, 45.56), vector3(1688.0, 2485.0, 45.56), vector3(1680.0, 2490.0, 45.56), vector3(1672.0, 2496.0, 45.56) } },
+        { id='kitchen', label='Kitchen duty', icon='flame', description='Prep and cook a meal service at the mess hall grills.',
+          steps=2, holdMs=8000, reduction=30, scenario='PROP_HUMAN_BBQ', prompt='cook at the grill',
+          spots={ vector3(1640.0, 2530.0, 45.56), vector3(1645.0, 2522.0, 45.56), vector3(1636.0, 2524.0, 45.56) } },
+        { id='laundry', label='Laundry', icon='shirt', description='Sort, wash and fold the prison laundry.',
+          steps=2, holdMs=7000, reduction=20, scenario='PROP_HUMAN_BUM_BIN', prompt='sort the laundry',
+          spots={ vector3(1712.0, 2535.0, 45.56), vector3(1725.0, 2540.0, 45.56), vector3(1718.0, 2545.0, 45.56) } },
+        { id='workout', label='Yard workout', icon='heart-pulse', description='Stay out of trouble. No time off, but a big behaviour boost.',
+          steps=2, holdMs=10000, reduction=0, behaviour=6, scenario='WORLD_HUMAN_PUSH_UPS', prompt='work out',
+          spots={ vector3(1643.0, 2545.0, 45.56), vector3(1647.0, 2549.0, 45.56), vector3(1651.0, 2546.0, 45.56) } },
+    },
+}
+
+-- Community service: an alternative to prison for lesser charges. The
+-- offender cleans up rubbish at Legion Square for up to `maxMinutes`. The
+-- clock only runs while they are working; walking out of the area for longer
+-- than `graceSeconds` sends them straight to Bolingbroke.
+FBRP.CommunityService = {
+    maxMinutes = 15,
+    center = vector3(193.0, -935.0, 30.69),
+    spawn = vector4(195.17, -933.6, 30.69, 145.0),
+    radius = 60.0,
+    graceSeconds = 10,
+    idleSeconds = 45,        -- the clock pauses if no rubbish was picked up for this long
+    pickupMs = 3500,
+    rubbishVisible = 6,
+    rubbishSpread = 38.0,
+    rubbishModels = { 'prop_rub_litter_01', 'prop_rub_litter_02', 'prop_rub_binbag_01', 'prop_cs_rub_binbag_01', 'ng_proc_sodacan_01a', 'prop_rub_litter_03b' },
+    escapeMonths = 15,       -- prison months for walking out, plus one per unserved minute
+}
+
+-- Organization economy. Gangs on duty cook or harvest product at a lab and
+-- deliver it to a drop-off; the payout goes to the organization wallet
+-- (website + Discord only, never in-game cash). Owned properties add private
+-- labs and legitimate businesses.
+FBRP.Economy = {
+    baseCapacity = 24,
+    produceMs = { weed=12000, meth=16000, coke=18000 },
+    produceCooldownSeconds = 8,
+    ownedLabBonus = 50,                  -- % extra yield in a private (owned) lab
+    drugs = {
+        weed = { label='Weed', yield=4, price=55, color='#4fe08c' },
+        meth = { label='Meth', yield=3, price=120, color='#7cf3e6' },
+        coke = { label='Cocaine', yield=2, price=160, color='#eef3f5' },
+    },
+    -- Public labs anyone in a gang can use (owned labs come from the shop).
+    labs = {
+        { id='grapeseed_field', label='Grapeseed grow field', drug='weed', x=2224.9, y=5577.1, z=53.8, radius=28.0 },
+        { id='stab_city', label='Stab City cook trailer', drug='meth', x=66.0, y=3703.7, z=39.75, radius=18.0 },
+        { id='cypress_lockup', label='Cypress Flats lockup', drug='coke', x=845.0, y=-2118.0, z=30.5, radius=18.0 },
+    },
+    dropoffs = {
+        { label='Vespucci Canals boathouse', x=-1009.0, y=-1029.0, z=2.15 },
+        { label='La Mesa rail yard', x=488.0, y=-639.0, z=24.9 },
+        { label='Chamberlain Hills alley', x=-109.0, y=-1566.0, z=34.3 },
+        { label='Rancho projects', x=375.0, y=-1993.0, z=24.2 },
+        { label='Mirror Park garages', x=1158.0, y=-470.0, z=66.7 },
+        { label='Harmony motel', x=1129.0, y=2648.0, z=38.0 },
+        { label='Sandy Shores scrapyard', x=2341.0, y=3132.0, z=48.2 },
+        { label='Paleto Bay docks', x=-252.0, y=6550.0, z=2.9 },
+        { label='Great Chaparral ranch', x=-1144.0, y=2671.0, z=18.1 },
+        { label='Del Perro beach lot', x=-1660.0, y=-1015.0, z=13.0 },
+    },
+    dropoffMinDistance = 900.0,
+    deliveryMinutes = 18,                -- run expires after this long
+    minSecondsPerKm = 22,                -- anti-teleport: fastest believable delivery
+    dropoffRadius = 9.0,
+    handoffMs = 5000,
+    policeTipChance = 35,                -- % chance a drop-off is phoned in to police
+    -- Businesses: legit income from owned properties.
+    business = {
+        taskMs = 10000,
+        taskCooldownSeconds = 40,
+        hourlyCap = 3500,                -- per organization, before perks
+        serviceCooldownSeconds = 45,
+        types = {
+            mechanic = { label='Mechanic', task='Service a customer car', scenario='PROP_HUMAN_BUM_BIN', pay=120, service='repair', serviceFee=250 },
+            bar = { label='Bar', task='Tend the bar', scenario='WORLD_HUMAN_STAND_IMPATIENT', pay=90, service='serve', serviceFee=120 },
+            club = { label='Nightclub', task='Work the floor', scenario='WORLD_HUMAN_PARTYING', pay=130, service='serve', serviceFee=160 },
+            restaurant = { label='Restaurant', task='Cook an order', scenario='PROP_HUMAN_BBQ', pay=100, service='serve', serviceFee=140 },
+            warehouse = { label='Warehouse', task='Pack a shipment', scenario='WORLD_HUMAN_CLIPBOARD', pay=110 },
+            lab = { label='Private lab', task='Maintain the equipment', scenario='WORLD_HUMAN_WELDING', pay=60 },
+        },
+    },
+    armoryCooldownSeconds = 600,
+}
+
+-- CAD/MDT options.
+FBRP.MDT = {
+    unitStatuses = {
+        { id='available', label='10-8 Available', short='10-8', tone='ok' },
+        { id='enroute', label='En route', short='ENRT', tone='warn' },
+        { id='onscene', label='On scene', short='10-23', tone='warn' },
+        { id='busy', label='10-6 Busy', short='10-6', tone='bad' },
+        { id='transport', label='Transporting', short='10-15', tone='warn' },
+        { id='break', label='10-7 Out of service', short='10-7', tone='dim' },
+    },
+    flags = {
+        { id='armed', label='Armed & dangerous', tone='bad' },
+        { id='violent', label='Violent history', tone='bad' },
+        { id='gang', label='Known gang affiliate', tone='warn' },
+        { id='flight', label='Flight risk', tone='warn' },
+        { id='mental', label='Mental health', tone='info' },
+        { id='caution', label='Officer caution', tone='warn' },
+    },
+    licenses = {
+        { id='driver', label='Driver license' },
+        { id='firearm', label='Firearm permit' },
+        { id='cdl', label='Commercial driver' },
+        { id='pilot', label='Pilot license' },
+        { id='boat', label='Boat license' },
+        { id='hunting', label='Hunting license' },
+    },
+    reportKinds = { 'Incident', 'Arrest', 'Traffic stop', 'Use of force', 'Investigation', 'Narcotics', 'Pursuit' },
 }
 
 -- Charges offered by the sentencing and citation forms. Fines are roleplay
@@ -71,6 +218,9 @@ FBRP.PenalCode = {
     { id='attempted', title='Attempted murder', kind='felony', months=40, fine=0 },
     { id='murder', title='Murder', kind='felony', months=60, fine=0 },
     { id='escape', title='Prison escape', kind='felony', months=25, fine=0 },
+    { id='possession', title='Possession of a controlled substance', kind='misdemeanor', months=8, fine=750 },
+    { id='intent', title='Possession with intent to distribute', kind='felony', months=20, fine=0 },
+    { id='service_fail', title='Failure to complete community service', kind='misdemeanor', months=10, fine=0 },
 }
 
 FBRP.Medical = {

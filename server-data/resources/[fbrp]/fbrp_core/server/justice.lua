@@ -1,16 +1,22 @@
--- Justice: Bolingbroke prison sentences, the police MDT (records, warrants,
--- BOLOs, citations), the vehicle registry, impounds, spike strips, GSR tests,
--- ID cards and body cameras.
+-- Justice: Bolingbroke prison (sentences, prison jobs, good behaviour,
+-- breakouts), community service at Legion Square, the police CAD/MDT (dispatch
+-- board, units, records, warrants, BOLOs, reports, flags, licenses), the
+-- vehicle registry, impounds, spike strips, GSR tests, ID cards and body cams.
 
 local S = FBRP.Server
 local J = FBRP.Justice
+local CS = FBRP.CommunityService
+local MDT = FBRP.MDT
 local sessions = S.sessions
 local now, clean, notify, chat, hasPermission = S.now, S.clean, S.notify, S.chat, S.hasPermission
 
 local jailed = {}       -- source -> live sentence
-local workAssigned = {} -- source -> { index, at }
+local jobs = {}         -- source -> { job, step, spot, at }
+local jobCooldown = {}  -- source -> ms when the next job may start
 local escapes = {}      -- source -> started (ms)
+local serving = {}      -- source -> live community service
 local spikes = {}       -- officer source -> { entity, expires }
+local units = {}        -- officer source -> { status, callsign }
 local lastMdt = {}
 
 local RED, AMBER, AQUA, GREEN = { 255, 107, 87 }, { 255, 181, 71 }, { 67, 232, 216 }, { 79, 224, 140 }
@@ -76,12 +82,27 @@ local function pedCoords(source)
     return ped > 0 and GetEntityCoords(ped) or nil
 end
 
+local function dist2d(a, b)
+    local dx, dy = a.x - b.x, a.y - b.y
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+local function near(coords, spot, radius)
+    return coords and dist2d(coords, spot) <= radius and math.abs(coords.z - spot.z) < 12.0
+end
+
 local function onDutyPolice()
     local count = 0
     for src in pairs(sessions) do
         if isPolice(src) then count = count + 1 end
     end
     return count
+end
+
+local function policeNotify(message, tone, except)
+    for target in pairs(sessions) do
+        if target ~= except and isPolice(target) then notify(target, message, tone or 'info') end
+    end
 end
 
 -- Charges from the penal code, de-duplicated, optionally limited to some kinds.
@@ -119,49 +140,106 @@ local function subjectClause(characterId, license)
     return 'character_id IS NULL AND license=?', license
 end
 
+local function dayStart()
+    local t = os.time()
+    return (t - t % 86400) * 1000
+end
+
 -- ─────────────────────────── prison ───────────────────────────
+
+local function jobById(id)
+    for _, job in ipairs(J.jobs) do
+        if job.id == id then return job end
+    end
+end
+
+local function tierOf(value)
+    for _, tier in ipairs(J.behaviour.tiers) do
+        if value >= tier.min then return tier end
+    end
+    return J.behaviour.tiers[#J.behaviour.tiers]
+end
+
+local function adjustBehaviour(j, delta)
+    j.behaviour = math.max(0, math.min(100, math.floor((j.behaviour or J.behaviour.start) + delta)))
+end
+
+-- Takes time off a sentence, respecting the floor and the maximum share any
+-- sentence can be shortened by. Returns the seconds actually removed.
+local function cutSentence(j, seconds)
+    seconds = math.max(0, seconds or 0)
+    local maxCut = j.total * (J.maxReductionPercent / 100)
+    local cut = math.min(seconds, maxCut - (j.reduced or 0), j.remaining - J.workMinimumRemaining)
+    if cut <= 0 then return 0 end
+    j.remaining = j.remaining - cut
+    j.reduced = (j.reduced or 0) + cut
+    return cut
+end
 
 local function persist(source)
     local j = jailed[source]
     if not j then return end
-    MySQL.update('UPDATE jail_sentences SET seconds_remaining=?,updated_at=? WHERE id=? AND status=\'serving\'', {
-        math.max(0, math.ceil(j.remaining)), now(), j.id
+    MySQL.update('UPDATE jail_sentences SET seconds_remaining=?,behaviour=?,jobs_done=?,reduced_seconds=?,updated_at=? WHERE id=? AND status=\'serving\'', {
+        math.max(0, math.ceil(j.remaining)), j.behaviour, j.jobsDone or 0, math.floor(j.reduced or 0), now(), j.id
     })
     j.lastPersist = now()
 end
 
-local function jailInfo(j)
-    return { remaining=math.ceil(j.remaining), total=j.total, months=j.months, charges=chargeTitles(j.charges), prison=J.prison.name }
+local function jobView(source)
+    local task = jobs[source]
+    if not task then return nil end
+    local job = task.job
+    return {
+        id=job.id, label=job.label, step=task.step, steps=job.steps, holdMs=job.holdMs, scenario=job.scenario, prompt=job.prompt,
+        stepLabel=job.stepLabels and job.stepLabels[task.step] or job.label,
+        spot={ x=task.spot.x, y=task.spot.y, z=task.spot.z },
+    }
+end
+
+local function jailInfo(source)
+    local j = jailed[source]
+    local tier = tierOf(j.behaviour)
+    return {
+        remaining=math.ceil(j.remaining), total=j.total, months=j.months, charges=chargeTitles(j.charges), prison=J.prison.name,
+        behaviour=j.behaviour, tier=tier.label, mult=tier.mult, reduced=math.floor(j.reduced or 0), jobsDone=j.jobsDone or 0,
+        maxReduction=math.floor(j.total * J.maxReductionPercent / 100),
+        goodTime=j.behaviour >= J.behaviour.goodTimeThreshold, job=jobView(source),
+    }
+end
+
+local function pushJail(source)
+    if jailed[source] then TriggerClientEvent('fbrp:jail:update', source, jailInfo(source)) end
 end
 
 local function putInJail(source, sentence)
     jailed[source] = {
         id=sentence.id, remaining=sentence.remaining, total=sentence.total, months=sentence.months,
-        charges=sentence.charges or {}, enteredAt=now(), lastTick=now(), lastPersist=now(), lastUpdate=0, lastWork=0
+        charges=sentence.charges or {}, behaviour=sentence.behaviour or J.behaviour.start, jobsDone=sentence.jobsDone or 0,
+        reduced=sentence.reduced or 0, enteredAt=now(), lastTick=now(), lastPersist=now(), lastUpdate=0, calmSince=now(),
     }
-    workAssigned[source] = nil
+    jobs[source] = nil
     escapes[source] = nil
     local player = Player(source)
     if player then player.state:set('fbrp:jailed', true, true) end
     local spawn = J.prison.spawns[math.random(#J.prison.spawns)]
-    TriggerClientEvent('fbrp:jail:enter', source, spawn, jailInfo(jailed[source]))
+    TriggerClientEvent('fbrp:jail:enter', source, spawn, jailInfo(source))
 end
 
 local function releaseInmate(source, reason, actor)
     local j = jailed[source]
     if not j then return false end
     jailed[source] = nil
-    workAssigned[source] = nil
+    jobs[source] = nil
     escapes[source] = nil
     local stamp = now()
-    MySQL.update.await("UPDATE jail_sentences SET status='released',seconds_remaining=0,release_reason=?,released_at=?,updated_at=? WHERE id=?", {
-        reason, stamp, stamp, j.id
+    MySQL.update.await("UPDATE jail_sentences SET status='released',seconds_remaining=0,behaviour=?,jobs_done=?,reduced_seconds=?,release_reason=?,released_at=?,updated_at=? WHERE id=?", {
+        j.behaviour, j.jobsDone or 0, math.floor(j.reduced or 0), reason, stamp, stamp, j.id
     })
     local player = Player(source)
     if player then player.state:set('fbrp:jailed', nil, true) end
     TriggerClientEvent('fbrp:jail:release', source, J.prison.release, reason)
     local s = sessions[source]
-    FBRP.DB.audit(actor or 'system', 'justice.release', s and s.discord or source, { sentence=j.id, reason=reason })
+    FBRP.DB.audit(actor or 'system', 'justice.release', s and s.discord or source, { sentence=j.id, reason=reason, behaviour=j.behaviour, jobs=j.jobsDone, reduced=math.floor(j.reduced or 0) })
     return true
 end
 
@@ -176,20 +254,25 @@ end
 local function resumeSentence(source)
     if jailed[source] then return end
     local row = activeSentence(source)
-    if not row then return end
+    if not row then return false end
     putInJail(source, {
         id=tonumber(row.id), remaining=tonumber(row.seconds_remaining) or 0, total=tonumber(row.seconds_total) or 0,
-        months=tonumber(row.months) or 0, charges=decode(row.charges)
+        months=tonumber(row.months) or 0, charges=decode(row.charges), behaviour=tonumber(row.behaviour), jobsDone=tonumber(row.jobs_done),
+        reduced=tonumber(row.reduced_seconds),
     })
     notify(source, ('You still have %s left on your sentence at %s.'):format(formatDuration(row.seconds_remaining), J.prison.name), 'warning')
+    return true
 end
+
+local endService -- forward declaration (community service section)
 
 -- Starts a sentence for an online player. `charges` are resolved penal-code
 -- rows; `months` is the final length before any escape penalty.
-local function startSentence(target, actor, months, charges, notes)
+local function startSentence(target, actor, months, charges, notes, actorOverride)
     local s = sessions[target]
     if not s then return false, 'That player is not loaded.' end
     if jailed[target] then return false, 'That player is already serving a sentence.' end
+    if serving[target] then endService(target, 'converted') end
     local characterId, name = characterOf(target)
     name = name or GetPlayerName(target) or ('Player ' .. target)
     months = math.max(1, math.min(J.maxMonths, math.floor(tonumber(months) or 1)))
@@ -208,11 +291,12 @@ local function startSentence(target, actor, months, charges, notes)
     end
 
     local actorId, actorName = officer(actor)
+    if actorOverride then actorId, actorName = 'system', actorOverride end
     local stamp = now()
     local id = MySQL.insert.await([[
-        INSERT INTO jail_sentences(character_id,license,discord_id,name,officer_id,officer_name,months,charges,seconds_total,seconds_remaining,status,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,'serving',?,?)
-    ]], { characterId, s.license, s.discord, name, actorId, actorName, months, json.encode(charges), seconds, seconds, stamp, stamp })
+        INSERT INTO jail_sentences(character_id,license,discord_id,name,officer_id,officer_name,months,charges,seconds_total,seconds_remaining,status,behaviour,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,'serving',?,?,?)
+    ]], { characterId, s.license, s.discord, name, actorId, actorName, months, json.encode(charges), seconds, seconds, J.behaviour.start, stamp, stamp })
     MySQL.insert.await([[
         INSERT INTO criminal_records(character_id,license,name,kind,charges,months,fine,notes,officer_id,officer_name,created_at)
         VALUES(?,?,?,'arrest',?,?,0,?,?,?,?)
@@ -220,13 +304,145 @@ local function startSentence(target, actor, months, charges, notes)
     if characterId then
         MySQL.update.await("UPDATE warrants SET status='served',closed_by=?,closed_at=? WHERE character_id=? AND status='active'", { actorName, stamp, characterId })
     end
+    if FBRP.Economy and FBRP.Economy.confiscate then FBRP.Economy.confiscate(target, actorName) end
     putInJail(target, { id=tonumber(id), remaining=seconds, total=seconds, months=months, charges=charges })
     chat(target, 'SENTENCED', ('%s sentenced you to %d months (%s) at %s for: %s'):format(actorName, months, formatDuration(seconds), J.prison.name, chargeTitles(charges) ~= '' and chargeTitles(charges) or 'unspecified charges'), RED)
+    chat(target, 'BOLINGBROKE', 'Good behaviour and /prisonwork jobs shorten your time. Stay out of trouble.', AMBER)
     FBRP.DB.audit(actorId, 'justice.jail', s.discord or target, { sentence=id, name=name, months=months, charges=chargeTitles(charges), notes=notes })
     return true, ('%s sentenced to %d months.'):format(name, months)
 end
 
--- One-second sentence clock; only counts while the inmate is in the game.
+-- ─────────────────────────── community service ───────────────────────────
+
+local function serviceInfo(source)
+    local c = serving[source]
+    if not c then return { active=false } end
+    local graceLeft = c.outsideSince and math.max(0, CS.graceSeconds - math.floor((now() - c.outsideSince) / 1000)) or nil
+    return {
+        active=true, remaining=math.ceil(c.remaining), total=c.total, minutes=c.minutes, collected=c.collected,
+        state=c.state, graceLeft=graceLeft, charges=chargeTitles(c.charges), idleSeconds=CS.idleSeconds,
+        idleLeft=math.max(0, CS.idleSeconds - math.floor((now() - c.lastActive) / 1000)),
+    }
+end
+
+local function pushService(source)
+    TriggerClientEvent('fbrp:service:update', source, serviceInfo(source))
+end
+
+local function persistService(source)
+    local c = serving[source]
+    if not c then return end
+    MySQL.update("UPDATE community_service SET seconds_remaining=?,collected=?,updated_at=? WHERE id=? AND status='serving'", { math.max(0, math.ceil(c.remaining)), c.collected, now(), c.id })
+    c.lastPersist = now()
+end
+
+local function putInService(source, row)
+    serving[source] = {
+        id=row.id, remaining=row.remaining, total=row.total, minutes=row.minutes, charges=row.charges or {}, collected=row.collected or 0,
+        lastTick=now(), lastActive=now(), lastPickup=0, lastPersist=now(), lastUpdate=0, state='working', enteredAt=now(),
+    }
+    local player = Player(source)
+    if player then player.state:set('fbrp:communityService', true, true) end
+    TriggerClientEvent('fbrp:service:enter', source, CS.spawn, serviceInfo(source))
+end
+
+endService = function(source, status, actor)
+    local c = serving[source]
+    if not c then return false end
+    serving[source] = nil
+    local stamp = now()
+    MySQL.update.await('UPDATE community_service SET status=?,seconds_remaining=?,collected=?,finished_at=?,updated_at=? WHERE id=?', {
+        status, status == 'completed' and 0 or math.max(0, math.ceil(c.remaining)), c.collected, stamp, stamp, c.id
+    })
+    local player = Player(source)
+    if player then player.state:set('fbrp:communityService', nil, true) end
+    TriggerClientEvent('fbrp:service:release', source, status)
+    local s = sessions[source]
+    FBRP.DB.audit(actor or 'system', 'justice.service_' .. status, s and s.discord or source, { service=c.id, collected=c.collected, remaining=math.ceil(c.remaining) })
+    return true, c
+end
+
+local function startService(target, actor, minutes, charges, notes)
+    local s = sessions[target]
+    if not s then return false, 'That player is not loaded.' end
+    if jailed[target] then return false, 'That player is already serving a prison sentence.' end
+    if serving[target] then return false, 'That player is already doing community service.' end
+    local characterId, name = characterOf(target)
+    name = name or GetPlayerName(target) or ('Player ' .. target)
+    minutes = math.max(1, math.min(CS.maxMinutes, math.floor(tonumber(minutes) or 1)))
+    local seconds = minutes * 60
+    local actorId, actorName = officer(actor)
+    local stamp = now()
+    local id = MySQL.insert.await([[
+        INSERT INTO community_service(character_id,license,discord_id,name,officer_id,officer_name,minutes,charges,seconds_total,seconds_remaining,status,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,'serving',?,?)
+    ]], { characterId, s.license, s.discord, name, actorId, actorName, minutes, json.encode(charges), seconds, seconds, stamp, stamp })
+    local recordNotes = ('Community service: %d minutes at Legion Square.%s'):format(minutes, notes ~= '' and (' ' .. notes) or '')
+    MySQL.insert.await([[
+        INSERT INTO criminal_records(character_id,license,name,kind,charges,months,fine,notes,officer_id,officer_name,created_at)
+        VALUES(?,?,?,'service',?,0,0,?,?,?,?)
+    ]], { characterId, s.license, name, json.encode(charges), recordNotes:sub(1, 500), actorId, actorName, stamp })
+    if characterId then
+        MySQL.update.await("UPDATE warrants SET status='served',closed_by=?,closed_at=? WHERE character_id=? AND status='active'", { actorName, stamp, characterId })
+    end
+    if FBRP.Economy and FBRP.Economy.confiscate then FBRP.Economy.confiscate(target, actorName) end
+    putInService(target, { id=tonumber(id), remaining=seconds, total=seconds, minutes=minutes, charges=charges })
+    chat(target, 'COMMUNITY SERVICE', ('%s sentenced you to %d minutes of community service at Legion Square for: %s'):format(actorName, minutes, chargeTitles(charges) ~= '' and chargeTitles(charges) or 'unspecified charges'), AMBER)
+    chat(target, 'COMMUNITY SERVICE', ('Pick up rubbish to keep your clock running. Leaving the square for more than %d seconds sends you to %s.'):format(CS.graceSeconds, J.prison.name), AMBER)
+    FBRP.DB.audit(actorId, 'justice.service', s.discord or target, { service=id, name=name, minutes=minutes, charges=chargeTitles(charges), notes=notes })
+    return true, ('%s sentenced to %d minutes of community service.'):format(name, minutes)
+end
+
+local function escapeService(source)
+    local ok, c = endService(source, 'escaped')
+    if not ok then return end
+    local _, name = characterOf(source)
+    name = name or GetPlayerName(source)
+    local months = CS.escapeMonths + math.ceil(c.remaining / 60)
+    local charges = {}
+    for _, charge in ipairs(c.charges or {}) do charges[#charges + 1] = charge end
+    charges[#charges + 1] = { id='service_fail', title='Failure to complete community service', kind='misdemeanor' }
+    startSentence(source, 0, months, charges, 'Walked out of community service at Legion Square.', 'Florida Bay Courts')
+    notify(source, 'You walked away from community service. You are being taken to Bolingbroke.', 'error')
+    policeNotify(('%s walked out of community service and was transferred to %s (%d months).'):format(name, J.prison.name, months), 'warning')
+end
+
+local function activeService(source)
+    local s = sessions[source]
+    if not s then return nil end
+    local characterId = characterOf(source)
+    local clause, value = subjectClause(characterId, s.license)
+    return MySQL.single.await(("SELECT * FROM community_service WHERE status='serving' AND %s ORDER BY id DESC LIMIT 1"):format(clause), { value })
+end
+
+local function resumeService(source)
+    if serving[source] or jailed[source] then return end
+    local row = activeService(source)
+    if not row then return end
+    putInService(source, {
+        id=tonumber(row.id), remaining=tonumber(row.seconds_remaining) or 0, total=tonumber(row.seconds_total) or 0,
+        minutes=tonumber(row.minutes) or 0, charges=decode(row.charges), collected=tonumber(row.collected) or 0,
+    })
+    notify(source, ('You still owe %s of community service at Legion Square.'):format(formatDuration(row.seconds_remaining)), 'warning')
+end
+
+RegisterNetEvent('fbrp:service:pickup', function()
+    local src = source
+    local c = serving[src]
+    if not c then return end
+    local stamp = now()
+    if stamp - c.lastPickup < CS.pickupMs - 700 then return end
+    if not near(pedCoords(src), CS.center, CS.radius + 2.0) then return end
+    c.lastPickup = stamp
+    c.lastActive = stamp
+    c.collected = c.collected + 1
+    pushService(src)
+end)
+
+-- ─────────────────────────── clocks ───────────────────────────
+
+-- One-second clock for prison sentences and community service. Both only
+-- count while the player is in the game.
 CreateThread(function()
     while true do
         Wait(1000)
@@ -237,17 +453,25 @@ CreateThread(function()
             else
                 j.remaining = j.remaining - (stamp - j.lastTick) / 1000
                 j.lastTick = stamp
+                -- A calm minute improves behaviour; at Good or better it also earns good-time credit.
+                if stamp - j.calmSince >= 60000 then
+                    j.calmSince = stamp
+                    adjustBehaviour(j, J.behaviour.calmMinuteGain)
+                    if j.behaviour >= J.behaviour.goodTimeThreshold then cutSentence(j, J.behaviour.goodTimeSecondsPerMinute) end
+                end
                 if j.remaining <= 0 then
                     releaseInmate(src, 'served')
                     notify(src, 'Sentence served. You are free to go.', 'success')
                 else
                     if stamp - j.lastUpdate >= 5000 then
                         j.lastUpdate = stamp
-                        TriggerClientEvent('fbrp:jail:update', src, math.ceil(j.remaining))
+                        pushJail(src)
                         -- Server-side leash: walking, driving or teleporting out puts them back in the yard.
                         local coords = pedCoords(src)
                         if coords and not escapes[src] and stamp - j.enteredAt > 15000
                             and #(coords - J.prison.center) > J.prison.leashRadius + 20.0 then
+                            adjustBehaviour(j, -J.behaviour.leashPenalty)
+                            j.calmSince = stamp
                             TriggerClientEvent('fbrp:jail:return', src, J.prison.spawns[math.random(#J.prison.spawns)])
                         end
                     end
@@ -255,15 +479,59 @@ CreateThread(function()
                 end
             end
         end
+        for src, c in pairs(serving) do
+            if not sessions[src] then
+                serving[src] = nil
+            else
+                local dt = (stamp - c.lastTick) / 1000
+                c.lastTick = stamp
+                local coords = pedCoords(src)
+                local previous = c.state
+                if coords and stamp - c.enteredAt > 8000 and not near(coords, CS.center, CS.radius) then
+                    if not c.outsideSince then
+                        c.outsideSince = stamp
+                        notify(src, ('Get back to Legion Square! You have %d seconds before you are sent to prison.'):format(CS.graceSeconds), 'error')
+                    elseif stamp - c.outsideSince >= CS.graceSeconds * 1000 then
+                        escapeService(src)
+                        goto continue
+                    end
+                    c.state = 'outside'
+                else
+                    c.outsideSince = nil
+                    if stamp - c.lastActive <= CS.idleSeconds * 1000 then
+                        c.remaining = c.remaining - dt
+                        c.state = 'working'
+                    else
+                        c.state = 'paused'
+                    end
+                end
+                if c.remaining <= 0 then
+                    endService(src, 'completed')
+                    notify(src, 'Community service complete. You are free to go.', 'success')
+                    chat(src, 'COMMUNITY SERVICE', ('Service complete - %d pieces of rubbish collected. Thanks for keeping Legion Square clean.'):format(c.collected), GREEN)
+                else
+                    if previous ~= c.state or stamp - c.lastUpdate >= 2000 then
+                        c.lastUpdate = stamp
+                        pushService(src)
+                    end
+                    if stamp - c.lastPersist >= 30000 then persistService(src) end
+                end
+            end
+            ::continue::
+        end
     end
 end)
 
 AddEventHandler('playerDropped', function()
     local src = source
     persist(src)
+    persistService(src)
     jailed[src] = nil
-    workAssigned[src] = nil
+    jobs[src] = nil
+    jobCooldown[src] = nil
     escapes[src] = nil
+    serving[src] = nil
+    units[src] = nil
     lastMdt[src] = nil
     local strip = spikes[src]
     if strip and DoesEntityExist(strip.entity) then DeleteEntity(strip.entity) end
@@ -273,56 +541,109 @@ end)
 AddEventHandler('onResourceStop', function(name)
     if name ~= GetCurrentResourceName() then return end
     for src in pairs(jailed) do persist(src) end
+    for src in pairs(serving) do persistService(src) end
     for _, strip in pairs(spikes) do
         if DoesEntityExist(strip.entity) then DeleteEntity(strip.entity) end
     end
 end)
 
 -- The client reports when its character has spawned; that is when a pending
--- sentence resumes.
+-- sentence or community service resumes.
 RegisterNetEvent('fbrp:justice:spawned', function()
     local src = source
     if not S.isReady() then return end
-    SetTimeout(1500, function() if sessions[src] then resumeSentence(src) end end)
+    SetTimeout(1500, function()
+        if not sessions[src] then return end
+        if not resumeSentence(src) then resumeService(src) end
+    end)
 end)
 
 RegisterNetEvent('fbrp:jail:leash', function()
     local src = source
-    if jailed[src] and not escapes[src] then
+    local j = jailed[src]
+    if j and not escapes[src] then
+        adjustBehaviour(j, -J.behaviour.leashPenalty)
+        j.calmSince = now()
         TriggerClientEvent('fbrp:jail:return', src, J.prison.spawns[math.random(#J.prison.spawns)])
+        pushJail(src)
     end
 end)
 
--- Prison work: the server hands out a spot, then checks the inmate stood at it
--- long enough before taking time off.
+-- ─────────────────────────── prison jobs ───────────────────────────
+
+local function jobBoard(source)
+    local j = jailed[source]
+    local tier = tierOf(j.behaviour)
+    local list = {}
+    for _, job in ipairs(J.jobs) do
+        list[#list + 1] = {
+            id=job.id, label=job.label, description=job.description, icon=job.icon, steps=job.steps,
+            reduction=math.floor(job.reduction * tier.mult), baseReduction=job.reduction, behaviour=job.behaviour or 0,
+            holdSeconds=math.floor(job.holdMs / 1000),
+        }
+    end
+    return { jobs=list, current=jobView(source), info=jailInfo(source), cooldown=math.max(0, math.ceil(((jobCooldown[source] or 0) - now()) / 1000)) }
+end
+
+local function assignStep(source, job, step, previous)
+    local index
+    repeat index = math.random(#job.spots) until job.spots[index] ~= previous or #job.spots == 1
+    jobs[source] = { job=job, step=step, spot=job.spots[index], at=now() }
+    TriggerClientEvent('fbrp:jail:job', source, jobView(source))
+end
+
 RegisterNetEvent('fbrp:jail:workRequest', function()
     local src = source
-    local j = jailed[src]
-    if not j then return end
-    local previous = workAssigned[src] and workAssigned[src].index
-    local index
-    repeat index = math.random(#J.prison.work) until index ~= previous or #J.prison.work == 1
-    workAssigned[src] = { index=index, at=now() }
-    TriggerClientEvent('fbrp:jail:work', src, index)
+    if not jailed[src] then return end
+    TriggerClientEvent('fbrp:jail:board', src, jobBoard(src))
 end)
 
-RegisterNetEvent('fbrp:jail:workDone', function()
+RegisterNetEvent('fbrp:jail:jobStart', function(jobId)
     local src = source
-    local j, task = jailed[src], workAssigned[src]
+    if not jailed[src] or escapes[src] then return end
+    local job = jobById(clean(jobId, 24))
+    if not job then return end
+    if jobs[src] then return notify(src, 'Finish or quit your current job first.', 'error') end
+    if (jobCooldown[src] or 0) > now() then return notify(src, 'The guard tells you to take a breather first.', 'info') end
+    assignStep(src, job, 1)
+    notify(src, ('%s assigned. Follow the marker.'):format(job.label), 'info')
+    pushJail(src)
+end)
+
+RegisterNetEvent('fbrp:jail:jobCancel', function()
+    local src = source
+    if not jobs[src] then return end
+    jobs[src] = nil
+    jobCooldown[src] = now() + 10000
+    TriggerClientEvent('fbrp:jail:job', src, nil)
+    notify(src, 'You walked off the job.', 'info')
+    pushJail(src)
+end)
+
+RegisterNetEvent('fbrp:jail:jobStep', function()
+    local src = source
+    local j, task = jailed[src], jobs[src]
     if not j or not task then return end
-    local spot = J.prison.work[task.index]
-    local coords = pedCoords(src)
-    if not coords or #(coords - vector3(spot.x, spot.y, spot.z)) > 4.0 then return notify(src, 'You walked away from the job.', 'error') end
-    if now() - task.at < J.workHoldMs - 500 then return end
-    if now() - j.lastWork < J.workCooldownSeconds * 1000 then return notify(src, 'The guard tells you to take a breather first.', 'info') end
-    j.lastWork = now()
-    workAssigned[src] = nil
-    local before = j.remaining
-    j.remaining = math.max(math.min(j.remaining, J.workMinimumRemaining), j.remaining - J.workReductionSeconds)
-    local saved = math.floor(before - j.remaining)
-    TriggerClientEvent('fbrp:jail:update', src, math.ceil(j.remaining))
-    notify(src, saved > 0 and ('Good work. %s taken off your sentence.'):format(formatDuration(saved)) or 'Good work, but the parole board will not shorten it any further.', saved > 0 and 'success' or 'info')
+    local job = task.job
+    if not near(pedCoords(src), task.spot, 4.5) then return notify(src, 'You walked away from the job.', 'error') end
+    if now() - task.at < job.holdMs - 600 then return end
+    local tier = tierOf(j.behaviour)
+    local saved = cutSentence(j, job.reduction * tier.mult)
+    if job.behaviour then adjustBehaviour(j, job.behaviour) end
+    if task.step >= job.steps then
+        jobs[src] = nil
+        j.jobsDone = (j.jobsDone or 0) + 1
+        adjustBehaviour(j, J.behaviour.jobGain)
+        jobCooldown[src] = now() + J.workCooldownSeconds * 1000
+        TriggerClientEvent('fbrp:jail:job', src, nil)
+        notify(src, saved > 0 and ('%s complete. %s taken off your sentence. Behaviour: %s.'):format(job.label, formatDuration(saved), tierOf(j.behaviour).label)
+            or ('%s complete. Behaviour: %s.'):format(job.label, tierOf(j.behaviour).label), 'success')
+    else
+        assignStep(src, job, task.step + 1, task.spot)
+        notify(src, saved > 0 and ('Step done (-%s). Next: %s.'):format(formatDuration(saved), jobView(src).stepLabel) or ('Step done. Next: %s.'):format(jobView(src).stepLabel), 'success')
+    end
     persist(src)
+    pushJail(src)
 end)
 
 RegisterNetEvent('fbrp:jail:escapeStart', function()
@@ -334,6 +655,7 @@ RegisterNetEvent('fbrp:jail:escapeStart', function()
     if onDutyPolice() < J.escapeMinPolice then return notify(src, 'The yard is crawling with guards. Wait for a quieter moment (police must be on duty).', 'error') end
     if not coords or #(coords - J.prison.escapeSpot) > 3.0 then return end
     escapes[src] = now()
+    jobs[src] = nil
     TriggerClientEvent('fbrp:jail:escapeApproved', src, J.escapeHoldMs)
 end)
 
@@ -349,13 +671,16 @@ RegisterNetEvent('fbrp:jail:escapeDone', function()
     local coords = pedCoords(src)
     if now() - started < J.escapeHoldMs - 1500 or not coords or #(coords - J.prison.escapeSpot) > 4.0 then
         escapes[src] = nil
-        return notify(src, 'You were spotted and dragged back from the fence.', 'error')
+        adjustBehaviour(j, -J.behaviour.escapePenalty)
+        j.calmSince = now()
+        pushJail(src)
+        return notify(src, 'You were spotted and dragged back from the fence. Your behaviour record took a hit.', 'error')
     end
     jailed[src] = nil
     escapes[src] = nil
-    workAssigned[src] = nil
+    jobs[src] = nil
     local stamp = now()
-    MySQL.update.await("UPDATE jail_sentences SET status='escaped',seconds_remaining=?,updated_at=? WHERE id=?", { math.ceil(j.remaining), stamp, j.id })
+    MySQL.update.await("UPDATE jail_sentences SET status='escaped',seconds_remaining=?,behaviour=0,updated_at=? WHERE id=?", { math.ceil(j.remaining), stamp, j.id })
     local characterId, name = characterOf(src)
     name = name or GetPlayerName(src)
     MySQL.insert.await('INSERT INTO warrants(character_id,subject_name,reason,status,created_by_id,created_by,created_at) VALUES(?,?,?,?,?,?,?)', {
@@ -374,26 +699,60 @@ end)
 RegisterCommand('jailtime', function(source)
     if source <= 0 then return end
     local j = jailed[source]
-    if not j then return notify(source, 'You are not serving a sentence.', 'info') end
-    chat(source, 'BOLINGBROKE', ('%s remaining of %d months. Charges: %s'):format(formatDuration(j.remaining), j.months, chargeTitles(j.charges) ~= '' and chargeTitles(j.charges) or 'none listed'), AMBER)
+    if j then
+        return chat(source, 'BOLINGBROKE', ('%s remaining of %d months · behaviour %d (%s) · %s cut so far. Charges: %s'):format(
+            formatDuration(j.remaining), j.months, j.behaviour, tierOf(j.behaviour).label, formatDuration(j.reduced or 0),
+            chargeTitles(j.charges) ~= '' and chargeTitles(j.charges) or 'none listed'), AMBER)
+    end
+    local c = serving[source]
+    if c then return chat(source, 'COMMUNITY SERVICE', ('%s of service left · %d pieces collected.'):format(formatDuration(c.remaining), c.collected), AMBER) end
+    notify(source, 'You are not serving a sentence.', 'info')
 end, false)
 
 -- /jail <id> <months> [reason] - quick sentence without the MDT.
+local function quickBookingCheck(source, target)
+    if source <= 0 or hasPermission(source, FBRP.Ace.staffJail) then return true end
+    if target == source then return false, 'You cannot sentence yourself.' end
+    if not S.playersNear(source, target, 10.0) then return false, 'The suspect must be with you to be booked.' end
+    local player = Player(target)
+    if not (player and player.state['fbrp:restrained']) then return false, 'Restrain the suspect before booking them.' end
+    return true
+end
+
 RegisterCommand('jail', function(source, args)
     if source > 0 and not canJail(source) then return S.deny(source, FBRP.Ace.policeJail) end
     local target, months = tonumber(args[1]), tonumber(args[2])
     if not target or not months or not sessions[target] then return notify(source, 'Usage: /jail <server id> <months> [charges/notes]', 'error') end
-    local staff = source <= 0 or hasPermission(source, FBRP.Ace.staffJail)
-    if not staff then
-        if target == source then return notify(source, 'You cannot jail yourself.', 'error') end
-        if not S.playersNear(source, target, 10.0) then return notify(source, 'The suspect must be with you to be booked.', 'error') end
-        local player = Player(target)
-        if not (player and player.state['fbrp:restrained']) then return notify(source, 'Restrain the suspect before booking them.', 'error') end
-    end
+    local allowed, why = quickBookingCheck(source, target)
+    if not allowed then return notify(source, why, 'error') end
     local reason = clean(table.concat(args, ' ', 3), 200)
     local charges = reason ~= '' and { { id='custom', title=reason, kind='custom' } } or {}
     local ok, message = startSentence(target, source, months, charges, '')
     notify(source, message, ok and 'success' or 'error')
+end, false)
+
+-- /communityservice <id> <minutes> [reason]
+local function serviceCommand(source, args)
+    if source > 0 and not canJail(source) then return S.deny(source, FBRP.Ace.policeJail) end
+    local target, minutes = tonumber(args[1]), tonumber(args[2])
+    if not target or not minutes or not sessions[target] then return notify(source, ('Usage: /communityservice <server id> <minutes 1-%d> [charges/notes]'):format(CS.maxMinutes), 'error') end
+    local allowed, why = quickBookingCheck(source, target)
+    if not allowed then return notify(source, why, 'error') end
+    local reason = clean(table.concat(args, ' ', 3), 200)
+    local charges = reason ~= '' and { { id='custom', title=reason, kind='custom' } } or {}
+    local ok, message = startService(target, source, minutes, charges, '')
+    notify(source, message, ok and 'success' or 'error')
+end
+RegisterCommand('communityservice', serviceCommand, false)
+RegisterCommand('cs', serviceCommand, false)
+
+RegisterCommand('endservice', function(source, args)
+    if source > 0 and not canJail(source) then return S.deny(source, FBRP.Ace.policeJail) end
+    local target = tonumber(args[1])
+    if not target or not serving[target] then return notify(source, 'Usage: /endservice <server id of someone doing community service>', 'error') end
+    endService(target, 'released', select(1, officer(source)))
+    notify(target, ('%s released you from community service.'):format(select(2, officer(source))), 'success')
+    notify(source, 'Community service ended.', 'success')
 end, false)
 
 RegisterCommand('unjail', function(source, args)
@@ -411,55 +770,130 @@ RegisterCommand('prison', function(source)
     local lines = {}
     for src, j in pairs(jailed) do
         local _, name = characterOf(src)
-        lines[#lines + 1] = ('[%d] %s · %s left'):format(src, name or GetPlayerName(src), formatDuration(j.remaining))
+        lines[#lines + 1] = ('[%d] %s · %s left · %s'):format(src, name or GetPlayerName(src), formatDuration(j.remaining), tierOf(j.behaviour).label)
     end
-    chat(source, 'BOLINGBROKE', #lines > 0 and table.concat(lines, ' | ') or 'No inmates are in the yard right now.', AMBER)
+    for src, c in pairs(serving) do
+        local _, name = characterOf(src)
+        lines[#lines + 1] = ('[%d] %s · community service %s left'):format(src, name or GetPlayerName(src), formatDuration(c.remaining))
+    end
+    chat(source, 'CORRECTIONS', #lines > 0 and table.concat(lines, ' | ') or 'Nobody is in custody right now.', AMBER)
 end, false)
 
--- ─────────────────────────── MDT ───────────────────────────
+-- ─────────────────────────── CAD / MDT ───────────────────────────
+
+local STATUS = {}
+for _, status in ipairs(MDT.unitStatuses) do STATUS[status.id] = status end
+local FLAG = {}
+for _, flag in ipairs(MDT.flags) do FLAG[flag.id] = flag end
+local LICENSE = {}
+for _, license in ipairs(MDT.licenses) do LICENSE[license.id] = license end
+
+local function unitOf(source)
+    local unit = units[source]
+    if unit then return unit end
+    local s = sessions[source]
+    local row = s and s.discord and MySQL.single.await('SELECT callsign FROM mdt_units WHERE discord_id=?', { s.discord })
+    unit = { status='available', callsign=row and row.callsign or nil }
+    units[source] = unit
+    return unit
+end
 
 local function activeWarrantCount(characterId)
     if not characterId then return 0 end
     return tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM warrants WHERE character_id=? AND status='active'", { characterId })) or 0
 end
 
-local function units()
+local function unitList()
     local out = {}
     for src, s in pairs(sessions) do
         local police, ems = isPolice(src), hasPermission(src, FBRP.Ace.ems)
         if police or ems then
-            out[#out + 1] = { id=src, name=S.displayName(src), org=s.org and s.org.name or nil, kind=police and 'police' or 'ems', downed=Player(src).state['fbrp:downed'] and true or false }
+            local unit = unitOf(src)
+            local coords = pedCoords(src)
+            out[#out + 1] = {
+                id=src, name=S.displayName(src), org=s.org and s.org.name or nil, kind=police and 'police' or 'ems',
+                downed=Player(src).state['fbrp:downed'] and true or false, callsign=unit.callsign, status=unit.status,
+                x=coords and coords.x or nil, y=coords and coords.y or nil,
+            }
         end
     end
     table.sort(out, function(a, b) return a.id < b.id end)
     return out
 end
 
-local function dashboard()
-    local inmates = MySQL.query.await("SELECT id,character_id,name,months,seconds_remaining,status,officer_name,created_at FROM jail_sentences WHERE status IN ('serving','escaped') ORDER BY id DESC LIMIT 30")
+local function callList()
+    local calls = {}
+    for _, call in pairs(S.recentCalls) do
+        if not call.closedAt then
+            local responders = {}
+            for src in pairs(call.responders) do
+                if sessions[src] then
+                    local unit = units[src]
+                    responders[#responders + 1] = { id=src, name=S.displayName(src), callsign=unit and unit.callsign or nil }
+                end
+            end
+            calls[#calls + 1] = {
+                id=call.id, kind=call.kind, caller=call.callerName, message=call.message, at=call.at,
+                x=call.coords and call.coords.x, y=call.coords and call.coords.y, responders=responders, notes=call.notes or {},
+            }
+        end
+    end
+    table.sort(calls, function(a, b) return a.id > b.id end)
+    return calls
+end
+
+local function stats(source)
+    local since = dayStart()
+    local actorId = officer(source)
+    local row = MySQL.single.await([[
+        SELECT SUM(kind='arrest') arrests,SUM(kind='citation') citations,SUM(kind='service') services,
+               SUM(kind='arrest' AND officer_id=?) myArrests,SUM(kind='citation' AND officer_id=?) myCitations
+          FROM criminal_records WHERE created_at>=?
+    ]], { actorId, actorId, since }) or {}
+    local reports = MySQL.single.await('SELECT COUNT(*) total,SUM(author_id=?) mine FROM mdt_reports WHERE created_at>=?', { actorId, since }) or {}
+    return {
+        arrests=tonumber(row.arrests) or 0, citations=tonumber(row.citations) or 0, services=tonumber(row.services) or 0,
+        reports=tonumber(reports.total) or 0,
+        mine={ arrests=tonumber(row.myArrests) or 0, citations=tonumber(row.myCitations) or 0, reports=tonumber(reports.mine) or 0 },
+    }
+end
+
+local function dashboard(source)
+    local inmates = MySQL.query.await("SELECT id,character_id,name,months,seconds_remaining,status,officer_name,behaviour,jobs_done,created_at FROM jail_sentences WHERE status IN ('serving','escaped') ORDER BY id DESC LIMIT 30")
     for _, row in ipairs(inmates) do
         local src = onlineByCharacter(row.character_id)
         if src and jailed[src] and jailed[src].id == tonumber(row.id) then
             row.online = src
             row.seconds_remaining = math.ceil(jailed[src].remaining)
+            row.behaviour = jailed[src].behaviour
+            row.jobs_done = jailed[src].jobsDone
+        end
+        row.tier = tierOf(tonumber(row.behaviour) or J.behaviour.start).label
+    end
+    local services = MySQL.query.await("SELECT id,character_id,name,minutes,seconds_remaining,collected,officer_name,created_at FROM community_service WHERE status='serving' ORDER BY id DESC LIMIT 20")
+    for _, row in ipairs(services) do
+        local src = onlineByCharacter(row.character_id)
+        if src and serving[src] and serving[src].id == tonumber(row.id) then
+            row.online = src
+            row.seconds_remaining = math.ceil(serving[src].remaining)
+            row.collected = serving[src].collected
+            row.state = serving[src].state
         end
     end
-    local calls = {}
-    for _, call in pairs(S.recentCalls) do
-        local responders = 0
-        for _ in pairs(call.responders) do responders = responders + 1 end
-        calls[#calls + 1] = { id=call.id, kind=call.kind, caller=call.callerName, message=call.message, at=call.at, responders=responders }
-    end
-    table.sort(calls, function(a, b) return a.id > b.id end)
     local records = MySQL.query.await('SELECT id,character_id,name,kind,charges,months,fine,officer_name,created_at FROM criminal_records ORDER BY id DESC LIMIT 15')
     for _, row in ipairs(records) do row.charges = decode(row.charges) end
+    local seizures = MySQL.query.await("SELECT id,name,drug,units,status,seized_by,location,created_at FROM org_drug_runs WHERE status IN ('seized','confiscated') ORDER BY id DESC LIMIT 10")
     return {
-        warrants = MySQL.query.await("SELECT id,character_id,subject_name,reason,created_by,created_at FROM warrants WHERE status='active' ORDER BY id DESC LIMIT 30"),
+        warrants = MySQL.query.await("SELECT id,character_id,subject_name,reason,created_by,created_at FROM warrants WHERE status='active' ORDER BY id DESC LIMIT 40"),
         bolos = MySQL.query.await('SELECT id,kind,plate,description,created_by,created_at FROM bolos WHERE active=TRUE ORDER BY id DESC LIMIT 30'),
         records = records,
         inmates = inmates,
-        units = units(),
-        calls = calls,
+        services = services,
+        seizures = seizures,
+        units = unitList(),
+        calls = callList(),
+        stats = source and stats(source) or nil,
+        me = source and { id=source, unit=unitOf(source) } or nil,
     }
 end
 
@@ -487,10 +921,25 @@ local function search(query)
     end
     local out = {}
     for _, row in ipairs(rows) do
+        local flags = MySQL.query.await('SELECT flag FROM mdt_citizen_flags WHERE character_id=?', { tonumber(row.id) })
+        local list = {}
+        for _, flag in ipairs(flags) do list[#list + 1] = flag.flag end
         out[#out + 1] = {
             id=tonumber(row.id), name=fullName(row), dob=row.date_of_birth, gender=row.gender,
-            citizen=citizenNumber(row.id), online=onlineByCharacter(row.id), warrants=activeWarrantCount(tonumber(row.id))
+            citizen=citizenNumber(row.id), online=onlineByCharacter(row.id), warrants=activeWarrantCount(tonumber(row.id)), flags=list,
         }
+    end
+    return out
+end
+
+local function licenseList(characterId)
+    local rows = MySQL.query.await('SELECT kind,status,points,updated_by,updated_at FROM mdt_licenses WHERE character_id=?', { characterId })
+    local byKind = {}
+    for _, row in ipairs(rows) do byKind[row.kind] = row end
+    local out = {}
+    for _, license in ipairs(MDT.licenses) do
+        local row = byKind[license.id]
+        out[#out + 1] = { id=license.id, label=license.label, status=row and row.status or 'none', points=row and tonumber(row.points) or 0, updatedBy=row and row.updated_by, updatedAt=row and tonumber(row.updated_at) }
     end
     return out
 end
@@ -502,9 +951,16 @@ local function profile(characterId)
     local online = onlineByCharacter(id)
     local records = MySQL.query.await('SELECT id,kind,charges,months,fine,notes,officer_name,created_at FROM criminal_records WHERE character_id=? ORDER BY id DESC LIMIT 50', { id })
     for _, record in ipairs(records) do record.charges = decode(record.charges) end
-    local sentence = MySQL.single.await("SELECT id,months,seconds_remaining,status,officer_name,created_at FROM jail_sentences WHERE character_id=? AND status IN ('serving','escaped') ORDER BY id DESC LIMIT 1", { id })
-    if sentence and online and jailed[online] then sentence.seconds_remaining = math.ceil(jailed[online].remaining) end
+    local sentence = MySQL.single.await("SELECT id,months,seconds_remaining,status,officer_name,behaviour,created_at FROM jail_sentences WHERE character_id=? AND status IN ('serving','escaped') ORDER BY id DESC LIMIT 1", { id })
+    if sentence and online and jailed[online] then
+        sentence.seconds_remaining = math.ceil(jailed[online].remaining)
+        sentence.behaviour = jailed[online].behaviour
+    end
+    if sentence then sentence.tier = tierOf(tonumber(sentence.behaviour) or J.behaviour.start).label end
+    local service = MySQL.single.await("SELECT id,minutes,seconds_remaining,collected,officer_name,created_at FROM community_service WHERE character_id=? AND status='serving' ORDER BY id DESC LIMIT 1", { id })
+    if service and online and serving[online] then service.seconds_remaining = math.ceil(serving[online].remaining) end
     local restrained = online and Player(online).state['fbrp:restrained'] or nil
+    local flags = MySQL.query.await('SELECT flag,added_by,added_at FROM mdt_citizen_flags WHERE character_id=? ORDER BY added_at', { id })
     return {
         id=id, name=fullName(row), dob=row.date_of_birth, gender=row.gender, citizen=citizenNumber(id),
         online=online, restrained=restrained and true or false,
@@ -512,6 +968,14 @@ local function profile(characterId)
         warrants=MySQL.query.await('SELECT id,reason,status,created_by,created_at,closed_by,closed_at FROM warrants WHERE character_id=? ORDER BY status=\'active\' DESC,id DESC LIMIT 30', { id }),
         vehicles=MySQL.query.await('SELECT plate,model,label,stolen,impounded_at,registered_at FROM vehicle_registrations WHERE character_id=? ORDER BY registered_at DESC LIMIT 20', { id }),
         sentence=sentence,
+        service=service,
+        flags=flags,
+        notes=MySQL.query.await('SELECT id,body,author_name,created_at FROM mdt_citizen_notes WHERE character_id=? ORDER BY id DESC LIMIT 25', { id }),
+        licenses=licenseList(id),
+        reports=MySQL.query.await([[
+            SELECT r.id,r.kind,r.title,r.author_name,r.created_at,rc.role FROM mdt_report_citizens rc
+              JOIN mdt_reports r ON r.id=rc.report_id WHERE rc.character_id=? ORDER BY r.id DESC LIMIT 20
+        ]], { id }),
     }
 end
 
@@ -528,6 +992,13 @@ local function plateReport(plate)
         report.stolen = reg.stolen == true or reg.stolen == 1
         report.impounded = reg.impounded_at ~= nil
         report.warrants = activeWarrantCount(tonumber(reg.character_id))
+        if report.ownerId then
+            local driver = MySQL.single.await("SELECT status FROM mdt_licenses WHERE character_id=? AND kind='driver'", { report.ownerId })
+            report.license = driver and driver.status or 'none'
+            local flags = MySQL.query.await('SELECT flag FROM mdt_citizen_flags WHERE character_id=?', { report.ownerId })
+            report.flags = {}
+            for _, flag in ipairs(flags) do report.flags[#report.flags + 1] = FLAG[flag.flag] and FLAG[flag.flag].label or flag.flag end
+        end
     end
     return report
 end
@@ -542,18 +1013,51 @@ local function plateLine(report)
     if report.stolen then flags[#flags + 1] = 'REPORTED STOLEN' end
     if report.impounded then flags[#flags + 1] = 'IMPOUND RECORD' end
     if (report.warrants or 0) > 0 then flags[#flags + 1] = ('OWNER HAS %d ACTIVE WARRANT(S)'):format(report.warrants) end
+    if report.license == 'suspended' or report.license == 'revoked' then flags[#flags + 1] = ('OWNER LICENSE %s'):format(report.license:upper()) end
+    for _, flag in ipairs(report.flags or {}) do flags[#flags + 1] = flag:upper() end
     for _, bolo in ipairs(report.bolos) do flags[#flags + 1] = ('BOLO #%d: %s'):format(bolo.id, bolo.description) end
     local text = ('%s · %s · Registered to %s'):format(report.plate, report.model or 'Unknown', report.owner or 'Unknown')
     if #flags > 0 then text = text .. ' · ' .. table.concat(flags, ' · ') end
     return text, #flags > 0 and RED or GREEN
 end
 
+local function reportList(query)
+    query = clean(query, 60)
+    if query ~= '' then
+        local like = '%' .. likeEscape(query) .. '%'
+        return MySQL.query.await([[
+            SELECT DISTINCT r.id,r.kind,r.title,r.location,r.author_name,r.created_at FROM mdt_reports r
+              LEFT JOIN mdt_report_citizens rc ON rc.report_id=r.id
+              LEFT JOIN characters c ON c.id=rc.character_id
+             WHERE r.title LIKE ? OR r.narrative LIKE ? OR CONCAT(c.first_name,' ',c.last_name) LIKE ? OR r.id=?
+             ORDER BY r.id DESC LIMIT 40
+        ]], { like, like, like, tonumber(query) or 0 })
+    end
+    return MySQL.query.await('SELECT id,kind,title,location,author_name,created_at FROM mdt_reports ORDER BY id DESC LIMIT 40')
+end
+
+local function reportView(id)
+    local row = MySQL.single.await('SELECT * FROM mdt_reports WHERE id=?', { tonumber(id) })
+    if not row then return nil end
+    row.citizens = decode(row.citizens)
+    row.officers = decode(row.officers)
+    return row
+end
+
 local function sendMdt(source, kind, data)
     TriggerClientEvent('fbrp:mdt:data', source, kind, data)
 end
 
+local function mdtPayload(source)
+    return {
+        dashboard=dashboard(source), canJail=canJail(source), officer=S.displayName(source), maxMonths=J.maxMonths, secondsPerMonth=J.secondsPerMonth,
+        serviceMax=CS.maxMinutes, statuses=MDT.unitStatuses, flags=MDT.flags, licenses=MDT.licenses, reportKinds=MDT.reportKinds,
+        department=(sessions[source] and sessions[source].org and sessions[source].org.name) or 'Florida Bay Police',
+    }
+end
+
 local function openMdt(source, focus)
-    local payload = { dashboard=dashboard(), canJail=canJail(source), officer=S.displayName(source), maxMonths=J.maxMonths, secondsPerMonth=J.secondsPerMonth }
+    local payload = mdtPayload(source)
     if focus then
         payload.profile = profile(focus.characterId)
         payload.form = focus.form
@@ -566,6 +1070,7 @@ RegisterCommand('mdt', function(source)
     if not canMdt(source) then return S.deny(source, FBRP.Ace.policeMdt) end
     openMdt(source)
 end, false)
+RegisterCommand('cad', function(source) ExecuteCommand('mdt') end, false)
 
 -- A citation or sentence submitted from the MDT. Returns ok, message.
 local function issueCitation(source, characterId, chargeIds, notes)
@@ -589,15 +1094,21 @@ local function issueCitation(source, characterId, chargeIds, notes)
     return true, ('Citation issued to %s ($%d).'):format(name, fine)
 end
 
-local function sentenceFromMdt(source, characterId, chargeIds, monthsOverride, notes)
-    if not canJail(source) then return false, 'You do not have permission to book inmates.' end
+local function bookingTarget(source, characterId)
+    if not canJail(source) then return nil, 'You do not have permission to book suspects.' end
     local target = onlineByCharacter(characterId)
-    if not target then return false, 'The suspect must be in the city to be booked.' end
-    if target == source then return false, 'You cannot jail yourself.' end
+    if not target then return nil, 'The suspect must be in the city to be booked.' end
+    if target == source then return nil, 'You cannot sentence yourself.' end
     if not hasPermission(source, FBRP.Ace.staffJail) then
-        if not S.playersNear(source, target, 10.0) then return false, 'The suspect must be with you to be booked.' end
-        if not Player(target).state['fbrp:restrained'] then return false, 'Restrain the suspect before booking them.' end
+        if not S.playersNear(source, target, 10.0) then return nil, 'The suspect must be with you to be booked.' end
+        if not Player(target).state['fbrp:restrained'] then return nil, 'Restrain the suspect before booking them.' end
     end
+    return target
+end
+
+local function sentenceFromMdt(source, characterId, chargeIds, monthsOverride, notes)
+    local target, why = bookingTarget(source, characterId)
+    if not target then return false, why end
     local charges, months = resolveCharges(chargeIds)
     if #charges == 0 then return false, 'Pick at least one charge.' end
     months = tonumber(monthsOverride) or months
@@ -605,86 +1116,339 @@ local function sentenceFromMdt(source, characterId, chargeIds, monthsOverride, n
     return startSentence(target, source, months, charges, notes)
 end
 
+local function serviceFromMdt(source, characterId, chargeIds, minutes, notes)
+    local target, why = bookingTarget(source, characterId)
+    if not target then return false, why end
+    local charges = resolveCharges(chargeIds)
+    if #charges == 0 then return false, 'Pick at least one charge.' end
+    return startService(target, source, minutes, charges, notes)
+end
+
+local MDT_ACTIONS = {}
+
+MDT_ACTIONS.dashboard = function(src) sendMdt(src, 'dashboard', dashboard(src)) end
+MDT_ACTIONS.search = function(src, data) sendMdt(src, 'results', { query=clean(data.query, 60), rows=search(data.query) }) end
+MDT_ACTIONS.profile = function(src, data)
+    local p = profile(data.id)
+    if p then sendMdt(src, 'profile', p) else notify(src, 'Citizen not found.', 'error') end
+end
+MDT_ACTIONS.plate = function(src, data)
+    local report = plateReport(data.plate)
+    if report then sendMdt(src, 'plate', report) end
+end
+
+MDT_ACTIONS.warrant = function(src, data, actorId, actorName)
+    local row = characterRow(data.id)
+    local reason = clean(data.reason, 500)
+    if not row or reason == '' then return notify(src, 'A warrant needs a citizen and a reason.', 'error') end
+    local id = MySQL.insert.await('INSERT INTO warrants(character_id,subject_name,reason,status,created_by_id,created_by,created_at) VALUES(?,?,?,?,?,?,?)', {
+        tonumber(row.id), fullName(row), reason, 'active', actorId, actorName, now()
+    })
+    FBRP.DB.audit(actorId, 'justice.warrant', tostring(row.id), { warrant=id, name=fullName(row), reason=reason })
+    policeNotify(('Warrant #%d issued for %s.'):format(id, fullName(row)), 'warning', src)
+    notify(src, ('Warrant #%d issued.'):format(id), 'success')
+    sendMdt(src, 'profile', profile(row.id))
+end
+
+MDT_ACTIONS.closeWarrant = function(src, data, actorId, actorName)
+    local status = data.status == 'served' and 'served' or 'cleared'
+    local row = MySQL.single.await('SELECT id,character_id FROM warrants WHERE id=? AND status=\'active\'', { tonumber(data.id) })
+    if not row then return end
+    MySQL.update.await('UPDATE warrants SET status=?,closed_by=?,closed_at=? WHERE id=?', { status, actorName, now(), row.id })
+    FBRP.DB.audit(actorId, 'justice.warrant_' .. status, tostring(row.character_id or ''), { warrant=row.id })
+    notify(src, ('Warrant #%d marked %s.'):format(row.id, status), 'success')
+    if data.refresh == 'profile' and row.character_id then sendMdt(src, 'profile', profile(row.character_id)) else sendMdt(src, 'dashboard', dashboard(src)) end
+end
+
+MDT_ACTIONS.bolo = function(src, data, actorId, actorName)
+    local description = clean(data.description, 500)
+    local boloKind = data.kind == 'vehicle' and 'vehicle' or 'person'
+    local plate = boloKind == 'vehicle' and normalizePlate(data.plate) or ''
+    if description == '' then return notify(src, 'Describe who or what to look out for.', 'error') end
+    local id = MySQL.insert.await('INSERT INTO bolos(kind,plate,description,active,created_by_id,created_by,created_at) VALUES(?,?,?,TRUE,?,?,?)', {
+        boloKind, plate ~= '' and plate or nil, description, actorId, actorName, now()
+    })
+    S.sendDispatch('BOLO', src, ('BOLO #%d%s: %s'):format(id, plate ~= '' and (' · ' .. plate) or '', description), pedCoords(src), { FBRP.Ace.police }, false)
+    FBRP.DB.audit(actorId, 'justice.bolo', plate ~= '' and plate or nil, { bolo=id, kind=boloKind, description=description })
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+MDT_ACTIONS.closeBolo = function(src, data)
+    MySQL.update.await('UPDATE bolos SET active=FALSE,closed_at=? WHERE id=?', { now(), tonumber(data.id) })
+    notify(src, 'BOLO cancelled.', 'success')
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+MDT_ACTIONS.cite = function(src, data)
+    local ok, message = issueCitation(src, data.id, data.charges, clean(data.notes, 300))
+    notify(src, message, ok and 'success' or 'error')
+    if ok then sendMdt(src, 'profile', profile(data.id)) end
+end
+
+MDT_ACTIONS.sentence = function(src, data)
+    local ok, message = sentenceFromMdt(src, data.id, data.charges, data.months, clean(data.notes, 300))
+    notify(src, message, ok and 'success' or 'error')
+    if ok then sendMdt(src, 'profile', profile(data.id)) end
+end
+
+MDT_ACTIONS.service = function(src, data)
+    local ok, message = serviceFromMdt(src, data.id, data.charges, data.minutes, clean(data.notes, 300))
+    notify(src, message, ok and 'success' or 'error')
+    if ok then sendMdt(src, 'profile', profile(data.id)) end
+end
+
+MDT_ACTIONS.release = function(src, data, actorId, actorName)
+    if not canJail(src) then return notify(src, 'You do not have permission to release inmates.', 'error') end
+    local row = MySQL.single.await("SELECT id,character_id,status FROM jail_sentences WHERE id=? AND status IN ('serving','escaped')", { tonumber(data.id) })
+    if not row then return end
+    local online = onlineByCharacter(row.character_id)
+    if online and jailed[online] and jailed[online].id == tonumber(row.id) then
+        releaseInmate(online, 'released', actorId)
+        notify(online, ('You were released early by %s.'):format(actorName), 'success')
+    else
+        MySQL.update.await("UPDATE jail_sentences SET status='released',seconds_remaining=0,release_reason='released',released_at=?,updated_at=? WHERE id=?", { now(), now(), row.id })
+        FBRP.DB.audit(actorId, 'justice.release', tostring(row.character_id or ''), { sentence=row.id, reason='released' })
+    end
+    notify(src, ('Sentence #%d closed.'):format(row.id), 'success')
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+MDT_ACTIONS.serviceRelease = function(src, data, actorId, actorName)
+    if not canJail(src) then return notify(src, 'You do not have permission to end community service.', 'error') end
+    local row = MySQL.single.await("SELECT id,character_id FROM community_service WHERE id=? AND status='serving'", { tonumber(data.id) })
+    if not row then return end
+    local online = onlineByCharacter(row.character_id)
+    if online and serving[online] and serving[online].id == tonumber(row.id) then
+        endService(online, 'released', actorId)
+        notify(online, ('%s released you from community service.'):format(actorName), 'success')
+    else
+        MySQL.update.await("UPDATE community_service SET status='released',finished_at=?,updated_at=? WHERE id=?", { now(), now(), row.id })
+    end
+    notify(src, ('Community service #%d ended.'):format(row.id), 'success')
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+-- Units & dispatch
+MDT_ACTIONS.unitStatus = function(src, data)
+    local status = STATUS[clean(data.status, 16)]
+    if not status then return end
+    unitOf(src).status = status.id
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+MDT_ACTIONS.callsign = function(src, data)
+    local callsign = clean(data.callsign, 12):upper():gsub('[^%w%-]', '')
+    if callsign == '' then return notify(src, 'Callsigns use letters, numbers and dashes.', 'error') end
+    local s = sessions[src]
+    unitOf(src).callsign = callsign
+    if s and s.discord then
+        MySQL.prepare.await('INSERT INTO mdt_units(discord_id,callsign,updated_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE callsign=VALUES(callsign),updated_at=VALUES(updated_at)', { s.discord, callsign, now() })
+    end
+    notify(src, ('Callsign set to %s.'):format(callsign), 'success')
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+local function findCall(id)
+    local call = S.recentCalls[tonumber(id) or -1]
+    if call and not call.closedAt then return call end
+end
+
+MDT_ACTIONS.callAttach = function(src, data)
+    local call = findCall(data.id)
+    if not call then return notify(src, 'That call is no longer active.', 'error') end
+    TriggerClientEvent('fbrp:dispatch:waypoint', src, call.coords, call.id)
+    if not call.responders[src] then
+        call.responders[src] = true
+        unitOf(src).status = 'enroute'
+        if call.caller and sessions[call.caller] then notify(call.caller, ('%s is responding to your call #%d.'):format(S.displayName(src), call.id), 'success') end
+        for target in pairs(sessions) do
+            if target ~= src and (isPolice(target) or hasPermission(target, FBRP.Ace.ems)) then
+                notify(target, ('%s attached to call #%d.'):format(S.displayName(src), call.id), 'info')
+            end
+        end
+    end
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+MDT_ACTIONS.callDetach = function(src, data)
+    local call = findCall(data.id)
+    if call then call.responders[src] = nil end
+    unitOf(src).status = 'available'
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+MDT_ACTIONS.callWaypoint = function(src, data)
+    local call = findCall(data.id)
+    if call then TriggerClientEvent('fbrp:dispatch:waypoint', src, call.coords, call.id) notify(src, ('GPS set to call #%d.'):format(call.id), 'success') end
+end
+
+MDT_ACTIONS.callNote = function(src, data)
+    local call = findCall(data.id)
+    local text = clean(data.text, 240)
+    if not call or text == '' then return end
+    call.notes = call.notes or {}
+    table.insert(call.notes, 1, { by=S.displayName(src), callsign=unitOf(src).callsign, text=text, at=now() })
+    while #call.notes > 20 do table.remove(call.notes) end
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+MDT_ACTIONS.callClose = function(src, data, actorId, actorName)
+    local call = findCall(data.id)
+    if not call then return end
+    call.closedAt = now()
+    call.closedBy = actorName
+    for responder in pairs(call.responders) do
+        if units[responder] and units[responder].status ~= 'break' then units[responder].status = 'available' end
+    end
+    FBRP.DB.audit(actorId, 'dispatch.close', tostring(call.id), { kind=call.kind, notes=#(call.notes or {}) })
+    notify(src, ('Call #%d closed.'):format(call.id), 'success')
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+MDT_ACTIONS.selfDispatch = function(src, data, actorId)
+    local kind = clean(data.kind, 12)
+    local coords = pedCoords(src)
+    local street = clean(data.street, 80)
+    local unit = unitOf(src)
+    local who = unit.callsign and (unit.callsign .. ' ' .. S.displayName(src)) or S.displayName(src)
+    if kind == 'backup' then
+        S.sendDispatch('BACKUP', src, ('%s requesting backup%s.'):format(who, street ~= '' and (' at ' .. street) or ''), coords, { FBRP.Ace.police }, true)
+        notify(src, 'Backup requested.', 'success')
+    elseif kind == 'traffic' then
+        local detail = clean(data.detail, 120)
+        local id = S.sendDispatch('TRAFFIC', src, ('Traffic stop by %s%s%s.'):format(who, street ~= '' and (' on ' .. street) or '', detail ~= '' and (' · ' .. detail) or ''), coords, { FBRP.Ace.police }, true)
+        local call = S.recentCalls[id]
+        if call then call.responders[src] = true end
+        unit.status = 'onscene'
+        notify(src, 'Traffic stop logged.', 'success')
+    elseif kind == 'panic' then
+        S.sendDispatch('PANIC', src, ('Officer panic activation · %s'):format(who), coords, { FBRP.Ace.police }, false)
+        FBRP.DB.audit(actorId, 'dispatch.panic', nil, { x=coords and coords.x, y=coords and coords.y })
+    else
+        return
+    end
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
+-- Citizen intelligence
+MDT_ACTIONS.flag = function(src, data, actorId, actorName)
+    local id, flag = tonumber(data.id), clean(data.flag, 24)
+    if not id or not FLAG[flag] then return end
+    if data.on then
+        MySQL.prepare.await('INSERT IGNORE INTO mdt_citizen_flags(character_id,flag,added_by,added_at) VALUES(?,?,?,?)', { id, flag, actorName, now() })
+    else
+        MySQL.update.await('DELETE FROM mdt_citizen_flags WHERE character_id=? AND flag=?', { id, flag })
+    end
+    FBRP.DB.audit(actorId, 'justice.flag', tostring(id), { flag=flag, on=data.on == true })
+    sendMdt(src, 'profile', profile(id))
+end
+
+MDT_ACTIONS.note = function(src, data, actorId, actorName)
+    local id, body = tonumber(data.id), clean(data.body, 600)
+    if not id or body == '' then return end
+    MySQL.insert.await('INSERT INTO mdt_citizen_notes(character_id,body,author_id,author_name,created_at) VALUES(?,?,?,?,?)', { id, body, actorId, actorName, now() })
+    sendMdt(src, 'profile', profile(id))
+end
+
+MDT_ACTIONS.license = function(src, data, actorId, actorName)
+    local id, kind, status = tonumber(data.id), clean(data.license, 16), clean(data.status, 12)
+    if not id or not LICENSE[kind] then return end
+    if status == 'none' then
+        MySQL.update.await('DELETE FROM mdt_licenses WHERE character_id=? AND kind=?', { id, kind })
+    elseif status == 'valid' or status == 'suspended' or status == 'revoked' then
+        MySQL.prepare.await([[
+            INSERT INTO mdt_licenses(character_id,kind,status,points,updated_by,updated_at) VALUES(?,?,?,0,?,?)
+            ON DUPLICATE KEY UPDATE status=VALUES(status),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)
+        ]], { id, kind, status, actorName, now() })
+    else
+        return
+    end
+    FBRP.DB.audit(actorId, 'justice.license', tostring(id), { license=kind, status=status })
+    notify(src, ('%s set to %s.'):format(LICENSE[kind].label, status), 'success')
+    local target = onlineByCharacter(id)
+    if target and status ~= 'valid' and status ~= 'none' then notify(target, ('Your %s was %s by %s.'):format(LICENSE[kind].label:lower(), status, actorName), 'warning') end
+    sendMdt(src, 'profile', profile(id))
+end
+
+-- Vehicles
+MDT_ACTIONS.vehicleFlag = function(src, data, actorId)
+    local plate = normalizePlate(data.plate)
+    if plate == '' then return end
+    MySQL.update.await('UPDATE vehicle_registrations SET stolen=? WHERE plate=?', { data.stolen == true, plate })
+    FBRP.DB.audit(actorId, 'justice.vehicle_flag', plate, { stolen=data.stolen == true })
+    sendMdt(src, 'plate', plateReport(plate))
+end
+
+MDT_ACTIONS.clearImpound = function(src, data, actorId)
+    local plate = normalizePlate(data.plate)
+    if plate == '' then return end
+    MySQL.update.await('UPDATE vehicle_registrations SET impounded_at=NULL,impounded_by=NULL WHERE plate=?', { plate })
+    FBRP.DB.audit(actorId, 'justice.impound_release', plate, {})
+    notify(src, ('%s released from impound.'):format(plate), 'success')
+    sendMdt(src, 'plate', plateReport(plate))
+end
+
+-- Reports
+MDT_ACTIONS.reports = function(src, data)
+    sendMdt(src, 'reports', { query=clean(data.query, 60), rows=reportList(data.query) })
+end
+
+MDT_ACTIONS.reportView = function(src, data)
+    local report = reportView(data.id)
+    if report then sendMdt(src, 'report', report) else notify(src, 'Report not found.', 'error') end
+end
+
+MDT_ACTIONS.report = function(src, data, actorId, actorName)
+    local title = clean(data.title, 120)
+    local narrative = tostring(data.narrative or ''):gsub('[%z\1-\9\11-\31]', ' '):sub(1, 6000)
+    local kind = clean(data.kind, 24)
+    if title == '' or #narrative < 20 then return notify(src, 'Reports need a title and at least 20 characters of narrative.', 'error') end
+    local validKind = false
+    for _, k in ipairs(MDT.reportKinds) do if k == kind then validKind = true end end
+    if not validKind then kind = 'Incident' end
+    local citizens = {}
+    for _, entry in ipairs(type(data.citizens) == 'table' and data.citizens or {}) do
+        local row = characterRow(type(entry) == 'table' and entry.id or entry)
+        if row then
+            local role = type(entry) == 'table' and clean(entry.role, 16) or 'involved'
+            citizens[#citizens + 1] = { id=tonumber(row.id), name=fullName(row), role=role ~= '' and role or 'involved' }
+        end
+        if #citizens >= 12 then break end
+    end
+    local officers = { actorName }
+    for _, name in ipairs(type(data.officers) == 'table' and data.officers or {}) do
+        local value = clean(name, 60)
+        if value ~= '' and value ~= actorName then officers[#officers + 1] = value end
+        if #officers >= 8 then break end
+    end
+    local stamp = now()
+    local location = clean(data.location ~= nil and data.location ~= '' and data.location or data.street, 120)
+    local id = MySQL.insert.await('INSERT INTO mdt_reports(kind,title,location,narrative,citizens,officers,author_id,author_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)', {
+        kind, title, location ~= '' and location or nil, narrative, json.encode(citizens), json.encode(officers), actorId, actorName, stamp, stamp
+    })
+    for _, citizen in ipairs(citizens) do
+        MySQL.prepare.await('INSERT IGNORE INTO mdt_report_citizens(report_id,character_id,role) VALUES(?,?,?)', { id, citizen.id, citizen.role })
+    end
+    FBRP.DB.audit(actorId, 'justice.report', tostring(id), { kind=kind, title=title, citizens=#citizens })
+    notify(src, ('Report #%d filed.'):format(id), 'success')
+    sendMdt(src, 'report', reportView(id))
+end
+
+MDT_ACTIONS.citizenPick = function(src, data)
+    sendMdt(src, 'citizenPick', { rows=search(data.query) })
+end
+
 RegisterNetEvent('fbrp:mdt:action', function(kind, data)
     local src = source
     if not canMdt(src) then return end
     local stamp = GetGameTimer()
-    if lastMdt[src] and stamp - lastMdt[src] < 250 then return end
+    if lastMdt[src] and stamp - lastMdt[src] < 200 then return end
     lastMdt[src] = stamp
     if type(data) ~= 'table' then data = {} end
-    kind = clean(kind, 24)
+    local handler = MDT_ACTIONS[clean(kind, 24)]
+    if not handler then return end
     local actorId, actorName = officer(src)
-
-    if kind == 'dashboard' then
-        sendMdt(src, 'dashboard', dashboard())
-    elseif kind == 'search' then
-        sendMdt(src, 'results', { query=clean(data.query, 60), rows=search(data.query) })
-    elseif kind == 'profile' then
-        local p = profile(data.id)
-        if p then sendMdt(src, 'profile', p) else notify(src, 'Citizen not found.', 'error') end
-    elseif kind == 'plate' then
-        local report = plateReport(data.plate)
-        if report then sendMdt(src, 'plate', report) end
-    elseif kind == 'warrant' then
-        local row = characterRow(data.id)
-        local reason = clean(data.reason, 500)
-        if not row or reason == '' then return notify(src, 'A warrant needs a citizen and a reason.', 'error') end
-        local id = MySQL.insert.await('INSERT INTO warrants(character_id,subject_name,reason,status,created_by_id,created_by,created_at) VALUES(?,?,?,?,?,?,?)', {
-            tonumber(row.id), fullName(row), reason, 'active', actorId, actorName, now()
-        })
-        FBRP.DB.audit(actorId, 'justice.warrant', tostring(row.id), { warrant=id, name=fullName(row), reason=reason })
-        for target in pairs(sessions) do
-            if target ~= src and isPolice(target) then notify(target, ('Warrant #%d issued for %s.'):format(id, fullName(row)), 'warning') end
-        end
-        notify(src, ('Warrant #%d issued.'):format(id), 'success')
-        sendMdt(src, 'profile', profile(row.id))
-    elseif kind == 'closeWarrant' then
-        local status = data.status == 'served' and 'served' or 'cleared'
-        local row = MySQL.single.await('SELECT id,character_id FROM warrants WHERE id=? AND status=\'active\'', { tonumber(data.id) })
-        if not row then return end
-        MySQL.update.await('UPDATE warrants SET status=?,closed_by=?,closed_at=? WHERE id=?', { status, actorName, now(), row.id })
-        FBRP.DB.audit(actorId, 'justice.warrant_' .. status, tostring(row.character_id or ''), { warrant=row.id })
-        notify(src, ('Warrant #%d marked %s.'):format(row.id, status), 'success')
-        if data.refresh == 'profile' and row.character_id then sendMdt(src, 'profile', profile(row.character_id)) else sendMdt(src, 'dashboard', dashboard()) end
-    elseif kind == 'bolo' then
-        local description = clean(data.description, 500)
-        local boloKind = data.kind == 'vehicle' and 'vehicle' or 'person'
-        local plate = boloKind == 'vehicle' and normalizePlate(data.plate) or ''
-        if description == '' then return notify(src, 'Describe who or what to look out for.', 'error') end
-        local id = MySQL.insert.await('INSERT INTO bolos(kind,plate,description,active,created_by_id,created_by,created_at) VALUES(?,?,?,TRUE,?,?,?)', {
-            boloKind, plate ~= '' and plate or nil, description, actorId, actorName, now()
-        })
-        local coords = pedCoords(src)
-        S.sendDispatch('BOLO', src, ('BOLO #%d%s: %s'):format(id, plate ~= '' and (' · ' .. plate) or '', description), coords, { FBRP.Ace.police }, false)
-        FBRP.DB.audit(actorId, 'justice.bolo', plate ~= '' and plate or nil, { bolo=id, kind=boloKind, description=description })
-        sendMdt(src, 'dashboard', dashboard())
-    elseif kind == 'closeBolo' then
-        MySQL.update.await('UPDATE bolos SET active=FALSE,closed_at=? WHERE id=?', { now(), tonumber(data.id) })
-        notify(src, 'BOLO cancelled.', 'success')
-        sendMdt(src, 'dashboard', dashboard())
-    elseif kind == 'cite' then
-        local ok, message = issueCitation(src, data.id, data.charges, clean(data.notes, 300))
-        notify(src, message, ok and 'success' or 'error')
-        if ok then sendMdt(src, 'profile', profile(data.id)) end
-    elseif kind == 'sentence' then
-        local ok, message = sentenceFromMdt(src, data.id, data.charges, data.months, clean(data.notes, 300))
-        notify(src, message, ok and 'success' or 'error')
-        if ok then sendMdt(src, 'profile', profile(data.id)) end
-    elseif kind == 'release' then
-        if not canJail(src) then return notify(src, 'You do not have permission to release inmates.', 'error') end
-        local row = MySQL.single.await("SELECT id,character_id,status FROM jail_sentences WHERE id=? AND status IN ('serving','escaped')", { tonumber(data.id) })
-        if not row then return end
-        local online = onlineByCharacter(row.character_id)
-        if online and jailed[online] and jailed[online].id == tonumber(row.id) then
-            releaseInmate(online, 'released', actorId)
-            notify(online, ('You were released early by %s.'):format(actorName), 'success')
-        else
-            MySQL.update.await("UPDATE jail_sentences SET status='released',seconds_remaining=0,release_reason='released',released_at=?,updated_at=? WHERE id=?", { now(), now(), row.id })
-            FBRP.DB.audit(actorId, 'justice.release', tostring(row.character_id or ''), { sentence=row.id, reason='released' })
-        end
-        notify(src, ('Sentence #%d closed.'):format(row.id), 'success')
-        sendMdt(src, 'dashboard', dashboard())
-    end
+    handler(src, data, actorId, actorName)
 end)
 
 -- ─────────────────────────── vehicles ───────────────────────────
@@ -821,7 +1585,8 @@ RegisterCommand('bodycam', function(source)
     if source <= 0 then return end
     if not isPolice(source) and not hasPermission(source, FBRP.Ace.ems) then return S.deny(source, FBRP.Ace.police) end
     local s = sessions[source]
-    TriggerClientEvent('fbrp:bodycam:toggle', source, { unit=S.displayName(source), dept=s and s.org and s.org.name or (isPolice(source) and 'Florida Bay Police' or 'Florida Bay Fire Rescue') })
+    local unit = units[source]
+    TriggerClientEvent('fbrp:bodycam:toggle', source, { unit=(unit and unit.callsign and (unit.callsign .. ' · ') or '') .. S.displayName(source), dept=s and s.org and s.org.name or (isPolice(source) and 'Florida Bay Police' or 'Florida Bay Fire Rescue') })
 end, false)
 
 -- ─────────────────────────── third eye ───────────────────────────
@@ -838,10 +1603,13 @@ FBRP.InteractionHandlers.checkid = function(src, target)
     if isPolice(src) and card.id then
         card.warrants = activeWarrantCount(card.id)
         card.inPrison = jailed[target] ~= nil
+        local driver = MySQL.single.await("SELECT status FROM mdt_licenses WHERE character_id=? AND kind='driver'", { card.id })
+        card.license = driver and driver.status or nil
     end
     TriggerClientEvent('fbrp:idcard:show', src, card)
     local text = ('%s · %s · DOB %s · %s'):format(card.name, card.citizen, card.dob, card.gender)
     if card.warrants and card.warrants > 0 then text = text .. (' · %d ACTIVE WARRANT(S)'):format(card.warrants) end
+    if card.license == 'suspended' or card.license == 'revoked' then text = text .. (' · LICENSE %s'):format(card.license:upper()) end
     chat(src, 'IDENTIFICATION', text, (card.warrants or 0) > 0 and RED or AQUA)
 end
 
@@ -867,7 +1635,7 @@ FBRP.InteractionHandlers.cite = function(src, target)
 end
 
 FBRP.InteractionVisible.jail = function(src, target)
-    if jailed[target] or characterOf(target) == nil then return false end
+    if jailed[target] or serving[target] or characterOf(target) == nil then return false end
     return hasPermission(src, FBRP.Ace.staffJail) or Player(target).state['fbrp:restrained'] ~= nil
 end
 FBRP.InteractionHandlers.jail = function(src, target)
@@ -876,8 +1644,17 @@ FBRP.InteractionHandlers.jail = function(src, target)
     openMdt(src, { characterId=characterId, form='sentence' })
 end
 
+FBRP.InteractionVisible.commserv = FBRP.InteractionVisible.jail
+FBRP.InteractionHandlers.commserv = function(src, target)
+    local characterId = characterOf(target)
+    if not characterId then notify(src, 'This person has not picked a character yet.', 'error') return false end
+    openMdt(src, { characterId=characterId, form='service' })
+end
+
 FBRP.Justice.IsJailed = function(source) return jailed[tonumber(source)] ~= nil end
+FBRP.Justice.IsServing = function(source) return serving[tonumber(source)] ~= nil end
 FBRP.Justice.PrisonSpawn = function() return J.prison.spawns[math.random(#J.prison.spawns)] end
+FBRP.Justice.StartSentence = startSentence
 
 -- Resource restart: players re-pick their character, which triggers
 -- fbrp:justice:spawned again, so nothing needs resuming here.

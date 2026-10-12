@@ -1337,7 +1337,59 @@ const verification = new SlashCommandBuilder()
       .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true)),
   );
 
+const orgbank = new SlashCommandBuilder()
+  .setName("orgbank")
+  .setDescription("Organization wallets: balances, ledger and management")
+  .addSubcommand((s) =>
+    s
+      .setName("balance")
+      .setDescription("Show an organization's wallet")
+      .addStringOption((o) => o.setName("organization").setDescription("Organization slug (defaults to yours)").setMaxLength(40)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("ledger")
+      .setDescription("Recent wallet transactions")
+      .addStringOption((o) => o.setName("organization").setDescription("Organization slug (defaults to yours)").setMaxLength(40)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("adjust")
+      .setDescription("Add or remove money from a wallet")
+      .addStringOption((o) => o.setName("organization").setDescription("Organization slug").setRequired(true).setMaxLength(40))
+      .addIntegerOption((o) => o.setName("amount").setDescription("Positive to add, negative to remove").setRequired(true).setMinValue(-100000000).setMaxValue(100000000))
+      .addStringOption((o) => o.setName("reason").setDescription("Reason recorded in the ledger").setRequired(true).setMaxLength(160)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("leader")
+      .setDescription("Grant or remove spending (leader) access")
+      .addStringOption((o) => o.setName("organization").setDescription("Organization slug").setRequired(true).setMaxLength(40))
+      .addUserOption((o) => o.setName("member").setDescription("Discord member").setRequired(true))
+      .addBooleanOption((o) => o.setName("leader").setDescription("true to grant, false to remove").setRequired(true)),
+  );
+
+const examChoice = (o) =>
+  o.setName("exam").setDescription("Which exam").setRequired(true)
+    .addChoices({ name: "Head Administrator exam", value: "head_admin" }, { name: "Management exam", value: "management" });
+const exam = new SlashCommandBuilder()
+  .setName("exam")
+  .setDescription("Give out staff promotion exams (Head of Management and above)")
+  .addSubcommand((s) =>
+    s.setName("give").setDescription("Open an exam for a member for 60 minutes")
+      .addUserOption((o) => o.setName("member").setDescription("Staff member sitting the exam").setRequired(true))
+      .addStringOption(examChoice),
+  )
+  .addSubcommand((s) =>
+    s.setName("revoke").setDescription("Close a member's exam access early")
+      .addUserOption((o) => o.setName("member").setDescription("Staff member").setRequired(true))
+      .addStringOption(examChoice),
+  )
+  .addSubcommand((s) => s.setName("active").setDescription("List exam access that is open right now"));
+
 export const commands = [
+  exam,
+  orgbank,
   welcome,
   github,
   verification,

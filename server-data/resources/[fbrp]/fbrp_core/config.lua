@@ -302,6 +302,7 @@ FBRP.Interactions = {
     { id = 'gsr', label = 'Gunshot residue test', ace = FBRP.Ace.policeSearch },
     { id = 'cite', label = 'Write citation', ace = FBRP.Ace.policeCite },
     { id = 'jail', label = 'Book into prison', aceAny = { FBRP.Ace.policeJail, FBRP.Ace.staffJail } },
+    { id = 'commserv', label = 'Assign community service', aceAny = { FBRP.Ace.policeJail, FBRP.Ace.staffJail } },
     { id = 'revive', label = 'Revive patient', aceAny = { FBRP.Ace.emsRevive, FBRP.Ace.staffRevive } },
     { id = 'heal', label = 'Treat wounds', ace = FBRP.Ace.ems },
     { id = 'diagnose', label = 'Check injuries', aceAny = { FBRP.Ace.ems, FBRP.Ace.police } },

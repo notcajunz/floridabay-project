@@ -70,6 +70,15 @@ const ICONS = {
   music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  radio: '<path d="M5 13a7 7 0 0 1 14 0M8 13a4 4 0 0 1 8 0"/><circle cx="12" cy="16" r="2"/><path d="M12 18v3"/>',
+  leaf: '<path d="M5 21c0-9 6-15 16-16-1 10-7 16-16 16Z"/><path d="M5 21 14 12"/>',
+  flame: '<path d="M12 3c1 4 6 6 6 11a6 6 0 0 1-12 0c0-3 2-5 3-6 0 2 1 3 2 3-1-3 0-6 1-8z"/>',
+  shirt: '<path d="M8 3 4 6l2 4 2-1v12h8V9l2 1 2-4-4-3c0 2-2 3-4 3s-4-1-4-3Z"/>',
+  building: '<path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 9h4a1 1 0 0 1 1 1v11M3 21h18M8 8h3M8 12h3M8 16h3"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  wallet: '<path d="M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-4a2 2 0 0 0 0 4h4v2a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V6"/>',
 };
 const icon = (name) =>
   `<svg class="i" viewBox="0 0 24 24">${ICONS[name] || ICONS.info}</svg>`;
@@ -287,6 +296,9 @@ const DISPATCH_KIND = {
   EMS: ["Medical emergency", "heart-pulse", "panic"],
   PRISON: ["Prison break", "siren", "panic"],
   BOLO: ["Be on the lookout", "search", "calm"],
+  BACKUP: ["Officer needs backup", "siren", "panic"],
+  TRAFFIC: ["Traffic stop", "car", "calm"],
+  DRUGS: ["Narcotics tip", "leaf", ""],
 };
 function dispatch(data) {
   const [title, glyph, tone] = DISPATCH_KIND[data.kind] || DISPATCH_KIND["911"];
@@ -373,6 +385,7 @@ const ACTION_META = {
   gsr: ["Investigate", "search"],
   cite: ["Justice", "check"],
   jail: ["Justice", "gavel", "red"],
+  commserv: ["Justice", "trash"],
   revive: ["Medical", "heart-pulse", "red"],
   heal: ["Medical", "heart-pulse"],
   diagnose: ["Medical", "info"],
@@ -629,6 +642,8 @@ function renderMenu() {
     emotes: "Emotes",
     passport: "Coastal Passport",
     scenes: "Scene Hub",
+    prisonjobs: "Prison work",
+    orghub: "Organization",
   };
   setText("#menu-title", titles[currentView] || "Menu");
   const renderers = {
@@ -643,7 +658,12 @@ function renderMenu() {
     emotes: renderEmotes,
     passport: renderPassport,
     scenes: renderScenes,
+    prisonjobs: renderPrisonJobs,
+    orghub: renderOrgHub,
   };
+  const shell = $(".menu-shell");
+  shell.classList.toggle("wide", ["mdt", "orghub"].includes(currentView));
+  shell.classList.toggle("cad-mode", currentView === "mdt");
   const content = $("#menu-content");
   const scroll = content.scrollTop;
   content.innerHTML = renderers[currentView] ? renderers[currentView](currentPayload) : "";
@@ -706,6 +726,15 @@ function updateJail(d) {
   setText("#jail-months", d.months ?? 0);
   setText("#jail-charges", d.charges ? `Charges: ${d.charges}` : "");
   setText("#jail-task", d.task || "");
+  const behaviour = clamp(Number(d.behaviour ?? 60), 0, 100);
+  setText("#jail-behaviour", behaviour);
+  $("#jail-behaviour-bar").style.width = `${behaviour}%`;
+  $("#jail-behaviour-bar").className = behaviour >= 75 ? "good" : behaviour >= 45 ? "fair" : "poor";
+  setText("#jail-tier", d.tier || "Fair");
+  $("#jail-tier").className = `tier-pill t-${String(d.tier || "fair").toLowerCase()}`;
+  setText("#jail-reduced", fmtClock(d.reduced || 0));
+  setText("#jail-jobs", Number(d.jobsDone) || 0);
+  $("#jail-goodtime").classList.toggle("hidden", !d.goodTime);
   tickJail();
 }
 setInterval(tickJail, 1000);
@@ -770,7 +799,8 @@ function idCard(d) {
   const initials = String(d.name || "?").split(/\s+/).map((p) => p[0] || "").join("").slice(0, 2).toUpperCase();
   const flag = d.warrants > 0
     ? `<div class="idcard-flag">${icon("alert")} ${Number(d.warrants)} active warrant${d.warrants > 1 ? "s" : ""}</div>`
-    : d.inPrison ? `<div class="idcard-flag">${icon("gavel")} Serving a sentence</div>` : "";
+    : d.inPrison ? `<div class="idcard-flag">${icon("gavel")} Serving a sentence</div>`
+    : d.license === "suspended" || d.license === "revoked" ? `<div class="idcard-flag">${icon("car")} Driver license ${esc(d.license)}</div>` : "";
   showCard(`<header class="idcard-head"><img src="fbrp-logo.png" alt=""><div><small>State of San Andreas</small><b>Florida Bay ID</b></div></header>
     <div class="idcard-body"><div class="idcard-photo">${esc(initials)}</div>
       <dl><dt>Name</dt><dd>${esc(d.name)}</dd><dt>DOB</dt><dd>${esc(d.dob)}</dd><dt>Sex</dt><dd>${esc(d.gender)}</dd><dt>No.</dt><dd>${esc(d.citizen)}</dd></dl>
@@ -882,84 +912,188 @@ function renderEmotes(data) {
     <div id="emote-grid" class="emote-grid">${emoteGrid(data)}</div></div></div>`;
 }
 
-/* ───────── MDT ───────── */
+/* ───────── CAD / MDT ───────── */
 const MDT_TABS = [
-  ["dashboard", "Dashboard", "grid"],
-  ["search", "Citizens", "search"],
-  ["plates", "Plates", "car"],
+  ["dashboard", "Overview", "grid"],
+  ["dispatch", "Dispatch", "radio"],
+  ["search", "Citizens", "users"],
+  ["plates", "Vehicles", "car"],
   ["warrants", "Warrants", "gavel"],
   ["bolos", "BOLOs", "alert"],
+  ["reports", "Reports", "file"],
+  ["corrections", "Corrections", "lock"],
   ["penal", "Penal code", "book"],
 ];
 const KIND_TONE = { infraction: "dim", misdemeanor: "warn", felony: "bad", custom: "dim" };
+const CALL_TONE = { "911": "panic", PANIC: "panic", EMS: "ems", PRISON: "panic", BACKUP: "panic", DRUGS: "bolo", TRAFFIC: "unit", "311": "unit", BOLO: "bolo" };
 const mdtSend = (kind, body = {}) => post("mdtAction", { kind, ...body });
+const initials2 = (name) => esc(String(name || "?").split(/\s+/).map((p) => p[0] || "").join("").slice(0, 2).toUpperCase());
+
+// San Andreas silhouette in world coordinates, projected onto the CAD map.
+const SA_OUTLINE = [[1250, -3400], [300, -3520], [-900, -3600], [-1900, -3350], [-2350, -2500], [-1950, -1350], [-2150, -700], [-2750, 50], [-3300, 1000], [-3250, 2100], [-2950, 3200], [-2500, 4100], [-1600, 5100], [-850, 6050], [-300, 6750], [500, 7150], [1550, 6750], [2600, 6350], [3400, 5550], [3750, 4500], [3650, 3500], [3250, 2450], [2950, 1500], [2650, 450], [2450, -550], [1900, -1800], [1550, -2650]];
+const SA_LABELS = [["Los Santos", -150, -1000], ["Sandy Shores", 1850, 3650], ["Paleto Bay", -250, 6350], ["Grapeseed", 1900, 4900], ["Fort Zancudo", -2250, 3100], ["Mt Chiliad", 500, 5550], ["Alamo Sea", 1100, 4150], ["Bolingbroke", 1690, 2400], ["Vinewood Hills", 300, 900]];
+const MAP_BOUNDS = { minX: -3800, maxX: 4400, minY: -4000, maxY: 8000 };
+const project = (x, y) => [((Number(x) - MAP_BOUNDS.minX) / (MAP_BOUNDS.maxX - MAP_BOUNDS.minX)) * 100, (1 - (Number(y) - MAP_BOUNDS.minY) / (MAP_BOUNDS.maxY - MAP_BOUNDS.minY)) * 100];
+
+function cadMap(d, big) {
+  const path = SA_OUTLINE.map(([x, y], i) => { const [px, py] = project(x, y); return `${i ? "L" : "M"}${(px * 8.2).toFixed(1)} ${(py * 12).toFixed(1)}`; }).join(" ") + "Z";
+  const [ax, ay] = project(1300, 4050);
+  const units = (d.units || []).filter((u) => Number.isFinite(Number(u.x)) && u.x !== null).map((u) => {
+    const [x, y] = project(u.x, u.y);
+    const me = Number(u.id) === Number(d.me?.id);
+    return `<i class="map-unit ${u.kind}${u.downed ? " down" : ""}${me ? " me" : ""} st-${esc(u.status)}" style="left:${clamp(x, 1, 99)}%;top:${clamp(y, 1, 99)}%"><span>${esc(u.callsign || u.name)}</span></i>`;
+  }).join("");
+  const calls = (d.calls || []).filter((c) => Number.isFinite(Number(c.x)) && c.x !== null).map((c) => {
+    const [x, y] = project(c.x, c.y);
+    return `<i class="map-call k-${esc(String(c.kind).toLowerCase())}" style="left:${clamp(x, 1, 99)}%;top:${clamp(y, 1, 99)}%" data-mdt-call-gps="${Number(c.id)}" title="#${Number(c.id)} ${esc(c.message)}"><span>#${Number(c.id)}</span></i>`;
+  }).join("");
+  const labels = SA_LABELS.map(([label, x, y]) => { const [px, py] = project(x, y); return `<em style="left:${px}%;top:${py}%">${label}</em>`; }).join("");
+  return `<div class="cad-map${big ? " big" : ""}">
+    <svg viewBox="0 0 820 1200" preserveAspectRatio="none" aria-hidden="true"><defs><pattern id="cadgrid" width="41" height="60" patternUnits="userSpaceOnUse"><path d="M41 0H0V60" fill="none" stroke="rgba(124,243,230,.07)" stroke-width="1"/></pattern></defs>
+      <rect width="820" height="1200" fill="url(#cadgrid)"/><path class="land" d="${path}"/><ellipse class="lake" cx="${(ax * 8.2).toFixed(1)}" cy="${(ay * 12).toFixed(1)}" rx="62" ry="30"/></svg>
+    ${labels}${calls}${units}
+    <div class="map-legend"><span><i class="map-unit police"></i>LEO</span><span><i class="map-unit ems"></i>EMS</span><span><i class="map-call"></i>Call</span></div>
+    <div class="map-scan"></div>
+  </div>`;
+}
 
 function mdtInit(payload) {
+  const form = payload.profile ? payload.form || null : null;
   ui.mdt = {
     tab: payload.profile ? "profile" : "dashboard",
     dashboard: payload.dashboard || {},
     profile: payload.profile || null,
-    form: payload.profile ? payload.form || null : null,
+    form,
     charges: new Set(),
     months: null,
+    minutes: null,
     notes: "",
     results: null,
     query: "",
     plate: null,
+    reports: null,
+    reportQuery: "",
+    report: null,
+    reportDraft: null,
+    picks: [],
+    openCall: null,
+    callsignEdit: false,
   };
+  clearInterval(ui.mdtClock);
+  ui.mdtClock = setInterval(() => setText("#cad-clock", new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })), 1000);
+  clearInterval(ui.mdtPoll);
+  ui.mdtPoll = setInterval(() => { if (currentView === "mdt" && ["dashboard", "dispatch"].includes(ui.mdt?.tab)) mdtSend("dashboard"); }, 8000);
 }
 
-function mdtStat(label, value, tone) {
-  return `<div class="mdt-stat${tone ? ` tone-${tone}` : ""}"><b>${value}</b><small>${label}</small></div>`;
+const statusMeta = (id) => (currentPayload.statuses || []).find((s) => s.id === id) || { id, label: id || "Unknown", short: id || "?", tone: "dim" };
+const flagMeta = (id) => (currentPayload.flags || []).find((f) => f.id === id) || { id, label: id, tone: "warn" };
+
+function mdtStat(label, value, tone, ic) {
+  return `<div class="cad-stat${tone ? ` tone-${tone}` : ""}"><span class="cad-stat-ic">${icon(ic || "info")}</span><b>${value}</b><small>${label}</small></div>`;
+}
+
+function mdtRecordRow(r, withName) {
+  const tone = r.kind === "arrest" ? "panic" : r.kind === "citation" ? "bolo" : r.kind === "service" ? "ems" : "unit";
+  const detail = [chargeList(r.charges) || "No charges listed", r.months ? `${r.months} months` : "", r.fine ? `$${r.fine}` : ""].filter(Boolean).join(" · ");
+  return `<div class="mdt-row"><span class="mdt-kind k-${tone}">${esc(r.kind)}</span><div><b>${withName ? (r.character_id ? `<a data-mdt-profile="${Number(r.character_id)}">${esc(r.name)}</a>` : esc(r.name)) : esc(detail)}</b><small>${withName ? esc(detail) : ""}${r.notes ? `${withName ? " · " : ""}${esc(r.notes)}` : ""}</small></div><em>${esc(r.officer_name)} · ${when(r.created_at)}</em></div>`;
+}
+
+function callCard(c, compact) {
+  const m = ui.mdt;
+  const me = Number(m.dashboard.me?.id);
+  const attached = (c.responders || []).some((r) => Number(r.id) === me);
+  const open = Number(m.openCall) === Number(c.id);
+  const tone = CALL_TONE[c.kind] || "unit";
+  return `<article class="call-card t-${tone}${attached ? " attached" : ""}">
+    <header><span class="mdt-kind k-${tone}">${esc(c.kind)}</span><b>#${Number(c.id)}</b><span class="call-age">${ago(c.at)}</span></header>
+    <p>${esc(c.message)}</p>
+    <div class="call-meta"><span>${icon("user")}${esc(c.caller || "Dispatch")}</span>${(c.responders || []).length ? `<span>${icon("users")}${c.responders.map((r) => esc(r.callsign || r.name)).join(", ")}</span>` : `<span class="tone-warn">${icon("alert")}Unassigned</span>`}</div>
+    ${compact ? "" : `<div class="call-actions">
+      ${attached ? `<button class="ctl-btn small" data-mdt-call="callDetach" data-id="${Number(c.id)}">Detach</button>` : `<button class="ctl-btn small on" data-mdt-call="callAttach" data-id="${Number(c.id)}">${icon("check")} Attach</button>`}
+      <button class="ctl-btn small" data-mdt-call="callWaypoint" data-id="${Number(c.id)}">${icon("pin")} GPS</button>
+      <button class="ctl-btn small" data-mdt-call-notes="${Number(c.id)}">${icon("file")} Notes${(c.notes || []).length ? ` · ${c.notes.length}` : ""}</button>
+      <button class="ctl-btn small danger" data-mdt-call="callClose" data-id="${Number(c.id)}">Close</button>
+    </div>
+    ${open ? `<div class="call-notes">${(c.notes || []).map((n) => `<div><b>${esc(n.callsign || n.by)}</b><span>${esc(n.text)}</span><em>${ago(n.at)}</em></div>`).join("") || '<small class="tone-dim">No notes yet.</small>'}
+      <form class="call-note-form" data-call="${Number(c.id)}"><input class="mdt-input" name="text" maxlength="240" placeholder="Add a call note…" autocomplete="off"><button class="primary-action" type="submit">Add</button></form></div>` : ""}`}
+  </article>`;
+}
+
+function unitRow(u) {
+  const s = statusMeta(u.status);
+  return `<div class="unit-row${Number(u.id) === Number(ui.mdt.dashboard.me?.id) ? " me" : ""}"><span class="unit-sign ${u.kind}">${esc(u.callsign || (u.kind === "police" ? "LEO" : "EMS"))}</span><div><b>${esc(u.name)} <em>[${Number(u.id)}]</em></b><small>${esc(u.org || "On duty")}</small></div>${u.downed ? '<span class="status-pill tone-bad">DOWN</span>' : `<span class="status-pill tone-${esc(s.tone)}">${esc(s.short)}</span>`}</div>`;
 }
 
 function mdtDashboard(m) {
   const d = m.dashboard || {};
-  const warrants = d.warrants || [], bolos = d.bolos || [], inmates = d.inmates || [], units = d.units || [], calls = d.calls || [], records = d.records || [];
-  const serving = inmates.filter((i) => i.status === "serving").length;
-  const escaped = inmates.filter((i) => i.status === "escaped").length;
-  return `${head("Dispatch overview", `Signed in as ${esc(currentPayload.officer || "Officer")}`, `<b>${units.length}</b> units on duty`)}
-    <div class="mdt-stats">${mdtStat("Active warrants", warrants.length, warrants.length ? "bad" : "")}${mdtStat("Active BOLOs", bolos.length, bolos.length ? "warn" : "")}${mdtStat("Inmates", serving, "")}${mdtStat("Escaped", escaped, escaped ? "bad" : "")}</div>
-    <div class="mdt-columns">
-      <section class="mdt-panel"><div class="eyebrow">Recent calls</div>${calls.length ? calls.map((c) => `<div class="mdt-row"><span class="mdt-kind k-${esc(String(c.kind).toLowerCase())}">${esc(c.kind)}</span><div><b>#${Number(c.id)} · ${esc(c.caller)}</b><small>${esc(c.message)}</small></div><em>${ago(c.at)}${c.responders ? ` · ${c.responders} resp.` : ""}</em></div>`).join("") : '<div class="empty compact">No calls in the last 30 minutes.</div>'}</section>
-      <section class="mdt-panel"><div class="eyebrow">Units</div>${units.length ? units.map((u) => `<div class="mdt-row"><span class="mdt-kind k-${u.kind === "police" ? "unit" : "ems"}">${u.kind === "police" ? "LEO" : "EMS"}</span><div><b>${esc(u.name)} <em>[${Number(u.id)}]</em></b><small>${esc(u.org || "On duty")}</small></div>${u.downed ? '<em class="tone-bad">DOWN</em>' : ""}</div>`).join("") : '<div class="empty compact">Nobody on duty.</div>'}</section>
+  const warrants = d.warrants || [], bolos = d.bolos || [], inmates = d.inmates || [], units = d.units || [], calls = d.calls || [], records = d.records || [], services = d.services || [], seizures = d.seizures || [];
+  const st = d.stats || { mine: {} };
+  const unassigned = calls.filter((c) => !(c.responders || []).length).length;
+  return `<div class="cad-grid-stats">
+      ${mdtStat("Units on duty", units.length, "", "users")}
+      ${mdtStat("Active calls", calls.length, calls.length ? "warn" : "", "radio")}
+      ${mdtStat("Unassigned", unassigned, unassigned ? "bad" : "", "alert")}
+      ${mdtStat("Active warrants", warrants.length, warrants.length ? "bad" : "", "gavel")}
+      ${mdtStat("Active BOLOs", bolos.length, bolos.length ? "warn" : "", "search")}
+      ${mdtStat("In custody", inmates.filter((i) => i.status === "serving").length + services.length, "", "lock")}
     </div>
-    <section class="mdt-panel"><div class="eyebrow">Inmates & fugitives</div>${inmates.length ? inmates.map((i) => `<div class="mdt-row"><span class="mdt-kind ${i.status === "escaped" ? "k-panic" : "k-unit"}">${i.status === "escaped" ? "ESCAPED" : "IN"}</span><div><b>${i.character_id ? `<a data-mdt-profile="${Number(i.character_id)}">${esc(i.name)}</a>` : esc(i.name)}</b><small>${Number(i.months)} months · ${fmtClock(i.seconds_remaining)} left · by ${esc(i.officer_name)}${i.online ? " · in yard" : ""}</small></div>${currentPayload.canJail ? `<button class="ctl-btn small" data-mdt-release="${Number(i.id)}">Release</button>` : ""}</div>`).join("") : '<div class="empty compact">Bolingbroke is empty.</div>'}</section>
-    <section class="mdt-panel"><div class="eyebrow">Latest records</div>${records.length ? records.map((r) => mdtRecordRow(r, true)).join("") : '<div class="empty compact">No records yet.</div>'}</section>`;
+    <div class="cad-two">
+      <section class="mdt-panel"><div class="eyebrow">Live map</div>${cadMap(d, false)}</section>
+      <div class="cad-stack">
+        <section class="mdt-panel shift"><div class="eyebrow">Your shift today</div>
+          <div class="shift-grid"><div><b>${Number(st.mine?.arrests) || 0}</b><small>Arrests</small></div><div><b>${Number(st.mine?.citations) || 0}</b><small>Citations</small></div><div><b>${Number(st.mine?.reports) || 0}</b><small>Reports</small></div></div>
+          <small class="tone-dim">Department today: ${Number(st.arrests) || 0} arrests · ${Number(st.citations) || 0} citations · ${Number(st.services) || 0} community service · ${Number(st.reports) || 0} reports</small>
+        </section>
+        <section class="mdt-panel"><div class="eyebrow">Active calls <a data-mdt-tab="dispatch">Open dispatch →</a></div>${calls.length ? calls.slice(0, 4).map((c) => callCard(c, true)).join("") : '<div class="empty compact">No active calls.</div>'}</section>
+      </div>
+    </div>
+    <div class="mdt-columns">
+      <section class="mdt-panel"><div class="eyebrow">Latest records</div>${records.length ? records.slice(0, 8).map((r) => mdtRecordRow(r, true)).join("") : '<div class="empty compact">No records yet.</div>'}</section>
+      <section class="mdt-panel"><div class="eyebrow">Narcotics seizures</div>${seizures.length ? seizures.map((s) => `<div class="mdt-row"><span class="mdt-kind k-bolo">${esc(s.drug)}</span><div><b>${Number(s.units)} units · ${esc(s.name)}</b><small>${esc(s.status === "seized" ? `Seized by ${s.seized_by || "police"}` : `Confiscated at booking by ${s.seized_by || "police"}`)}${s.location ? ` · ${esc(s.location)}` : ""}</small></div><em>${ago(s.created_at)}</em></div>`).join("") : '<div class="empty compact">No seizures logged.</div>'}</section>
+    </div>`;
 }
 
-function mdtRecordRow(r, withName) {
-  const tone = r.kind === "arrest" ? "panic" : r.kind === "citation" ? "bolo" : "unit";
-  const detail = [chargeList(r.charges) || "No charges listed", r.months ? `${r.months} months` : "", r.fine ? `$${r.fine}` : ""].filter(Boolean).join(" · ");
-  return `<div class="mdt-row"><span class="mdt-kind k-${tone}">${esc(r.kind)}</span><div><b>${withName ? (r.character_id ? `<a data-mdt-profile="${Number(r.character_id)}">${esc(r.name)}</a>` : esc(r.name)) : esc(detail)}</b><small>${withName ? esc(detail) : ""}${r.notes ? `${withName ? " · " : ""}${esc(r.notes)}` : ""}</small></div><em>${esc(r.officer_name)} · ${when(r.created_at)}</em></div>`;
+function mdtDispatch(m) {
+  const d = m.dashboard || {};
+  const calls = d.calls || [];
+  const units = d.units || [];
+  return `<div class="cad-dispatch">
+    <section class="cad-calls"><div class="eyebrow">Call queue · ${calls.length}</div>${calls.length ? calls.map((c) => callCard(c, false)).join("") : '<div class="empty">The call queue is clear. Calls from /911, /311, panic buttons and drop-off tips land here.</div>'}</section>
+    <section class="cad-side">
+      <div class="mdt-panel"><div class="eyebrow">Units · ${units.length}</div>${units.length ? units.map(unitRow).join("") : '<div class="empty compact">Nobody on duty.</div>'}</div>
+      <div class="mdt-panel"><div class="eyebrow">Map</div>${cadMap(d, true)}</div>
+    </section>
+  </div>`;
 }
 
 function mdtSearchView(m) {
   const rows = m.results || [];
   return `${head("Citizen lookup", "Search by name, or type a server ID to look up someone in the city.")}
     <form id="mdt-search-form" class="mdt-bar"><input name="query" class="mdt-input" placeholder="Name or server ID…" value="${esc(m.query)}" autocomplete="off" autofocus><button class="primary-action" type="submit">${icon("search")}Search</button></form>
-    ${m.results === null ? "" : rows.length ? `<div class="mdt-results">${rows.map((r) => `<button class="mdt-person" data-mdt-profile="${Number(r.id)}"><span class="monogram">${esc(r.name.split(" ").map((p) => p[0]).join("").slice(0, 2))}</span><div><b>${esc(r.name)}</b><small>${esc(r.citizen)} · DOB ${esc(r.dob)} · ${esc(r.gender)}</small></div>${r.warrants ? `<span class="chip warn-chip">${r.warrants} warrant${r.warrants > 1 ? "s" : ""}</span>` : ""}${r.online ? `<span class="chip">ID <b>${Number(r.online)}</b></span>` : ""}</button>`).join("")}</div>` : '<div class="empty">No citizens match that search.</div>'}`;
+    ${m.results === null ? `<div class="cad-hint">${icon("info")}<span>Tip: flags such as <b>Armed &amp; dangerous</b> show on results so you know before you approach.</span></div>` : rows.length ? `<div class="mdt-results">${rows.map((r) => `<button class="mdt-person" data-mdt-profile="${Number(r.id)}"><span class="monogram">${initials2(r.name)}</span><div><b>${esc(r.name)}</b><small>${esc(r.citizen)} · DOB ${esc(r.dob)} · ${esc(r.gender)}</small>${(r.flags || []).length ? `<div class="flag-chips">${r.flags.map((f) => `<span class="fchip t-${esc(flagMeta(f).tone)}">${esc(flagMeta(f).label)}</span>`).join("")}</div>` : ""}</div>${r.warrants ? `<span class="chip warn-chip">${r.warrants} warrant${r.warrants > 1 ? "s" : ""}</span>` : ""}${r.online ? `<span class="chip">ID <b>${Number(r.online)}</b></span>` : ""}</button>`).join("")}</div>` : '<div class="empty">No citizens match that search.</div>'}`;
 }
 
 function mdtPlatesView(m) {
   const r = m.plate;
-  return `${head("Plate lookup", "Run any plate. In a vehicle, /runplate checks the car in front of you.")}
+  return `${head("Vehicle lookup", "Run any plate. In a vehicle, /runplate checks the car in front of you.")}
     <form id="mdt-plate-form" class="mdt-bar"><input name="plate" class="mdt-input plate-input" maxlength="8" placeholder="PLATE" value="${esc(r?.plate || "")}" autocomplete="off"><button class="primary-action" type="submit">${icon("car")}Run plate</button></form>
-    ${r ? `<section class="mdt-panel plate-report"><div class="plate-big">${esc(r.plate)}</div>${r.registered ? `<div class="card-row"><span>Vehicle</span><b>${esc(r.model)}</b></div><div class="card-row"><span>Registered owner</span><b>${r.ownerId ? `<a data-mdt-profile="${Number(r.ownerId)}">${esc(r.owner)}</a>` : esc(r.owner)}</b></div>` : ""}
-      ${plateFlags(r).map(([t, f]) => `<div class="flag ${t}">${esc(f)}</div>`).join("") || '<div class="flag ok">No flags on this plate</div>'}</section>` : ""}`;
+    ${r ? `<section class="mdt-panel plate-report"><div class="plate-hero"><div class="plate-big">${esc(r.plate)}</div><div>${r.registered ? `<b>${esc(r.model)}</b><small>Registered owner: ${r.ownerId ? `<a data-mdt-profile="${Number(r.ownerId)}">${esc(r.owner)}</a>` : esc(r.owner)}</small>${r.license && r.license !== "none" ? `<small>Owner driver license: <b class="tone-${r.license === "valid" ? "ok" : "bad"}">${esc(r.license)}</b></small>` : ""}` : "<b>No registration on file</b>"}</div></div>
+      ${plateFlags(r).map(([t, f]) => `<div class="flag ${t}">${esc(f)}</div>`).join("") || '<div class="flag ok">No flags on this plate</div>'}
+      ${r.registered ? `<div class="form-foot left">${r.stolen ? `<button class="ctl-btn" data-mdt-vehicle="recovered" data-plate="${esc(r.plate)}">${icon("check")} Mark recovered</button>` : `<button class="ctl-btn" data-mdt-vehicle="stolen" data-plate="${esc(r.plate)}">${icon("alert")} Flag stolen</button>`}${r.impounded ? `<button class="ctl-btn" data-mdt-vehicle="release" data-plate="${esc(r.plate)}">${icon("unlock")} Release impound</button>` : ""}<button class="ctl-btn" data-mdt-plate-bolo="${esc(r.plate)}">${icon("search")} Issue BOLO</button></div>` : ""}
+    </section>` : ""}`;
 }
 
 function mdtWarrantsView(m) {
   const rows = m.dashboard?.warrants || [];
-  return `${head("Active warrants", "Warrants are served automatically when the subject is booked.", `<b>${rows.length}</b> active`)}
-    ${rows.length ? rows.map((w) => `<div class="mdt-row big"><span class="mdt-kind k-panic">#${Number(w.id)}</span><div><b>${w.character_id ? `<a data-mdt-profile="${Number(w.character_id)}">${esc(w.subject_name)}</a>` : esc(w.subject_name)}</b><small>${esc(w.reason)}</small><small>${esc(w.created_by)} · ${when(w.created_at)}</small></div><button class="ctl-btn small" data-mdt-close-warrant="${Number(w.id)}" data-status="cleared">Clear</button></div>`).join("") : '<div class="empty">No active warrants.</div>'}`;
+  return `${head("Active warrants", "Warrants are served automatically when the subject is booked or sentenced to community service.", `<b>${rows.length}</b> active`)}
+    ${rows.length ? rows.map((w) => `<div class="mdt-row big"><span class="mdt-kind k-panic">#${Number(w.id)}</span><div><b>${w.character_id ? `<a data-mdt-profile="${Number(w.character_id)}">${esc(w.subject_name)}</a>` : esc(w.subject_name)}</b><small>${esc(w.reason)}</small><small>${esc(w.created_by)} · ${when(w.created_at)}</small></div><button class="ctl-btn small" data-mdt-close-warrant="${Number(w.id)}" data-status="served">Served</button><button class="ctl-btn small" data-mdt-close-warrant="${Number(w.id)}" data-status="cleared">Clear</button></div>`).join("") : '<div class="empty">No active warrants.</div>'}`;
 }
 
 function mdtBolosView(m) {
   const rows = m.dashboard?.bolos || [];
   return `${head("Be on the lookout", "New BOLOs are pushed to every officer on duty.", `<b>${rows.length}</b> active`)}
     <form id="mdt-bolo-form" class="mdt-form">
-      <div class="mdt-form-row"><label>Type<select name="kind" class="mdt-input"><option value="vehicle">Vehicle</option><option value="person">Person</option></select></label><label>Plate (vehicles)<input name="plate" class="mdt-input plate-input" maxlength="8" placeholder="Optional"></label></div>
+      <div class="mdt-form-row"><label>Type<select name="kind" class="mdt-input"><option value="vehicle">Vehicle</option><option value="person">Person</option></select></label><label>Plate (vehicles)<input name="plate" class="mdt-input plate-input" maxlength="8" placeholder="Optional" value="${esc(m.boloPlate || "")}"></label></div>
       <label>Description<textarea name="description" class="mdt-input" maxlength="500" rows="2" placeholder="Black Buffalo, tinted windows, last seen northbound on Route 68…" required></textarea></label>
       <div class="form-foot"><button class="primary-action" type="submit">${icon("alert")}Issue BOLO</button></div>
     </form>
@@ -968,22 +1102,26 @@ function mdtBolosView(m) {
 
 function mdtPenalView() {
   const penal = currentPayload.penal || [];
+  const q = String(ui.mdt.penalQuery || "").toLowerCase();
   const groups = ["infraction", "misdemeanor", "felony"];
-  return `${head("Penal code", `Fines are roleplay amounts. One month of sentence is ${Number(currentPayload.secondsPerMonth) || 30} seconds of time served.`)}
-    ${groups.map((g) => `<section class="mdt-panel"><div class="eyebrow">${g}s</div><div class="penal-grid">${penal.filter((c) => c.kind === g).map((c) => `<div class="penal-row"><span>${esc(c.title)}</span><b class="tone-${KIND_TONE[g]}">${c.months ? `${c.months} mo` : ""}${c.months && c.fine ? " · " : ""}${c.fine ? `$${c.fine}` : ""}</b></div>`).join("")}</div></section>`).join("")}`;
+  return `${head("Penal code", `Fines are roleplay amounts. One month of sentence is ${Number(currentPayload.secondsPerMonth) || 30} seconds of time served. Community service is capped at ${Number(currentPayload.serviceMax) || 15} minutes.`)}
+    <input id="mdt-penal-search" class="mdt-input" placeholder="Filter charges…" value="${esc(ui.mdt.penalQuery || "")}" autocomplete="off">
+    <div id="mdt-penal-list">${groups.map((g) => `<section class="mdt-panel"><div class="eyebrow">${g}s</div><div class="penal-grid">${penal.filter((c) => c.kind === g && (!q || c.title.toLowerCase().includes(q))).map((c) => `<div class="penal-row"><span>${esc(c.title)}</span><b class="tone-${KIND_TONE[g]}">${c.months ? `${c.months} mo` : ""}${c.months && c.fine ? " · " : ""}${c.fine ? `$${c.fine}` : ""}</b></div>`).join("")}</div></section>`).join("")}</div>`;
 }
 
 function mdtChargeForm(p, mode) {
-  const kinds = mode === "cite" ? ["infraction", "misdemeanor"] : ["misdemeanor", "felony"];
+  const kinds = mode === "cite" ? ["infraction", "misdemeanor"] : mode === "service" ? ["infraction", "misdemeanor", "felony"] : ["misdemeanor", "felony"];
   const penal = (currentPayload.penal || []).filter((c) => kinds.includes(c.kind));
-  const warn = mode === "sentence" && (!p.online ? "This citizen is not in the city. They must be present to be booked." : !p.restrained ? "The suspect is not restrained. Cuff them before booking." : "");
-  return `<form id="mdt-charge-form" class="mdt-form" data-mode="${mode}">
-    <div class="eyebrow">${mode === "cite" ? "Issue citation" : "Book into Bolingbroke"}</div>
+  const warn = mode !== "cite" && (!p.online ? "This citizen is not in the city. They must be present." : !p.restrained ? "The suspect is not restrained. Cuff them first." : "");
+  const title = mode === "cite" ? "Issue citation" : mode === "service" ? "Community service at Legion Square" : "Book into Bolingbroke";
+  return `<form id="mdt-charge-form" class="mdt-form mode-${mode}" data-mode="${mode}">
+    <div class="eyebrow">${title}</div>
+    ${mode === "service" ? `<div class="cad-hint">${icon("trash")}<span>Instead of prison, the offender cleans up Legion Square for up to ${Number(currentPayload.serviceMax) || 15} minutes. The clock only runs while they work, and walking off sends them straight to prison.</span></div>` : ""}
     ${warn ? `<div class="flag warn">${esc(warn)}</div>` : ""}
     <div class="charge-grid">${penal.map((c) => `<label class="charge${ui.mdt.charges.has(c.id) ? " on" : ""}"><input type="checkbox" data-charge="${esc(c.id)}" ${ui.mdt.charges.has(c.id) ? "checked" : ""}><span>${esc(c.title)}</span><b class="tone-${KIND_TONE[c.kind]}">${mode === "cite" ? `$${c.fine}` : `${c.months} mo`}</b></label>`).join("")}</div>
     <div class="charge-total" id="charge-total">${mdtTotals(mode)}</div>
     <label>Notes<textarea name="notes" id="mdt-notes" class="mdt-input" maxlength="300" rows="2" placeholder="Narrative, evidence, plea…">${esc(ui.mdt.notes)}</textarea></label>
-    <div class="form-foot"><button type="button" class="ghost-action" data-mdt-form="">Cancel</button><button class="primary-action" type="submit">${icon(mode === "cite" ? "check" : "gavel")}${mode === "cite" ? "Issue citation" : "Sentence"}</button></div>
+    <div class="form-foot"><button type="button" class="ghost-action" data-mdt-form="">Cancel</button><button class="primary-action" type="submit">${icon(mode === "cite" ? "check" : mode === "service" ? "trash" : "gavel")}${mode === "cite" ? "Issue citation" : mode === "service" ? "Assign service" : "Sentence"}</button></div>
   </form>`;
 }
 
@@ -991,48 +1129,144 @@ function mdtTotals(mode) {
   const penal = currentPayload.penal || [];
   const picked = penal.filter((c) => ui.mdt.charges.has(c.id));
   if (mode === "cite") return `<span>Total fine</span><b>$${picked.reduce((n, c) => n + c.fine, 0)}</b>`;
+  if (mode === "service") {
+    const max = Number(currentPayload.serviceMax) || 15;
+    const suggested = clamp(Math.ceil(picked.reduce((n, c) => n + c.months, 0) / 2), picked.length ? 1 : 0, max);
+    const minutes = ui.mdt.minutes ?? suggested;
+    return `<span>Service</span><label class="months-input"><input type="number" id="mdt-minutes" min="1" max="${max}" value="${minutes || ""}" placeholder="${suggested}"> minutes</label><small>max ${max} · suggested ${suggested}</small>`;
+  }
   const max = Number(currentPayload.maxMonths) || 90;
   const sum = Math.min(max, picked.reduce((n, c) => n + c.months, 0));
   const months = ui.mdt.months ?? sum;
-  return `<span>Sentence</span><label class="months-input"><input type="number" id="mdt-months" min="1" max="${max}" value="${months || ""}" placeholder="${sum}"> months</label><small>≈ ${fmtClock((months || 0) * (Number(currentPayload.secondsPerMonth) || 30))} served · recommended ${sum}</small>`;
+  return `<span>Sentence</span><label class="months-input"><input type="number" id="mdt-months" min="1" max="${max}" value="${months || ""}" placeholder="${sum}"> months</label><small>≈ ${fmtClock((months || 0) * (Number(currentPayload.secondsPerMonth) || 30))} served before good behaviour · recommended ${sum}</small>`;
 }
+
+const LICENSE_TONE = { valid: "ok", suspended: "warn", revoked: "bad", none: "dim" };
 
 function mdtProfileView(m) {
   const p = m.profile;
   if (!p) return '<div class="empty">Pick a citizen first.</div>';
   const active = (p.warrants || []).filter((w) => w.status === "active");
   const s = p.sentence;
+  const flags = new Set((p.flags || []).map((f) => f.flag));
   const chips = [
     p.online ? `<span class="chip">In city · ID <b>${Number(p.online)}</b></span>` : '<span class="chip">Not in city</span>',
     active.length ? `<span class="chip bad-chip">Wanted · ${active.length}</span>` : "",
-    s ? `<span class="chip ${s.status === "escaped" ? "bad-chip" : "warn-chip"}">${s.status === "escaped" ? "Escaped inmate" : `In prison · ${fmtClock(s.seconds_remaining)}`}</span>` : "",
+    s ? `<span class="chip ${s.status === "escaped" ? "bad-chip" : "warn-chip"}">${s.status === "escaped" ? "Escaped inmate" : `In prison · ${fmtClock(s.seconds_remaining)} · ${esc(s.tier || "")}`}</span>` : "",
+    p.service ? `<span class="chip warn-chip">Community service · ${fmtClock(p.service.seconds_remaining)}</span>` : "",
     p.restrained ? '<span class="chip warn-chip">Restrained</span>' : "",
   ].join("");
-  const form = m.form === "cite" || m.form === "sentence" ? mdtChargeForm(p, m.form) : m.form === "warrant"
+  const form = ["cite", "sentence", "service"].includes(m.form) ? mdtChargeForm(p, m.form) : m.form === "warrant"
     ? `<form id="mdt-warrant-form" class="mdt-form"><div class="eyebrow">Issue warrant</div><label>Probable cause<textarea name="reason" class="mdt-input" maxlength="500" rows="3" required placeholder="What they are wanted for, and why."></textarea></label><div class="form-foot"><button type="button" class="ghost-action" data-mdt-form="">Cancel</button><button class="primary-action" type="submit">${icon("gavel")}Issue warrant</button></div></form>` : "";
   return `<div class="mdt-profile-head">
-      <span class="monogram big">${esc(p.name.split(" ").map((x) => x[0]).join("").slice(0, 2))}</span>
-      <div><h2>${esc(p.name)}</h2><p>${esc(p.citizen)} · DOB ${esc(p.dob)} · ${esc(p.gender)}</p><div class="chip-row">${chips}</div></div>
+      <span class="monogram big">${initials2(p.name)}</span>
+      <div><h2>${esc(p.name)}</h2><p>${esc(p.citizen)} · DOB ${esc(p.dob)} · ${esc(p.gender)}</p><div class="chip-row">${chips}</div>
+        ${flags.size ? `<div class="flag-chips big">${[...flags].map((f) => `<span class="fchip t-${esc(flagMeta(f).tone)}">${icon("alert")}${esc(flagMeta(f).label)}</span>`).join("")}</div>` : ""}</div>
       <div class="mdt-actions">
         <button class="ctl-btn${m.form === "cite" ? " on" : ""}" data-mdt-form="cite">${icon("check")} Cite</button>
-        ${currentPayload.canJail ? `<button class="ctl-btn${m.form === "sentence" ? " on" : ""}" data-mdt-form="sentence">${icon("gavel")} Sentence</button>` : ""}
+        ${currentPayload.canJail ? `<button class="ctl-btn${m.form === "sentence" ? " on" : ""}" data-mdt-form="sentence">${icon("gavel")} Prison</button><button class="ctl-btn${m.form === "service" ? " on" : ""}" data-mdt-form="service">${icon("trash")} Service</button>` : ""}
         <button class="ctl-btn${m.form === "warrant" ? " on" : ""}" data-mdt-form="warrant">${icon("alert")} Warrant</button>
+        <button class="ctl-btn" data-mdt-new-report="${Number(p.id)}">${icon("file")} Report</button>
       </div>
     </div>
     ${form}
+    <div class="profile-grid">
+      <section class="mdt-panel"><div class="eyebrow">Officer safety flags</div><div class="flag-toggles">${(currentPayload.flags || []).map((f) => `<button class="ftoggle t-${esc(f.tone)}${flags.has(f.id) ? " on" : ""}" data-mdt-flag="${esc(f.id)}" data-on="${flags.has(f.id) ? 0 : 1}">${esc(f.label)}</button>`).join("")}</div></section>
+      <section class="mdt-panel"><div class="eyebrow">Licenses</div><div class="license-grid">${(p.licenses || []).map((l) => `<div class="license t-${LICENSE_TONE[l.status] || "dim"}"><div><b>${esc(l.label)}</b><small>${l.status === "none" ? "Not on file" : `${esc(l.status)}${l.updatedBy ? ` · ${esc(l.updatedBy)}` : ""}`}</small></div><select data-mdt-license="${esc(l.id)}" class="mdt-input small">${["none", "valid", "suspended", "revoked"].map((v) => `<option value="${v}"${l.status === v ? " selected" : ""}>${v === "none" ? "Not on file" : v[0].toUpperCase() + v.slice(1)}</option>`).join("")}</select></div>`).join("")}</div></section>
+    </div>
+    <section class="mdt-panel"><div class="eyebrow">Notes</div>
+      <form id="mdt-note-form" class="mdt-bar"><input name="body" class="mdt-input" maxlength="600" placeholder="Add an intelligence note visible to every officer…" autocomplete="off"><button class="primary-action" type="submit">${icon("plus")}Add</button></form>
+      ${(p.notes || []).map((n) => `<div class="mdt-row"><span class="mdt-kind k-unit">note</span><div><b>${esc(n.body)}</b></div><em>${esc(n.author_name)} · ${when(n.created_at)}</em></div>`).join("") || '<div class="empty compact">No notes.</div>'}</section>
     <section class="mdt-panel"><div class="eyebrow">Warrants</div>${(p.warrants || []).length ? p.warrants.map((w) => `<div class="mdt-row"><span class="mdt-kind ${w.status === "active" ? "k-panic" : "k-unit"}">${esc(w.status)}</span><div><b>${esc(w.reason)}</b><small>#${Number(w.id)} · ${esc(w.created_by)} · ${when(w.created_at)}${w.closed_by ? ` · closed by ${esc(w.closed_by)}` : ""}</small></div>${w.status === "active" ? `<button class="ctl-btn small" data-mdt-close-warrant="${Number(w.id)}" data-status="cleared" data-refresh="profile">Clear</button>` : ""}</div>`).join("") : '<div class="empty compact">No warrants.</div>'}</section>
     <section class="mdt-panel"><div class="eyebrow">Criminal history</div>${(p.records || []).length ? p.records.map((r) => mdtRecordRow(r, false)).join("") : '<div class="empty compact">Clean record.</div>'}</section>
-    <section class="mdt-panel"><div class="eyebrow">Registered vehicles</div>${(p.vehicles || []).length ? p.vehicles.map((v) => `<div class="mdt-row"><span class="plate-tag">${esc(v.plate)}</span><div><b>${esc(v.label || v.model)}</b><small>${v.stolen ? "Reported stolen · " : ""}${v.impounded_at ? "Impounded · " : ""}registered ${when(v.registered_at)}</small></div></div>`).join("") : '<div class="empty compact">No registered vehicles.</div>'}</section>`;
+    <div class="mdt-columns">
+      <section class="mdt-panel"><div class="eyebrow">Reports</div>${(p.reports || []).length ? p.reports.map((r) => `<div class="mdt-row"><span class="mdt-kind k-unit">${esc(r.role)}</span><div><b><a data-mdt-report="${Number(r.id)}">#${Number(r.id)} · ${esc(r.title)}</a></b><small>${esc(r.kind)} · ${esc(r.author_name)}</small></div><em>${when(r.created_at)}</em></div>`).join("") : '<div class="empty compact">Not named in any report.</div>'}</section>
+      <section class="mdt-panel"><div class="eyebrow">Registered vehicles</div>${(p.vehicles || []).length ? p.vehicles.map((v) => `<div class="mdt-row"><span class="plate-tag">${esc(v.plate)}</span><div><b>${esc(v.label || v.model)}</b><small>${v.stolen ? "Reported stolen · " : ""}${v.impounded_at ? "Impounded · " : ""}registered ${when(v.registered_at)}</small></div></div>`).join("") : '<div class="empty compact">No registered vehicles.</div>'}</section>
+    </div>`;
+}
+
+function mdtReportsView(m) {
+  if (m.reportDraft) return mdtReportForm(m);
+  const rows = m.reports || [];
+  return `<div class="view-head"><div><h2>Incident reports</h2><p>Every report is searchable by title, narrative, number or anyone named in it.</p></div><button class="primary-action" data-mdt-new-report="">${icon("plus")}New report</button></div>
+    <form id="mdt-report-search" class="mdt-bar"><input name="query" class="mdt-input" placeholder="Search reports…" value="${esc(m.reportQuery)}" autocomplete="off"><button class="primary-action" type="submit">${icon("search")}Search</button></form>
+    ${m.reports === null ? '<div class="empty compact">Loading reports…</div>' : rows.length ? rows.map((r) => `<button class="report-row" data-mdt-report="${Number(r.id)}"><span class="report-no">#${Number(r.id)}</span><div><b>${esc(r.title)}</b><small>${esc(r.kind)} · ${esc(r.author_name)}${r.location ? ` · ${esc(r.location)}` : ""}</small></div><em>${when(r.created_at)}</em></button>`).join("") : '<div class="empty">No reports found.</div>'}`;
+}
+
+function mdtReportForm(m) {
+  const draft = m.reportDraft;
+  const kinds = currentPayload.reportKinds || ["Incident"];
+  return `<form id="mdt-report-form" class="mdt-form report-form">
+    <div class="eyebrow">New incident report</div>
+    <div class="mdt-form-row"><label>Type<select name="kind" class="mdt-input">${kinds.map((k) => `<option${draft.kind === k ? " selected" : ""}>${esc(k)}</option>`).join("")}</select></label><label>Location<input name="location" class="mdt-input" maxlength="120" value="${esc(draft.location ?? currentPayload.street ?? "")}" placeholder="Street / area"></label></div>
+    <label>Title<input name="title" class="mdt-input" maxlength="120" required value="${esc(draft.title || "")}" placeholder="Armed robbery at Fleeca, Route 68"></label>
+    <label>Narrative<textarea name="narrative" class="mdt-input" rows="7" maxlength="6000" required placeholder="What happened, in order. Who did what, evidence collected, statements, outcome.">${esc(draft.narrative || "")}</textarea></label>
+    <div class="eyebrow">People involved</div>
+    <div class="picked">${(draft.citizens || []).map((c, i) => `<span class="picked-chip">${esc(c.name)}<select data-mdt-pick-role="${i}" class="mdt-input small">${["suspect", "victim", "witness", "involved"].map((r) => `<option${c.role === r ? " selected" : ""}>${r}</option>`).join("")}</select><button type="button" data-mdt-unpick="${i}">${icon("x")}</button></span>`).join("") || '<small class="tone-dim">Nobody added yet.</small>'}</div>
+    <div class="mdt-bar"><input id="mdt-pick-query" class="mdt-input" placeholder="Search a citizen to add…" autocomplete="off"><button type="button" class="ctl-btn" data-mdt-pick-search>${icon("search")}Find</button></div>
+    ${(m.picks || []).length ? `<div class="pick-results">${m.picks.map((r) => `<button type="button" data-mdt-pick="${Number(r.id)}" data-name="${esc(r.name)}">${icon("plus")}${esc(r.name)} <small>${esc(r.citizen)}</small></button>`).join("")}</div>` : ""}
+    <label>Other officers (comma separated)<input name="officers" class="mdt-input" maxlength="300" value="${esc(draft.officers || "")}" placeholder="Callsigns or names"></label>
+    <div class="form-foot"><button type="button" class="ghost-action" data-mdt-cancel-report>Cancel</button><button class="primary-action" type="submit">${icon("file")}File report</button></div>
+  </form>`;
+}
+
+function mdtReportView(m) {
+  const r = m.report;
+  if (!r) return '<div class="empty">Report not found.</div>';
+  return `<article class="report-doc">
+    <header><div><small>${esc(r.kind)} report</small><h2>#${Number(r.id)} · ${esc(r.title)}</h2><p>${esc(r.author_name)} · ${when(r.created_at)}${r.location ? ` · ${esc(r.location)}` : ""}</p></div><button class="ctl-btn" data-mdt-tab="reports">${icon("file")} All reports</button></header>
+    <div class="report-people">${(r.citizens || []).map((c) => `<a class="person-tag r-${esc(c.role)}" data-mdt-profile="${Number(c.id)}"><b>${esc(c.name)}</b><small>${esc(c.role)}</small></a>`).join("") || '<small class="tone-dim">No citizens named.</small>'}</div>
+    <div class="report-officers">${icon("shield")}${(r.officers || []).map((o) => esc(o)).join(" · ")}</div>
+    <div class="report-body">${esc(r.narrative)}</div>
+  </article>`;
+}
+
+function mdtCorrections(m) {
+  const d = m.dashboard || {};
+  const inmates = d.inmates || [];
+  const services = d.services || [];
+  const tierTone = { Exemplary: "ok", Good: "ok", Fair: "warn", Poor: "bad" };
+  return `${head("Corrections", "Bolingbroke inmates, fugitives and community service at Legion Square.", `<b>${inmates.length + services.length}</b> in custody`)}
+    <section class="mdt-panel"><div class="eyebrow">Bolingbroke Penitentiary</div>${inmates.length ? inmates.map((i) => `<div class="mdt-row big"><span class="mdt-kind ${i.status === "escaped" ? "k-panic" : "k-unit"}">${i.status === "escaped" ? "ESCAPED" : "INMATE"}</span><div><b>${i.character_id ? `<a data-mdt-profile="${Number(i.character_id)}">${esc(i.name)}</a>` : esc(i.name)}</b><small>${Number(i.months)} months · ${fmtClock(i.seconds_remaining)} left · by ${esc(i.officer_name)}${i.online ? " · in the yard" : ""}</small>
+        ${i.status === "serving" ? `<div class="behaviour-mini"><span>Behaviour</span><i><b style="width:${clamp(Number(i.behaviour) || 0, 0, 100)}%"></b></i><em class="tone-${tierTone[i.tier] || "dim"}">${esc(i.tier)} · ${Number(i.behaviour) || 0}</em><span>${Number(i.jobs_done) || 0} jobs</span></div>` : ""}</div>
+        ${currentPayload.canJail ? `<button class="ctl-btn small" data-mdt-release="${Number(i.id)}">Release</button>` : ""}</div>`).join("") : '<div class="empty compact">Bolingbroke is empty.</div>'}</section>
+    <section class="mdt-panel"><div class="eyebrow">Community service · Legion Square</div>${services.length ? services.map((c) => `<div class="mdt-row big"><span class="mdt-kind k-ems">${esc(c.state || "service")}</span><div><b>${c.character_id ? `<a data-mdt-profile="${Number(c.character_id)}">${esc(c.name)}</a>` : esc(c.name)}</b><small>${Number(c.minutes)} min · ${fmtClock(c.seconds_remaining)} left · ${Number(c.collected) || 0} rubbish collected · by ${esc(c.officer_name)}${c.online ? "" : " · not in city"}</small></div>${currentPayload.canJail ? `<button class="ctl-btn small" data-mdt-service-end="${Number(c.id)}">End</button>` : ""}</div>`).join("") : '<div class="empty compact">Nobody is doing community service.</div>'}</section>`;
+}
+
+function cadHeader(m) {
+  const me = m.dashboard.me || {};
+  const unit = me.unit || {};
+  const statuses = currentPayload.statuses || [];
+  return `<header class="cad-top">
+    <div class="cad-brand"><span class="cad-crest">${icon("shield")}</span><div><small>${esc(currentPayload.department || "Florida Bay Police")}</small><b>Computer aided dispatch</b></div></div>
+    <div class="cad-unit">${m.callsignEdit ? `<form id="mdt-callsign-form"><input name="callsign" class="mdt-input small" maxlength="12" value="${esc(unit.callsign || "")}" placeholder="1-ADAM-12" autofocus></form>` : `<button class="cad-sign" data-mdt-callsign>${esc(unit.callsign || "SET CALLSIGN")}</button>`}<span>${esc(currentPayload.officer || "Officer")}</span></div>
+    <div class="cad-status">${statuses.map((s) => `<button class="tone-${esc(s.tone)}${unit.status === s.id ? " on" : ""}" data-mdt-status="${esc(s.id)}" title="${esc(s.label)}">${esc(s.short)}</button>`).join("")}</div>
+    <div class="cad-quick"><button data-mdt-quick="traffic" title="Log a traffic stop at your position">${icon("car")}Stop</button><button data-mdt-quick="backup" title="Request backup">${icon("radio")}Backup</button><button class="panic" data-mdt-quick="panic" title="Panic button">${icon("siren")}Panic</button></div>
+    <time id="cad-clock">${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+    <button class="icon-button" data-mdt-close aria-label="Close">${icon("x")}</button>
+  </header>`;
+}
+
+function cadTicker(m) {
+  const d = m.dashboard || {};
+  const items = [
+    ...(d.bolos || []).slice(0, 6).map((b) => `<span class="tk-bolo">BOLO #${Number(b.id)}${b.plate ? ` · ${esc(b.plate)}` : ""} · ${esc(b.description)}</span>`),
+    ...(d.warrants || []).slice(0, 6).map((w) => `<span class="tk-warrant">WARRANT #${Number(w.id)} · ${esc(w.subject_name)} · ${esc(w.reason)}</span>`),
+  ];
+  if (!items.length) items.push('<span>All quiet · no active BOLOs or warrants</span>');
+  return `<footer class="cad-ticker"><b>${icon("siren")} LIVE</b><div class="ticker-track"><div>${items.join("")}${items.join("")}</div></div></footer>`;
 }
 
 function renderMdt() {
   const m = ui.mdt;
   const tabs = [...MDT_TABS];
   if (m.profile) tabs.push(["profile", m.profile.name, "user"]);
-  const counts = { warrants: m.dashboard?.warrants?.length, bolos: m.dashboard?.bolos?.length };
-  const rail = tabs.map(([id, label, ic]) => `<button class="${m.tab === id ? "active" : ""}" data-mdt-tab="${id}"><span data-icon="${ic}"></span>${esc(label)}${counts[id] ? `<small>${counts[id]}</small>` : ""}</button>`).join("");
-  const views = { dashboard: mdtDashboard, search: mdtSearchView, plates: mdtPlatesView, warrants: mdtWarrantsView, bolos: mdtBolosView, penal: mdtPenalView, profile: mdtProfileView };
-  return `<div class="garage mdt"><nav class="rail">${rail}</nav><div class="mdt-main">${(views[m.tab] || mdtDashboard)(m)}</div></div>`;
+  if (m.report) tabs.push(["report", `Report #${m.report.id}`, "file"]);
+  const d = m.dashboard || {};
+  const counts = { dispatch: (d.calls || []).length, warrants: (d.warrants || []).length, bolos: (d.bolos || []).length, corrections: (d.inmates || []).filter((i) => i.status === "serving").length + (d.services || []).length };
+  const rail = tabs.map(([id, label, ic]) => `<button class="${m.tab === id ? "active" : ""}" data-mdt-tab="${id}"><span data-icon="${ic}"></span><span class="lbl">${esc(label)}</span>${counts[id] ? `<small>${counts[id]}</small>` : ""}</button>`).join("");
+  const views = { dashboard: mdtDashboard, dispatch: mdtDispatch, search: mdtSearchView, plates: mdtPlatesView, warrants: mdtWarrantsView, bolos: mdtBolosView, penal: mdtPenalView, profile: mdtProfileView, reports: mdtReportsView, report: mdtReportView, corrections: mdtCorrections };
+  return `<div class="cad">${cadHeader(m)}<div class="cad-body"><nav class="cad-rail">${rail}</nav><div class="cad-main">${(views[m.tab] || mdtDashboard)(m)}</div></div>${cadTicker(m)}</div>`;
 }
 
 function mdtData(kind, data) {
@@ -1040,45 +1274,102 @@ function mdtData(kind, data) {
   if (!m) return;
   if (kind === "dashboard") m.dashboard = data || {};
   if (kind === "results") { m.results = data?.rows || []; m.query = data?.query || m.query; }
-  if (kind === "plate") m.plate = data;
+  if (kind === "plate") { m.plate = data; if (m.tab !== "plates") m.tab = "plates"; }
+  if (kind === "reports") { m.reports = data?.rows || []; m.reportQuery = data?.query || ""; }
+  if (kind === "report") { m.report = data; m.reportDraft = null; m.picks = []; m.tab = "report"; }
+  if (kind === "citizenPick") m.picks = data?.rows || [];
   if (kind === "profile") {
     m.profile = data;
     m.tab = "profile";
-    m.form = null;
-    m.charges = new Set();
-    m.months = null;
-    m.notes = "";
+    m.form = null; m.charges = new Set(); m.months = null; m.minutes = null; m.notes = "";
+  }
+  if (kind === "dashboard") {
+    // Background refreshes never clobber what an officer is typing.
+    const typing = document.activeElement && document.activeElement.closest?.(".cad") && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if (typing) return;
+    if (!["dashboard", "dispatch", "corrections", "warrants", "bolos"].includes(m.tab)) {
+      const header = $(".cad-top");
+      if (header) { header.outerHTML = cadHeader(m); hydrate($(".cad")); }
+      const ticker = $(".cad-ticker");
+      if (ticker) { ticker.outerHTML = cadTicker(m); hydrate($(".cad")); }
+      return;
+    }
   }
   renderMenu();
 }
 
 function mdtClick(event) {
-  const tab = event.target.closest("[data-mdt-tab]");
-  if (tab) {
-    ui.mdt.tab = tab.dataset.mdtTab;
-    if (["dashboard", "warrants", "bolos"].includes(ui.mdt.tab)) mdtSend("dashboard");
+  const t = event.target;
+  const hit = (selector) => t.closest(selector);
+  let el;
+  if ((el = hit("[data-mdt-close]"))) { post("close"); return true; }
+  if ((el = hit("[data-mdt-tab]"))) {
+    ui.mdt.tab = el.dataset.mdtTab;
+    if (["dashboard", "dispatch", "warrants", "bolos", "corrections"].includes(ui.mdt.tab)) mdtSend("dashboard");
+    if (ui.mdt.tab === "reports") { ui.mdt.reportDraft = null; mdtSend("reports", { query: ui.mdt.reportQuery }); }
     renderMenu();
     return true;
   }
-  const person = event.target.closest("[data-mdt-profile]");
-  if (person) { mdtSend("profile", { id: Number(person.dataset.mdtProfile) }); return true; }
-  const form = event.target.closest("[data-mdt-form]");
-  if (form) {
-    const next = form.dataset.mdtForm || null;
+  if ((el = hit("[data-mdt-profile]"))) { mdtSend("profile", { id: Number(el.dataset.mdtProfile) }); return true; }
+  if ((el = hit("[data-mdt-report]"))) { mdtSend("reportView", { id: Number(el.dataset.mdtReport) }); return true; }
+  if ((el = hit("[data-mdt-form]"))) {
+    const next = el.dataset.mdtForm || null;
     ui.mdt.form = ui.mdt.form === next ? null : next;
-    ui.mdt.charges = new Set();
-    ui.mdt.months = null;
-    ui.mdt.notes = "";
+    ui.mdt.charges = new Set(); ui.mdt.months = null; ui.mdt.minutes = null; ui.mdt.notes = "";
     renderMenu();
     return true;
   }
-  const warrant = event.target.closest("[data-mdt-close-warrant]");
-  if (warrant) { mdtSend("closeWarrant", { id: Number(warrant.dataset.mdtCloseWarrant), status: warrant.dataset.status, refresh: warrant.dataset.refresh }); return true; }
-  const bolo = event.target.closest("[data-mdt-close-bolo]");
-  if (bolo) { mdtSend("closeBolo", { id: Number(bolo.dataset.mdtCloseBolo) }); return true; }
-  const release = event.target.closest("[data-mdt-release]");
-  if (release) { mdtSend("release", { id: Number(release.dataset.mdtRelease) }); return true; }
+  if ((el = hit("[data-mdt-close-warrant]"))) { mdtSend("closeWarrant", { id: Number(el.dataset.mdtCloseWarrant), status: el.dataset.status, refresh: el.dataset.refresh }); return true; }
+  if ((el = hit("[data-mdt-close-bolo]"))) { mdtSend("closeBolo", { id: Number(el.dataset.mdtCloseBolo) }); return true; }
+  if ((el = hit("[data-mdt-release]"))) { mdtSend("release", { id: Number(el.dataset.mdtRelease) }); return true; }
+  if ((el = hit("[data-mdt-service-end]"))) { mdtSend("serviceRelease", { id: Number(el.dataset.mdtServiceEnd) }); return true; }
+  if ((el = hit("[data-mdt-status]"))) { mdtSend("unitStatus", { status: el.dataset.mdtStatus }); return true; }
+  if ((el = hit("[data-mdt-callsign]"))) { ui.mdt.callsignEdit = true; renderMenu(); $("#mdt-callsign-form input")?.focus(); return true; }
+  if ((el = hit("[data-mdt-quick]"))) {
+    const kind = el.dataset.mdtQuick;
+    if (kind === "panic" && !el.classList.contains("armed")) { el.classList.add("armed"); el.textContent = "Confirm?"; setTimeout(() => el.isConnected && renderMenu(), 2500); return true; }
+    mdtSend("selfDispatch", { kind });
+    return true;
+  }
+  if ((el = hit("[data-mdt-call]"))) { mdtSend(el.dataset.mdtCall, { id: Number(el.dataset.id) }); return true; }
+  if ((el = hit("[data-mdt-call-gps]"))) { mdtSend("callWaypoint", { id: Number(el.dataset.mdtCallGps) }); return true; }
+  if ((el = hit("[data-mdt-call-notes]"))) { ui.mdt.openCall = Number(ui.mdt.openCall) === Number(el.dataset.mdtCallNotes) ? null : Number(el.dataset.mdtCallNotes); renderMenu(); return true; }
+  if ((el = hit("[data-mdt-flag]"))) { mdtSend("flag", { id: ui.mdt.profile?.id, flag: el.dataset.mdtFlag, on: el.dataset.on === "1" }); return true; }
+  if ((el = hit("[data-mdt-vehicle]"))) {
+    const action = el.dataset.mdtVehicle;
+    if (action === "release") mdtSend("clearImpound", { plate: el.dataset.plate });
+    else mdtSend("vehicleFlag", { plate: el.dataset.plate, stolen: action === "stolen" });
+    return true;
+  }
+  if ((el = hit("[data-mdt-plate-bolo]"))) { ui.mdt.boloPlate = el.dataset.mdtPlateBolo; ui.mdt.tab = "bolos"; renderMenu(); return true; }
+  if ((el = hit("[data-mdt-new-report]"))) {
+    const id = Number(el.dataset.mdtNewReport);
+    const p = ui.mdt.profile;
+    ui.mdt.reportDraft = { kind: "Incident", citizens: id && p && Number(p.id) === id ? [{ id, name: p.name, role: "suspect" }] : [] };
+    ui.mdt.picks = [];
+    ui.mdt.tab = "reports";
+    renderMenu();
+    return true;
+  }
+  if ((el = hit("[data-mdt-cancel-report]"))) { ui.mdt.reportDraft = null; mdtSend("reports", { query: ui.mdt.reportQuery }); renderMenu(); return true; }
+  if ((el = hit("[data-mdt-pick-search]"))) { captureDraft(); mdtSend("citizenPick", { query: $("#mdt-pick-query")?.value || "" }); return true; }
+  if ((el = hit("[data-mdt-pick]"))) {
+    captureDraft();
+    const id = Number(el.dataset.mdtPick);
+    const draft = ui.mdt.reportDraft;
+    if (!draft.citizens.some((c) => Number(c.id) === id)) draft.citizens.push({ id, name: el.dataset.name, role: "involved" });
+    renderMenu();
+    return true;
+  }
+  if ((el = hit("[data-mdt-unpick]"))) { captureDraft(); ui.mdt.reportDraft.citizens.splice(Number(el.dataset.mdtUnpick), 1); renderMenu(); return true; }
   return false;
+}
+
+function captureDraft() {
+  const form = $("#mdt-report-form");
+  if (!form || !ui.mdt.reportDraft) return;
+  const values = Object.fromEntries(new FormData(form).entries());
+  Object.assign(ui.mdt.reportDraft, { kind: values.kind, location: values.location, title: values.title, narrative: values.narrative, officers: values.officers });
 }
 
 function mdtSubmit(event) {
@@ -1086,13 +1377,27 @@ function mdtSubmit(event) {
   const values = Object.fromEntries(new FormData(form).entries());
   if (form.id === "mdt-search-form") { ui.mdt.query = values.query || ""; mdtSend("search", { query: values.query }); return true; }
   if (form.id === "mdt-plate-form") { mdtSend("plate", { plate: values.plate }); return true; }
-  if (form.id === "mdt-bolo-form") { mdtSend("bolo", values); form.reset(); return true; }
+  if (form.id === "mdt-bolo-form") { mdtSend("bolo", values); ui.mdt.boloPlate = ""; form.reset(); return true; }
   if (form.id === "mdt-warrant-form") { mdtSend("warrant", { id: ui.mdt.profile?.id, reason: values.reason }); return true; }
+  if (form.id === "mdt-note-form") { if (values.body) mdtSend("note", { id: ui.mdt.profile?.id, body: values.body }); return true; }
+  if (form.id === "mdt-callsign-form") { ui.mdt.callsignEdit = false; mdtSend("callsign", { callsign: values.callsign }); renderMenu(); return true; }
+  if (form.id === "mdt-report-search") { mdtSend("reports", { query: values.query }); return true; }
+  if (form.classList.contains("call-note-form")) { if (values.text) mdtSend("callNote", { id: Number(form.dataset.call), text: values.text }); form.reset(); return true; }
+  if (form.id === "mdt-report-form") {
+    captureDraft();
+    const d = ui.mdt.reportDraft;
+    mdtSend("report", { kind: d.kind, title: d.title, location: d.location, narrative: d.narrative, citizens: d.citizens.map((c) => ({ id: c.id, role: c.role })), officers: String(d.officers || "").split(",").map((s) => s.trim()).filter(Boolean) });
+    return true;
+  }
   if (form.id === "mdt-charge-form") {
     const mode = form.dataset.mode;
     const body = { id: ui.mdt.profile?.id, charges: [...ui.mdt.charges], notes: ui.mdt.notes };
     if (mode === "sentence" && ui.mdt.months) body.months = ui.mdt.months;
-    mdtSend(mode === "cite" ? "cite" : "sentence", body);
+    if (mode === "service") {
+      const picked = (currentPayload.penal || []).filter((c) => ui.mdt.charges.has(c.id));
+      body.minutes = ui.mdt.minutes || clamp(Math.ceil(picked.reduce((n, c) => n + c.months, 0) / 2), 1, Number(currentPayload.serviceMax) || 15);
+    }
+    mdtSend(mode === "cite" ? "cite" : mode === "service" ? "service" : "sentence", body);
     return true;
   }
   return false;
@@ -1104,13 +1409,142 @@ function mdtInput(event) {
     if (t.checked) ui.mdt.charges.add(t.dataset.charge); else ui.mdt.charges.delete(t.dataset.charge);
     t.closest(".charge")?.classList.toggle("on", t.checked);
     ui.mdt.months = null;
+    ui.mdt.minutes = null;
     const total = $("#charge-total");
     if (total) total.innerHTML = mdtTotals($("#mdt-charge-form").dataset.mode);
     return true;
   }
   if (t.id === "mdt-months") { ui.mdt.months = clamp(Number(t.value) || 0, 0, Number(currentPayload.maxMonths) || 90) || null; return true; }
+  if (t.id === "mdt-minutes") { ui.mdt.minutes = clamp(Number(t.value) || 0, 0, Number(currentPayload.serviceMax) || 15) || null; return true; }
   if (t.id === "mdt-notes") { ui.mdt.notes = t.value; return true; }
+  if (t.id === "mdt-penal-search") {
+    ui.mdt.penalQuery = t.value;
+    const holder = document.createElement("div");
+    holder.innerHTML = mdtPenalView();
+    $("#mdt-penal-list").innerHTML = holder.querySelector("#mdt-penal-list").innerHTML;
+    return true;
+  }
+  if (t.dataset.mdtLicense) { mdtSend("license", { id: ui.mdt.profile?.id, license: t.dataset.mdtLicense, status: t.value }); return true; }
+  if (t.dataset.mdtPickRole !== undefined) { captureDraft(); ui.mdt.reportDraft.citizens[Number(t.dataset.mdtPickRole)].role = t.value; return true; }
   return false;
+}
+
+/* ───────── Prison job board ───────── */
+function renderPrisonJobs(data) {
+  const info = data.info || {};
+  const current = data.current;
+  const behaviour = clamp(Number(info.behaviour) || 0, 0, 100);
+  const cards = (data.jobs || []).map((j) => {
+    const active = current && current.id === j.id;
+    return `<article class="pjob${active ? " active" : ""}">
+      <span class="pjob-ic" data-icon="${esc(j.icon || "grid")}"></span>
+      <div class="pjob-main"><b>${esc(j.label)}</b><p>${esc(j.description)}</p>
+        <div class="pjob-facts"><span>${Number(j.steps)} step${Number(j.steps) > 1 ? "s" : ""}</span><span>${Number(j.holdSeconds)}s each</span>${j.reduction ? `<span class="good">−${fmtClock(j.reduction)} per step</span>` : `<span class="good">+${Number(j.behaviour) || 0} behaviour per step</span>`}</div></div>
+      ${active ? `<button class="ghost-action" data-prison-cancel>Quit job</button>` : `<button class="primary-action" data-prison-job="${esc(j.id)}" ${current || data.cooldown ? "disabled" : ""}>${data.cooldown && !current ? `Rest ${data.cooldown}s` : "Start"}</button>`}
+    </article>`;
+  }).join("");
+  return `${head("Prison work detail", "Every finished step shortens your sentence. Better behaviour means bigger reductions.", `<b>${Number(info.jobsDone) || 0}</b> jobs done`)}
+    <section class="pjob-hero">
+      <div class="pjob-meter"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="50" class="trk"/><circle cx="60" cy="60" r="50" class="val" style="stroke-dasharray:${(behaviour / 100) * 314} 314"/></svg><div><b>${behaviour}</b><small>${esc(info.tier || "Fair")}</small></div></div>
+      <div class="pjob-facts-big">
+        <div><small>Time remaining</small><b>${fmtClock(info.remaining)}</b></div>
+        <div><small>Cut so far</small><b>${fmtClock(info.reduced)} <em>/ ${fmtClock(info.maxReduction)} max</em></b></div>
+        <div><small>Job multiplier</small><b>×${Number(info.mult || 1).toFixed(2)}</b></div>
+        <div><small>Good-time credit</small><b class="${info.goodTime ? "tone-ok" : "tone-dim"}">${info.goodTime ? "Active" : "Reach 75 behaviour"}</b></div>
+      </div>
+    </section>
+    ${current ? `<div class="pjob-current">${icon("pin")}<div><b>${esc(current.label)} · step ${Number(current.step)}/${Number(current.steps)}</b><small>${esc(current.stepLabel || "")} - follow the yellow marker and press E.</small></div></div>` : ""}
+    <div class="pjob-grid">${cards}</div>
+    <p class="pjob-foot">Calm minutes raise behaviour. Leaving the yard, or getting caught at the fence, drops it.</p>`;
+}
+
+/* ───────── Organization hub ───────── */
+const BUSINESS_ICON = { mechanic: "car", bar: "music", club: "music", restaurant: "flame", warehouse: "grid", lab: "leaf" };
+function renderOrgHub(data) {
+  if (!data.onDuty) return `${head("Organization hub")}<div class="empty">Clock into your gang or business with <b>/duty</b> to work labs, run deliveries and use your properties. Leaders spend the wallet on the website portal.</div>`;
+  const tab = ui.orgTab || "overview";
+  const carry = data.carry;
+  const drug = carry && data.drugs?.[carry.drug];
+  const tabs = [["overview", "Overview", "grid"], ...(data.isGang ? [["labs", "Labs", "leaf"]] : []), ["business", "Properties", "building"], ["armory", "Armory", "target"], ["wardrobe", "Wardrobe", "shirt"]];
+  const money = (n) => `$${Number(n || 0).toLocaleString("en-US")}`;
+  let body = "";
+  if (tab === "overview") {
+    body = `<section class="org-wallet"><div><small>${esc(data.org?.name)} wallet</small><b>${money(data.wallet)}</b><span>${money(data.today)} earned today</span></div><div class="org-wallet-note">${icon("info")}Organization money lives on the website and Discord only. Leaders spend it on the member portal; check it any time with /orgbank.</div></section>
+      <div class="mdt-columns">
+        <section class="mdt-panel"><div class="eyebrow">Product</div>${carry && carry.units > 0 ? `<div class="carry-big" style="--c:${safeColor(drug?.color)}"><b>${Number(carry.units)}</b><div><strong>${esc(drug?.label || carry.drug)}</strong><small>of ${Number(data.capacity)} capacity · worth ≈ ${money(Number(carry.units) * Number(drug?.price || 0))}</small></div></div>
+          ${data.run ? `<div class="flag warn">Drop-off at ${esc(data.run.label)} · ${fmtClock(data.run.secondsLeft)} left</div><div class="form-foot left"><button class="ctl-btn" data-org-waypoint data-x="${Number(data.run.x)}" data-y="${Number(data.run.y)}">${icon("pin")} GPS</button><button class="ghost-action" data-org-action="cancelDelivery">Call it off</button></div>`
+            : `<div class="form-foot left"><button class="primary-action" data-org-action="delivery" ${data.isGang ? "" : "disabled"}>${icon("pin")} Arrange a drop-off</button></div>`}` : `<div class="empty compact">${data.isGang ? "Not carrying anything. Work a lab to produce product." : "Businesses earn from their properties."}</div>`}</section>
+        <section class="mdt-panel"><div class="eyebrow">Perks & assets</div>${(data.perks || []).length ? data.perks.map((p) => `<div class="mdt-row"><span class="mdt-kind k-bolo">perk</span><div><b>${esc({ capacity: "Stash network", yield: "Master chemist", price: "Street connections", heat: "Lookouts", cap: "Extended hours", pay: "Loyal customers" }[p.perk] || p.perk)}</b><small>+${Number(p.value)}${p.perk === "capacity" ? " units" : "%"}</small></div></div>`).join("") : '<div class="empty compact">No perks yet.</div>'}
+          ${(data.vehicles || []).length ? `<div class="mdt-row"><span class="mdt-kind k-unit">garage</span><div><b>${data.vehicles.length} vehicle${data.vehicles.length > 1 ? "s" : ""} in your F7 garage</b><small>${data.vehicles.map((v) => esc(v.label)).join(", ")}</small></div></div>` : ""}</section>
+      </div>`;
+  } else if (tab === "labs") {
+    body = (data.labs || []).map((l) => { const dd = data.drugs?.[l.drug] || {}; return `<div class="hub-row"><span class="hub-ic" style="--c:${safeColor(dd.color)}">${icon("leaf")}</span><div><b>${esc(l.label)}${l.owned ? ' <span class="chip">Owned · +50%</span>' : ""}</b><small>${esc(dd.label || l.drug)} · ${Number(dd.yield) || 0} units per batch · ${money(dd.price)} per unit at drop-off</small></div><button class="ctl-btn small" data-org-waypoint data-x="${Number(l.x)}" data-y="${Number(l.y)}">${icon("pin")} Route</button></div>`; }).join("") || '<div class="empty">No labs available.</div>';
+    body = `<div class="cad-hint">${icon("info")}<span>Go to a lab on duty and press <kbd>E</kbd> to produce. Then arrange a drop-off from Overview and hand it over. Police can seize what you carry if they search you.</span></div>${body}`;
+  } else if (tab === "business") {
+    const hour = data.businessHour || { earned: 0, cap: 1 };
+    body = `<div class="hub-cap"><span>This hour</span><i><b style="width:${clamp((Number(hour.earned) / Math.max(1, Number(hour.cap))) * 100, 0, 100)}%"></b></i><em>${money(hour.earned)} / ${money(hour.cap)}</em></div>
+      ${(data.properties || []).map((p) => `<div class="hub-row"><span class="hub-ic">${icon(BUSINESS_ICON[p.business] || "building")}</span><div><b>${esc(p.label)}</b><small>${esc(p.businessLabel)} · <kbd>E</kbd> ${esc(p.task || "work a shift")}${p.service ? ` · /${esc(p.service)} customers` : ""}</small></div><button class="ctl-btn small" data-org-waypoint data-x="${Number(p.x)}" data-y="${Number(p.y)}">${icon("pin")} Route</button></div>`).join("") || '<div class="empty">Your organization does not own a property yet. Leaders can buy MLOs on the website portal.</div>'}`;
+  } else if (tab === "armory") {
+    body = `${data.atProperty ? "" : `<div class="flag warn">Go to one of your properties to open the armory.</div>`}${(data.armory || []).map((a) => `<div class="hub-row"><span class="hub-ic">${icon("target")}</span><div><b>${esc(a.label)}</b><small>${a.weapons.map((w) => esc(w)).join(", ")}</small></div><button class="primary-action" data-org-armory="${esc(a.key)}" ${!data.atProperty || a.cooldown ? "disabled" : ""}>${a.cooldown ? `${Math.ceil(a.cooldown / 60)}m` : "Take"}</button></div>`).join("") || '<div class="empty">No armory permits yet. Leaders can buy them on the website portal.</div>'}`;
+  } else if (tab === "wardrobe") {
+    body = (data.outfits || []).map((o) => `<div class="hub-row"><span class="hub-ic">${icon("shirt")}</span><div><b>${esc(o.label)}</b><small>Organization outfit</small></div><button class="primary-action" data-org-outfit="${esc(o.key)}">Wear</button></div>`).join("") || '<div class="empty">No outfits yet. Leaders can buy EUP outfits on the website portal.</div>';
+  }
+  return `<div class="hub"><nav class="hub-tabs">${tabs.map(([id, label, ic]) => `<button class="${tab === id ? "active" : ""}" data-org-tab="${id}"><span data-icon="${ic}"></span>${label}</button>`).join("")}<button class="hub-refresh" data-org-action="refresh">${icon("clock")}</button></nav><div class="hub-body">${body}</div></div>`;
+}
+
+function orgClick(event) {
+  const t = event.target;
+  let el;
+  if ((el = t.closest("[data-org-tab]"))) { ui.orgTab = el.dataset.orgTab; renderMenu(); return true; }
+  if ((el = t.closest("[data-org-waypoint]"))) { post("orgAction", { action: "waypoint", x: Number(el.dataset.x), y: Number(el.dataset.y) }); return true; }
+  if ((el = t.closest("[data-org-action]"))) { post("orgAction", { action: el.dataset.orgAction }); return true; }
+  if ((el = t.closest("[data-org-armory]"))) { el.disabled = true; post("orgAction", { action: "armory", key: el.dataset.orgArmory }); return true; }
+  if ((el = t.closest("[data-org-outfit]"))) { post("orgAction", { action: "outfit", key: el.dataset.orgOutfit }); return true; }
+  return false;
+}
+
+/* ───────── Community service & product HUD ───────── */
+const serviceState = { active: false, endsAt: 0, total: 1, running: false };
+function updateService(d) {
+  serviceState.active = !!d.active;
+  $("#service-hud").classList.toggle("hidden", !d.active);
+  if (!d.active) return;
+  serviceState.total = Math.max(1, Number(d.total) || 1);
+  serviceState.remaining = Number(d.remaining) || 0;
+  serviceState.running = d.state === "working";
+  serviceState.syncedAt = Date.now();
+  setText("#service-minutes", d.minutes ?? 0);
+  setText("#service-collected", d.collected ?? 0);
+  const label = { working: "Working", paused: "Paused", outside: "Out of bounds" }[d.state] || "Working";
+  setText("#service-state", label);
+  $("#service-state").className = `tier-pill st-${esc(d.state || "working")}`;
+  $("#service-hud").classList.toggle("alarm", d.state === "outside");
+  const warn = $("#service-warning");
+  if (d.state === "outside") { warn.textContent = `Get back to Legion Square! Prison in ${Number(d.graceLeft) || 0}s.`; warn.classList.remove("hidden"); }
+  else if (d.state === "paused") { warn.textContent = "Clock paused - pick up rubbish to keep it running."; warn.classList.remove("hidden"); }
+  else warn.classList.add("hidden");
+  setText("#service-idle", d.state === "working" ? `${Number(d.idleLeft) || 0}s until the clock pauses` : "");
+  tickService();
+}
+function tickService() {
+  if (!serviceState.active) return;
+  const left = serviceState.running ? Math.max(0, serviceState.remaining - (Date.now() - serviceState.syncedAt) / 1000) : serviceState.remaining;
+  setText("#service-remaining", fmtClock(left));
+  $("#service-bar").style.width = `${clamp(100 - (left / serviceState.total) * 100, 0, 100)}%`;
+}
+setInterval(tickService, 500);
+
+function updateContraband(d) {
+  $("#contraband").classList.toggle("hidden", !d.active && !d.run);
+  setText("#contraband-units", d.units || 0);
+  setText("#contraband-drug", d.drug || "Product");
+  $("#contraband").style.setProperty("--c", safeColor(d.color || "#c48bff"));
+  $("#contraband-fill").style.width = `${clamp(((Number(d.units) || 0) / Math.max(1, Number(d.capacity) || 1)) * 100, 0, 100)}%`;
+  $("#contraband-run").classList.toggle("hidden", !d.run);
+  if (d.run) {
+    setText("#contraband-drop", d.run.label);
+    setText("#contraband-time", fmtClock(d.run.endsIn));
+  }
 }
 
 /* ───────── Messages ───────── */
@@ -1133,6 +1567,8 @@ window.addEventListener("message", ({ data }) => {
       $("#menu").classList.add("hidden");
       setLocked(false);
       currentView = null;
+      clearInterval(ui.mdtClock);
+      clearInterval(ui.mdtPoll);
     }
   }
   if (data.type === "thirdEye") {
@@ -1166,6 +1602,9 @@ window.addEventListener("message", ({ data }) => {
   if (data.type === "plate") plateCard(data.data || {});
   if (data.type === "passportDiscovery") passportDiscovery(data.data || {});
   if (data.type === "mdtData" && currentView === "mdt") mdtData(data.kind, data.data);
+  if (data.type === "service") updateService(data);
+  if (data.type === "contraband") updateContraband(data);
+  if (data.type === "orghubData" && currentView === "orghub") { currentPayload = data.data || {}; renderMenu(); }
 });
 
 $("#close").addEventListener("click", () => post("close"));
@@ -1182,6 +1621,12 @@ $("#third-eye-actions").addEventListener("click", (event) => {
 
 $("#menu-content").addEventListener("click", (event) => {
   if (currentView === "mdt" && mdtClick(event)) return;
+  if (currentView === "orghub" && orgClick(event)) return;
+  if (currentView === "prisonjobs") {
+    const job = event.target.closest("[data-prison-job]");
+    if (job) { job.disabled = true; post("prisonJob", { action: "start", id: job.dataset.prisonJob }); return; }
+    if (event.target.closest("[data-prison-cancel]")) { post("prisonJob", { action: "cancel" }); post("close"); return; }
+  }
   const emoteCat = event.target.closest("[data-emote-cat]");
   if (emoteCat) {
     ui.emoteCat = emoteCat.dataset.emoteCat;

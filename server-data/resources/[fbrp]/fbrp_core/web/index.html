@@ -84,12 +84,42 @@
 
       <!-- Left middle: prison sentence -->
       <section id="jail-hud" class="jail-hud scaled hidden">
-        <header><span data-icon="gavel"></span><div><small id="jail-prison">Bolingbroke Penitentiary</small><b>Inmate</b></div></header>
+        <header><span data-icon="gavel"></span><div><small id="jail-prison">Bolingbroke Penitentiary</small><b>Inmate</b></div><em id="jail-tier" class="tier-pill">Fair</em></header>
         <div class="jail-clock"><b id="jail-remaining">0:00</b><small>remaining · <span id="jail-months">0</span> months</small></div>
         <div class="jail-bar"><i id="jail-bar"></i></div>
+        <div class="behaviour-row">
+          <span>Behaviour</span>
+          <div class="behaviour-bar"><i id="jail-behaviour-bar"></i><em style="left:75%"></em></div>
+          <b id="jail-behaviour">60</b>
+        </div>
+        <div class="jail-stats">
+          <span><b id="jail-reduced">0:00</b> cut</span>
+          <span><b id="jail-jobs">0</b> jobs done</span>
+          <span id="jail-goodtime" class="goodtime hidden"><i></i>Good-time credit</span>
+        </div>
         <p id="jail-charges" class="jail-charges"></p>
         <p id="jail-task" class="jail-task"></p>
       </section>
+
+      <!-- Left middle: community service -->
+      <section id="service-hud" class="jail-hud service-hud scaled hidden">
+        <header><span data-icon="trash"></span><div><small>Legion Square</small><b>Community service</b></div><em id="service-state" class="tier-pill">Working</em></header>
+        <div class="jail-clock"><b id="service-remaining">0:00</b><small>left · <span id="service-minutes">0</span> min sentence</small></div>
+        <div class="jail-bar"><i id="service-bar"></i></div>
+        <div class="jail-stats">
+          <span><b id="service-collected">0</b> rubbish collected</span>
+          <span id="service-idle"></span>
+        </div>
+        <p id="service-warning" class="service-warning hidden"></p>
+        <p class="jail-task">Pick up rubbish (<kbd>E</kbd>) to keep the clock running. Leaving the square sends you to prison.</p>
+      </section>
+
+      <!-- Top left: product being carried -->
+      <div id="contraband" class="contraband scaled hidden">
+        <span class="contraband-dot"></span>
+        <div class="contraband-main"><small>Carrying</small><b><span id="contraband-units">0</span> <span id="contraband-drug">Product</span></b><i class="contraband-cap"><i id="contraband-fill"></i></i></div>
+        <div id="contraband-run" class="contraband-run hidden"><small>Drop-off</small><b id="contraband-drop">-</b><time id="contraband-time">0:00</time></div>
+      </div>
     </div>
 
     <div id="bodycam" class="bodycam hidden">

@@ -2,8 +2,8 @@ fx_version 'cerulean'
 game 'gta5'
 
 author 'Florida Bay Roleplay'
-description 'Standalone vMenu roleplay systems, Discord ACE bridge, live operations, community scenes, duty, organizations, tags, interactions, HUD, vehicles, justice, medical, fishing and exploration'
-version '1.3.0'
+description 'Standalone vMenu roleplay systems, Discord ACE bridge, live operations, community scenes, duty, organizations and their economy, tags, interactions, HUD, vehicles, justice and corrections, CAD/MDT, medical, fishing and exploration'
+version '1.4.0'
 
 lua54 'yes'
 
@@ -23,7 +23,8 @@ server_scripts {
     'server/justice.lua',
     'server/medical.lua',
     'server/life.lua',
-    'server/scenes.lua'
+    'server/scenes.lua',
+    'server/economy.lua'
 }
 
 client_scripts {
@@ -37,7 +38,8 @@ client_scripts {
     'client/justice.lua',
     'client/medical.lua',
     'client/life.lua',
-    'client/scenes.lua'
+    'client/scenes.lua',
+    'client/economy.lua'
 }
 
 ui_page 'web/index.html'

@@ -104,6 +104,8 @@ import {
   yesNo,
 } from "./ui.js";
 import { startWebPanel } from "./web-panel.js";
+import { createStaffExams } from "./staff-exams.js";
+import { createEconomy } from "./economy.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
@@ -166,6 +168,83 @@ async function log(guild, entry, purpose = "staff_audit") {
       allowedMentions: { parse: [] },
     })
     .catch((error) => console.error(`[FBRP bot] ${purpose} log:`, error.message || error));
+}
+
+const staffExams = createStaffExams({ client, db, audit, log });
+const economy = createEconomy({ client, db, audit, log, hasPermission });
+
+/** /exam: Head of Management and above open an exam for one member for 60 minutes. */
+async function examCommand(i, sub) {
+  if (sub === "give") {
+    const member = i.options.getUser("member", true);
+    const result = await staffExams.give(i.user.id, member.id, i.options.getString("exam", true));
+    return card(`${result.exam.title} given`, {
+      color: COLORS.success,
+      description: `${mention(member.id)} can sit the exam on the portal until <t:${Math.floor(result.expiresAt / 1000)}:t> (<t:${Math.floor(result.expiresAt / 1000)}:R>). It must be submitted before then.`,
+      rows: [["Portal", result.link, false], ["DM", result.dmSent ? "Sent with the link" : "Could not DM them - share the link yourself"]],
+    });
+  }
+  if (sub === "revoke") {
+    const member = i.options.getUser("member", true);
+    const result = await staffExams.revoke(i.user.id, member.id, i.options.getString("exam", true));
+    return card(`${result.exam.title} access revoked`, { color: COLORS.warning, rows: [["Member", who(member.id)]] });
+  }
+  const rows = await staffExams.activeGrants(i.user.id);
+  return card("Open exam access", {
+    color: COLORS.primary,
+    description: rows.length
+      ? rows.map((row) => `${mention(row.discord_id)} · **${clean(row.title, 60)}** · given by ${mention(row.granted_by)} · expires <t:${Math.floor(Number(row.expires_at) / 1000)}:R>`).join("\n")
+      : "Nobody has open exam access right now.",
+  });
+}
+
+/** /orgbank: organization wallets on Discord. Balances and ledgers for members, adjustments for managers. */
+async function orgbankCommand(i, sub) {
+  if (sub === "adjust") {
+    const result = await economy.adjust(i.user.id, {
+      orgId: i.options.getString("organization", true),
+      amount: i.options.getInteger("amount", true),
+      reason: i.options.getString("reason", true),
+    });
+    return card(`Wallet adjusted · ${result.org.name}`, {
+      color: result.amount > 0 ? COLORS.success : COLORS.warning,
+      rows: [["Change", `${result.amount > 0 ? "+" : "-"}${economy.money(Math.abs(result.amount))}`], ["New balance", economy.money(result.balance)]],
+    });
+  }
+  if (sub === "leader") {
+    const member = i.options.getUser("member", true);
+    const result = await economy.setLeader(i.user.id, { orgId: i.options.getString("organization", true), discordId: member.id, leader: i.options.getBoolean("leader", true) });
+    return card(`${result.leader ? "Leader added" : "Leader removed"} · ${result.org.name}`, {
+      color: COLORS.primary,
+      rows: [["Member", who(member.id)], ["Spending access", result.leader ? "Yes - can buy from the portal" : "No"]],
+    });
+  }
+  const detail = await economy.summary(i.user.id, i.options.getString("organization") || "");
+  const site = publicBase();
+  if (sub === "ledger") {
+    const lines = detail.transactions.slice(0, 15).map((row) =>
+      `\`${Number(row.amount) >= 0 ? "+" : "-"}${economy.money(Math.abs(Number(row.amount)))}\` ${clean(row.description, 70)} · <t:${Math.floor(Number(row.created_at) / 1000)}:R>`);
+    return card(`${detail.name} · ledger`, {
+      description: lines.length ? lines.join("\n") : "No transactions yet.",
+      color: COLORS.primary,
+      rows: [["Balance", economy.money(detail.wallet.balance)]],
+      footer: site ? `Full history: ${site}/portal#organizations` : undefined,
+    });
+  }
+  const earned = detail.earningsWeek.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const delivered = detail.drugWeek.filter((row) => row.status === "delivered").reduce((sum, row) => sum + Number(row.units || 0), 0);
+  return card(`${detail.name} · wallet`, {
+    color: COLORS.success,
+    rows: [
+      ["Balance", `**${economy.money(detail.wallet.balance)}**`],
+      ["Earned (7 days)", economy.money(earned)],
+      ["Lifetime earned", economy.money(detail.wallet.lifetime_earned)],
+      ["Lifetime spent", economy.money(detail.wallet.lifetime_spent)],
+      ["Product delivered (7 days)", `${delivered} units`],
+      ["Owned", detail.purchases.length ? clip(detail.purchases.map((row) => row.label).join(", "), 900) : "Nothing yet", false],
+    ],
+    footer: site ? `Spend it at ${site}/portal#organizations` : undefined,
+  });
 }
 
 /** DMs a member a styled embed; failures (closed DMs) are expected and ignored. */
@@ -1272,6 +1351,39 @@ async function dropRankRole(rank, discordId) {
   if (member?.roles.cache.has(String(rank.discord_role_id))) await setRankRole(rank, discordId, false);
 }
 
+/** Every active roster member wears this role in each staff Discord that has one by this name. */
+const STAFF_TEAM_ROLE = "FBRP | Staff Team";
+
+async function staffTeamRoles() {
+  const roles = [];
+  for (const row of await db.query("SELECT guild_id FROM network_guilds WHERE kind='staff'")) {
+    const guild = client.guilds.cache.get(String(row.guild_id));
+    const role = guild?.roles.cache.find((item) => item.name === STAFF_TEAM_ROLE);
+    if (role?.editable) roles.push(role);
+  }
+  return roles;
+}
+
+const activeStaff = async (discordId) =>
+  Boolean(await db.one("SELECT 1 ok FROM staff_roster_members WHERE discord_id=? AND status<>'removed'", [String(discordId)]));
+
+/** Adds or removes the Staff Team role for one member in every staff Discord they are in. */
+async function setStaffTeamRole(discordId, add) {
+  for (const role of await staffTeamRoles()) {
+    const member = await role.guild.members.fetch(String(discordId)).catch(() => null);
+    if (!member || member.user.bot || member.roles.cache.has(role.id) === add) continue;
+    await (add ? member.roles.add(role, "FBRP staff roster member") : member.roles.remove(role, "Removed from the FBRP staff roster")).catch((error) =>
+      console.error(`[FBRP staff] Staff Team role for ${discordId}:`, error.message || error),
+    );
+  }
+}
+
+/** Gives the Staff Team role to every active roster member missing it (startup, every 10 minutes, /roster sync). */
+async function syncStaffTeamRoles() {
+  const roster = await db.query("SELECT discord_id FROM staff_roster_members WHERE status<>'removed'");
+  for (const row of roster) await setStaffTeamRole(row.discord_id, true);
+}
+
 /** The rank plus every staff rank whose ACE group sits below it; /staff add grants all of them. */
 async function staffLadder(rank) {
   return db.query(
@@ -1345,6 +1457,7 @@ async function staffAdd(i, move = false) {
   for (const row of await db.query("SELECT id,discord_role_id,discord_guild_id FROM staff_roster_ranks"))
     if (!ladderIds.has(Number(row.id))) await dropRankRole(row, user.id);
   for (const row of ladder) await setRankRole(row, user.id, true);
+  await setStaffTeamRole(user.id, true);
   if (!active || Number(previous.callsign) !== Number(callsign)) await announceCallsign(user.id, callsign);
   await audit(i.user.id, move ? "staff.move" : "staff.add", user.id, { rank: rank.id, rankName: rank.name, from: previous?.rank_name || null, group: rank.ace_group, groups, callsign, removedGroups, reason });
   await refreshGame();
@@ -1403,6 +1516,7 @@ async function staffRemove(i) {
     );
   });
   await setRankRole(roster, user.id, false);
+  await setStaffTeamRole(user.id, false);
   await callGame("/forceout", { discord: user.id, actor: i.user.id, reason: "Removed from staff" }).catch(() => {});
   await audit(i.user.id, "staff.remove", user.id, { reason, groups, rank: roster?.rank_name || null, callsign: roster?.callsign ?? null });
   await refreshGame();
@@ -1976,6 +2090,7 @@ async function rosterCommand(i, sub) {
           await db.query("DELETE FROM staff_roster_member_jobs WHERE discord_id=? AND job_id=?", [row.discord_id, job.id]);
       }
     }
+    await syncStaffTeamRoles();
     await log(i.guild, {
       title: "Roster synchronized",
       color: COLORS.success,
@@ -2051,6 +2166,7 @@ async function rosterCommand(i, sub) {
       const member = await guild?.members.fetch(user.id).catch(() => null);
       if (member) await member.roles.add(String(rank.discord_role_id), "FBRP staff roster rank").catch(() => {});
     }
+    await setStaffTeamRole(user.id, true);
     if (previous?.status === "removed" || Number(previous?.callsign) !== Number(callsign)) await announceCallsign(user.id, callsign);
     await log(i.guild, {
       title: "Roster member saved",
@@ -2068,6 +2184,7 @@ async function rosterCommand(i, sub) {
     const reason = clean(i.options.getString("reason", true), 300);
     await db.query("UPDATE staff_roster_members SET status='removed',callsign=NULL,removed_at=?,removed_by=?,removal_reason=?,updated_at=? WHERE discord_id=?", [Date.now(), i.user.id, reason, Date.now(), user.id]);
     await history(user.id, "remove", { reason });
+    await setStaffTeamRole(user.id, false);
     await log(i.guild, {
       title: "Roster member removed",
       color: COLORS.warning,
@@ -3253,6 +3370,8 @@ const COMMAND_PERMISSIONS = {
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
   userinfo: "`fbrp.investigate`",
   office: "`fbrp.office.manage`",
+  orgbank: "`balance`/`ledger`: organization members; `adjust`/`leader`: `fbrp.organizations.manage`",
+  exam: "Head of Management and above",
 };
 
 function commandPermission(command, sub = "") {
@@ -3911,6 +4030,8 @@ const handlers = {
   acelist: aceListCommand,
   userinfo: userinfoCommand,
   office: officeCommand,
+  orgbank: orgbankCommand,
+  exam: examCommand,
 };
 
 async function forwardGameAudit() {
@@ -3930,6 +4051,7 @@ async function forwardGameAudit() {
     let purpose = null;
     if (action.startsWith("staff.clock")) purpose = "staff_duty";
     else if (action.startsWith("organization.clock")) purpose = "organizations";
+    else if (["economy.delivery", "economy.seizure", "economy.service_payout"].includes(action)) purpose = "organizations";
     else if (
       action.startsWith("dispatch.") ||
       action.startsWith("interaction.") ||
@@ -3994,6 +4116,8 @@ client.once("clientReady", async () => {
   // role reconciliation so a Discord outage cannot hold the website closed.
   await refreshSiteUrls().catch((error) => console.error("[FBRP bot] site url check:", error));
   setInterval(() => void refreshSiteUrls().catch(() => {}), 300000).unref();
+  await staffExams.seed().catch((error) => console.error("[FBRP bot] staff exam seed:", error));
+  await economy.seed().catch((error) => console.error("[FBRP bot] economy seed:", error));
   webPanelServer ??= startWebPanel({
     client,
     db,
@@ -4017,6 +4141,9 @@ client.once("clientReady", async () => {
     hasPermission,
     liftAppealedCase,
     recordVerification: recordPortalVerification,
+    staffExams,
+    economy,
+    log,
   });
   // Commands are registered per guild (instant updates) in every server the bot is in, plus any
   // listed in DISCORD_GUILD_IDS. guildCreate below covers servers it joins later.
@@ -4062,6 +4189,8 @@ client.once("clientReady", async () => {
   setInterval(() => void enforceAllChannelAccess(client).catch((error) => console.error("[FBRP bot] global channel access:", error)), 600000).unref();
   // Catches gated roles granted while the bot was offline or disconnected.
   setInterval(() => void serial(() => sweep(client, "sweep")).catch((error) => console.error("[FBRP bot] role sweep:", error)), 600000).unref();
+  await syncStaffTeamRoles().catch((error) => console.error("[FBRP staff] Staff Team roles:", error));
+  setInterval(() => void syncStaffTeamRoles().catch((error) => console.error("[FBRP staff] Staff Team roles:", error)), 600000).unref();
   client.user.setActivity("Florida Bay Roleplay");
 });
 
@@ -4196,6 +4325,7 @@ client.on("guildMemberAdd", (member) => {
       if (member.user.bot || await enforceVerificationOnJoin(member) || await guardJoin(member, securityLog) || await enforceGlobalOnJoin(member)) return;
       await applyPendingRoleRestore(member);
       await syncMember(client, member);
+      if (await activeStaff(member.id)) await setStaffTeamRole(member.id, true);
     })
     .catch((error) => console.error("[FBRP bot] member add:", error));
 });

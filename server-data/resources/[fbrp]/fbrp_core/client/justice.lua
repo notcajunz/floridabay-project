@@ -1,12 +1,19 @@
 local J = FBRP.Justice
+local CS = FBRP.CommunityService
 local prison = J.prison
 
-local jail = nil          -- { remaining, months, total, charges, outfit }
-local workIndex = nil
-local workBlip = nil
-local task = nil          -- 'work' | 'escape' while a timed job is running
+local jail = nil          -- latest info from the server plus the saved outfit
+local outfit = nil
+local job = nil           -- assigned prison job step { id,label,step,steps,spot,holdMs,scenario,prompt,stepLabel }
+local jobGround = nil     -- ground-snapped marker position for the current step
+local jobBlip = nil
+local task = nil          -- 'work' | 'escape' | 'pickup' while a timed job is running
 local bodycam = false
 local lastLeash = 0
+
+local service = nil       -- live community service info
+local rubbish = {}        -- { entity, x, y, z }
+local serviceBlips = {}
 
 local function ui(message) SendNUIMessage(message) end
 local function notify(message, tone) TriggerEvent('fbrp:notify', message, tone or 'info') end
@@ -15,6 +22,14 @@ local function help(text)
     BeginTextCommandDisplayHelp('STRING')
     AddTextComponentSubstringPlayerName(text)
     EndTextCommandDisplayHelp(0, false, false, -1)
+end
+
+local function groundAt(x, y, z)
+    for _, offset in ipairs({ 2.0, 10.0, 30.0 }) do
+        local found, ground = GetGroundZFor_3dCoord(x + 0.0, y + 0.0, z + offset, false)
+        if found then return ground end
+    end
+    return z
 end
 
 local function teleport(coords, snapToGround)
@@ -74,16 +89,38 @@ end
 
 -- ─────────────────────────── prison ───────────────────────────
 
-local function clearWork()
-    workIndex = nil
-    if workBlip and DoesBlipExist(workBlip) then RemoveBlip(workBlip) end
-    workBlip = nil
+local function clearJobBlip()
+    if jobBlip and DoesBlipExist(jobBlip) then RemoveBlip(jobBlip) end
+    jobBlip = nil
+end
+
+local function jailTaskText()
+    if job then return ('%s · step %d/%d - follow the marker and press E.'):format(job.stepLabel or job.label, job.step, job.steps) end
+    return 'Type /prisonwork to pick a job. Good behaviour shortens your time.'
 end
 
 local function pushJailHud()
     if not jail then return ui({ type='jail', active=false }) end
     ui({ type='jail', active=true, remaining=jail.remaining, months=jail.months, total=jail.total, charges=jail.charges, prison=jail.prison,
-         task=workIndex and 'Head to the marked electrical box and press E.' or 'Type /prisonwork for a work detail that shortens your sentence.' })
+         behaviour=jail.behaviour, tier=jail.tier, mult=jail.mult, reduced=jail.reduced, maxReduction=jail.maxReduction, goodTime=jail.goodTime,
+         jobsDone=jail.jobsDone, task=jailTaskText(), job=job })
+end
+
+local function setJob(view)
+    clearJobBlip()
+    job = view
+    jobGround = nil
+    if job and job.spot then
+        jobGround = vector3(job.spot.x, job.spot.y, groundAt(job.spot.x, job.spot.y, job.spot.z))
+        jobBlip = AddBlipForCoord(job.spot.x, job.spot.y, job.spot.z)
+        SetBlipSprite(jobBlip, 354)
+        SetBlipColour(jobBlip, 5)
+        SetBlipRoute(jobBlip, true)
+        BeginTextCommandSetBlipName('STRING')
+        AddTextComponentString(job.label)
+        EndTextCommandSetBlipName(jobBlip)
+    end
+    pushJailHud()
 end
 
 local function cancelTask(reason)
@@ -95,20 +132,20 @@ local function cancelTask(reason)
     if reason then notify(reason, 'error') end
 end
 
--- Runs a timed prison job: stay near the spot, X cancels.
-local function runTask(kind, spot, ms, scenario, label, onDone)
+-- Runs a timed job: stay near the spot, X cancels.
+local function runTask(kind, spot, ms, scenario, label, onDone, stillValid)
     if task then return end
     task = kind
     local ped = PlayerPedId()
-    TaskStartScenarioInPlace(ped, scenario, 0, true)
+    if scenario then TaskStartScenarioInPlace(ped, scenario, 0, true) end
     ui({ type='progress', label=label, ms=ms })
     local endsAt = GetGameTimer() + ms
     CreateThread(function()
         while task == kind and GetGameTimer() < endsAt do
             local here = GetEntityCoords(PlayerPedId())
-            if #(here - vector3(spot.x, spot.y, spot.z)) > 2.5 then return cancelTask('You moved away.') end
+            if #(here - vector3(spot.x, spot.y, spot.z)) > 3.0 then return cancelTask('You moved away.') end
             if IsControlJustReleased(0, 73) then return cancelTask('Stopped.') end
-            if not jail then return cancelTask() end
+            if stillValid and not stillValid() then return cancelTask() end
             Wait(0)
         end
         if task ~= kind then return end
@@ -136,22 +173,19 @@ local function jailLoop()
                 lastLeash = GetGameTimer()
                 TriggerServerEvent('fbrp:jail:leash')
             end
-            if workIndex and not task then
-                local spot = prison.work[workIndex]
-                local point = vector3(spot.x, spot.y, spot.z)
-                local distance = #(here - point)
-                if distance < 40.0 then
-                    DrawMarker(1, spot.x, spot.y, spot.z - 1.0, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 0.6, 63, 227, 210, 120, false, false, 2, false, nil, nil, false)
+            if job and jobGround and not task then
+                local distance = #(here - jobGround)
+                if distance < 45.0 then
+                    DrawMarker(1, jobGround.x, jobGround.y, jobGround.z - 0.05, 0, 0, 0, 0, 0, 0, 1.1, 1.1, 0.5, 63, 227, 210, 110, false, false, 2, false, nil, nil, false)
+                    DrawMarker(20, jobGround.x, jobGround.y, jobGround.z + 1.15, 0, 0, 0, 0, 180.0, 0, 0.45, 0.45, 0.45, 255, 181, 71, 190, true, true, 2, false, nil, nil, false)
                 end
-                if distance < 1.6 then
-                    help('Press ~INPUT_CONTEXT~ to repair the electrical box.')
+                if distance < 1.8 then
+                    help(('Press ~INPUT_CONTEXT~ to %s (%s).'):format(job.prompt or 'work', job.stepLabel or job.label))
                     if IsControlJustReleased(0, 38) then
-                        SetEntityHeading(ped, spot.w)
-                        runTask('work', spot, J.workHoldMs, 'WORLD_HUMAN_WELDING', 'Repairing electrical box', function()
-                            TriggerServerEvent('fbrp:jail:workDone')
-                            clearWork()
-                            pushJailHud()
-                        end)
+                        local current = job
+                        runTask('work', jobGround, current.holdMs, current.scenario, current.stepLabel or current.label, function()
+                            TriggerServerEvent('fbrp:jail:jobStep')
+                        end, function() return job == current and jail ~= nil end)
                     end
                 end
             end
@@ -170,9 +204,10 @@ RegisterNetEvent('fbrp:jail:enter', function(spawn, info)
     local wasJailed = jail ~= nil
     jail = info or {}
     if not wasJailed then
-        jail.outfit = saveOutfit(ped)
+        outfit = saveOutfit(ped)
         jailLoop()
     end
+    setJob(jail.job)
     RemoveAllPedWeapons(ped, true)
     teleport(spawn)
     wearJumpsuit(PlayerPedId())
@@ -180,52 +215,60 @@ RegisterNetEvent('fbrp:jail:enter', function(spawn, info)
     PlaySoundFrontend(-1, 'Bed', 'WastedSounds', true)
 end)
 
-RegisterNetEvent('fbrp:jail:update', function(remaining)
-    if not jail then return end
-    jail.remaining = tonumber(remaining) or jail.remaining
+RegisterNetEvent('fbrp:jail:update', function(info)
+    if not jail or type(info) ~= 'table' then return end
+    jail = info
     pushJailHud()
+end)
+
+RegisterNetEvent('fbrp:jail:job', function(view)
+    if not jail then return end
+    cancelTask()
+    setJob(view)
+    if view then PlaySoundFrontend(-1, 'NAV_UP_DOWN', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true) end
+end)
+
+RegisterNetEvent('fbrp:jail:board', function(payload)
+    if not jail then return end
+    FBRP.OpenMenu('prisonjobs', payload)
+end)
+
+RegisterNUICallback('prisonJob', function(data, cb)
+    if type(data) == 'table' then
+        if data.action == 'start' then
+            TriggerServerEvent('fbrp:jail:jobStart', tostring(data.id or ''))
+            FBRP.CloseMenu()
+        elseif data.action == 'cancel' then
+            TriggerServerEvent('fbrp:jail:jobCancel')
+        end
+    end
+    cb({ ok=true })
 end)
 
 RegisterNetEvent('fbrp:jail:return', function(spawn)
     if not jail then return end
     cancelTask()
     teleport(spawn)
-    notify('The guards drag you back into the yard.', 'error')
+    notify('The guards drag you back into the yard. Your behaviour record took a hit.', 'error')
 end)
 
 RegisterNetEvent('fbrp:jail:release', function(release, reason)
     if not jail then return end
-    local outfit = jail.outfit
     jail = nil
     cancelTask()
-    clearWork()
+    setJob(nil)
     pushJailHud()
     teleport(release)
     restoreOutfit(PlayerPedId(), outfit)
+    outfit = nil
     notify(reason == 'served' and 'You have served your time. Welcome back to Florida Bay.' or 'You have been released.', 'success')
-end)
-
-RegisterNetEvent('fbrp:jail:work', function(index)
-    if not jail then return end
-    clearWork()
-    workIndex = tonumber(index)
-    local spot = prison.work[workIndex]
-    if not spot then workIndex = nil return end
-    workBlip = AddBlipForCoord(spot.x, spot.y, spot.z)
-    SetBlipSprite(workBlip, 354)
-    SetBlipColour(workBlip, 5)
-    SetBlipRoute(workBlip, true)
-    BeginTextCommandSetBlipName('STRING')
-    AddTextComponentString('Work detail')
-    EndTextCommandSetBlipName(workBlip)
-    pushJailHud()
-    notify('Work detail assigned. Follow the marker.', 'info')
 end)
 
 RegisterCommand('prisonwork', function()
     if not jail then return notify('You are not in prison.', 'info') end
     TriggerServerEvent('fbrp:jail:workRequest')
 end, false)
+RegisterCommand('prisonjobs', function() ExecuteCommand('prisonwork') end, false)
 
 RegisterNetEvent('fbrp:jail:escapeApproved', function(ms)
     if not jail then return end
@@ -238,7 +281,7 @@ RegisterNetEvent('fbrp:jail:escape', function(exit)
     if not jail then return end
     jail = nil
     cancelTask()
-    clearWork()
+    setJob(nil)
     pushJailHud()
     teleport(exit, true)
     notify('You slipped through the fence. Every cop in the county is looking for you. Run!', 'warning')
@@ -249,11 +292,173 @@ AddEventHandler('fbrp:characterSpawned', function()
     TriggerServerEvent('fbrp:justice:spawned')
 end)
 
+-- ─────────────────────────── community service ───────────────────────────
+
+local function loadModel(hash)
+    if not IsModelInCdimage(hash) then return false end
+    RequestModel(hash)
+    local untilAt = GetGameTimer() + 3000
+    while not HasModelLoaded(hash) and GetGameTimer() < untilAt do Wait(10) end
+    return HasModelLoaded(hash)
+end
+
+local function spawnRubbish()
+    for _ = 1, 12 do
+        local angle = math.random() * math.pi * 2
+        local distance = 4.0 + math.random() * (CS.rubbishSpread - 4.0)
+        local x, y = CS.center.x + math.cos(angle) * distance, CS.center.y + math.sin(angle) * distance
+        local found, z = GetGroundZFor_3dCoord(x, y, CS.center.z + 15.0, false)
+        if found and math.abs(z - CS.center.z) < 6.0 then
+            local tooClose = false
+            for _, item in ipairs(rubbish) do
+                if #(vector2(item.x, item.y) - vector2(x, y)) < 4.0 then tooClose = true break end
+            end
+            if not tooClose then
+                local model = CS.rubbishModels[math.random(#CS.rubbishModels)]
+                local hash = joaat(model)
+                if not loadModel(hash) then hash = joaat('prop_cs_rub_binbag_01'); loadModel(hash) end
+                local entity = CreateObject(hash, x, y, z, false, false, false)
+                if entity ~= 0 then
+                    PlaceObjectOnGroundProperly(entity)
+                    FreezeEntityPosition(entity, true)
+                    SetEntityCollision(entity, false, false)
+                    SetModelAsNoLongerNeeded(hash)
+                    rubbish[#rubbish + 1] = { entity=entity, x=x, y=y, z=z }
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function clearRubbish()
+    for _, item in ipairs(rubbish) do
+        if DoesEntityExist(item.entity) then DeleteEntity(item.entity) end
+    end
+    rubbish = {}
+    for _, blip in ipairs(serviceBlips) do
+        if DoesBlipExist(blip) then RemoveBlip(blip) end
+    end
+    serviceBlips = {}
+end
+
+local function pushServiceHud()
+    if not service or not service.active then return ui({ type='service', active=false }) end
+    ui({ type='service', active=true, remaining=service.remaining, total=service.total, minutes=service.minutes, collected=service.collected,
+         state=service.state, graceLeft=service.graceLeft, charges=service.charges, idleLeft=service.idleLeft, idleSeconds=service.idleSeconds })
+end
+
+local function serviceLoop()
+    CreateThread(function()
+        local lastStrip, lastRefill = 0, 0
+        while service do
+            local ped = PlayerPedId()
+            local here = GetEntityCoords(ped)
+            DisablePlayerFiring(PlayerId(), true)
+            DisableControlAction(0, 140, true)
+            DisableControlAction(0, 141, true)
+            DisableControlAction(0, 142, true)
+            DisableControlAction(0, 23, true)  -- enter vehicle
+            DisableControlAction(0, 75, true)
+            if IsPedInAnyVehicle(ped, false) and GetGameTimer() - lastStrip > 1000 then TaskLeaveAnyVehicle(ped, 0, 16) end
+            if GetGameTimer() - lastStrip > 2000 then
+                lastStrip = GetGameTimer()
+                if GetSelectedPedWeapon(ped) ~= joaat('WEAPON_UNARMED') then RemoveAllPedWeapons(ped, true) end
+            end
+            if #rubbish < CS.rubbishVisible and GetGameTimer() - lastRefill > 400 then
+                lastRefill = GetGameTimer()
+                spawnRubbish()
+            end
+            local fromCenter = #(vector2(here.x, here.y) - vector2(CS.center.x, CS.center.y))
+            if fromCenter > CS.radius - 12.0 then
+                DrawMarker(1, CS.center.x, CS.center.y, CS.center.z - 2.0, 0, 0, 0, 0, 0, 0, CS.radius * 2.0, CS.radius * 2.0, 6.0, 255, 181, 71, 40, false, false, 2, false, nil, nil, false)
+            end
+            local nearest, nearestIndex, nearestDistance = nil, nil, 99.0
+            for index, item in ipairs(rubbish) do
+                local distance = #(here - vector3(item.x, item.y, item.z))
+                if distance < 30.0 then
+                    DrawMarker(2, item.x, item.y, item.z + 1.0, 0, 0, 0, 0, 180.0, 0, 0.28, 0.28, 0.28, 255, 181, 71, 200, true, true, 2, false, nil, nil, false)
+                end
+                if distance < nearestDistance then nearest, nearestIndex, nearestDistance = item, index, distance end
+            end
+            if nearest and nearestDistance < 1.8 and not task then
+                help('Press ~INPUT_CONTEXT~ to pick up the rubbish.')
+                if IsControlJustReleased(0, 38) then
+                    local item = nearest
+                    runTask('pickup', vector3(item.x, item.y, item.z), CS.pickupMs, 'PROP_HUMAN_BUM_BIN', 'Picking up rubbish', function()
+                        for i, entry in ipairs(rubbish) do
+                            if entry == item then
+                                if DoesEntityExist(entry.entity) then DeleteEntity(entry.entity) end
+                                table.remove(rubbish, i)
+                                break
+                            end
+                        end
+                        TriggerServerEvent('fbrp:service:pickup')
+                        PlaySoundFrontend(-1, 'PICK_UP', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
+                    end, function() return service ~= nil end)
+                end
+            end
+            Wait(0)
+        end
+    end)
+end
+
+RegisterNetEvent('fbrp:service:enter', function(spawn, info)
+    TriggerEvent('fbrp:cancelActivities')
+    local fresh = service == nil
+    service = info or { active=true }
+    local ped = PlayerPedId()
+    RemoveAllPedWeapons(ped, true)
+    teleport(spawn)
+    if fresh then
+        local area = AddBlipForRadius(CS.center.x, CS.center.y, CS.center.z, CS.radius)
+        SetBlipColour(area, 47)
+        SetBlipAlpha(area, 90)
+        local pin = AddBlipForCoord(CS.center.x, CS.center.y, CS.center.z)
+        SetBlipSprite(pin, 318)
+        SetBlipColour(pin, 47)
+        BeginTextCommandSetBlipName('STRING')
+        AddTextComponentString('Community service')
+        EndTextCommandSetBlipName(pin)
+        serviceBlips = { area, pin }
+        serviceLoop()
+    end
+    pushServiceHud()
+    PlaySoundFrontend(-1, 'Event_Message_Purple', 'GTAO_FM_Events_Soundset', true)
+end)
+
+RegisterNetEvent('fbrp:service:update', function(info)
+    if not service or type(info) ~= 'table' then return end
+    local wasOutside = service.state == 'outside'
+    service = info
+    if info.state == 'outside' and not wasOutside then PlaySoundFrontend(-1, 'TIMER_STOP', 'HUD_MINI_GAME_SOUNDSET', true) end
+    pushServiceHud()
+end)
+
+RegisterNetEvent('fbrp:service:release', function(status)
+    if not service then return end
+    service = nil
+    if task == 'pickup' then cancelTask() end
+    clearRubbish()
+    pushServiceHud()
+    if status == 'completed' then PlaySoundFrontend(-1, 'Mission_Pass_Notify', 'DLC_HEISTS_GENERAL_FRONTEND_SOUNDS', true) end
+end)
+
 -- ─────────────────────────── MDT ───────────────────────────
+
+local function streetHere()
+    local c = GetEntityCoords(PlayerPedId())
+    local streetHash, crossHash = GetStreetNameAtCoord(c.x, c.y, c.z)
+    local street = GetStreetNameFromHashKey(streetHash)
+    if crossHash ~= 0 then street = street .. ' / ' .. GetStreetNameFromHashKey(crossHash) end
+    return street
+end
 
 RegisterNetEvent('fbrp:mdt:open', function(payload)
     payload = payload or {}
     payload.penal = FBRP.PenalCode
+    payload.street = streetHere()
     FBRP.OpenMenu('mdt', payload)
 end)
 
@@ -262,7 +467,11 @@ RegisterNetEvent('fbrp:mdt:data', function(kind, data)
 end)
 
 RegisterNUICallback('mdtAction', function(data, cb)
-    if type(data) == 'table' then TriggerServerEvent('fbrp:mdt:action', tostring(data.kind or ''), data) end
+    if type(data) == 'table' then
+        local kind = tostring(data.kind or '')
+        if kind == 'report' or kind == 'selfDispatch' then data.street = streetHere() end
+        TriggerServerEvent('fbrp:mdt:action', kind, data)
+    end
     cb({ ok=true })
 end)
 
@@ -434,6 +643,7 @@ RegisterNetEvent('fbrp:bodycam:toggle', function(info)
 end)
 
 AddEventHandler('onResourceStop', function(name)
-    if name ~= GetCurrentResourceName() or not jail then return end
-    restoreOutfit(PlayerPedId(), jail.outfit)
+    if name ~= GetCurrentResourceName() then return end
+    clearRubbish()
+    if jail then restoreOutfit(PlayerPedId(), outfit) end
 end)

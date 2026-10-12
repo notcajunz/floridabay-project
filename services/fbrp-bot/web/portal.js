@@ -54,6 +54,16 @@ const PATHS = {
   activity: '<path d="M3 12h4l2-7 4 14 2-7h6"/>',
   radio: '<path d="M5 13a7 7 0 0 1 14 0M8 13a4 4 0 0 1 8 0"/><circle cx="12" cy="16" r="2"/><path d="M12 18v3"/>',
   pin: '<path d="M12 22s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12Z"/><circle cx="12" cy="10" r="2.5"/>',
+  exam: '<path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1Z"/><path d="M8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2"/><path d="m9 13 2 2 4-4"/>',
+  review: '<path d="M4 5h16M4 12h10M4 19h7"/><circle cx="17.5" cy="16.5" r="3"/><path d="m20 19 2 2"/>',
+  wallet: '<path d="M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-4a2 2 0 0 0 0 4h4v2a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V6"/><circle cx="17" cy="15" r=".6"/>',
+  building: '<path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 9h4a1 1 0 0 1 1 1v11M3 21h18M8 8h3M8 12h3M8 16h3"/>',
+  car: '<path d="M3 17v-4l2-5.5A2 2 0 0 1 6.9 6h10.2a2 2 0 0 1 1.9 1.5L21 13v4h-3v2h-2v-2H8v2H6v-2z"/><path d="M3 13h18"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  shirt: '<path d="M8 3 4 6l2 4 2-1v12h8V9l2 1 2-4-4-3c0 2-2 3-4 3s-4-1-4-3Z"/>',
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>',
+  leaf: '<path d="M5 21c0-9 6-15 16-16-1 10-7 16-16 16Z"/><path d="M5 21 14 12"/>',
+  trend: '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[name] || ""}</svg>`;
 
@@ -99,8 +109,8 @@ function person(id, fallbackName = "", { size = "av-sm", sub = null } = {}) {
   return `<span class="person">${avatar(p?.avatar, name, size, id)}<div><b>${esc(name)}</b><small>${esc(subline)}</small></div></span>`;
 }
 function pill(status) {
-  const tones = { active: "bad", open: "sea", claimed: "dusk", submitted: "warn", under_review: "sea", approved: "good", denied: "bad", closed: "", lifted: "good", recorded: "", on_staff: "good", inactive: "", expired: "", loa: "warn", removed: "bad", withdrawn: "" };
-  const label = { under_review: "In review", loa: "On leave", on_staff: "Active" }[status] || titleCase(status);
+  const tones = { active: "bad", open: "sea", claimed: "dusk", submitted: "warn", under_review: "sea", approved: "good", denied: "bad", closed: "", lifted: "good", recorded: "", on_staff: "good", inactive: "", expired: "", loa: "warn", removed: "bad", withdrawn: "", passed: "good", failed: "bad" };
+  const label = { under_review: "In review", loa: "On leave", on_staff: "Active", submitted: "Awaiting review" }[status] || titleCase(status);
   const tone = tones[status] ?? "";
   return `<span class="pill${tone ? ` pill-${tone}` : ""}">${esc(label)}</span>`;
 }
@@ -118,8 +128,12 @@ const matches = (query, ...fields) => !query || fields.some((field) => String(fi
 /* ---------- navigation ---------- */
 function nav() {
   const { access, data } = { access: state.data.access, data: state.data };
-  const pendingAppeals = (data.appealQueue || []).length;
+  const pendingAppeals = (data.appealQueue || []).filter((a) => ["submitted", "under_review"].includes(a.status)).length;
   const openTickets = (data.ticketQueue || []).filter((t) => t.status !== "closed").length;
+  const exams = data.exams || {};
+  const showExams = (exams.exams || []).length > 0 || (exams.applications || []).length > 0;
+  const pendingExams = (exams.reviewQueue || []).filter((row) => ["submitted", "under_review"].includes(row.status)).length;
+  const orgs = data.economy?.organizations || [];
   const groups = [
     ["Account", [
       ["dashboard", "Dashboard", "home"],
@@ -129,12 +143,17 @@ function nav() {
     ["Community", [
       ["roster", "Staff roster", "users"],
       ...(data.profile ? [["profile", "My staff profile", "user"]] : []),
+      ...(orgs.length ? [["organizations", "Organizations", "wallet"]] : []),
     ]],
-    ...(access.staff ? [["Staff workspace", [
-      ["liveops", "Live operations", "activity", (data.liveOps?.scenes?.length || 0) + (data.liveOps?.calls?.length || 0)],
-      ["banlog", "Ban registry", "ban"],
-      ["appeals", "Appeal queue", "scale", pendingAppeals],
-      ["ticketops", "Tickets", "ticket", openTickets],
+    ...(showExams ? [["Career", [["exams", "Staff exams", "exam", (exams.exams || []).filter((e) => e.eligible).length]]]] : []),
+    ...(access.staff || exams.reviewer ? [["Staff workspace", [
+      ...(access.staff ? [
+        ["liveops", "Live operations", "activity", (data.liveOps?.scenes?.length || 0) + (data.liveOps?.calls?.length || 0)],
+        ["banlog", "Ban registry", "ban"],
+        ["appeals", "Appeal queue", "scale", pendingAppeals],
+        ["ticketops", "Tickets", "ticket", openTickets],
+      ] : []),
+      ...(exams.reviewer ? [["examreviews", "Exam reviews", "review", pendingExams]] : []),
     ]]] : []),
     ...(access.owner ? [["Owner", [["settings", "Live configuration", "gear"]]]] : []),
   ];
@@ -161,7 +180,7 @@ function dashboard() {
 
   const staffRow = d.access.staff ? `
     <div class="stats">
-      <button class="stat-tile tone-warn" type="button" data-view="appeals"><div class="ico">${icon("scale")}</div><span>Appeals waiting</span><strong>${fmt((d.appealQueue || []).length)}</strong><small>Verified ban appeals</small></button>
+      <button class="stat-tile tone-warn" type="button" data-view="appeals"><div class="ico">${icon("scale")}</div><span>Appeals waiting</span><strong>${fmt((d.appealQueue || []).filter((a) => ["submitted", "under_review"].includes(a.status)).length)}</strong><small>Verified ban appeals</small></button>
       <button class="stat-tile tone-sky" type="button" data-view="ticketops"><div class="ico">${icon("ticket")}</div><span>Open tickets</span><strong>${fmt((d.ticketQueue || []).filter((t) => t.status !== "closed").length)}</strong><small>${fmt((d.ticketQueue || []).filter((t) => t.status === "open" && !t.claimed_by).length)} unclaimed</small></button>
       <button class="stat-tile tone-bad" type="button" data-view="banlog"><div class="ico">${icon("ban")}</div><span>Active bans</span><strong>${fmt((d.banLog || []).filter(isActive).length)}</strong><small>${fmt((d.banLog || []).length)} in the registry</small></button>
       ${d.profile ? `<button class="stat-tile tone-good" type="button" data-view="profile"><div class="ico">${icon("clock")}</div><span>Your duty this week</span><strong>${hours(d.profile.week_seconds)}</strong><small>${d.profile.weekly_seconds ? `${hours(d.profile.weekly_seconds)} required` : `${hours(d.profile.total_seconds)} all time`}</small></button>` : `<button class="stat-tile tone-dusk" type="button" data-view="roster"><div class="ico">${icon("users")}</div><span>Staff roster</span><strong>${fmt(d.roster.length)}</strong><small>Active members</small></button>`}
@@ -188,6 +207,7 @@ function dashboard() {
       <button class="stat-tile tone-sea" type="button" data-view="roster"><div class="ico">${icon("users")}</div><span>Staff on roster</span><strong>${fmt(d.roster.length)}</strong><small>Browse the team</small></button>
     </div>
     ${staffRow}
+    ${(d.exams?.exams || []).filter((e) => e.eligible).map((e) => `<button class="exam-callout" type="button" data-view="exams"><span class="feed-ico">${icon("exam")}</span><div><small>Promotion exam open</small><b>${esc(e.title)}</b><span>You're eligible to apply for ${esc(e.target_rank)}. ${fmt(e.questionCount)} questions · pass mark ${fmt(e.pass_mark)}%</span></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>`).join("")}
     <div class="grid-2">
       <section class="card">
         <div class="card-head"><div><h2>Recent activity</h2><p>Your latest records, tickets, and appeals.</p></div></div>
@@ -203,32 +223,6 @@ function dashboard() {
         </div>
       </section>
     </div>`;
-}
-
-function punishments() {
-  setTitle("Account", "Punishments");
-  const rows = state.data.punishments;
-  const appeals = state.data.appeals;
-  $("#portal-content").innerHTML = `
-    <p class="page-intro">Every ban and blacklist - from Discord, the network, or in-game - has one Florida Bay case ID. You can appeal any active ban attached to your verified account. If staff approve your appeal, the ban is lifted automatically.</p>
-    ${rows.length ? `<div class="cases">${rows.map((row) => {
-      const live = isActive(row);
-      const st = caseState(row);
-      const appealable = ["ban", "blacklist"].includes(row.action) && live && !["submitted", "under_review"].includes(row.appeal_status);
-      return `<article class="case ${live ? "is-active" : st === "lifted" ? "is-lifted" : ""}">
-        <div class="case-ico">${icon(["ban", "blacklist"].includes(row.action) ? "ban" : row.action === "warn" ? "alert" : "gavel")}</div>
-        <div class="case-main">
-          <div class="case-top"><h3>${esc(titleCase(row.action))}</h3>${idChip(row.ban_id)}${pill(st)}${row.appeal_status ? `<span class="pill pill-dusk">Appeal ${esc(titleCase(row.appeal_status).toLowerCase())}</span>` : ""}</div>
-          <p>${esc(row.reason)}</p>
-          <div class="case-meta"><span>${esc(scope(row))}</span><span>Issued ${esc(date(row.created_at))}</span>${row.expires_at ? `<span>${Number(row.expires_at) > Date.now() ? "Ends" : "Ended"} ${esc(date(row.expires_at))}</span>` : row.action === "ban" || row.action === "blacklist" ? "<span>Permanent</span>" : ""}</div>
-        </div>
-        <div class="case-side">${appealable ? `<button class="btn btn-glass btn-sm" type="button" data-appeal="${esc(row.ban_id)}">${icon("scale")} Appeal</button>` : ""}</div>
-      </article>`;
-    }).join("")}</div>` : `<section class="card">${empty("Clean record", "There are no moderation records attached to your verified Discord account.", "check", "61 220 151")}</section>`}
-    ${appeals.length ? `<section class="card">
-      <div class="card-head"><div><h2>Your appeals</h2><p>Status and responses from staff.</p></div></div>
-      <div class="feed">${appeals.map((a) => `<div class="feed-row"><div class="feed-ico">${icon("scale")}</div><div class="txt"><b>${esc(a.ban_id)} · ${esc(titleCase(a.action))}</b><small>${esc(a.response ? `Staff: ${a.response}` : a.statement)}</small></div><div style="display:grid;justify-items:end;gap:6px">${pill(a.status)}<time>${esc(ago(a.updated_at))}</time></div></div>`).join("")}</div>
-    </section>` : ""}`;
 }
 
 function support() {
@@ -357,20 +351,6 @@ function banLog() {
     </section>`;
 }
 
-function appealsQueue() {
-  if (!state.data.access.staff) return go("dashboard");
-  setTitle("Staff workspace", "Appeal queue");
-  const rows = state.data.appealQueue || [];
-  $("#portal-content").innerHTML = `
-    <div class="callout good">${icon("info")}<div>Approving an appeal <b>lifts the punishment immediately</b> - network bans in every server, blacklists, single-server Discord bans, and linked EasyAdmin bans. You need the same permission as the matching manual unban.</div></div>
-    ${rows.length ? `<div class="cases">${rows.map((a) => `<article class="appeal-card">
-      <div class="head">${person(a.author_id)}<div class="chips" style="margin:0">${idChip(a.ban_id)}<span class="pill plain">${esc(titleCase(a.action))}</span>${pill(a.status)}</div></div>
-      <div class="kv"><div class="wide"><small>Original reason</small><b>${esc(a.case_reason)}</b></div></div>
-      <div class="quote">${esc(a.statement)}</div>
-      <div class="head"><div class="meta"><span>Appeal #${a.id}</span><span>Submitted ${esc(ago(a.created_at))}</span>${a.ticket_id ? `<span>Ticket #${a.ticket_id}</span>` : ""}</div><div class="foot"><button class="btn btn-glass btn-sm" type="button" data-review-appeal="${a.id}">Review appeal</button></div></div>
-    </article>`).join("")}</div>` : `<section class="card">${empty("Queue clear", "No appeals are waiting for review.", "check", "61 220 151")}</section>`}`;
-}
-
 function ticketOps() {
   if (!state.data.access.staff) return go("dashboard");
   setTitle("Staff workspace", "Tickets");
@@ -447,7 +427,423 @@ function settings() {
     </section>`;
 }
 
-const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings };
+
+/* ---------- appeals ---------- */
+const APPEAL_STATUS_TEXT = { submitted: "Submitted", under_review: "In review", info_requested: "Staff need more info", approved: "Approved", reduced: "Reduced", denied: "Denied", withdrawn: "Withdrawn" };
+const EVENT_TEXT = {
+  submitted: "Appeal submitted", claimed: "Claimed by a reviewer", status: "Moved into review", info_request: "Staff asked for more information",
+  member_reply: "Member replied", staff_note: "Internal note", vote: "Vote", decision: "Decision", withdrawn: "Appeal withdrawn",
+};
+const appealDraftKey = (banId) => `fbrp-appeal-draft:${state.data.user.id}:${banId}`;
+const loadAppealDraft = (banId) => { try { return JSON.parse(localStorage.getItem(appealDraftKey(banId)) || "{}") || {}; } catch { return {}; } };
+const saveAppealDraft = (banId, draft) => { try { localStorage.setItem(appealDraftKey(banId), JSON.stringify(draft)); } catch {} };
+const clearAppealDraft = (banId) => { try { localStorage.removeItem(appealDraftKey(banId)); } catch {} };
+
+function appealTimeline(events, staffView) {
+  return `<ol class="appeal-timeline">${(events || []).map((e) => {
+    const vote = e.kind === "vote" ? e.data?.vote : null;
+    const decision = e.kind === "decision" ? e.data?.decision : null;
+    const title = decision ? `Appeal ${decision}${e.data?.reducedUntil ? ` · ban now ends ${date(e.data.reducedUntil)}` : ""}` : vote ? `Voted to ${vote}` : EVENT_TEXT[e.kind] || titleCase(e.kind);
+    const actor = staffView && e.actor_id ? state.data.people?.[e.actor_id]?.name || "Staff" : "";
+    return `<li class="ev-${esc(e.kind)}${e.visibility === "staff" ? " internal" : ""}${decision ? ` d-${esc(decision)}` : ""}"><i></i><div><b>${esc(title)}</b>${actor ? `<small>${esc(actor)}${e.visibility === "staff" ? " · staff only" : ""}</small>` : ""}${e.body ? `<p>${esc(e.body)}</p>` : ""}</div><time title="${esc(date(e.created_at))}">${esc(ago(e.created_at))}</time></li>`;
+  }).join("")}</ol>`;
+}
+
+function appealAnswers(a) {
+  const q = state.data.appealQuestions || [];
+  if (!a.answers) return `<div class="quote">${esc(a.statement)}</div>`;
+  return `<div class="appeal-answers">${q.map((question) => {
+    const value = a.answers[question.id];
+    if (!value) return "";
+    const shown = question.type === "choice" ? (question.options.find(([key]) => key === value) || [value, value])[1] : value;
+    return `<div class="appeal-answer${question.type === "choice" ? ` resp-${esc(value)}` : ""}"><small>${esc(question.label)}</small><p>${esc(shown)}</p></div>`;
+  }).join("")}${(a.evidence || []).length ? `<div class="appeal-answer"><small>Evidence</small><div class="evidence-links">${a.evidence.map((link) => `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${icon("external")}${esc(link.replace(/^https?:\/\//, "").slice(0, 60))}</a>`).join("")}</div></div>` : ""}</div>`;
+}
+
+function punishments() {
+  setTitle("Account", "Punishments");
+  if (state.appealing) return appealWizard();
+  const rows = state.data.punishments;
+  const appeals = state.data.appeals;
+  const rules = state.data.appealRules || {};
+  const limits = state.data.appealLimits || {};
+  $("#portal-content").innerHTML = `
+    <p class="page-intro">Every ban and blacklist - from Discord, the network, or in-game - has one Florida Bay case ID. Appeals open ${fmt(limits.waitHours || 24)} hours after a punishment, each punishment can be appealed up to ${fmt(limits.maxPerCase || 3)} times, and after a denial you wait ${fmt(limits.deniedCooldownDays || 14)} days. Staff may ask you follow-up questions here before deciding.</p>
+    ${rows.length ? `<div class="cases">${rows.map((row) => {
+      const live = isActive(row);
+      const st = caseState(row);
+      const rule = rules[row.ban_id];
+      const side = rule?.can
+        ? `<button class="btn btn-glass btn-sm" type="button" data-appeal="${esc(row.ban_id)}">${icon("scale")} Appeal</button><small>${fmt(rule.remaining)} appeal${rule.remaining === 1 ? "" : "s"} left</small>`
+        : rule && live && rule.opensAt ? `<small title="${esc(rule.reason)}">Appeal opens ${esc(date(rule.opensAt))}</small>`
+        : rule && live && !["submitted", "under_review", "info_requested"].includes(row.appeal_status) ? `<small>${esc(rule.reason)}</small>` : "";
+      return `<article class="case ${live ? "is-active" : st === "lifted" ? "is-lifted" : ""}">
+        <div class="case-ico">${icon(["ban", "blacklist"].includes(row.action) ? "ban" : row.action === "warn" ? "alert" : "gavel")}</div>
+        <div class="case-main">
+          <div class="case-top"><h3>${esc(titleCase(row.action))}</h3>${idChip(row.ban_id)}${pill(st)}${row.appeal_status ? `<span class="pill pill-dusk">Appeal: ${esc((APPEAL_STATUS_TEXT[row.appeal_status] || row.appeal_status).toLowerCase())}</span>` : ""}</div>
+          <p>${esc(row.reason)}</p>
+          <div class="case-meta"><span>${esc(scope(row))}</span><span>Issued ${esc(date(row.created_at))}</span>${row.expires_at ? `<span>${Number(row.expires_at) > Date.now() ? "Ends" : "Ended"} ${esc(date(row.expires_at))}</span>` : row.action === "ban" || row.action === "blacklist" ? "<span>Permanent</span>" : ""}</div>
+        </div>
+        <div class="case-side appeal-side">${side}</div>
+      </article>`;
+    }).join("")}</div>` : `<section class="card">${empty("Clean record", "There are no moderation records attached to your verified Discord account.", "check", "61 220 151")}</section>`}
+    ${appeals.length ? `<section class="card">
+      <div class="card-head"><div><h2>Your appeals</h2><p>Follow each appeal from submission to decision.</p></div></div>
+      <div class="my-appeals">${appeals.map((a) => `<article class="my-appeal st-${esc(a.status)}">
+        <header><div><b>${esc(a.ban_id)} · ${esc(titleCase(a.action))}</b><small>Appeal #${a.id} · submitted ${esc(date(a.created_at))}</small></div><span class="pill ${a.status === "approved" ? "pill-good" : a.status === "denied" ? "pill-bad" : a.status === "info_requested" ? "pill-warn" : a.status === "reduced" ? "pill-sun" : "pill-sea"}">${esc(APPEAL_STATUS_TEXT[a.status] || a.status)}</span></header>
+        ${a.status === "info_requested" ? `<form class="appeal-reply" data-appeal-reply="${a.id}"><div class="callout warn">${icon("alert")}<div>Staff asked: <b>${esc([...a.events].reverse().find((e) => e.kind === "info_request")?.body || "")}</b></div></div><textarea name="body" minlength="20" maxlength="3000" required placeholder="Answer staff here…"></textarea><button class="btn btn-sun btn-sm" type="submit">Send reply</button></form>` : ""}
+        ${a.response && ["approved", "reduced", "denied"].includes(a.status) ? `<div class="kv"><div class="wide"><small>Staff decision</small><b>${esc(a.response)}</b></div></div>` : ""}
+        <details><summary>Timeline & your answers</summary>${appealTimeline(a.events, false)}${appealAnswers(a)}</details>
+        ${["submitted", "under_review", "info_requested"].includes(a.status) ? `<div class="foot"><button class="btn btn-ghost btn-sm" type="button" data-appeal-withdraw="${a.id}">Withdraw appeal</button></div>` : ""}
+      </article>`).join("")}</div>
+    </section>` : ""}`;
+}
+
+function appealWizard() {
+  const banId = state.appealing;
+  const row = state.data.punishments.find((p) => p.ban_id === banId);
+  const questions = state.data.appealQuestions || [];
+  const draft = loadAppealDraft(banId);
+  const step = state.appealStep || 1;
+  const steps = [["Your account", ["account", "rules"]], ["Reflection", ["responsibility", "reason", "learned"]], ["Evidence & submit", ["additional"]]];
+  const field = (id) => {
+    const q = questions.find((item) => item.id === id);
+    if (!q) return "";
+    if (q.type === "choice")
+      return `<fieldset class="appeal-q"><legend>${esc(q.label)}</legend><div class="exam-options">${q.options.map(([key, label], i) => `<label><input type="radio" name="${esc(q.id)}" value="${esc(key)}" ${draft[q.id] === key ? "checked" : ""}><span><i>${String.fromCharCode(65 + i)}</i>${esc(label)}</span></label>`).join("")}</div></fieldset>`;
+    const length = String(draft[q.id] || "").trim().length;
+    return `<label class="appeal-q"><span class="q-label">${esc(q.label)}${q.optional ? " <small>(optional)</small>" : ""}</span>${q.help ? `<small class="q-help">${esc(q.help)}</small>` : ""}<textarea name="${esc(q.id)}" rows="6" maxlength="${Number(q.max)}">${esc(draft[q.id] || "")}</textarea><small class="exam-count${q.min && length < q.min ? "" : " ok"}" data-count="${esc(q.id)}" data-min="${Number(q.min) || 0}">${length} / ${fmt(q.min || 0)} characters minimum</small></label>`;
+  };
+  const evidence = Array.isArray(draft.evidence) ? draft.evidence : [];
+  const body = step === 3
+    ? `${field("additional")}
+       <div class="appeal-q"><span class="q-label">Evidence links <small>(optional, up to ${fmt(state.data.appealLimits?.maxEvidence || 5)})</small></span><small class="q-help">Clips (YouTube, Medal, Streamable), screenshots or documents that support your appeal.</small>
+         ${[0, 1, 2, 3, 4].slice(0, state.data.appealLimits?.maxEvidence || 5).map((i) => `<input class="evidence-input" name="evidence${i}" data-evidence="${i}" placeholder="https://" value="${esc(evidence[i] || "")}">`).join("")}</div>
+       <label class="check-row"><input type="checkbox" name="acknowledge" ${draft.acknowledge ? "checked" : ""}><span><b>Everything in this appeal is true</b><small>I have read the Florida Bay rules and understand that false or misleading information means the appeal is denied.</small></span></label>`
+    : steps[step - 1][1].map(field).join("");
+  $("#portal-content").innerHTML = `
+    <div class="exam-sheet-head"><button class="btn btn-ghost btn-sm" type="button" data-appeal-cancel>← Punishments</button><div class="appeal-steps">${steps.map(([label], i) => `<span class="${i + 1 === step ? "on" : i + 1 < step ? "done" : ""}"><i>${i + 1 < step ? icon("check") : i + 1}</i>${esc(label)}</span>`).join("")}</div></div>
+    <form id="appeal-form" class="exam-sheet" data-ban="${esc(banId)}">
+      <header><span class="kicker">Appeal · step ${step} of 3</span><h2>Appeal ${esc(banId)}</h2>${row ? `<div class="kv"><div><small>Punishment</small><b>${esc(titleCase(row.action))} · ${esc(scope(row))}</b></div><div><small>Issued</small><b>${esc(date(row.created_at))}</b></div><div class="wide"><small>Reason given</small><b>${esc(row.reason)}</b></div></div>` : ""}<p>Take your time - drafts save automatically in this browser. Honest, specific appeals are decided fastest.</p></header>
+      ${body}
+      <footer class="appeal-nav">${step > 1 ? `<button class="btn btn-ghost" type="button" data-appeal-step="${step - 1}">Back</button>` : "<span></span>"}${step < 3 ? `<button class="btn btn-glass" type="button" data-appeal-step="${step + 1}">Continue</button>` : `<button class="btn btn-sun btn-lg" type="submit">${icon("scale")} Submit appeal</button>`}</footer>
+    </form>`;
+}
+
+function captureAppealDraft() {
+  const form = $("#appeal-form");
+  if (!form) return;
+  const draft = loadAppealDraft(form.dataset.ban);
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    if (el.type === "radio") { if (el.checked) draft[el.name] = el.value; }
+    else if (el.type === "checkbox") draft[el.name] = el.checked;
+    else if (el.dataset.evidence !== undefined) { draft.evidence = Array.isArray(draft.evidence) ? draft.evidence : []; draft.evidence[Number(el.dataset.evidence)] = el.value.trim(); }
+    else if (el.tagName === "TEXTAREA") draft[el.name] = el.value;
+  }
+  saveAppealDraft(form.dataset.ban, draft);
+  return draft;
+}
+
+function appealsQueue() {
+  if (!state.data.access.staff) return go("dashboard");
+  setTitle("Staff workspace", "Appeal queue");
+  const all = state.data.appealQueue || [];
+  const me = state.data.user.id;
+  const kind = filter("ap-kind", "open");
+  const tests = {
+    open: (a) => ["submitted", "under_review"].includes(a.status),
+    mine: (a) => a.assigned_to === me && ["submitted", "under_review", "info_requested"].includes(a.status),
+    waiting: (a) => a.status === "info_requested",
+    decided: (a) => ["approved", "reduced", "denied", "withdrawn"].includes(a.status),
+  };
+  const rows = all.filter(tests[kind]);
+  const count = (k) => all.filter(tests[k]).length;
+  const people = state.data.people || {};
+  const open = Number(state.appealOpen);
+  $("#portal-content").innerHTML = `
+    <div class="callout good">${icon("info")}<div>Claim an appeal, ask the member follow-up questions, discuss it with internal notes and votes, then decide. <b>Approve</b> lifts the punishment everywhere, <b>Reduce</b> shortens a network ban, <b>Deny</b> starts a ${fmt(state.data.appealLimits?.deniedCooldownDays || 14)}-day cooldown. Whoever issued the punishment cannot decide its appeal.</div></div>
+    <div class="toolbar">${seg("ap-kind", [["open", "Needs review", count("open")], ["mine", "Assigned to me", count("mine")], ["waiting", "Waiting on member", count("waiting")], ["decided", "Decided (14d)", count("decided")]], kind)}</div>
+    ${rows.length ? `<div class="cases">${rows.map((a) => {
+      const expanded = open === Number(a.id);
+      const closed = !["submitted", "under_review", "info_requested"].includes(a.status);
+      const votes = a.votes || {};
+      return `<article class="review-card appeal-review${expanded ? " expanded" : ""}">
+        <div class="head">${person(a.author_id)}<div class="chips" style="margin:0">${idChip(a.ban_id)}<span class="pill plain">${esc(titleCase(a.action))}</span><span class="pill ${a.status === "info_requested" ? "pill-warn" : a.status === "approved" ? "pill-good" : a.status === "denied" ? "pill-bad" : "pill-sea"}">${esc(APPEAL_STATUS_TEXT[a.status] || a.status)}</span>${a.assigned_to ? `<span class="pill pill-dusk">${esc(people[a.assigned_to]?.name || "Assigned")}</span>` : `<span class="pill plain">Unclaimed</span>`}</div></div>
+        <div class="kv"><div class="wide"><small>Original reason</small><b>${esc(a.case_reason)}</b></div><div><small>Issued by</small><b>${esc(people[a.case_actor]?.name || a.case_actor || "-")} · ${esc(day(a.case_created))}</b></div><div><small>Ends</small><b>${a.case_expires ? esc(date(a.case_expires)) : "Permanent"}</b></div></div>
+        <div class="meta"><span>Appeal #${a.id}</span><span>Submitted ${esc(ago(a.created_at))}</span><span>${fmt(a.priorAppeals)} earlier appeal${a.priorAppeals === 1 ? "" : "s"} on this case</span><span>${fmt(a.record?.cases)} cases on record (${fmt(a.record?.bans)} bans)</span>${a.ticket_id ? `<span>Ticket #${a.ticket_id}</span>` : ""}<span class="votes">${icon("check")} ${fmt(votes.approve)} approve · ${fmt(votes.reduce)} reduce · ${fmt(votes.deny)} deny</span></div>
+        ${expanded ? `${appealAnswers(a)}<div class="appeal-trail"><div class="eyebrow-s">Timeline</div>${appealTimeline(a.events, true)}</div>` : ""}
+        <div class="foot"><button class="btn btn-ghost btn-sm" type="button" data-appeal-open="${a.id}">${expanded ? "Collapse" : "Read appeal"}</button>${closed || a.author_id === me ? "" : `
+          ${a.assigned_to !== me ? `<button class="btn btn-ghost btn-sm" type="button" data-appeal-act="claim" data-id="${a.id}">Claim</button>` : ""}
+          <button class="btn btn-ghost btn-sm" type="button" data-appeal-dialog="info" data-id="${a.id}">Ask member</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-appeal-dialog="note" data-id="${a.id}">Note</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-appeal-dialog="vote" data-id="${a.id}">Vote</button>
+          <button class="btn btn-glass btn-sm" type="button" data-appeal-dialog="decide" data-id="${a.id}">Decide</button>`}</div>
+      </article>`;
+    }).join("")}</div>` : `<section class="card">${empty(kind === "decided" ? "Nothing decided recently" : "Queue clear", kind === "decided" ? "Decisions from the last 14 days appear here." : "No appeals match this filter.", "check", "61 220 151")}</section>`}`;
+}
+
+function appealStaffDialog(kind, id) {
+  const a = (state.data.appealQueue || []).find((item) => Number(item.id) === Number(id));
+  if (!a) return;
+  const base = { kicker: `${a.ban_id} · Appeal #${a.id}`, data: { appealId: a.id, kind, banId: a.ban_id } };
+  if (kind === "info") return openDialog({ ...base, title: "Ask the member", submit: "Send question", action: "appeal-staff", body: `<div class="callout">${icon("info")}<div>The member gets a DM and answers on the portal. The appeal waits on them until they reply.</div></div><label class="field">What do you need from them?<textarea name="message" minlength="15" maxlength="2000" required placeholder="e.g. Please send the full clip from your point of view, including the 30 seconds before the shooting."></textarea></label>` });
+  if (kind === "note") return openDialog({ ...base, title: "Internal note", submit: "Add note", action: "appeal-staff", body: `<label class="field">Visible to staff only<textarea name="body" minlength="3" maxlength="2000" required></textarea></label>` });
+  if (kind === "vote") return openDialog({ ...base, title: "Cast your vote", submit: "Vote", action: "appeal-staff", body: `<div class="field">Your recommendation<div class="choice"><label class="approve"><input type="radio" name="vote" value="approve"><span>Approve<small>Lift it</small></span></label><label><input type="radio" name="vote" value="reduce"><span>Reduce<small>Shorten it</small></span></label><label class="deny"><input type="radio" name="vote" value="deny"><span>Deny<small>Keep it</small></span></label></div></div><label class="field">Reasoning (staff only)<textarea name="body" maxlength="1000"></textarea></label>` });
+  const votes = a.votes || {};
+  openDialog({
+    ...base, title: "Decide this appeal", submit: "Save decision", action: "appeal-staff",
+    body: `<div class="kv"><div><small>Staff votes</small><b>${fmt(votes.approve)} approve · ${fmt(votes.reduce)} reduce · ${fmt(votes.deny)} deny</b></div><div><small>Current end</small><b>${a.case_expires ? esc(date(a.case_expires)) : "Permanent"}</b></div></div>
+      <div class="field">Decision<div class="choice">
+        <label class="approve"><input type="radio" name="decision" value="approved"><span>Approve<small>Lifts it everywhere</small></span></label>
+        <label${a.canReduce ? "" : ' class="disabled" title="Only network bans can be reduced"'}><input type="radio" name="decision" value="reduced" ${a.canReduce ? "" : "disabled"}><span>Reduce<small>${a.canReduce ? "New end date" : "Network bans only"}</small></span></label>
+        <label class="deny"><input type="radio" name="decision" value="denied"><span>Deny<small>${fmt(state.data.appealLimits?.deniedCooldownDays || 14)}-day cooldown</small></span></label>
+      </div></div>
+      <label class="field" id="reduce-days" hidden>Ban ends in (days from now)<input name="days" type="number" min="1" max="${fmt(state.data.appealLimits?.maxReduceDays || 365)}" value="7"></label>
+      <div class="callout warn" id="approve-warning" hidden>${icon("alert")}<div>Approving <b>immediately lifts ${esc(a.ban_id)}</b> wherever it applies, DMs the member and closes the appeal ticket.</div></div>
+      <label class="field">Response to the member<textarea name="response" maxlength="4000" placeholder="Required for reduce and deny. The member sees this on the portal and in their DM."></textarea></label>`,
+  });
+}
+
+/* ---------- staff exams ---------- */
+const examDraftKey = (key) => `fbrp-exam-draft:${state.data.user.id}:${key}`;
+function loadDraft(key) {
+  try { return JSON.parse(localStorage.getItem(examDraftKey(key)) || "{}") || {}; } catch { return {}; }
+}
+function saveDraft(key, answers) {
+  try { localStorage.setItem(examDraftKey(key), JSON.stringify(answers)); } catch {}
+}
+function clearDraft(key) {
+  try { localStorage.removeItem(examDraftKey(key)); } catch {}
+}
+
+const countdown = (until) => {
+  const left = Math.max(0, Math.floor((Number(until) - Date.now()) / 1000));
+  return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+};
+// Live exam access timers; an expired exam form locks its submit button.
+setInterval(() => {
+  for (const node of $$("[data-expires]")) {
+    const until = Number(node.dataset.expires);
+    const b = node.querySelector("b");
+    if (b) b.textContent = countdown(until);
+    node.classList.toggle("low", until - Date.now() < 10 * 60000);
+    if (until <= Date.now() && !node.dataset.done) {
+      node.dataset.done = "1";
+      node.classList.add("expired");
+      const submit = $("#exam-form button[type=submit]");
+      if (submit && node.closest(".exam-sheet-head")) { submit.disabled = true; submit.textContent = "Access expired"; toast("Your exam access expired. Ask Head of Management to give you the exam again.", true); }
+    }
+  }
+}, 1000);
+
+function examsView() {
+  const ex = state.data.exams;
+  if (!ex || (!(ex.exams || []).length && !(ex.applications || []).length)) return go("dashboard");
+  setTitle("Career", "Staff exams");
+  if (state.examTaking) return examForm();
+  const cards = (ex.exams || []).map((e) => {
+    const status = e.eligible
+      ? `<button class="btn btn-sun" type="button" data-exam-start="${esc(e.exam_key)}">${icon("exam")} Start exam</button><span class="exam-timer" data-expires="${Number(e.expiresAt)}">${icon("clock")}<b>${countdown(e.expiresAt)}</b> left to submit</span>`
+      : e.pending ? `<span class="pill pill-warn">Awaiting review</span>`
+      : e.needsGrant ? `<span class="pill pill-dusk">Locked · needs /exam give</span>`
+      : e.passed ? `<span class="pill pill-good">Passed</span>`
+      : e.cooldownUntil ? `<span class="pill plain" title="${esc(date(e.cooldownUntil))}">Retake ${esc(day(e.cooldownUntil))}</span>`
+      : `<span class="pill plain">${esc(e.reason || "Closed")}</span>`;
+    return `<article class="exam-card${e.eligible ? " open" : ""}">
+      <div class="exam-glow"></div>
+      <div class="exam-top"><span class="exam-badge">${icon("exam")}</span><div><small>Promotion to</small><h3>${esc(e.target_rank)}</h3></div></div>
+      <h2>${esc(e.title)}</h2>
+      <p>${esc(e.description)}</p>
+      <div class="exam-facts"><span><b>${fmt(e.questionCount)}</b> questions</span><span><b>${fmt(e.pass_mark)}%</b> pass mark</span><span><b>${fmt(e.cooldown_days)}d</b> retake cooldown</span></div>
+      <div class="exam-foot">${status}${!e.eligible && e.reason && !e.pending && !e.passed ? `<small>${esc(e.reason)}</small>` : ""}</div>
+    </article>`;
+  }).join("");
+  const apps = ex.applications || [];
+  $("#portal-content").innerHTML = `
+    <section class="exam-hero">
+      <div><span class="kicker">Staff development</span><h2>Earn your next rank.</h2><p>Exams are only visible to the rank they are written for, and Head of Management or above has to open yours with <b>/exam give</b>. You then have 60 minutes to submit. Your answers go privately to Head of Management and above, and the result is posted to the staff Discord together with your new role.</p></div>
+      <div class="exam-rank"><small>Your current rank</small><b>${esc(ex.rank?.label || "Staff")}</b></div>
+    </section>
+    <div class="exam-grid">${cards || `<section class="card">${empty("No exams for your rank", "There is no promotion exam open to your current rank right now.", "exam")}</section>`}</div>
+    <section class="card">
+      <div class="card-head"><div><h2>Your applications</h2><p>Status, scores and feedback from management.</p></div></div>
+      ${apps.length ? `<div class="feed">${apps.map((a) => `<div class="feed-row"><div class="feed-ico">${icon("exam")}</div><div class="txt"><b>${esc(a.title)} · #${a.id}</b><small>${a.review_notes ? `Feedback: ${esc(a.review_notes)}` : a.auto_score !== null ? `Multiple choice ${fmt(a.auto_score)}%` : "Written answers only"}${a.score !== null && a.score !== undefined && !["submitted", "under_review"].includes(a.status) ? ` · Final ${fmt(a.score)}%` : ""}</small></div><div class="row-end">${pill(a.status)}<time>${esc(ago(a.created_at))}</time>${["submitted", "under_review"].includes(a.status) ? `<button class="btn btn-ghost btn-sm" type="button" data-exam-withdraw="${a.id}">Withdraw</button>` : ""}</div></div>`).join("")}</div>` : empty("No applications yet", "When you submit an exam it will appear here.", "inbox")}
+    </section>`;
+}
+
+function examForm() {
+  const exam = (state.data.exams?.exams || []).find((e) => e.exam_key === state.examTaking && e.eligible);
+  if (!exam) { state.examTaking = null; return examsView(); }
+  const draft = loadDraft(exam.exam_key);
+  const total = exam.questions.length;
+  const answered = exam.questions.filter((q) => q.type === "choice" ? draft[q.id] !== undefined && draft[q.id] !== null : String(draft[q.id] || "").trim().length >= (q.min || 0)).length;
+  $("#portal-content").innerHTML = `
+    <div class="exam-sheet-head">
+      <button class="btn btn-ghost btn-sm" type="button" data-exam-cancel>← All exams</button>
+      <span class="exam-timer" data-expires="${Number(exam.expiresAt)}">${icon("clock")}<b>${countdown(exam.expiresAt)}</b> left</span>
+      <div class="exam-progress"><span>${answered} of ${total} complete</span><i><b style="width:${((answered / Math.max(1, total)) * 100).toFixed(1)}%"></b></i></div>
+    </div>
+    <form id="exam-form" class="exam-sheet" data-exam="${esc(exam.exam_key)}">
+      <header><span class="kicker">${esc(exam.target_rank)} promotion</span><h2>${esc(exam.title)}</h2><p>${esc(exam.description)} Drafts save automatically in this browser.</p></header>
+      ${exam.questions.map((q, index) => `<fieldset class="exam-q" data-q="${esc(q.id)}">
+        <legend><span>${String(index + 1).padStart(2, "0")}</span>${esc(q.prompt)}</legend>
+        ${q.type === "choice"
+          ? `<div class="exam-options">${(q.options || []).map((option, i) => `<label><input type="radio" name="${esc(q.id)}" value="${i}" ${Number(draft[q.id]) === i && draft[q.id] !== undefined && draft[q.id] !== null && draft[q.id] !== "" ? "checked" : ""}><span><i>${String.fromCharCode(65 + i)}</i>${esc(option)}</span></label>`).join("")}</div>`
+          : `<textarea name="${esc(q.id)}" rows="6" maxlength="${Number(q.max) || 3000}" placeholder="Write a thorough answer…">${esc(draft[q.id] || "")}</textarea><small class="exam-count" data-count="${esc(q.id)}">${String(draft[q.id] || "").trim().length} / ${fmt(q.min || 0)} characters minimum</small>`}
+      </fieldset>`).join("")}
+      <footer><div class="callout">${icon("info")}<div>Submit before your 60-minute access runs out. Once submitted your answers are locked. Head of Management and above will review them and you will be notified in Discord.</div></div><button class="btn btn-sun btn-lg" type="submit">${icon("check")} Submit exam</button></footer>
+    </form>`;
+}
+
+function examReviews() {
+  const ex = state.data.exams;
+  if (!ex?.reviewer) return go("dashboard");
+  setTitle("Staff workspace", "Exam reviews");
+  const all = ex.reviewQueue || [];
+  const kind = filter("exr-kind", "pending");
+  const tests = { pending: (r) => ["submitted", "under_review"].includes(r.status), passed: (r) => r.status === "passed", failed: (r) => r.status === "failed", all: () => true };
+  const rows = all.filter(tests[kind]);
+  const count = (k) => all.filter(tests[k]).length;
+  const open = state.examOpen;
+  $("#portal-content").innerHTML = `
+    <div class="callout good">${icon("info")}<div>Only <b>Head of Management and above</b> can see this queue. Passing an application grants its role in the staff Discord automatically and posts the result to the staff log.</div></div>
+    <div class="toolbar">${seg("exr-kind", [["pending", "Waiting", count("pending")], ["passed", "Passed", count("passed")], ["failed", "Failed", count("failed")], ["all", "All", count("all")]], kind)}</div>
+    ${rows.length ? `<div class="cases">${rows.map((a) => {
+      const expanded = Number(open) === Number(a.id);
+      const choices = a.answers.filter((q) => q.type === "choice");
+      return `<article class="review-card${expanded ? " expanded" : ""}">
+        <div class="head">${person(a.discord_id, a.display_name)}<div class="chips" style="margin:0"><span class="pill plain">${esc(a.title)}</span>${pill(a.status)}${a.auto_score !== null ? `<span class="pill ${Number(a.auto_score) >= Number(a.pass_mark) ? "pill-good" : "pill-warn"}">MC ${fmt(a.auto_score)}%</span>` : ""}</div></div>
+        <div class="meta"><span>Application #${a.id}</span><span>${esc(a.rank_at_submit || "Staff")}</span><span>Submitted ${esc(ago(a.created_at))}</span>${a.reviewer_id ? `<span>Reviewed by ${esc(state.data.people?.[a.reviewer_id]?.name || a.reviewer_id)}</span>` : ""}${a.score !== null && a.score !== undefined && !["submitted", "under_review"].includes(a.status) ? `<span>Final ${fmt(a.score)}%</span>` : ""}</div>
+        ${expanded ? `<div class="review-answers">${a.answers.map((q, index) => `<div class="review-q ${q.type === "choice" ? (q.correct ? "right" : "wrong") : "text"}">
+            <small>${String(index + 1).padStart(2, "0")} · ${q.type === "choice" ? (q.correct ? "Correct" : "Incorrect") : "Written"}</small>
+            <b>${esc(q.prompt)}</b>
+            ${q.type === "choice" ? `<p><span class="mark">${q.correct ? icon("check") : icon("alert")}</span>${esc(q.givenText || "No answer")}</p>${q.correct ? "" : `<p class="expected">Expected: ${esc(q.options?.[q.answer] || "")}</p>`}` : `<div class="quote">${esc(q.given || "(blank)")}</div>`}
+          </div>`).join("")}</div>
+          ${a.review_notes ? `<div class="kv"><div class="wide"><small>Reviewer notes</small><b>${esc(a.review_notes)}</b></div></div>` : ""}` : ""}
+        <div class="foot"><button class="btn btn-ghost btn-sm" type="button" data-exam-open="${a.id}">${expanded ? "Hide answers" : `Read answers (${choices.length} MC · ${a.answers.length - choices.length} written)`}</button>${["submitted", "under_review"].includes(a.status) && a.discord_id !== state.data.user.id ? `<button class="btn btn-glass btn-sm" type="button" data-exam-review="${a.id}">Decide</button>` : ""}</div>
+      </article>`;
+    }).join("")}</div>` : `<section class="card">${empty(kind === "pending" ? "Queue clear" : "Nothing here", kind === "pending" ? "No exam applications are waiting." : "No applications match this filter.", "check", "61 220 151")}</section>`}`;
+}
+
+function examReviewDialog(id) {
+  const a = (state.data.exams?.reviewQueue || []).find((row) => Number(row.id) === Number(id));
+  if (!a) return;
+  openDialog({
+    kicker: "Exam decision",
+    title: `${a.title} · #${a.id}`,
+    submit: "Save decision",
+    action: "exam-review",
+    data: { applicationId: a.id },
+    body: `<div class="kv"><div><small>Applicant</small><b>${esc(state.data.people?.[a.discord_id]?.name || a.display_name || a.discord_id)}</b></div><div><small>Multiple choice</small><b>${a.auto_score === null ? "-" : `${fmt(a.auto_score)}%`}</b></div><div><small>Pass mark</small><b>${fmt(a.pass_mark)}%</b></div><div><small>Rank when submitted</small><b>${esc(a.rank_at_submit || "-")}</b></div></div>
+      <div class="field">Decision
+        <div class="choice">
+          <label><input type="radio" name="decision" value="under_review" ${a.status === "submitted" ? "checked" : ""}><span>In review<small>Mark it as being read</small></span></label>
+          <label class="approve"><input type="radio" name="decision" value="passed"><span>Pass<small>Grants the passed role</small></span></label>
+          <label class="deny"><input type="radio" name="decision" value="failed"><span>Fail<small>Starts the retake cooldown</small></span></label>
+        </div>
+      </div>
+      <label class="field">Final score (%)<input name="score" type="number" min="0" max="100" value="${a.auto_score ?? ""}" placeholder="0-100"></label>
+      <label class="field">Notes to the applicant<textarea name="notes" maxlength="2000" placeholder="Strengths, gaps, and what to work on. Required when failing."></textarea></label>`,
+  });
+}
+
+/* ---------- organizations ---------- */
+const BUSINESS_LABEL = { mechanic: "Mechanic", bar: "Bar", club: "Nightclub", restaurant: "Restaurant", warehouse: "Warehouse", lab: "Drug lab" };
+const KIND_ICON = { property: "building", vehicle: "car", weapon: "target", outfit: "shirt", perk: "bolt" };
+const TX_TONE = { drug_sale: "143 124 255", business: "53 226 205", purchase: "255 122 69", adjust: "255 194 77", refund: "61 220 151", service: "85 196 255" };
+const money = (value) => `$${fmt(Math.round(Number(value || 0)))}`;
+
+function organizationsView() {
+  const eco = state.data.economy;
+  const orgs = eco?.organizations || [];
+  if (!orgs.length) return go("dashboard");
+  setTitle("Community", "Organizations");
+  const selected = orgs.find((o) => String(o.id) === String(filter("org-id", orgs[0].id))) || orgs[0];
+  const kind = filter("shop-kind", "property");
+  const shopRows = (eco.shop || []).filter((row) => row.kind === kind && row.org_types.includes(selected.type));
+  const owned = new Set(selected.purchases.map((row) => row.item_key));
+  const week = selected.earningsWeek.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const drugs = selected.drugWeek || [];
+  const delivered = drugs.filter((r) => r.status === "delivered");
+  const seized = drugs.filter((r) => r.status !== "delivered").reduce((sum, row) => sum + Number(row.units || 0), 0);
+  const byKind = (k) => Number(selected.earningsWeek.find((row) => row.kind === k)?.total || 0);
+  const ledger = selected.transactions;
+  const shopCard = (row) => {
+    const mine = owned.has(row.item_key);
+    const taken = row.kind === "property" && eco.owners?.[row.item_key] && !mine;
+    const short = Number(selected.wallet.balance) < Number(row.price);
+    const data = row.data || {};
+    const facts = row.kind === "property" ? [BUSINESS_LABEL[data.business] || titleCase(data.business), data.area, data.drug ? `${titleCase(data.drug)} lab` : null]
+      : row.kind === "vehicle" ? [data.model] : row.kind === "weapon" ? (data.weapons || []).map((w) => titleCase(String(w.name).replace(/^WEAPON_/, "").toLowerCase()))
+      : row.kind === "perk" ? [`+${data.value}${["capacity"].includes(data.perk) ? " units" : "%"}`] : [];
+    const button = mine ? (row.kind === "property" && selected.leader ? `<button class="btn btn-ghost btn-sm" type="button" data-org-sell="${esc(row.item_key)}">Sell (50%)</button>` : `<span class="pill pill-good">Owned</span>`)
+      : taken ? `<span class="pill plain" title="Owned by ${esc(eco.owners[row.item_key])}">Owned by ${esc(eco.owners[row.item_key])}</span>`
+      : selected.leader ? `<button class="btn ${short ? "btn-ghost" : "btn-sun"} btn-sm" type="button" data-org-buy="${esc(row.item_key)}" ${short ? "disabled title=\"Not enough money\"" : ""}>Buy · ${money(row.price)}</button>`
+      : `<span class="pill plain">${money(row.price)}</span>`;
+    return `<article class="shop-card${mine ? " owned" : ""}${taken ? " taken" : ""}">
+      <div class="shop-ico" style="--tone:${row.kind === "property" ? "255 122 69" : row.kind === "vehicle" ? "85 196 255" : row.kind === "weapon" ? "255 95 109" : row.kind === "outfit" ? "143 124 255" : "255 194 77"}">${icon(KIND_ICON[row.kind] || "sparkle")}</div>
+      <div class="shop-main"><b>${esc(row.label)}</b><p>${esc(row.description)}</p><div class="chips">${facts.filter(Boolean).map((f) => `<span class="pill plain">${esc(f)}</span>`).join("")}</div></div>
+      <div class="shop-buy"><strong>${money(row.price)}</strong>${button}</div>
+    </article>`;
+  };
+  $("#portal-content").innerHTML = `
+    ${orgs.length > 1 ? `<div class="toolbar">${seg("org-id", orgs.map((o) => [String(o.id), o.name]), String(selected.id))}</div>` : ""}
+    <section class="org-hero" style="--org:${esc(selected.color || "#35e2cd")}">
+      <div class="org-hero-bg"></div>
+      <div class="org-id"><span class="org-mark">${esc(initials(selected.name))}</span><div><small>${esc(titleCase(selected.type))}${selected.leader ? " · Leader access" : " · Member"}</small><h2>${esc(selected.name)}</h2></div></div>
+      <div class="org-balance"><small>Organization wallet</small><strong>${money(selected.wallet.balance)}</strong><span>${icon("trend")} ${money(week)} earned this week</span></div>
+      ${selected.manage ? `<div class="org-manage"><button class="btn btn-glass btn-sm" type="button" data-org-adjust="${selected.id}">${icon("wallet")} Adjust</button><button class="btn btn-glass btn-sm" type="button" data-org-leader="${selected.id}">${icon("users")} Leaders</button></div>` : ""}
+    </section>
+    <div class="stats">
+      <div class="stat-tile tone-dusk"><div class="ico">${icon("leaf")}</div><span>Product sales · 7d</span><strong>${money(byKind("drug_sale"))}</strong><small>${fmt(delivered.reduce((n, r) => n + Number(r.units || 0), 0))} units delivered · ${fmt(seized)} seized</small></div>
+      <div class="stat-tile tone-sea"><div class="ico">${icon("building")}</div><span>Business income · 7d</span><strong>${money(byKind("business") + byKind("service"))}</strong><small>${fmt(selected.properties.length)} propert${selected.properties.length === 1 ? "y" : "ies"} owned</small></div>
+      <div class="stat-tile tone-good"><div class="ico">${icon("trend")}</div><span>Lifetime earned</span><strong>${money(selected.wallet.lifetime_earned)}</strong><small>All sources</small></div>
+      <div class="stat-tile tone-sun"><div class="ico">${icon("wallet")}</div><span>Lifetime spent</span><strong>${money(selected.wallet.lifetime_spent)}</strong><small>${fmt(selected.purchases.length)} items owned</small></div>
+    </div>
+    <div class="grid-2">
+      <section class="card">
+        <div class="card-head"><div><h2>Properties</h2><p>Run them in game: on duty, go to the terminal and press <kbd>E</kbd>, or open <kbd>F2</kbd>.</p></div></div>
+        ${selected.properties.length ? `<div class="prop-list">${selected.properties.map((p) => `<div class="prop-row"><span class="feed-ico">${icon(p.data?.business === "lab" ? "leaf" : "building")}</span><div><b>${esc(p.label || p.item_key)}</b><small>${esc(BUSINESS_LABEL[p.data?.business] || "Property")}${p.data?.area ? ` · ${esc(p.data.area)}` : ""} · since ${esc(day(p.purchased_at))}</small></div></div>`).join("")}</div>` : empty("No property yet", "Buy an MLO below to start a legitimate business or a private lab.", "building")}
+        ${selected.purchases.filter((p) => p.kind !== "property").length ? `<div class="asset-chips">${selected.purchases.filter((p) => p.kind !== "property").map((p) => `<span class="pill plain">${icon(KIND_ICON[p.kind] || "sparkle")}${esc(p.label)}</span>`).join("")}</div>` : ""}
+      </section>
+      <section class="card">
+        <div class="card-head"><div><h2>Ledger</h2><p>Every dollar in and out.</p></div></div>
+        ${ledger.length ? `<div class="feed ledger">${ledger.slice(0, 14).map((t) => `<div class="feed-row"><div class="feed-ico" style="color:rgb(${TX_TONE[t.kind] || "166 179 195"});background:rgba(${(TX_TONE[t.kind] || "166 179 195").replaceAll(" ", ",")},.1)">${icon(Number(t.amount) >= 0 ? "trend" : "wallet")}</div><div class="txt"><b>${esc(t.description)}</b><small>${esc(titleCase(t.kind))}${t.actor_id && /^\d{15,24}$/.test(String(t.actor_id)) ? ` · ${esc(state.data.people?.[t.actor_id]?.name || "member")}` : ""}</small></div><div class="row-end"><span class="amount ${Number(t.amount) >= 0 ? "up" : "down"}">${Number(t.amount) >= 0 ? "+" : "−"}${money(Math.abs(Number(t.amount)))}</span><time>${esc(ago(t.created_at))}</time></div></div>`).join("")}</div>` : empty("No transactions", "Deliver product or work your business in game to earn money.", "wallet")}
+      </section>
+    </div>
+    <section class="card">
+      <div class="card-head"><div><h2>Organization shop</h2><p>${selected.leader ? "Purchases apply in game instantly." : "Only leaders can buy. Ask yours to pick something up."}</p></div>${seg("shop-kind", Object.entries(eco.kinds || {}).map(([k, label]) => [k, label, (eco.shop || []).filter((row) => row.kind === k && row.org_types.includes(selected.type)).length]), kind)}</div>
+      <div class="shop-grid">${shopRows.map(shopCard).join("") || empty("Nothing in this aisle", "No items of this kind are available to this organization type.", "sparkle")}</div>
+    </section>
+    <section class="card how-card">
+      <div class="card-head"><div><h2>How the money works</h2><p>Organization money lives only on the website and Discord - never in your pockets in game.</p></div></div>
+      <div class="how-grid">
+        <div><span class="feed-ico">${icon("leaf")}</span><b>Produce</b><small>Gangs on <kbd>/duty</kbd> cook or harvest at a lab (public or owned).</small></div>
+        <div><span class="feed-ico">${icon("pin")}</span><b>Deliver</b><small>Start a run from <kbd>F2</kbd>, drive the product to the drop-off and hand it over. Police may get a tip.</small></div>
+        <div><span class="feed-ico">${icon("building")}</span><b>Run a business</b><small>Work shifts at your property terminal, <kbd>/repair</kbd> or <kbd>/serve</kbd> customers.</small></div>
+        <div><span class="feed-ico">${icon("wallet")}</span><b>Spend</b><small>Leaders buy MLOs, cars, armory permits, outfits and perks here. Check <kbd>/orgbank</kbd> in Discord.</small></div>
+      </div>
+    </section>`;
+}
+
+function orgAdjustDialog(id) {
+  const org = (state.data.economy?.organizations || []).find((o) => Number(o.id) === Number(id));
+  if (!org) return;
+  openDialog({ kicker: "Wallet management", title: `Adjust ${org.name}`, submit: "Apply adjustment", action: "org-adjust", data: { orgId: org.id },
+    body: `<div class="kv"><div><small>Current balance</small><b>${money(org.wallet.balance)}</b></div></div><label class="field">Amount (negative removes money)<input name="amount" type="number" step="1" required placeholder="5000"></label><label class="field">Reason<input name="reason" maxlength="160" minlength="3" required placeholder="Event prize, refund, correction…"></label>` });
+}
+
+function orgLeaderDialog(id) {
+  const org = (state.data.economy?.organizations || []).find((o) => Number(o.id) === Number(id));
+  if (!org) return;
+  openDialog({ kicker: "Organization leaders", title: `${org.name} leaders`, submit: "Save", action: "org-leader", data: { orgId: org.id },
+    body: `${org.leaders.length ? `<div class="feed">${org.leaders.map((l) => `<div class="feed-row">${person(l)}<div class="row-end"><span class="pill pill-sun">Leader</span></div></div>`).join("")}</div>` : `<div class="callout">${icon("info")}<div>No leaders yet - nobody can spend this wallet.</div></div>`}
+      <label class="field">Discord user ID<input name="discordId" inputmode="numeric" pattern="[0-9]{15,24}" required placeholder="123456789012345678"></label>
+      <div class="field">Access<div class="choice"><label class="approve"><input type="radio" name="leader" value="1" checked><span>Make leader<small>Can buy from the shop</small></span></label><label class="deny"><input type="radio" name="leader" value="0"><span>Remove<small>Back to member</small></span></label></div></div>` });
+}
+
+const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView };
 function render() {
   nav();
   (renders[state.view] || dashboard)();
@@ -455,6 +851,9 @@ function render() {
 function go(view) {
   state.view = view;
   state.profile = null;
+  state.examTaking = null;
+  state.appealing = null;
+  state.appealStep = 1;
   if (location.hash.slice(1) !== view) history.pushState(null, "", `#${view}`);
   closeDrawer();
   render();
@@ -499,19 +898,6 @@ function renderTicketFields(type) {
   $("#ticket-fields").innerHTML = (spec?.fields || []).map(([id, label, style, required, max]) => `<label class="field">${esc(label)}${required ? "" : ` <small>(optional)</small>`}${style === "paragraph" ? `<textarea name="field:${esc(id)}" maxlength="${Number(max) || 1000}" ${required ? "required" : ""}></textarea>` : `<input name="field:${esc(id)}" maxlength="${Number(max) || 200}" ${required ? "required" : ""}>`}</label>`).join("");
 }
 
-function appealDialog(banId) {
-  const row = state.data.punishments.find((p) => p.ban_id === banId);
-  openDialog({
-    kicker: "Verified appeal",
-    title: `Appeal ${banId}`,
-    submit: "Submit appeal",
-    action: "appeal",
-    data: { banId },
-    body: `${row ? `<div class="kv"><div><small>Punishment</small><b>${esc(titleCase(row.action))} · ${esc(scope(row))}</b></div><div><small>Issued</small><b>${esc(date(row.created_at))}</b></div><div class="wide"><small>Reason given</small><b>${esc(row.reason)}</b></div></div>` : ""}
-      <label class="field">Why should this be reconsidered?<textarea name="statement" minlength="40" maxlength="4000" required placeholder="Explain what happened, what you'd like staff to reconsider, and anything you've learned or changed."></textarea><small>At least 40 characters. Be specific and honest - this opens a private Ban Appeal ticket with staff.</small></label>`,
-  });
-}
-
 function ticketManageDialog(id) {
   const priorities = state.data.priorities || [];
   openDialog({
@@ -523,30 +909,6 @@ function ticketManageDialog(id) {
     body: `<label class="field">Action<select name="ticketAction" id="manage-action"><option value="priority">Change priority</option><option value="note">Add a private staff note</option><option value="close">Close the ticket</option></select></label>
       <label class="field" id="manage-level">Priority<select name="level">${priorities.map((p, i) => p ? `<option value="${i}">${esc(p.label)} · ${esc(p.sla)} min target</option>` : "").join("")}</select></label>
       <label class="field">Reason or note<textarea name="reason" maxlength="1000" required></textarea></label>`,
-  });
-}
-
-function reviewAppealDialog(id) {
-  const a = (state.data.appealQueue || []).find((item) => Number(item.id) === Number(id));
-  if (!a) return;
-  const what = a.action === "blacklist" ? "the network blacklist" : "this ban";
-  openDialog({
-    kicker: "Appeal review",
-    title: `${a.ban_id} · Appeal #${a.id}`,
-    submit: "Save decision",
-    action: "appeal-review",
-    data: { appealId: a.id, banId: a.ban_id },
-    body: `<div class="kv"><div><small>Member</small><b>${esc(state.data.people?.[a.author_id]?.name || a.author_id)}</b></div><div><small>Punishment</small><b>${esc(titleCase(a.action))}</b></div><div class="wide"><small>Original reason</small><b>${esc(a.case_reason)}</b></div></div>
-      <div class="quote">${esc(a.statement)}</div>
-      <div class="field">Decision
-        <div class="choice">
-          <label><input type="radio" name="status" value="under_review" ${a.status === "submitted" ? "checked" : ""}><span>In review<small>Let them know you're on it</small></span></label>
-          <label class="approve"><input type="radio" name="status" value="approved"><span>Approve<small>Lifts ${esc(what)} now</small></span></label>
-          <label class="deny"><input type="radio" name="status" value="denied"><span>Deny<small>Punishment stays</small></span></label>
-        </div>
-      </div>
-      <div class="callout warn" id="approve-warning" hidden>${icon("alert")}<div>Approving will <b>immediately lift ${esc(a.ban_id)}</b> wherever it applies, DM the member, and close the appeal ticket.</div></div>
-      <label class="field">Response to the member<textarea name="response" maxlength="4000" placeholder="Visible to the member in the portal and their DM."></textarea></label>`,
   });
 }
 
@@ -613,7 +975,38 @@ $("#portal-content").addEventListener("click", async (event) => {
     return;
   }
   const appeal = target.closest("[data-appeal]");
-  if (appeal) return appealDialog(appeal.dataset.appeal);
+  if (appeal) { state.appealing = appeal.dataset.appeal; state.appealStep = 1; render(); window.scrollTo({ top: 0 }); return; }
+  if (target.closest("[data-appeal-cancel]")) { captureAppealDraft(); state.appealing = null; render(); return; }
+  const appealStep = target.closest("[data-appeal-step]");
+  if (appealStep) {
+    captureAppealDraft();
+    const next = Number(appealStep.dataset.appealStep);
+    if (next > (state.appealStep || 1)) {
+      const draft = loadAppealDraft(state.appealing);
+      const needed = (state.data.appealQuestions || []).filter((q) => (next === 2 ? ["account", "rules"] : ["responsibility", "reason", "learned"]).includes(q.id));
+      const missing = needed.find((q) => q.type === "choice" ? !draft[q.id] : String(draft[q.id] || "").trim().length < (q.min || 0));
+      if (missing) return toast(missing.type === "choice" ? `Answer: ${missing.label}` : `"${missing.label}" needs at least ${missing.min} characters.`, true);
+    }
+    state.appealStep = next; render(); window.scrollTo({ top: 0 }); return;
+  }
+  const appealOpen = target.closest("[data-appeal-open]");
+  if (appealOpen) { state.appealOpen = Number(state.appealOpen) === Number(appealOpen.dataset.appealOpen) ? null : Number(appealOpen.dataset.appealOpen); render(); return; }
+  const appealDialogBtn = target.closest("[data-appeal-dialog]");
+  if (appealDialogBtn) return appealStaffDialog(appealDialogBtn.dataset.appealDialog, appealDialogBtn.dataset.id);
+  const appealAct = target.closest("[data-appeal-act]");
+  if (appealAct) {
+    appealAct.disabled = true;
+    try { const result = await api("portal/appeal/review", { method: "POST", body: JSON.stringify({ appealId: Number(appealAct.dataset.id), action: appealAct.dataset.appealAct }) }); state.data = result.data; render(); toast("Appeal claimed."); }
+    catch (error) { toast(error.message, true); appealAct.disabled = false; }
+    return;
+  }
+  const appealWithdraw = target.closest("[data-appeal-withdraw]");
+  if (appealWithdraw) {
+    if (!confirm("Withdraw this appeal? Withdrawn appeals do not count towards your limit.")) return;
+    try { const result = await api("portal/appeal/withdraw", { method: "POST", body: JSON.stringify({ appealId: Number(appealWithdraw.dataset.appealWithdraw) }) }); state.data = result.data; render(); toast("Appeal withdrawn."); }
+    catch (error) { toast(error.message, true); }
+    return;
+  }
   const requestClose = target.closest("[data-request-close]");
   if (requestClose) {
     try {
@@ -648,11 +1041,129 @@ $("#portal-content").addEventListener("click", async (event) => {
   }
   const manage = target.closest("[data-ticket-manage]");
   if (manage) return ticketManageDialog(manage.dataset.ticketManage);
-  const review = target.closest("[data-review-appeal]");
-  if (review) return reviewAppealDialog(Number(review.dataset.reviewAppeal));
+  const examStart = target.closest("[data-exam-start]");
+  if (examStart) { state.examTaking = examStart.dataset.examStart; render(); window.scrollTo({ top: 0 }); return; }
+  if (target.closest("[data-exam-cancel]")) { state.examTaking = null; render(); return; }
+  const examOpen = target.closest("[data-exam-open]");
+  if (examOpen) { state.examOpen = Number(state.examOpen) === Number(examOpen.dataset.examOpen) ? null : Number(examOpen.dataset.examOpen); render(); return; }
+  const examReview = target.closest("[data-exam-review]");
+  if (examReview) return examReviewDialog(Number(examReview.dataset.examReview));
+  const examWithdraw = target.closest("[data-exam-withdraw]");
+  if (examWithdraw) {
+    if (!confirm("Withdraw this application? You can submit a new one afterwards.")) return;
+    try {
+      const result = await api("portal/exam/withdraw", { method: "POST", body: JSON.stringify({ applicationId: Number(examWithdraw.dataset.examWithdraw) }) });
+      state.data = result.data; render(); toast("Application withdrawn.");
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
+  const orgBuy = target.closest("[data-org-buy]");
+  if (orgBuy) {
+    const eco = state.data.economy;
+    const row = (eco.shop || []).find((item) => item.item_key === orgBuy.dataset.orgBuy);
+    const orgs = eco.organizations || [];
+    const org = orgs.find((o) => String(o.id) === String(filter("org-id", orgs[0]?.id))) || orgs[0];
+    if (!row || !org) return;
+    openDialog({ kicker: org.name, title: `Buy ${row.label}?`, submit: `Buy for ${money(row.price)}`, action: "org-buy", data: { orgId: org.id, itemKey: row.item_key },
+      body: `<div class="kv"><div><small>Price</small><b>${money(row.price)}</b></div><div><small>Wallet after</small><b>${money(Number(org.wallet.balance) - Number(row.price))}</b></div><div class="wide"><small>What you get</small><b>${esc(row.description)}</b></div></div><div class="callout">${icon("info")}<div>${row.kind === "property" ? "The property is yours until you sell it (50% refund). It appears in game for members on duty within a minute." : "Applies in game for every member on duty."}</div></div>` });
+    return;
+  }
+  const orgSell = target.closest("[data-org-sell]");
+  if (orgSell) {
+    const orgs = state.data.economy?.organizations || [];
+    const org = orgs.find((o) => String(o.id) === String(filter("org-id", orgs[0]?.id))) || orgs[0];
+    const row = (state.data.economy.shop || []).find((item) => item.item_key === orgSell.dataset.orgSell);
+    openDialog({ kicker: org.name, title: `Sell ${row?.label || "property"}?`, submit: "Sell property", tone: "btn-danger", action: "org-sell", data: { orgId: org.id, itemKey: orgSell.dataset.orgSell },
+      body: `<div class="callout warn">${icon("alert")}<div>You get <b>${money(Math.floor(Number(row?.price || 0) / 2))}</b> back and the property is released for any organization to buy.</div></div>` });
+    return;
+  }
+  const orgAdjust = target.closest("[data-org-adjust]");
+  if (orgAdjust) return orgAdjustDialog(orgAdjust.dataset.orgAdjust);
+  const orgLeader = target.closest("[data-org-leader]");
+  if (orgLeader) return orgLeaderDialog(orgLeader.dataset.orgLeader);
+});
+
+$("#portal-content").addEventListener("change", (event) => {
+  if (event.target.closest("#appeal-form")) { captureAppealDraft(); return; }
+  const form = event.target.closest("#exam-form");
+  if (!form) return;
+  const answers = loadDraft(form.dataset.exam);
+  if (event.target.type === "radio") answers[event.target.name] = Number(event.target.value);
+  saveDraft(form.dataset.exam, answers);
+  const scroll = window.scrollY;
+  examForm();
+  window.scrollTo({ top: scroll });
+});
+
+$("#portal-content").addEventListener("submit", async (event) => {
+  const replyForm = event.target.closest("[data-appeal-reply]");
+  if (replyForm) {
+    event.preventDefault();
+    const button = replyForm.querySelector("button");
+    button.disabled = true;
+    try { const result = await api("portal/appeal/reply", { method: "POST", body: JSON.stringify({ appealId: Number(replyForm.dataset.appealReply), body: new FormData(replyForm).get("body") }) }); state.data = result.data; render(); toast("Reply sent - your appeal is back with staff."); }
+    catch (error) { toast(error.message, true); button.disabled = false; }
+    return;
+  }
+  if (event.target.id === "appeal-form") {
+    event.preventDefault();
+    const draft = captureAppealDraft();
+    const banId = event.target.dataset.ban;
+    const button = event.target.querySelector("button[type=submit]");
+    button.disabled = true;
+    try {
+      const evidence = (draft.evidence || []).filter(Boolean);
+      const answers = Object.fromEntries((state.data.appealQuestions || []).map((q) => [q.id, draft[q.id] || ""]));
+      const result = await api("portal/appeal", { method: "POST", body: JSON.stringify({ banId, answers, evidence, acknowledge: draft.acknowledge === true }) });
+      clearAppealDraft(banId);
+      state.appealing = null;
+      state.data = result.data;
+      render();
+      window.scrollTo({ top: 0 });
+      toast(`Appeal submitted. Staff will review it - you can follow it below and in ticket #${result.result.ticket.id}.`);
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+    return;
+  }
+  if (event.target.id !== "exam-form") return;
+  event.preventDefault();
+  const key = event.target.dataset.exam;
+  const answers = loadDraft(key);
+  for (const area of event.target.querySelectorAll("textarea")) answers[area.name] = area.value;
+  if (!confirm("Submit your exam now? Answers cannot be changed afterwards.")) return;
+  const button = event.target.querySelector("button[type=submit]");
+  button.disabled = true;
+  try {
+    const result = await api("portal/exam/submit", { method: "POST", body: JSON.stringify({ examKey: key, answers }) });
+    clearDraft(key);
+    state.examTaking = null;
+    state.data = result.data;
+    render();
+    window.scrollTo({ top: 0 });
+    toast(`Exam submitted${result.result?.autoScore !== null && result.result?.autoScore !== undefined ? ` · multiple choice ${result.result.autoScore}%` : ""}. Management has been notified.`);
+  } catch (error) { toast(error.message, true); button.disabled = false; }
 });
 
 $("#portal-content").addEventListener("input", (event) => {
+  if (event.target.closest("#appeal-form")) {
+    captureAppealDraft();
+    const counter = event.target.name && $(`#appeal-form [data-count="${event.target.name}"]`);
+    if (counter) {
+      const length = event.target.value.trim().length;
+      counter.textContent = `${length} / ${counter.dataset.min} characters minimum`;
+      counter.classList.toggle("ok", length >= Number(counter.dataset.min));
+    }
+    return;
+  }
+  const area = event.target.closest("#exam-form textarea");
+  if (area) {
+    const form = area.closest("#exam-form");
+    const answers = loadDraft(form.dataset.exam);
+    answers[area.name] = area.value;
+    saveDraft(form.dataset.exam, answers);
+    const counter = form.querySelector(`[data-count="${area.name}"]`);
+    if (counter) counter.textContent = `${area.value.trim().length} / ${counter.textContent.split("/")[1].trim()}`;
+    return;
+  }
   const box = event.target.closest("[data-search]");
   if (!box) return;
   state.filters[box.dataset.search] = box.value;
@@ -671,6 +1182,19 @@ document.addEventListener("error", (event) => {
 $("#portal-dialog").addEventListener("change", (event) => {
   if (event.target.id === "ticket-type") renderTicketFields(event.target.value);
   if (event.target.id === "manage-action") $("#manage-level").hidden = event.target.value !== "priority";
+  if (event.target.name === "decision" && state.dialog?.action === "appeal-staff") {
+    $("#approve-warning").hidden = event.target.value !== "approved";
+    $("#reduce-days").hidden = event.target.value !== "reduced";
+    const button = $("#dialog-submit");
+    button.className = `btn ${event.target.value === "approved" ? "btn-good" : event.target.value === "denied" ? "btn-danger" : "btn-sun"}`;
+    button.textContent = event.target.value === "approved" ? "Approve & lift" : event.target.value === "denied" ? "Deny appeal" : "Reduce ban";
+    return;
+  }
+  if (event.target.name === "decision") {
+    const button = $("#dialog-submit");
+    button.className = `btn ${event.target.value === "passed" ? "btn-good" : event.target.value === "failed" ? "btn-danger" : "btn-sun"}`;
+    button.textContent = event.target.value === "passed" ? "Pass & grant role" : event.target.value === "failed" ? "Fail application" : "Save decision";
+  }
   if (event.target.name === "status") {
     $("#approve-warning").hidden = event.target.value !== "approved";
     const button = $("#dialog-submit");
@@ -698,26 +1222,45 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       toast(`Ticket #${result.result.id} is open - find it under Support or in Discord.`);
       state.view = "support";
       history.pushState(null, "", "#support");
-    } else if (action === "appeal") {
-      result = await api("portal/appeal", { method: "POST", body: JSON.stringify({ banId: data.banId, statement: form.get("statement") }) });
-      toast(`Appeal submitted. Staff will review it in ticket #${result.result.ticket.id}.`);
     } else if (action === "ticket-manage") {
       const kind = form.get("ticketAction");
       const input = { ticketId: data.ticketId, action: kind, level: Number(form.get("level")) };
       if (kind === "note") input.note = form.get("reason"); else input.reason = form.get("reason");
       result = await api("portal/ticket/action", { method: "POST", body: JSON.stringify(input) });
       toast("Ticket updated here and in Discord.");
-    } else if (action === "appeal-review") {
-      const status = form.get("status");
-      if (!status) throw new Error("Choose a decision.");
-      result = await api("portal/appeal/review", { method: "POST", body: JSON.stringify({ appealId: data.appealId, status, response: form.get("response") }) });
-      toast(status === "approved" ? `Appeal approved - ${data.banId} has been lifted.` : status === "denied" ? "Appeal denied." : "Marked as in review.");
+    } else if (action === "appeal-staff") {
+      const body = { appealId: data.appealId, action: data.kind === "decide" ? "decide" : data.kind };
+      if (data.kind === "info") body.message = form.get("message");
+      if (data.kind === "note") body.body = form.get("body");
+      if (data.kind === "vote") { body.vote = form.get("vote"); body.body = form.get("body"); if (!body.vote) throw new Error("Choose a vote."); }
+      if (data.kind === "decide") { body.decision = form.get("decision"); body.response = form.get("response"); body.days = Number(form.get("days")); if (!body.decision) throw new Error("Choose a decision."); }
+      result = await api("portal/appeal/review", { method: "POST", body: JSON.stringify(body) });
+      const r = result.result || {};
+      toast(data.kind === "info" ? `Question sent${r.dmSent === false ? " (DM failed - they will see it on the portal)" : ""}.` : data.kind === "note" ? "Note added." : data.kind === "vote" ? "Vote recorded." : r.decision === "approved" ? `Appeal approved - ${data.banId} has been lifted.` : r.decision === "reduced" ? `Ban reduced - now ends ${date(r.reducedUntil)}.` : "Appeal denied.");
     } else if (action === "ops-announce") {
       result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify({ action: "announce", message: form.get("message") }) });
       toast("Broadcast delivered to the game server.");
     } else if (action === "ops-event") {
       result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify({ action: "event_start", title: form.get("title"), description: form.get("description"), location: form.get("location"), duration: Number(form.get("duration")), x: form.get("x"), y: form.get("y"), z: form.get("z") }) });
       toast("Community event is live and players were notified.");
+    } else if (action === "exam-review") {
+      const decision = form.get("decision");
+      if (!decision) throw new Error("Choose a decision.");
+      result = await api("portal/exam/review", { method: "POST", body: JSON.stringify({ applicationId: data.applicationId, decision, score: form.get("score"), notes: form.get("notes") }) });
+      const r = result.result || {};
+      toast(decision === "passed" ? (r.roleGranted ? "Passed - role granted in the staff Discord and logged." : `Passed and logged. Role not granted: ${r.roleNote || "unknown"}`) : decision === "failed" ? "Marked as failed and logged." : "Marked as in review.", decision === "passed" && !r.roleGranted);
+    } else if (action === "org-buy") {
+      result = await api("portal/org/purchase", { method: "POST", body: JSON.stringify(data) });
+      toast(`Purchased. Wallet balance: ${money(result.result.balance)}.`);
+    } else if (action === "org-sell") {
+      result = await api("portal/org/sell", { method: "POST", body: JSON.stringify(data) });
+      toast(`Sold ${result.result.label} for ${money(result.result.refund)}.`);
+    } else if (action === "org-adjust") {
+      result = await api("portal/org/adjust", { method: "POST", body: JSON.stringify({ orgId: data.orgId, amount: Number(form.get("amount")), reason: form.get("reason") }) });
+      toast(`Wallet adjusted. New balance ${money(result.result.balance)}.`);
+    } else if (action === "org-leader") {
+      result = await api("portal/org/leader", { method: "POST", body: JSON.stringify({ orgId: data.orgId, discordId: form.get("discordId"), leader: form.get("leader") === "1" }) });
+      toast(result.result.leader ? "Leader added." : "Leader removed.");
     } else if (action === "ops-handoff") {
       result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify({ action: "handoff_add", body: form.get("body"), pinned: form.get("pinned") === "on" }) });
       toast("Handoff posted for the staff team.");
@@ -794,7 +1337,6 @@ async function start() {
   }
   $("#auth-view").hidden = true;
   $("#portal-app").hidden = false;
-  if (state.view === "organizations") state.view = "dashboard";
   await load();
   if (new URLSearchParams(location.search).get("next") === "control" && state.data.access.owner) location.replace("control.html");
 }
