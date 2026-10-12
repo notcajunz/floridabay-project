@@ -2,6 +2,7 @@ import { gzip, gunzip } from "node:zlib";
 import { promisify } from "node:util";
 import { ChannelType } from "discord.js";
 import { db } from "./database.js";
+import { requireOwnerId } from "./access-control.js";
 
 const pack = promisify(gzip);
 const unpack = promisify(gunzip);
@@ -89,6 +90,7 @@ async function snapshotGuild(guild) {
 
 /** Saves a backup of every network server the bot is in. */
 export async function saveAll(client, { actorId, label = null } = {}) {
+  requireOwnerId(actorId, "manage server backups");
   if (running) throw new Error(`A backup ${running} is already running.`);
   running = "save";
   try {
@@ -142,7 +144,8 @@ export async function saveAll(client, { actorId, label = null } = {}) {
   }
 }
 
-export async function listBackups(limit = 10) {
+export async function listBackups(actorId, limit = 10) {
+  requireOwnerId(actorId, "manage server backups");
   return db.query(
     "SELECT id,label,created_by,created_at,guild_count,skipped FROM discord_server_backups ORDER BY id DESC LIMIT ?",
     [limit],
@@ -359,6 +362,7 @@ async function restoreGuild(guild, data, { apply, members, skipUser, why }) {
  * re-applies saved settings, but never deletes anything. `apply:false` is a dry run.
  */
 export async function restoreAll(client, { backupId = null, apply = false, members = true, skipUser = async () => false, onProgress = null, actorId } = {}) {
+  requireOwnerId(actorId, "manage server backups");
   if (running) throw new Error(`A backup ${running} is already running.`);
   const backup = backupId
     ? await db.one("SELECT * FROM discord_server_backups WHERE id=?", [backupId])

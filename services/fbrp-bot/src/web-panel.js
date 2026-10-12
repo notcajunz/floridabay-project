@@ -8,6 +8,7 @@ import { NETWORK_KINDS, callGame } from "./sync.js";
 import { PERMISSION_BUNDLES, PERMISSION_CATALOG, VMENU_BUNDLES } from "./permission-catalog.js";
 import { connectUrl } from "./site-url.js";
 import { createAppeals } from "./appeals.js";
+import { OWNER_DISCORD_ID } from "./access-control.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -15,7 +16,7 @@ const ACE_OBJECT = /^[A-Za-z0-9_.*:-]{1,120}$/;
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web");
 const logoFile = path.resolve(webRoot, "../../../server-data/resources/[fbrp]/fbrp_loading/web/assets/fbrp-logo.png");
-const ACTOR = "1090083387638812755";
+const ACTOR = OWNER_DISCORD_ID;
 const now = () => Date.now();
 
 const MODAL_STYLES = new Set(["short", "paragraph"]);
@@ -842,7 +843,7 @@ export function startWebPanel(context) {
     return legacyLocation && host === legacyLocation.host.toLowerCase() ? legacyLocation : publicLocation;
   };
   const baseUrl = (request) => baseFor(request).href.replace(/\/$/, "");
-  const ownerDiscordId = String(context.ownerDiscordId || "1090083387638812755");
+  const ownerDiscordId = String(context.ownerDiscordId || OWNER_DISCORD_ID);
   const oauthStates = new Map();
   const dmChallenges = new Map();
   const {

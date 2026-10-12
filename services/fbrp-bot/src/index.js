@@ -24,6 +24,7 @@ import {
   grantVerifiedRole,
 } from "./verification.js";
 import { saveAll, listBackups, restoreAll, backupBusy } from "./backup.js";
+import { OWNER_DISCORD_ID, requireOwnerId } from "./access-control.js";
 import {
   pool,
   db,
@@ -62,6 +63,7 @@ import {
 import {
   EVENT_LABEL,
   SECURITY_SETTINGS,
+  YOUNG_ACCOUNT_ALERT_DAYS,
   enforceProtectedRoles,
   expireLockdowns,
   getSecuritySettings,
@@ -109,8 +111,6 @@ import { createEconomy } from "./economy.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
-const OWNER_DISCORD_ID = "1090083387638812755";
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -256,6 +256,11 @@ async function requirePermission(interaction, object) {
   throw new Error(`You need the \`${object}\` ACE permission.`);
 }
 
+/** High-risk control-plane changes are reserved for the one configured community owner. */
+function requireOwner(interaction, action = "make this change") {
+  requireOwnerId(interaction.user.id, action);
+}
+
 const COMMAND_COOLDOWN_SECONDS = 15;
 
 /** Persistent per-user/action cooldown, shared across every Discord in the network. */
@@ -350,6 +355,7 @@ async function aceCommand(i, sub) {
       clip(`**Curated bundles** · grant with \`/ace bundle\`\n${bundles}\n\nUse **/acelist** to page through every vMenu, EasyAdmin and Florida Bay permission with descriptions.`, 4000),
     );
   }
+  if (sub !== "list") requireOwner(i, "edit ACE permissions, groups, memberships, or role bindings");
   if (sub === "group-create") {
     const name = group(i.options.getString("name", true));
     await db.query(
@@ -1727,6 +1733,7 @@ async function botguardCommand(i, sub) {
     });
   }
   if (sub === "exempt-add" || sub === "exempt-remove") {
+    requireOwner(i, "manage security exemptions");
     const user = i.options.getUser("member", true),
       add = sub === "exempt-add";
     if (add)
@@ -1773,7 +1780,7 @@ const securityLog = (guild, entry) => log(guild, entry, "security");
 async function securityCommand(i, sub) {
   await requirePermission(i, "fbrp.security.manage");
   if (sub.startsWith("exempt-")) {
-    if (i.user.id !== OWNER_DISCORD_ID) throw new Error("Only the Florida Bay owner can manage security exemptions.");
+    requireOwner(i, "manage security exemptions");
     if (sub === "exempt-list") {
       const rows = await db.query("SELECT * FROM discord_security_exemption_scopes ORDER BY guild_id='*' DESC,added_at DESC");
       return card("Automated-security exemptions", {
@@ -1882,13 +1889,13 @@ async function securityCommand(i, sub) {
     return state ? `🔒 **${name}** · locked${state.until ? `, lifts ${when(state.until)}` : " until unlocked"}` : `🟢 ${name}`;
   });
   return card("Security status", {
-    description: "These protections scan **every** account on every Florida Bay network server, staff and server owners included. Only the bot and accounts with a `/security exempt-add` exemption are skipped. Server owners are detected and reported, but Discord does not let a bot act against them.",
+    description: `These protections scan **every** account on every Florida Bay network server, staff and server owners included. Every human account under ${YOUNG_ACCOUNT_ALERT_DAYS} days old creates an alert, including exempt accounts. The bot and accounts with a \`/security exempt-add\` exemption are skipped only for automated enforcement. Server owners are detected and reported, but Discord does not let a bot act against them.`,
     rows: [
       ["Anti-nuke", `${onOff(s.antinuke)}\n${s.nuke_limit} of a kind or ${s.nuke_total} danger points in ${s.nuke_window}s\nPunishment: ${s.nuke_punishment}${s.nuke_network_ban ? " (network-wide)" : ""}\nUndo damage: ${onOff(s.nuke_restore)} · Failsafe lockdown: ${onOff(s.nuke_failsafe_lockdown)}`],
       ["Anti-raid", `${onOff(s.antiraid)}\n${s.raid_joins} joins in ${s.raid_window}s · ${s.raid_suspicious_joins} high-risk joins in ${Math.round(s.raid_suspicious_window / 60)} min · ${s.raid_message_accounts} new accounts posting the same message\n${s.raid_lockdown ? `Lockdown${s.lockdown_minutes ? ` for ${s.lockdown_minutes} min` : ""}` : "Alert only"} · raiders: ${s.raid_kick_new ? s.raid_action : "left alone"}`],
       ["Anti-spam", `${onOff(s.antispam)}\n${s.spam_messages} msgs in ${s.spam_window}s · ${s.spam_mentions} mentions · ${s.spam_duplicates} repeats · ${s.spam_channels} channels · ${s.spam_lines} lines\nTimeout: ${s.spam_timeout} min${s.spam_escalate ? ", doubling for repeat offenders" : ""}\nScam links: ${onOff(s.scam_filter)}`],
       ["Guards", `Permission guard: ${onOff(s.permission_guard)}\nAdmin grant guard: ${onOff(s.admin_grant_guard)}\nWebhook guard: ${onOff(s.webhook_guard)}\nInvite filter: ${onOff(s.invite_filter)}\nBot guard: On`],
-      ["New accounts", `${s.young_account_days && s.young_account_action !== "off" ? `Younger than ${s.young_account_days}d: ${s.young_account_action}` : "No check"}\nDuring lockdown: ${s.raid_kick_new ? `kick if younger than ${s.raid_account_days}d` : "allowed"}`],
+      ["New accounts", `Alert every join under ${YOUNG_ACCOUNT_ALERT_DAYS}d\nConfigured action: ${s.young_account_days && s.young_account_action !== "off" ? `younger than ${s.young_account_days}d: ${s.young_account_action}` : "none"}\nDuring lockdown: ${s.raid_kick_new ? `act if younger than ${s.raid_account_days}d` : "allowed"}`],
       ["Last 24 hours", counts.map((row) => `${EVENT_LABEL[row.event_type] || humanize(row.event_type)} · ${row.n}`).join("\n") || "No events"],
       ["Servers", chunkLines(lockLines, 1000)[0] || "No network servers", false],
     ],
@@ -2358,6 +2365,7 @@ async function vmenuCommand(i, sub) {
       description: chunkLines(rows.map((row) => `\`${row.object}\` · **${row.mode}**`), 3900)[0] || "No vMenu permissions assigned.",
     });
   }
+  requireOwner(i, "edit vMenu ACE permissions");
   if (sub === "permission") {
     const object = clean(i.options.getString("permission", true), 120);
     const mode = i.options.getString("mode", true);
@@ -3755,7 +3763,7 @@ function backupSummary(run) {
 }
 
 async function backupCommand(i, sub) {
-  if (i.user.id !== OWNER_DISCORD_ID) throw new Error("Only the Florida Bay owner can use /backup.");
+  requireOwner(i, "manage server backups");
   if (sub === "save") {
     const result = await saveAll(client, { actorId: i.user.id, label: i.options.getString("label") });
     await audit(i.user.id, "backup.save", String(result.id), { servers: result.guilds.length, skipped: result.skipped.length });
@@ -3769,7 +3777,7 @@ async function backupCommand(i, sub) {
     });
   }
   if (sub === "list") {
-    const rows = await listBackups(10);
+    const rows = await listBackups(i.user.id, 10);
     return card("Server backups", {
       description: rows.map((r) => `**#${r.id}** · ${r.guild_count} servers · <t:${Math.floor(Number(r.created_at) / 1000)}:f>${r.label ? ` · ${clean(r.label, 60)}` : ""}`).join("\n") || "No backups yet. Run `/backup save`.",
     });
@@ -4345,7 +4353,8 @@ async function recordNativeDiscordBan(ban) {
 client.on("guildMemberAdd", (member) => {
   void guardBot(member, securityLog)
     .then(async () => {
-      if (member.user.bot || await enforceVerificationOnJoin(member) || await guardJoin(member, securityLog) || await enforceGlobalOnJoin(member)) return;
+      // Security join alerts must run before verification/global enforcement can remove the member.
+      if (member.user.bot || await guardJoin(member, securityLog) || await enforceVerificationOnJoin(member) || await enforceGlobalOnJoin(member)) return;
       await applyPendingRoleRestore(member);
       await syncMember(client, member);
       if (await activeStaff(member.id)) await setStaffTeamRole(member.id, true);

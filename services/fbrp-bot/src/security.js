@@ -202,6 +202,32 @@ const ageText = (user) => {
   const days = accountAge(user);
   return days < 1 ? `${Math.max(1, Math.round(days * 24))} hour(s) old` : `${Math.floor(days)} day(s) old`;
 };
+export const YOUNG_ACCOUNT_ALERT_DAYS = 14;
+export const requiresYoungAccountAlert = (user, at = Date.now()) =>
+  (at - Number(user.createdTimestamp)) / 86400000 < YOUNG_ACCOUNT_ALERT_DAYS;
+
+/** This alert is unconditional: exemptions disable enforcement, not visibility of a new account joining. */
+async function alertYoungAccount(member, log, { age, risk = null, flags = [], action = "Alert only", exempted = false } = {}) {
+  await securityEvent(member.guild.id, "young_account", null, member.id, action === "Alert only" ? "alerted" : action.toLowerCase(), {
+    age,
+    alertDays: YOUNG_ACCOUNT_ALERT_DAYS,
+    ...(risk === null ? {} : { risk, flags }),
+    exempted,
+  });
+  await log(member.guild, {
+    title: "Young account joined",
+    color: COLORS.warning,
+    thumbnail: member.user.displayAvatarURL(),
+    fields: [
+      ["Member", who(member.id)],
+      ["Account age", `${ageText(member.user)}\nCreated ${when(member.user.createdTimestamp)}`],
+      ["Alert rule", `Account is under ${YOUNG_ACCOUNT_ALERT_DAYS} days old`],
+      ...(risk === null ? [] : [["Risk", `${risk} · ${flags.join(", ") || "none"}`]]),
+      ...(exempted ? [["Security exemption", "Exempt from automated action; alert still sent"]] : []),
+      ["Action", action],
+    ],
+  });
+}
 
 /* ------------------------------------------------------------------------------------------------
  * Bot Guard
@@ -952,16 +978,26 @@ const actionText = (s) => ({ kick: "Kicked", ban: "Banned", timeout: "Timed out 
 
 /** Returns true when the member was removed, so the caller can skip the usual join sync. */
 export async function guardJoin(member, log) {
-  if (member.user.bot || !(await registered(member.guild.id))) return false;
+  if (member.user.bot) return false;
   const guild = member.guild;
-  if (await trusted(guild, member.id)) return false;
-  const s = await getSecuritySettings();
   const age = accountAge(member.user);
+  const shouldAlert = requiresYoungAccountAlert(member.user);
+  if (!(await registered(guild.id))) {
+    if (shouldAlert) await alertYoungAccount(member, log, { age });
+    return false;
+  }
+  if (await trusted(guild, member.id)) {
+    if (shouldAlert) await alertYoungAccount(member, log, { age, exempted: true });
+    return false;
+  }
+  const s = await getSecuritySettings();
   const keep = Math.max(s.raid_window, s.raid_suspicious_window) * 1000;
   const recent = (joins.get(guild.id) || []).filter((item) => Date.now() - item.at < keep);
   const risk = joinRisk(member.user, recent, s);
   recent.push({ id: member.id, at: Date.now(), age, score: risk.score, stem: risk.stem, created: member.user.createdTimestamp });
   joins.set(guild.id, recent);
+  // Send the dedicated under-14-day alert before raid/lockdown enforcement can return early.
+  if (shouldAlert) await alertYoungAccount(member, log, { age, risk: risk.score, flags: risk.flags });
   const locked = (await lockdownStates())[guild.id];
   if (locked && s.raid_kick_new && (age < s.raid_account_days || risk.score >= HIGH_RISK)) {
     const removed = await actOnRaider(guild, member.id, s, "Florida Bay lockdown: new or high-risk account joined during lockdown");
@@ -991,24 +1027,17 @@ export async function guardJoin(member, log) {
       if (removed.has(member.id)) return true;
     }
   }
-  if (s.young_account_action !== "off" && s.young_account_days > 0 && age < s.young_account_days) {
-    let result = "Flagged";
+  const configuredYoungAccount = s.young_account_action !== "off" && s.young_account_days > 0 && age < s.young_account_days;
+  if (configuredYoungAccount) {
+    let result = "Alert only";
     if (s.young_account_action === "kick")
       result = (await member.kick(`Florida Bay security: account younger than ${s.young_account_days} days`).then(() => true, () => false)) ? "Kicked" : "Could not kick";
-    if (s.young_account_action === "timeout")
+    else if (s.young_account_action === "timeout")
       result = (await member.timeout(60 * 60000, `Florida Bay security: account younger than ${s.young_account_days} days`).then(() => true, () => false)) ? "Timed out for 1 hour" : "Could not time out";
-    await securityEvent(guild.id, "young_account", null, member.id, result.toLowerCase(), { age, risk: risk.score });
-    await log(guild, {
-      title: "Young account joined",
-      color: COLORS.muted,
-      thumbnail: member.user.displayAvatarURL(),
-      fields: [
-        ["Member", who(member.id)],
-        ["Account age", `${ageText(member.user)}\nCreated ${when(member.user.createdTimestamp)}`],
-        ["Risk", `${risk.score} · ${risk.flags.join(", ") || "none"}`],
-        ["Action", result],
-      ],
-    });
+    // The fixed alert already covered accounts under 14 days; only send a second entry when an
+    // automated action occurred. Configured wider thresholds still retain their own alert.
+    if (!shouldAlert || result !== "Alert only")
+      await alertYoungAccount(member, log, { age, risk: risk.score, flags: risk.flags, action: result });
     return result === "Kicked";
   } else if (risk.score >= HIGH_RISK) {
     await securityEvent(guild.id, "risky_join", null, member.id, "flagged", { age, risk: risk.score, flags: risk.flags });
