@@ -2,7 +2,7 @@
 -- gang/organization tag underneath. Player names are never drawn.
 
 local HEAD_FONT, SUB_FONT = 4, 4
-local HEAD_SCALE, ID_SCALE, SUB_SCALE = 0.82, 0.66, 0.5
+local HEAD_SCALE, ID_SCALE, SUB_SCALE = 0.82, 0.66, 0.82
 local HEAD_BONE = 31086
 
 local function hexColor(hex)

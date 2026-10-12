@@ -7,6 +7,7 @@ import * as roster from "./roster.js";
 import * as discipline from "./discipline.js";
 import * as investigations from "./investigations.js";
 import * as clocklog from "./clocklog.js";
+import * as quota from "./quota.js";
 import * as leave from "./leave.js";
 import * as intel from "./intel.js";
 import * as awards from "./awards.js";
@@ -74,6 +75,8 @@ async function slash(i, actor) {
       return investigations.command(i, actor, sub);
     case "discipline":
       return discipline.command(i, actor, sub);
+    case "activity":
+      return quota.activityReport(i, actor);
     case "loa":
       return leave.command(i, actor, sub);
     case "commend":
@@ -105,6 +108,7 @@ async function component(i, actor) {
     if (area === "case") return investigations.modalSubmit(i, actor, action, args);
     if (area === "loa" && action === "denymodal") return leave.modal(i, args[0]);
   }
+  if (area === "act" && action === "warn") return quota.applyInactivity(i, actor, args[0]);
   if (area === "loa") return leave.button(i, action, args[0]);
   if (area === "setup") return admin.button(i, actor, action);
   if (area === "case") return investigations.component(i, actor, action, args);

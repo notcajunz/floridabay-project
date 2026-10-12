@@ -1,5 +1,5 @@
 import { allMembers, config, db, ranks, setConfig } from "./store.js";
-import { C, card, mention, pages, roleMention } from "./util.js";
+import { C, card, hours, mention, pages, roleMention } from "./util.js";
 
 /**
  * Self-updating messages: one message per panel, edited in place. Changes queue a refresh that runs
@@ -10,7 +10,7 @@ const BUILDERS = {
   chain: async (guild) => ({ embeds: await chainEmbeds(guild) }),
   directory: async (guild) => ({ embeds: (await directoryEmbeds(guild)).slice(0, 10) }),
   board: async () => ({ embeds: await (await import("./investigations.js")).boardEmbeds() }),
-  leaderboard: async () => ({ embeds: [await leaderboardEmbed()] }),
+  leaderboard: async (guild) => ({ embeds: [await leaderboardEmbed(guild)] }),
   blacklistedServers: async () => ({ embeds: [await (await import("./intel.js")).serverListEmbed()] }),
 };
 export const PANELS = Object.keys(BUILDERS);
@@ -121,9 +121,10 @@ export async function directoryEmbeds(guild) {
   );
 }
 
-export async function leaderboardEmbed() {
+export async function leaderboardEmbed(guild) {
   const now = Date.now();
-  const [investigators, decorated] = await Promise.all([
+  const [week, investigators, decorated] = await Promise.all([
+    (await import("./quota.js")).topThisWeek(guild),
     db.query("SELECT lead_id,COUNT(*) n FROM iaa_cases WHERE status='closed' AND lead_id IS NOT NULL AND closed_at>=? GROUP BY lead_id ORDER BY n DESC LIMIT 5", [now - 30 * 86400000]),
     db.query("SELECT discord_id,COUNT(*) n FROM iaa_awards GROUP BY discord_id ORDER BY n DESC LIMIT 5"),
   ]);
@@ -131,9 +132,10 @@ export async function leaderboardEmbed() {
   return card("🏆 IAA Leaderboard", {
     color: C.gold,
     fields: [
+      ["⏱️ In-game duty hours · this week", week.map((r, n) => `${medal(n)} ${mention(r.discord_id)} · ${hours(r.s)}`).join("\n") || "*Nobody has clocked in yet.*", false],
       ["🕵️ Top investigators · 30 days", investigators.map((r, n) => `${medal(n)} ${mention(r.lead_id)} · ${r.n} case${Number(r.n) === 1 ? "" : "s"} closed`).join("\n") || "—", false],
       ["🎖️ Most decorated", decorated.map((r, n) => `${medal(n)} ${mention(r.discord_id)} · ${r.n}`).join("\n") || "—", false],
     ],
-    footer: "Refreshes every 10 minutes",
+    footer: "Refreshes every 10 minutes · week resets Monday 00:00 UTC",
   });
 }

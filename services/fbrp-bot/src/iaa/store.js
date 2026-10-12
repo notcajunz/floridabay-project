@@ -16,6 +16,7 @@ export const PERMISSIONS = {
   "intel.lookup": { tier: "supervisor", label: "Intel lookups (Investigation Division also)", investigator: true },
   "intel.manage": { tier: "low_command", label: "Watchlist and blacklisted servers" },
   "leave.decide": { tier: "supervisor", label: "Approve or deny leave" },
+  "activity.manage": { tier: "low_command", label: "Activity reports and inactivity warnings" },
   "award.give": { tier: "low_command", label: "Commendations" },
   "award.medal": { tier: "high_command", label: "Medals and Agent of the Month" },
   admin: { tier: "high_command", label: "Bot setup and configuration" },
@@ -23,6 +24,7 @@ export const PERMISSIONS = {
 
 export const DEFAULT_SETTINGS = {
   nicknameSync: true,
+  quotas: { agent: 120, supervisor: 120, low_command: 90, trial_high_command: 90, high_command: 60 },
   perms: {},
   strikeDays: 60,
   inactivityDays: 14,
@@ -52,7 +54,7 @@ export async function config() {
     roles: map.roles || {},
     channels: map.channels || {},
     tiers: map.tiers || [],
-    settings: { ...DEFAULT_SETTINGS, ...(map.settings || {}) },
+    settings: { ...DEFAULT_SETTINGS, ...(map.settings || {}), quotas: { ...DEFAULT_SETTINGS.quotas, ...(map.settings?.quotas || {}) } },
     panels: Object.fromEntries(Object.entries(map).filter(([k]) => k.startsWith("panel:")).map(([k, v]) => [k.slice(6), v])),
     ready: Boolean(map.tiers),
   };

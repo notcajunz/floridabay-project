@@ -240,6 +240,17 @@ const discipline = new SlashCommandBuilder()
   )
   .addSubcommand((s) => s.setName("record").setDescription("Disciplinary record").addUserOption((o) => user(o)));
 
+const activity = new SlashCommandBuilder()
+  .setName("activity")
+  .setDescription("Quota enforcement from in-game hours")
+  .setDMPermission(false)
+  .addSubcommand((s) =>
+    s
+      .setName("report")
+      .setDescription("Agents below their weekly quota")
+      .addStringOption((o) => o.setName("week").setDescription("Which week (default last)").addChoices({ name: "Last week (enforceable)", value: "last" }, { name: "This week so far", value: "current" })),
+  );
+
 const loa = new SlashCommandBuilder()
   .setName("loa")
   .setDescription("Leave of absence")
@@ -320,6 +331,13 @@ const admin = new SlashCommandBuilder()
   )
   .addSubcommand((s) =>
     s
+      .setName("quota")
+      .setDescription("Weekly in-game duty quota for a tier")
+      .addStringOption((o) => o.setName("tier").setDescription("Tier").setRequired(true).addChoices(...TIERS))
+      .addIntegerOption((o) => o.setName("minutes").setDescription("Minutes per week (0 = none)").setRequired(true).setMinValue(0).setMaxValue(10080)),
+  )
+  .addSubcommand((s) =>
+    s
       .setName("permission")
       .setDescription("Lowest tier allowed to do something")
       .addStringOption((o) =>
@@ -378,4 +396,4 @@ const admin = new SlashCommandBuilder()
       .addIntegerOption((o) => o.setName("stale_hours").setDescription("Remind case leads after this many idle hours").setMinValue(12).setMaxValue(720)),
   );
 
-export const definitions = [iaa, investigation, discipline, loa, commend, intel, admin].map((c) => c.toJSON());
+export const definitions = [iaa, investigation, discipline, activity, loa, commend, intel, admin].map((c) => c.toJSON());

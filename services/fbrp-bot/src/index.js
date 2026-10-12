@@ -2708,6 +2708,9 @@ async function restoreSyncedMemberships(discordId, snapshots, actorId) {
 }
 
 /** Creates a private, single-use member invite in one network server. */
+// The Internal Affairs Agency server is secret: it is never offered through /join or any invite flow.
+const SECRET_GUILD_IDS = new Set([process.env.IAA_GUILD_ID].filter(Boolean).map(String));
+
 async function createMemberInvite(guild, target, reason, maxAge = 600) {
   if (await guild.members.fetch(target.id).catch(() => null)) return { state: "member" };
   if (await guild.bans.fetch(target.id).catch(() => null)) return { state: "banned" };
@@ -3242,6 +3245,7 @@ async function globalCommand(i, sub) {
     const results = [];
     const links = [];
     for (const row of await networkRows()) {
+      if (SECRET_GUILD_IDS.has(String(row.guild_id))) continue;
       const guild = client.guilds.cache.get(String(row.guild_id));
       if (!guild) {
         results.push(`⚠️ **${clean(row.name, 80)}** · bot not in server`);
@@ -3307,6 +3311,7 @@ async function globalCommand(i, sub) {
         else results.push(`✓ **${clean(guild.name, 80)}** · already joined; ${applied.restored} role${applied.restored === 1 ? "" : "s"} restored now`);
         continue;
       }
+      // Restore only visits servers the member previously belonged to, so the secret server is safe to include here.
       const outcome = await createMemberInvite(guild, user, `/global restore by ${i.user.tag} for ${user.tag}`, 7 * 86400);
       if (outcome.state === "invited") {
         links.push(`**${clean(guild.name, 80)}:** ${outcome.invite.url}`);
@@ -3987,7 +3992,7 @@ async function joinCommand(i) {
   const id = i.options.getString("server", true);
   const network = await db.one("SELECT guild_id,kind FROM network_guilds WHERE guild_id=?", [id]);
   const guild = client.guilds.cache.get(id);
-  if (!network || !guild) throw new Error("Pick a network server from the list.");
+  if (!network || !guild || SECRET_GUILD_IDS.has(id)) throw new Error("Pick a network server from the list.");
   if (await guild.members.fetch(target.id).catch(() => null))
     return embed("Already a member", `${self ? "You are" : `${mention(target.id)} is`} already in **${clean(guild.name)}**.`);
   const channel = inviteChannel(guild);
@@ -4027,7 +4032,7 @@ async function joinAutocomplete(i) {
   const rows = await networkRows();
   return i.respond(
     rows
-      .filter((row) => client.guilds.cache.has(String(row.guild_id)))
+      .filter((row) => client.guilds.cache.has(String(row.guild_id)) && !SECRET_GUILD_IDS.has(String(row.guild_id)))
       .map((row) => ({
         name: `${client.guilds.cache.get(String(row.guild_id)).name} · ${row.kind.replace(/^./, (c) => c.toUpperCase())}`.slice(0, 100),
         value: String(row.guild_id),

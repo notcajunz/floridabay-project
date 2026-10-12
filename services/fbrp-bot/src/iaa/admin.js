@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { PERMISSIONS, config, db, demand, invalidateRanks, ranks, setConfig, tierLabel, updateSettings } from "./store.js";
-import { C, EPHEMERAL, UserError, card, channelMention, respond, roleMention } from "./util.js";
+import { C, EPHEMERAL, UserError, card, channelMention, hours, respond, roleMention } from "./util.js";
 import { CHANNEL_KEYS, ROLE_KEYS, apply, detect, importMembers, summary } from "./setup.js";
 import { renderAll } from "./panels.js";
 import { format } from "./callsigns.js";
@@ -43,6 +43,13 @@ export async function command(i, actor, sub) {
     if (!result.affectedRows) throw new UserError("Pick a rank from the list.");
     invalidateRanks();
     return respond(i, `${roleMention(roleId)} is now in **${t.label}**. Existing members keep their current tier role until their next move.`);
+  }
+  if (sub === "quota") {
+    const tier = i.options.getString("tier", true);
+    const minutes = i.options.getInteger("minutes", true);
+    const cfg = await config();
+    await updateSettings({ quotas: { ...cfg.settings.quotas, [tier]: minutes } }, i.user.id);
+    return respond(i, `Weekly quota for **${await tierLabel(tier)}** is now **${hours(minutes * 60)}** of in-game duty time.`);
   }
   if (sub === "permission") {
     const perm = i.options.getString("permission", true);
@@ -139,7 +146,7 @@ async function configEmbeds() {
     card("⚙️ IAA configuration", {
       color: C.navy,
       fields: [
-        ["Tiers", cfg.tiers.map((t) => `${t.index}. ${t.roleId ? roleMention(t.roleId) : t.label}`).join("\n") || "Run setup", false],
+        ["Tiers", cfg.tiers.map((t) => `${t.index}. ${t.roleId ? roleMention(t.roleId) : t.label} · quota ${hours((s.quotas[t.key] ?? 0) * 60)}/wk`).join("\n") || "Run setup", false],
         ["Permissions", perms.join("\n"), false],
         [
           "Settings",

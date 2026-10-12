@@ -1,4 +1,5 @@
 import { config, db, post } from "./store.js";
+import { ORG } from "./quota.js";
 import { C, card, hours, mention, ts } from "./util.js";
 
 /**
@@ -7,7 +8,6 @@ import { C, card, hours, mention, ts } from "./util.js";
  * The IAA organization is the one tied to the IAA server (guild or role requirement) or with slug `iaa`.
  */
 
-const ORG = `(o.guild_id=? OR o.slug='iaa' OR EXISTS(SELECT 1 FROM organization_role_requirements r WHERE r.org_id=o.id AND r.guild_id=?))`;
 const REASONS = { restart: "Server restart", switch: "Switched organization", auto: "Auto clock-out" };
 
 let known = null; // open shift id -> true; null until the first poll has seeded it

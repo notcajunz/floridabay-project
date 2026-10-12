@@ -1,5 +1,6 @@
 import { agencyRoleIds, config, db, demand, demandOutranks, dm, history, post, rankById, rankOf, ranks, tierLabel } from "./store.js";
-import { C, EPHEMERAL, UserError, card, clip, mention, meter, rel, respond, roleMention, shortRole, ts, pages } from "./util.js";
+import { quotaSeconds, totals, weekSeconds } from "./quota.js";
+import { C, EPHEMERAL, UserError, card, clip, hours, mention, meter, rel, respond, roleMention, shortRole, ts, pages } from "./util.js";
 import { refreshPanels } from "./panels.js";
 import { demandSlot, describe, resequence, syncNickname } from "./callsigns.js";
 
@@ -276,15 +277,18 @@ export async function profileEmbed(guild, user) {
   const record = await memberRecord(user.id);
   const rank = member ? await rankOf(member) : null;
   const cfg = await config();
-  const [discipline, subjectCases, ledCases, awards, leave, recent, blacklisted] = await Promise.all([
+  const [discipline, subjectCases, ledCases, awards, leave, recent, week, total, blacklisted] = await Promise.all([
     db.query("SELECT kind,COUNT(*) n,SUM(active) live FROM iaa_discipline WHERE discord_id=? GROUP BY kind", [user.id]),
     db.query("SELECT status,verdict FROM iaa_cases WHERE subject_id=?", [user.id]),
     db.one("SELECT COUNT(*) n,SUM(status='closed') closed FROM iaa_cases WHERE lead_id=?", [user.id]),
     db.query("SELECT award,COUNT(*) n FROM iaa_awards WHERE discord_id=? GROUP BY award", [user.id]),
     db.one("SELECT * FROM iaa_leaves WHERE discord_id=? AND status='approved' AND ends_at>? ORDER BY starts_at LIMIT 1", [user.id, Date.now()]),
     db.query("SELECT * FROM iaa_history WHERE discord_id=? ORDER BY id DESC LIMIT 5", [user.id]),
+    weekSeconds(guild, user.id),
+    totals(guild, user.id),
     db.one("SELECT reason FROM iaa_blacklist WHERE discord_id=? AND active=1", [user.id]),
   ]);
+  const quota = rank ? await quotaSeconds(rank.tier, member) : 0;
   const d = Object.fromEntries(discipline.map((r) => [r.kind, r]));
   const disc = ["warning", "strike", "suspension", "inactivity"]
     .filter((k) => d[k])
@@ -309,6 +313,8 @@ export async function profileEmbed(guild, user) {
       ["Joined agency", record ? ts(record.joined_at, "D") : "—"],
       ["Rank held since", record?.rank_changed_at ? `${ts(record.rank_changed_at, "D")} (${rel(record.rank_changed_at)})` : "—"],
       ["Divisions", member ? [...(cfg.roles.divisions || []), ...(cfg.roles.positions || [])].filter((id) => member.roles.cache.has(id)).map(roleMention).join("\n") || "—" : "—"],
+      ["This week (in-game)", quota ? `${hours(week)} / ${hours(quota)}\n${meter(week, quota)}` : hours(week)],
+      ["All time (in-game)", `${hours(total.seconds)} over ${total.shifts} shift${total.shifts === 1 ? "" : "s"}`],
       ["Cases led", `${ledCases?.n || 0} (${ledCases?.closed || 0} closed)`],
       ["Discipline", disc.join("\n") || "Clean record"],
       ["As case subject", subjectCases.length ? `${subjectCases.length} case(s), ${verdicts.filter((c) => c.verdict === "substantiated").length} substantiated` : "Never"],
