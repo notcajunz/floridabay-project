@@ -729,11 +729,36 @@ const dmStarts = new Map();
 const LOCKOUT_FAILURES = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const DM_START_LIMIT = 5;
+// The public site normally makes only a handful of requests per page load. This
+// generous ceiling sheds abusive clients before they can create database or
+// Discord API work, while allowing ordinary browsers and shared connections.
+const HTTP_RATE_WINDOW_MS = 10_000;
+const HTTP_RATE_LIMIT = 120;
+const HTTP_RATE_MAX_CLIENTS = 10_000;
+const requestWindows = new Map();
 // X-Forwarded-For is only believed when it arrives from the reverse proxy on a private address;
 // otherwise anyone could pick the address that is recorded for them.
 const trustedProxy = (request) => /^(::ffff:)?(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|^::1$/.test(String(request.socket.remoteAddress || ""));
 const clientAddress = (request) =>
   String((trustedProxy(request) && request.headers["x-forwarded-for"]) || request.socket.remoteAddress || "unknown").split(",")[0].trim();
+function allowHttpRequest(request) {
+  const stamp = Date.now();
+  const address = clientAddress(request);
+  let entry = requestWindows.get(address);
+  if (!entry || stamp - entry.since >= HTTP_RATE_WINDOW_MS) {
+    requestWindows.set(address, { count: 1, since: stamp });
+    if (requestWindows.size > HTTP_RATE_MAX_CLIENTS) {
+      for (const [key, value] of requestWindows) {
+        if (stamp - value.since >= HTTP_RATE_WINDOW_MS) requestWindows.delete(key);
+      }
+      while (requestWindows.size > HTTP_RATE_MAX_CLIENTS)
+        requestWindows.delete(requestWindows.keys().next().value);
+    }
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= HTTP_RATE_LIMIT;
+}
 function lockedOut(request) {
   const entry = failedLogins.get(clientAddress(request));
   if (!entry) return false;
@@ -1263,6 +1288,10 @@ export function startWebPanel(context) {
 
   const server = createServer(async (request, response) => {
     try {
+      if (!allowHttpRequest(request)) {
+        response.setHeader("Connection", "close");
+        return sendJson(response, 429, { error: "Too many requests. Try again shortly." }, { "Retry-After": "10" });
+      }
       const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
       if (!url.pathname.startsWith("/api/")) {
         if (["/control", "/control.html"].includes(url.pathname)) {
@@ -1563,6 +1592,13 @@ export function startWebPanel(context) {
       return sendJson(response, 400, { error: error.message || String(error) });
     }
   });
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 30_000;
+  server.keepAliveTimeout = 5_000;
+  server.maxHeadersCount = 100;
+  server.maxRequestsPerSocket = 100;
+  server.maxConnections = 256;
+  server.on("clientError", (_error, socket) => socket.destroy());
   server.listen(port, host, () =>
     console.log(`[FBRP panel] Community portal listening on http://${host}:${port} (${publicUrl})`),
   );
