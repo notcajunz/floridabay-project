@@ -1,4 +1,4 @@
-import { superuserIds } from "./database.js";
+import { staffLevel, superuserIds } from "./database.js";
 import { callGame } from "./sync.js";
 import { COLORS, who } from "./ui.js";
 
@@ -31,6 +31,37 @@ export const DEFAULT_SHOP = [
   prop("lab_sandy", "Sandy Shores Trailer Lab", 75000, "gang", "lab", 1391.9, 3605.9, 38.9, 200, "Sandy Shores", "Private meth lab. Only the owning gang can cook here, with a 50% yield bonus.", { drug: "meth" }),
   prop("lab_oneil", "O'Neil Ranch Grow House", 60000, "gang", "lab", 2435.8, 4966.3, 42.3, 45, "Grapeseed", "Private weed grow. Owners harvest here with a 50% yield bonus.", { drug: "weed" }),
   prop("lab_sawmill", "Paleto Sawmill Cut House", 100000, "gang", "lab", -570.5, 5253.0, 70.5, 70, "Paleto Forest", "Private cocaine cut house with a 50% yield bonus.", { drug: "coke" }),
+  prop("lab_raton_bunker", "Raton Canyon Bunker Grow", 70000, "gang", "lab", -391.0, 4354.0, 57.0, 0, "Raton Canyon", "Hidden grow room at the canyon bunker. Private weed lab with a 50% yield bonus.", { drug: "weed" }),
+  prop("lab_zancudo_bunker", "Lago Zancudo Bunker Grow", 65000, "gang", "lab", -3046.0, 3331.0, 11.0, 0, "Lago Zancudo", "Swamp-side grow next to the river mouth. Private weed lab with a 50% yield bonus.", { drug: "weed" }),
+  prop("lab_route68_bunker", "Route 68 Bunker Cookhouse", 85000, "gang", "lab", 31.0, 2945.0, 58.0, 0, "Grand Senora Desert", "Desert bunker off Route 68. Private meth lab with a 50% yield bonus.", { drug: "meth" }),
+  prop("lab_thomson_bunker", "Thomson Scrapyard Bunker", 80000, "gang", "lab", 2491.0, 3150.0, 50.0, 0, "Grand Senora Desert", "Cook under the scrapyard. Private meth lab with a 50% yield bonus.", { drug: "meth" }),
+  prop("lab_farmhouse_bunker", "Farmhouse Bunker Cut House", 110000, "gang", "lab", 1571.0, 2241.0, 79.0, 0, "Grand Senora Desert", "Isolated farmhouse bunker. Private cocaine lab with a 50% yield bonus.", { drug: "coke" }),
+  prop("lab_chumash_bunker", "Chumash Bunker Cut House", 105000, "gang", "lab", -3171.0, 1375.0, 18.0, 0, "Chumash", "Coastal bunker north of Chumash. Private cocaine lab with a 50% yield bonus.", { drug: "coke" }),
+
+  // Hideouts - gang headquarters with an armory and wardrobe. Members guard the stash for a small income.
+  prop("hq_trailer_sandy", "Sandy Shores Trailer", 30000, "gang", "hideout", 1985.5, 3828.8, 32.5, 0, "Sandy Shores", "A run-down trailer on the lake. The cheapest way to give a crew an armory and wardrobe."),
+  prop("hq_forum_drive", "Forum Drive House", 40000, "gang", "hideout", -14.7, -1439.3, 31.1, 0, "Strawberry", "South side family home in the heart of the neighborhood."),
+  prop("hq_grove_street", "Grove Street Cul-de-sac", 50000, "gang", "hideout", 104.0, -1938.0, 21.0, 0, "Davis", "The most famous block in Los Santos. Claim it."),
+  prop("hq_el_burro", "El Burro Heights House", 45000, "gang", "hideout", 1273.9, -1719.7, 54.8, 0, "El Burro Heights", "Quiet house above the refinery, off the police radar."),
+  prop("hq_lost_vinewood", "East Vinewood Clubhouse", 70000, "gang", "hideout", 984.2, -95.4, 74.8, 0, "East Vinewood", "Biker clubhouse with a bar and a garage out back."),
+  prop("hq_chumash_beach", "Chumash Beach House", 120000, "gang,business", "hideout", -3086.4, 339.3, 6.4, 0, "Chumash", "Beachfront house far from the city - good for a low profile."),
+  prop("hq_richman", "Richman Hillside House", 140000, "gang,business", "hideout", -1117.2, 303.1, 66.5, 0, "Richman", "Hillside home among the city's old money."),
+  prop("hq_whispymound", "Whispymound Drive Mansion", 160000, "gang,business", "hideout", 5.1, 532.6, 175.3, 0, "Vinewood Hills", "Modern mansion overlooking the city."),
+  prop("hq_rockford", "Rockford Hills Estate", 190000, "gang,business", "hideout", -818.1, 177.8, 72.2, 0, "Rockford Hills", "Gated estate with a pool and tennis court. Leadership lives here."),
+  prop("hq_fuente_blanca", "La Fuente Blanca Ranch", 220000, "gang", "hideout", 1395.2, 1141.8, 114.6, 0, "Tataviam Mountains", "Walled cartel ranch in the hills. The top address for a criminal empire."),
+
+  // More businesses.
+  prop("lsc_lamesa", "Los Santos Customs - La Mesa", 80000, "gang,business", "mechanic", 729.2, -1088.2, 22.2, 0, "La Mesa", "East side body shop next to the freeway."),
+  prop("lsc_airport", "Los Santos Customs - LSIA", 75000, "gang,business", "mechanic", -1148.5, -1994.1, 13.2, 0, "LSIA", "Airport body shop with constant traffic."),
+  prop("lsc_harmony", "Los Santos Customs - Harmony", 55000, "gang,business", "mechanic", 1179.1, 2644.0, 37.8, 0, "Harmony", "Route 68 garage serving the desert."),
+  prop("beekers", "Beeker's Garage", 50000, "gang,business", "mechanic", 110.7, 6625.6, 31.8, 0, "Paleto Bay", "The only garage in Paleto."),
+  prop("pdm", "Premium Deluxe Motorsport", 130000, "business", "mechanic", -47.2, -1115.3, 26.5, 0, "Pillbox Hill", "Showroom with a service bay. Prep and repair customer cars."),
+  prop("golf_club", "Los Santos Golf Club", 140000, "gang,business", "bar", -1369.9, 57.4, 53.7, 0, "Richman", "Clubhouse bar for the city's elite."),
+  prop("pier_stands", "Del Perro Pier Food Stands", 65000, "gang,business", "restaurant", -1843.6, -1219.5, 13.0, 0, "Del Perro", "Food stands on the busiest pier on the coast."),
+  prop("cluckin_bell", "Cluckin' Bell Farms", 95000, "gang,business", "warehouse", -146.4, 6161.5, 31.2, 0, "Paleto Bay", "Poultry plant. Pack and ship orders - or hide something in the crates."),
+  prop("lamesa_factory", "La Mesa Garment Factory", 70000, "gang,business", "warehouse", 716.8, -962.1, 31.6, 0, "La Mesa", "Sweatshop floor with loading docks."),
+  prop("puerta_marina", "Puerta Marina Boathouse", 70000, "gang,business", "warehouse", -854.8, -1425.0, 5.0, 0, "La Puerta", "Marina boathouse. Ship crates by sea."),
+  prop("lsia_hangar", "LSIA Cargo Hangar", 115000, "gang,business", "warehouse", -1152.2, -3410.8, 14.0, 0, "LSIA", "Air cargo hangar at the airport."),
 
   item("veh_baller3", "vehicle", "Baller LE", 18000, "gang,business", { model: "baller3" }, "Executive SUV for the crew."),
   item("veh_sultanrs", "vehicle", "Sultan RS", 28000, "gang", { model: "sultanrs" }, "Rally-bred street car."),
@@ -117,7 +148,13 @@ export function createEconomy({ client, db, audit, log, hasPermission }) {
       );
   }
 
-  const canManage = async (discordId) => superuserIds().has(String(discordId)) || Boolean(await hasPermission(discordId, "fbrp.organizations.manage"));
+  /** Co-Owner and above manage every organization, with or without the ACE permission. */
+  async function coOwnerOrAbove(discordId) {
+    const [level, coOwner] = await Promise.all([staffLevel(discordId), db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'")]);
+    return level >= Number(coOwner?.rank_order ?? 950);
+  }
+  const canManage = async (discordId) =>
+    superuserIds().has(String(discordId)) || Boolean(await hasPermission(discordId, "fbrp.organizations.manage")) || (await coOwnerOrAbove(discordId));
 
   /**
    * What a viewer may do in one organization. Leaders and managers can do everything; ranked members follow

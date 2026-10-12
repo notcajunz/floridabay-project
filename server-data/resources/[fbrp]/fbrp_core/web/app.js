@@ -1694,7 +1694,7 @@ function renderPrisonJobs(data) {
 
 /* ───────── Organization hub ───────── */
 const PERK_LABEL = { capacity: "Stash network", yield: "Master chemist", price: "Street connections", heat: "Lookouts", cap: "Extended hours", pay: "Loyal customers", stipend: "Budget increase", bounty: "Asset forfeiture" };
-const BUSINESS_ICON = { mechanic: "car", bar: "music", club: "music", restaurant: "flame", warehouse: "grid", lab: "leaf" };
+const BUSINESS_ICON = { mechanic: "car", bar: "music", club: "music", restaurant: "flame", warehouse: "grid", lab: "leaf", hideout: "shield" };
 function renderOrgHub(data) {
   if (!data.onDuty) return `${head("Organization hub")}<div class="empty">Clock into your organization with <b>/duty</b> to work labs, run deliveries, use your properties or draw from your department armory. Leaders spend the wallet on the website portal.</div>`;
   let tab = ui.orgTab || "overview";

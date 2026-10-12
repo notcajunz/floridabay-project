@@ -21,8 +21,12 @@ end
 
 local function ground(key, x, y, z)
     if grounds[key] then return grounds[key] end
-    local found, g = GetGroundZFor_3dCoord(x + 0.0, y + 0.0, z + 3.0, false)
-    if found then grounds[key] = g return g end
+    -- Probe just above the configured height first so points inside a building
+    -- land on its floor instead of the roof, then higher for low coordinates.
+    for _, lift in ipairs({ 1.0, 3.0, 10.0 }) do
+        local found, g = GetGroundZFor_3dCoord(x + 0.0, y + 0.0, z + lift, false)
+        if found then grounds[key] = g return g end
+    end
     return z
 end
 
@@ -51,7 +55,7 @@ local function addBlip(x, y, z, sprite, colour, label, scale)
     blips[#blips + 1] = blip
 end
 
-local BUSINESS_SPRITE = { mechanic=446, bar=93, club=121, restaurant=106, warehouse=473, lab=499 }
+local BUSINESS_SPRITE = { mechanic=446, bar=93, club=121, restaurant=106, warehouse=473, lab=499, hideout=40 }
 local DRUG_SPRITE = { weed=496, meth=499, coke=501 }
 
 local function setRun(run)

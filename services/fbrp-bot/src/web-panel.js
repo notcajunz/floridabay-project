@@ -9,6 +9,7 @@ import { PERMISSION_BUNDLES, PERMISSION_CATALOG, VMENU_BUNDLES } from "./permiss
 import { connectUrl } from "./site-url.js";
 import { createAppeals } from "./appeals.js";
 import { OWNER_DISCORD_ID } from "./access-control.js";
+import { staffLevel } from "./database.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -18,6 +19,10 @@ const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../w
 const logoFile = path.resolve(webRoot, "../../../server-data/resources/[fbrp]/fbrp_loading/web/assets/fbrp-logo.png");
 const commandReferenceFile = path.resolve(webRoot, "../../../BOT_COMMANDS.md");
 const ACTOR = OWNER_DISCORD_ID;
+/** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
+const ORG_ADMIN_RESOURCES = new Set(["organizations", "organization-requirements", "headtags", "org-shop", "org-wallets"]);
+/** Read-only lookups those sections need for their dropdowns. */
+const ORG_ADMIN_LOOKUPS = { "ace-groups": ["name", "label"] };
 const now = () => Date.now();
 
 const MODAL_STYLES = new Set(["short", "paragraph"]);
@@ -901,6 +906,16 @@ export function startWebPanel(context) {
     return raw;
   }
 
+  /**
+   * How much of live configuration a member may use: "full" for the configured owner, "organizations" for
+   * Co-Owner and above (bot superusers included), otherwise null.
+   */
+  async function panelScope(discordId) {
+    if (String(discordId) === ownerDiscordId) return "full";
+    const [level, coOwner] = await Promise.all([staffLevel(discordId), db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'")]);
+    return level >= Number(coOwner?.rank_order ?? 950) ? "organizations" : null;
+  }
+
   async function accessFor(discordId) {
     const owner = String(discordId) === ownerDiscordId;
     const roster = await db.one("SELECT status FROM staff_roster_members WHERE discord_id=?", [String(discordId)]);
@@ -920,6 +935,7 @@ export function startWebPanel(context) {
     const commandReference = owner || Number(staffRank?.level ?? -1) >= Number(communityManager?.rank_order ?? 850);
     return {
       owner,
+      orgAdmin: Boolean(await panelScope(discordId)),
       staff,
       support: owner || staff || Boolean(await hasPermission?.(discordId, "fbrp.tickets.support")),
       opsControl: Boolean(opsControl),
@@ -947,7 +963,9 @@ export function startWebPanel(context) {
     }
   }
 
-  async function bootstrap() {
+  async function bootstrap(scope = "full") {
+    const scoped = scope !== "full";
+    const allowed = ([id]) => !scoped || ORG_ADMIN_RESOURCES.has(id);
     const records = {};
     const types = await db.query("SELECT type_key,label FROM ticket_types ORDER BY sort_order,label").catch(() => []);
     const suggestions = {
@@ -961,15 +979,23 @@ export function startWebPanel(context) {
         ...types.map((type) => ({ value: `category_${type.type_key}`, label: `Discord category for ${type.label} (\"category id\")` })),
       ],
     };
-    for (const [id, resource] of Object.entries(PANEL_RESOURCES)) {
+    for (const [id, resource] of Object.entries(PANEL_RESOURCES).filter(allowed)) {
       const rows = await db.query(`SELECT * FROM \`${resource.table}\` ORDER BY ${resource.order} LIMIT 1000`);
       records[id] = parseJsonColumns(rows, resource);
     }
+    if (scoped)
+      for (const [id, columns] of Object.entries(ORG_ADMIN_LOOKUPS)) {
+        const resource = PANEL_RESOURCES[id];
+        records[id] = await db.query(`SELECT ${columns.map((name) => `\`${name}\``).join(",")} FROM \`${resource.table}\` ORDER BY ${resource.order} LIMIT 1000`);
+      }
+    const orgActions = [...ORG_ADMIN_RESOURCES].map((id) => `panel.${id}.%`);
     const [syncs, syncGuilds, syncRoles, auditRows] = await Promise.all([
-      db.query("SELECT * FROM network_syncs ORDER BY sort_order,id"),
-      db.query("SELECT * FROM network_sync_guilds ORDER BY sync_id,guild_id"),
-      db.query("SELECT * FROM network_sync_roles ORDER BY sync_id,guild_id"),
-      db.query("SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log ORDER BY id DESC LIMIT 80"),
+      scoped ? [] : db.query("SELECT * FROM network_syncs ORDER BY sort_order,id"),
+      scoped ? [] : db.query("SELECT * FROM network_sync_guilds ORDER BY sync_id,guild_id"),
+      scoped ? [] : db.query("SELECT * FROM network_sync_roles ORDER BY sync_id,guild_id"),
+      scoped
+        ? db.query(`SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log WHERE ${orgActions.map(() => "action LIKE ?").join(" OR ")} ORDER BY id DESC LIMIT 80`, orgActions)
+        : db.query("SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log ORDER BY id DESC LIMIT 80"),
     ]);
     const guilds = [...client.guilds.cache.values()].map((guild) => ({
       id: guild.id,
@@ -985,12 +1011,13 @@ export function startWebPanel(context) {
         .map((channel) => ({ id: channel.id, name: channel.name, type: channel.type })),
     }));
     return {
+      scope,
       online: client.isReady(),
       bot: client.user ? { id: client.user.id, tag: client.user.tag } : null,
       generatedAt: now(),
-      resources: Object.entries(PANEL_RESOURCES).map((entry) => publicDefinition(entry, suggestions)),
-      catalog: EDITOR_CATALOG,
-      bundles: [
+      resources: Object.entries(PANEL_RESOURCES).filter(allowed).map((entry) => publicDefinition(entry, suggestions)),
+      catalog: scoped ? [] : EDITOR_CATALOG,
+      bundles: scoped ? [] : [
         ...Object.entries(PERMISSION_BUNDLES).map(([name, objects]) => ({ name, objects })),
         ...Object.entries(VMENU_BUNDLES).map(([name, objects]) => ({ name: `vmenu.${name}`, objects })),
       ],
@@ -1009,7 +1036,7 @@ export function startWebPanel(context) {
     };
   }
 
-  async function saveRecord(id, record, original = null) {
+  async function saveRecord(id, record, original = null, actor = ACTOR) {
     const resource = PANEL_RESOURCES[id];
     if (!resource) throw new Error("Unknown configuration resource.");
     const values = {};
@@ -1017,7 +1044,7 @@ export function startWebPanel(context) {
       if (meta.readonly && meta.auto && !record[meta.name]) continue;
       let value = meta.alwaysNow ? now() : record[meta.name];
       if ((value === undefined || value === "") && meta.default !== undefined)
-        value = meta.default === "now" ? now() : meta.default;
+        value = meta.default === "now" ? now() : meta.name === "created_by" ? actor : meta.default;
       if (meta.required && (value === undefined || value === "" || value === null))
         throw new Error(`${meta.label} is required.`);
       if (value !== undefined) values[meta.name] = normalizedValue(meta, value);
@@ -1039,7 +1066,7 @@ export function startWebPanel(context) {
         Object.values(values),
       );
     }
-    await audit(ACTOR, `panel.${id}.${exists ? "edit" : "create"}`, resource.pk.map((key) => values[key]).join(":"), values);
+    await audit(actor, `panel.${id}.${exists ? "edit" : "create"}`, resource.pk.map((key) => values[key]).join(":"), values);
     await resource.afterSave?.(context, values, exists ? original : null);
     await effects(resource);
   }
@@ -1086,7 +1113,7 @@ export function startWebPanel(context) {
     return { group: name, ...change, lines: [`${creating ? "Created" : "Saved"} ${name}: ${objects.length} allowed objects (+${change.added.length} / -${change.removed.length}).`] };
   }
 
-  async function deleteRecord(id, key) {
+  async function deleteRecord(id, key, actor = ACTOR) {
     const resource = PANEL_RESOURCES[id];
     if (!resource) throw new Error("Unknown configuration resource.");
     if (resource.protect?.(key)) throw new Error("That protected record cannot be deleted.");
@@ -1095,7 +1122,7 @@ export function startWebPanel(context) {
     const row = await db.one(`SELECT * FROM \`${resource.table}\` WHERE ${where}`, params);
     if (!row) throw new Error("That record no longer exists. Refresh the panel.");
     await db.query(`DELETE FROM \`${resource.table}\` WHERE ${where}`, params);
-    await audit(ACTOR, `panel.${id}.delete`, params.join(":"), key);
+    await audit(actor, `panel.${id}.delete`, params.join(":"), key);
     await resource.afterDelete?.(context, key, row);
     await effects(resource);
   }
@@ -1293,7 +1320,7 @@ export function startWebPanel(context) {
       if (!url.pathname.startsWith("/api/")) {
         if (["/control", "/control.html"].includes(url.pathname)) {
           const session = await sessionFor(request);
-          if (!session || session.id !== ownerDiscordId) {
+          if (!session || !(await panelScope(session.id))) {
             response.writeHead(302, { Location: `${baseUrl(request)}/portal.html?next=control`, "Cache-Control": "no-store" });
             return response.end();
           }
@@ -1347,7 +1374,7 @@ export function startWebPanel(context) {
         authorize.searchParams.set("client_id", String(process.env.DISCORD_APPLICATION_ID || client.application?.id || client.user.id));
         authorize.searchParams.set("redirect_uri", `${baseUrl(request)}/auth/callback.html`);
         authorize.searchParams.set("response_type", "token");
-        authorize.searchParams.set("scope", "identify connections");
+        authorize.searchParams.set("scope", "identify connections guilds");
         authorize.searchParams.set("state", state);
         authorize.searchParams.set("prompt", "consent");
         return sendJson(response, 200, { url: authorize.toString() }, { "Set-Cookie": stateCookie(request, state) });
@@ -1375,10 +1402,14 @@ export function startWebPanel(context) {
         const connections = await fetch("https://discord.com/api/v10/users/@me/connections", { headers: { Authorization: `Bearer ${String(input.accessToken || "")}` } })
           .then(async (result) => (result.ok ? result.json() : []))
           .catch(() => []);
+        // Null (not an empty list) when Discord refuses, so a failed read never wipes the stored servers.
+        const guilds = await fetch("https://discord.com/api/v10/users/@me/guilds?limit=200", { headers: { Authorization: `Bearer ${String(input.accessToken || "")}` } })
+          .then(async (result) => (result.ok ? result.json() : null))
+          .catch(() => null);
         const raw = await createSession(profile);
         failedLogins.delete(clientAddress(request));
         await audit(profile.id, "portal.login", profile.id, { method: "discord_oauth" });
-        const verification = await recordVerification?.({ discordId: profile.id, address: clientAddress(request), connections: Array.isArray(connections) ? connections : [], method: "discord_oauth" })
+        const verification = await recordVerification?.({ discordId: profile.id, address: clientAddress(request), connections: Array.isArray(connections) ? connections : [], guilds: Array.isArray(guilds) ? guilds : null, method: "discord_oauth" })
           .catch((error) => { console.error("[FBRP panel] verification:", error); return null; });
         return sendJson(response, 200, { ok: true, next: pending.next, verified: Boolean(verification), role: verification?.role || null }, { "Set-Cookie": [sessionCookie(request, raw), stateCookie(request, "", 0)] });
       }
@@ -1551,17 +1582,20 @@ export function startWebPanel(context) {
         return sendJson(response, 200, { ok: true, result, data: await portalBootstrap(session) });
       }
 
-      // The complete live configuration plane is intentionally owner-only.
-      if (session.id !== ownerDiscordId) return sendJson(response, 403, { error: "Only the configured Florida Bay owner can access live configuration." });
+      // The complete live configuration plane is owner-only; Co-Owners and above get the organization sections.
+      const scope = await panelScope(session.id);
+      if (!scope) return sendJson(response, 403, { error: "Live configuration needs the Co-Owner rank or higher." });
       if (request.method === "GET" && url.pathname === "/api/bootstrap")
-        return sendJson(response, 200, await bootstrap());
+        return sendJson(response, 200, await bootstrap(scope));
       if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
       const input = await bodyJson(request);
+      if (scope !== "full" && !(["/api/record/save", "/api/record/delete"].includes(url.pathname) && ORG_ADMIN_RESOURCES.has(String(input.resource))))
+        return sendJson(response, 403, { error: "Co-Owners can only change the organization sections of live configuration." });
       let result = null;
       if (url.pathname === "/api/record/save") {
-        await saveRecord(input.resource, input.record || {}, input.original || null);
+        await saveRecord(input.resource, input.record || {}, input.original || null, session.id);
       } else if (url.pathname === "/api/record/delete") {
-        await deleteRecord(input.resource, input.key || {});
+        await deleteRecord(input.resource, input.key || {}, session.id);
       } else if (url.pathname === "/api/globalsync/save") {
         const saved = await saveGlobalSync(client, ACTOR, input.group, input);
         result = { lines: saved.lines, swept: saved.swept };
@@ -1598,7 +1632,7 @@ export function startWebPanel(context) {
         await syncAll(client);
         await refreshGame();
       } else throw new Error("Unknown panel action.");
-      return sendJson(response, 200, { ok: true, result, data: await bootstrap() });
+      return sendJson(response, 200, { ok: true, result, data: await bootstrap(scope) });
     } catch (error) {
       console.error("[FBRP panel]", error);
       return sendJson(response, 400, { error: error.message || String(error) });

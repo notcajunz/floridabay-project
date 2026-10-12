@@ -96,6 +96,11 @@ async function api(path, options = {}) {
 async function load({ silent = false } = {}) {
   if (!silent) saved("Loading live configuration…", "working");
   state.data = await api("bootstrap");
+  // Co-Owners get only the organization sections; open on the organization list instead of the overview.
+  const scoped = state.data.scope && state.data.scope !== "full";
+  document.body.classList.toggle("scoped", Boolean(scoped));
+  $("#reconcile").hidden = Boolean(scoped);
+  if (scoped && !state.view.startsWith("resource:") && state.view !== "audit") state.view = "resource:organizations";
   // "New sync" leaves nothing selected on purpose; only default to the first sync when not creating one.
   if (!state.selectedSync && !state.creatingSync && state.data.globalSyncs.length)
     state.selectedSync = state.data.globalSyncs[0].group_name;
@@ -163,11 +168,11 @@ function renderNav() {
     grouped.get(item.group).push(item);
   }
   let html = "";
-  const top = [
+  const top = (state.data.scope && state.data.scope !== "full" ? [] : [
     ["overview", "Overview", null, "home"],
     ["acegroups", "Permission groups", records("ace-groups").length, "key"],
     ["globalsync", "Global roles", state.data.globalSyncs.length, "globe"],
-  ].filter(([, label]) => match(label));
+  ]).filter(([, label]) => match(label));
   html += top.map(([view, label, count, iconName]) => navButton(view, label, count, iconName)).join("");
   for (const [group, items] of grouped) {
     html += `<div class="nav-group">${icon(GROUP_ICON[group] || "layers")}${esc(group)}</div>`;
@@ -590,6 +595,8 @@ function renderAudit() {
 function render() {
   if (!state.data) return;
   state.dirty = false;
+  if (state.data.scope && state.data.scope !== "full" && !(state.view.startsWith("resource:") && resource(state.view.slice(9))) && state.view !== "audit")
+    state.view = "resource:organizations";
   if (state.view === "overview") renderOverview();
   else if (state.view === "globalsync") renderGlobalSync();
   else if (state.view === "acegroups") renderAceGroups();

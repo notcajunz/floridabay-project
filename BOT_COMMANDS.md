@@ -1,6 +1,6 @@
 # Florida Bay bot command reference
 
-This file documents every command registered by the Discord bot: **30 top-level slash commands**, **152 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
+This file documents every command registered by the Discord bot: **31 top-level slash commands**, **156 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
 
 ## How permissions work
 
@@ -13,7 +13,7 @@ This file documents every command registered by the Discord bot: **30 top-level 
 
 ## Command index
 
-[`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
+[`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
 
 ## /exam
 
@@ -427,6 +427,23 @@ Important behavior:
 
 - This is a direct shortcut to `/global blacklist` and uses the same cooldown, hierarchy check, role snapshot, isolation, bans, case record, and notification behavior.
 
+## /blacklistedserver
+
+Manage Discord servers that should be flagged during member investigations
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/blacklistedserver add <server_id> <name> <reason>` | Add a Discord server to the investigation blacklist | Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access |
+| `/blacklistedserver edit <server_id> [name] [reason]` | Change a blacklisted server's display name or reason | Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access |
+| `/blacklistedserver remove <server_id>` | Remove a Discord server from the investigation blacklist | Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access |
+| `/blacklistedserver list` | List all blacklisted Discord servers | Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access |
+
+Important behavior:
+
+- `/userinfo` displays a red warning when the member's latest website sign-in reported one of these servers. If the bot also shares that server with the member, the match is checked live.
+- Discord server IDs are numeric. Add and edit actions are audited with the staff member, name, and reason.
+- Co-Owner eligibility follows the live `co_owner` ACE group's rank order, so every higher direct staff rank qualifies too.
+
 ## /acelist
 
 List every possible ACE permission: vMenu, EasyAdmin, and Florida Bay
@@ -437,11 +454,11 @@ List every possible ACE permission: vMenu, EasyAdmin, and Florida Bay
 
 ## /userinfo
 
-Investigate a member across game and Discord records
+Investigate a member: game and Discord records, servers and roles, and linked alt accounts
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/userinfo <member>` | Investigate a member across game and Discord records<br><small>Arguments: `member` (required user) — Discord member.</small> | `fbrp.investigate` |
+| `/userinfo <member>` | Investigate a member: game and Discord records, servers and roles, blacklisted-server matches, and linked alt accounts<br><small>Arguments: `member` (required user) — Discord member. Also lists every server the bot shares with them and their roles there, the other servers from their last website sign-in, and linked alt accounts (the alt section needs `fbrp.global.alts`).</small> | `fbrp.investigate`; linked alt accounts also need `fbrp.global.alts` |
 
 ## /office
 

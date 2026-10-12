@@ -39,8 +39,36 @@ export async function isVerified(db, discordId) {
   return Boolean(await db.one("SELECT 1 FROM member_verifications WHERE discord_id=? LIMIT 1", [String(discordId)]));
 }
 
-/** Marks a member verified and stores hashed identity links seen during this sign-in. */
-export async function recordVerification(db, { discordId, address, connections = [], method }) {
+const MAX_GUILDS = 200;
+
+/**
+ * Replaces a member's stored server list with the one Discord returned at sign-in. Servers they
+ * have left are dropped, so the list always matches their last sign-in.
+ */
+async function storeGuilds(db, id, guilds, stamp) {
+  const rows = [];
+  for (const guild of guilds.slice(0, MAX_GUILDS)) {
+    const guildId = String(guild?.id || "");
+    if (!/^\d{15,24}$/.test(guildId)) continue;
+    rows.push([guildId, String(guild.name || "Unknown server").slice(0, 100), guild.owner ? 1 : 0]);
+  }
+  for (const [guildId, name, owner] of rows)
+    await db.query(
+      `INSERT INTO member_guilds(discord_id,guild_id,guild_name,is_owner,first_seen,last_seen) VALUES(?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE guild_name=VALUES(guild_name),is_owner=VALUES(is_owner),last_seen=VALUES(last_seen)`,
+      [id, guildId, name, owner, stamp, stamp],
+    );
+  if (rows.length)
+    await db.query("DELETE FROM member_guilds WHERE discord_id=? AND guild_id NOT IN (?)", [id, rows.map((row) => row[0])]);
+  else await db.query("DELETE FROM member_guilds WHERE discord_id=?", [id]);
+  return rows.length;
+}
+
+/**
+ * Marks a member verified and stores hashed identity links seen during this sign-in. `guilds` is
+ * Discord's server list for the member, or null when it could not be read (the old list is kept).
+ */
+export async function recordVerification(db, { discordId, address, connections = [], guilds = null, method }) {
   const id = String(discordId);
   const stamp = Date.now();
   await db.query(
@@ -61,7 +89,8 @@ export async function recordVerification(db, { discordId, address, connections =
       "INSERT INTO identity_links(discord_id,kind,value_hash,first_seen,last_seen) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE last_seen=VALUES(last_seen)",
       [id, kind, hash, stamp, stamp],
     );
-  return { links: links.length };
+  const servers = Array.isArray(guilds) ? await storeGuilds(db, id, guilds, stamp) : null;
+  return { links: links.length, servers };
 }
 
 /** Gives the verified role in every server that has it. Returns "granted", "pending" or "failed". */

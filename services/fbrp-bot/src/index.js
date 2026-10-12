@@ -2311,7 +2311,7 @@ async function userinfoCommand(i) {
       [Date.now(), user.id, cutoff],
     ),
   ]);
-  return card(`User information: ${clean(user.username)}`, {
+  const overview = card(`User information: ${clean(user.username)}`, {
     description: `${mention(user.id)}\n\`${user.id}\``,
     rows: [
       ["Staff time", `${(Number(hours?.seconds || 0) / 3600).toFixed(1)} hours`],
@@ -2321,8 +2321,91 @@ async function userinfoCommand(i) {
       ["Recent cases", chunkLines(cases.map((row) => `\`#${row.id}\` · ${humanize(row.action)} · ${clean(row.reason, 80)}`))[0] || "None", false],
       ["Active staff discipline", chunkLines(discipline.map((row) => `\`#${row.id}\` · ${humanize(row.kind)} · ${clean(row.reason, 80)}`))[0] || "None", false],
     ],
-    footer: "Florida Bay Roleplay \u00b7 Staff time covers 30 days",
+    footer: "Florida Bay Roleplay · Staff time covers 30 days",
   });
+
+  // Servers and alts go in a second message: one message cannot carry more than 6000 embed characters.
+  const PAGE = 900;
+  const pageRows = (label, items, cap, empty) => {
+    if (!items.length) return [[label, empty, false]];
+    const pages = [[]];
+    let size = 0;
+    for (const item of items) {
+      if (size && size + item.length + 1 > PAGE) {
+        pages.push([]);
+        size = 0;
+      }
+      pages.at(-1).push(item);
+      size += item.length + 1;
+    }
+    const hidden = pages.slice(cap).reduce((sum, page) => sum + page.length, 0);
+    return [
+      ...pages.slice(0, cap).map((page, index) => [index ? `${label} (cont.)` : label, page.join("\n"), false]),
+      ...(hidden ? [[`${label} (more)`, `${hidden} more not shown.`, false]] : []),
+    ];
+  };
+
+  const servers = await memberServers(user.id).catch((error) => {
+    console.error("[FBRP userinfo] servers:", error);
+    return null;
+  });
+  if (servers?.blacklisted.length) {
+    overview.setColor(COLORS.danger).addFields({
+      name: `🚨 Blacklisted server match${servers.blacklisted.length === 1 ? "" : "es"}`,
+      value: clip(servers.blacklisted.map((row) => `**${clean(row.name, 80)}** · \`${row.guildId}\`\n${clean(row.reason, 180)}`).join("\n"), 1024),
+      inline: false,
+    });
+  }
+  const serverCard = card(`Servers and roles · ${clean(user.username, 80)}`, {
+    color: servers?.blacklisted.length ? COLORS.danger : servers ? COLORS.primary : COLORS.warning,
+    description: servers
+      ? `${servers.blacklisted.length ? `🚨 **FLAGGED: ${servers.blacklisted.length} blacklisted server match${servers.blacklisted.length === 1 ? "" : "es"}.**\n` : ""}In **${servers.live.length}** of ${servers.liveTotal} server${servers.liveTotal === 1 ? "" : "s"} the bot is in. 🟢 network · 🔵 other bot server.`
+      : "Could not read server memberships right now.",
+    rows: servers
+      ? [
+          ...(servers.blacklisted.length ? pageRows(`🚨 Blacklisted servers (${servers.blacklisted.length})`, servers.blacklisted.map((row) => row.line), 2, "None") : []),
+          ...pageRows(`Bot servers (${servers.live.length})`, servers.live, 2, "Not in any server the bot is in."),
+          ...pageRows(
+            `Other servers (${servers.other.length})`,
+            servers.other,
+            1,
+            servers.hasList
+              ? "None outside the servers above."
+              : "No list yet. This member has not signed in on the website since server lists were added.",
+          ),
+        ]
+      : [],
+    footer: servers?.seenAt
+      ? `Other servers as of their website sign-in on ${new Date(servers.seenAt).toISOString().slice(0, 10)} · roles only show in servers the bot is in`
+      : "Roles only show in servers the bot is in",
+  });
+
+  let altCard;
+  if (await hasPermission(i.user.id, "fbrp.global.alts")) {
+    const found = await altSearch(user.id).catch((error) => {
+      console.error("[FBRP userinfo] alts:", error);
+      return null;
+    });
+    if (found) {
+      void audit(i.user.id, "userinfo.alts", user.id, { found: found.count }).catch(() => {});
+      void log(i.guild, { title: "Alt search", color: COLORS.muted, actor: i.user.id, target: user.id, fields: [["Linked accounts found", String(found.count)]] }, "staff_audit").catch(() => {});
+    }
+    altCard = card(`Linked accounts · ${clean(user.username, 80)}`, {
+      color: found?.count === 0 ? COLORS.success : COLORS.warning,
+      description: !found
+        ? "The alt search failed. Try again in a moment."
+        : found.count
+          ? `**${found.count}** account${found.count === 1 ? "" : "s"} linked to ${mention(user.id)}.`
+          : `No accounts are linked to ${mention(user.id)}.`,
+      rows: found ? [...pageRows("Accounts", found.lines, 2, "None"), ["Notes", found.notes.join("\n"), false]] : [],
+    });
+  } else {
+    altCard = card(`Linked accounts · ${clean(user.username, 80)}`, {
+      color: COLORS.muted,
+      description: "Seeing linked alt accounts needs the `fbrp.global.alts` permission.",
+    });
+  }
+  return { embeds: [overview], followUps: [{ embeds: [serverCard, altCard] }] };
 }
 
 async function officeCommand(i, sub) {
@@ -2768,6 +2851,135 @@ async function screenAlts(linked, skip = new Set()) {
     else bannable.push(alt);
   }
   return { bannable, skipped };
+}
+
+/** Every account tied to `userId` as display lines for /userinfo, strongest links first. */
+async function altSearch(userId) {
+  const linked = await findLinkedAccounts(db, userId);
+  const { bannable, skipped } = await screenAlts(linked);
+  const status = new Map(bannable.map((alt) => [alt.discordId, "not banned"]));
+  for (const alt of skipped) status.set(alt.discordId, `not bannable: ${alt.why}`);
+  const lines = [...linked.alts]
+    .sort((a, b) => (a.strength === b.strength ? 0 : a.strength === "strong" ? -1 : 1))
+    .map(
+      (alt) =>
+        `${alt.strength === "strong" ? "🔴" : "🟡"} ${mention(alt.discordId)} \`${alt.discordId}\` · ${alt.strength === "strong" ? "strong" : "shared IP only"} · ${clean(alt.evidence.join(", "), 100)} · ${status.get(alt.discordId) || "already banned"}`,
+    );
+  const notes = ["🔴 shared game or platform identifier · 🟡 shared IP only (households and VPNs share IPs, so treat it as a lead). Direct links only."];
+  if (linked.unlinkedAccounts)
+    notes.unshift(`${linked.unlinkedAccounts} linked game account${linked.unlinkedAccounts === 1 ? " has" : "s have"} no Discord attached, so ${linked.unlinkedAccounts === 1 ? "it only shows" : "they only show"} up in game.`);
+  return { count: lines.length, lines, notes };
+}
+
+/**
+ * Where a member is. Servers the bot is in are read live (with their roles there). Other servers
+ * come from the list Discord gave us the last time they signed in on the website.
+ */
+async function memberServers(userId) {
+  const order = (await networkRows()).map((row) => String(row.guild_id));
+  const networkIds = new Set(order);
+  const guilds = [
+    ...order.map((id) => client.guilds.cache.get(id)).filter(Boolean),
+    ...[...client.guilds.cache.values()].filter((guild) => !networkIds.has(guild.id)),
+  ];
+  const live = [];
+  const liveIds = new Set();
+  for (const guild of guilds) {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) continue;
+    liveIds.add(guild.id);
+    const roles = [...member.roles.cache.filter((role) => role.id !== guild.id).values()].sort((a, b) => b.position - a.position);
+    const names = roles.slice(0, 12).map((role) => `\`${clean(role.name, 40)}\``).join(" ");
+    live.push(
+      `${networkIds.has(guild.id) ? "🟢" : "🔵"} **${clean(guild.name, 60)}**${member.joinedTimestamp ? ` · joined ${when(member.joinedTimestamp)}` : ""}\n${names || "No roles"}${roles.length > 12 ? ` +${roles.length - 12} more` : ""}`,
+    );
+  }
+  const [stored, blacklist] = await Promise.all([
+    db.query("SELECT guild_id,guild_name,is_owner,last_seen FROM member_guilds WHERE discord_id=? ORDER BY guild_name", [userId]),
+    db.query("SELECT guild_id,name,reason FROM blacklisted_servers ORDER BY name"),
+  ]);
+  const storedById = new Map(stored.map((row) => [String(row.guild_id), row]));
+  const blacklisted = blacklist
+    .filter((row) => liveIds.has(String(row.guild_id)) || storedById.has(String(row.guild_id)))
+    .map((row) => {
+      const guildId = String(row.guild_id);
+      const seen = storedById.get(guildId);
+      const current = liveIds.has(guildId);
+      return {
+        guildId,
+        name: row.name,
+        reason: row.reason,
+        line: `🚨 **${clean(row.name, 80)}** · \`${guildId}\`\n${clean(row.reason, 220)} · ${current ? "current shared server" : `reported at last website sign-in${seen?.last_seen ? ` ${when(seen.last_seen)}` : ""}`}`,
+      };
+    });
+  const blacklistedIds = new Set(blacklisted.map((row) => row.guildId));
+  const other = stored.filter((row) => !client.guilds.cache.has(String(row.guild_id)) && !blacklistedIds.has(String(row.guild_id)));
+  return {
+    live,
+    liveTotal: guilds.length,
+    blacklisted,
+    other: other.map((row) => `• ${clean(row.guild_name, 80)}${Number(row.is_owner) ? " · owner" : ""}`),
+    hasList: stored.length > 0,
+    seenAt: stored.reduce((latest, row) => Math.max(latest, Number(row.last_seen)), 0),
+  };
+}
+
+async function blacklistedServerCommand(i, sub) {
+  const [explicitAccess, level, coOwner] = await Promise.all([
+    hasPermission(i.user.id, "fbrp.blacklistedservers.manage"),
+    staffLevel(i.user.id),
+    db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'"),
+  ]);
+  if (!explicitAccess && level < Number(coOwner?.rank_order ?? 950))
+    throw new Error("You need the Co-Owner rank or higher to manage blacklisted servers.");
+  if (sub === "list") {
+    const rows = await db.query("SELECT guild_id,name,reason,updated_by,updated_at FROM blacklisted_servers ORDER BY name");
+    return card("Blacklisted Discord servers", {
+      color: rows.length ? COLORS.warning : COLORS.muted,
+      description: rows.length
+        ? rows.map((row) => `**${clean(row.name, 80)}** · \`${row.guild_id}\`\n${clean(row.reason, 220)}`).join("\n\n")
+        : "No Discord servers are blacklisted.",
+      footer: `${rows.length} blacklisted server${rows.length === 1 ? "" : "s"} · checked by /userinfo`,
+    });
+  }
+
+  const guildId = String(i.options.getString("server_id", true)).trim();
+  if (!/^\d{15,24}$/.test(guildId)) throw new Error("Enter a valid numeric Discord server ID.");
+  const existing = await db.one("SELECT * FROM blacklisted_servers WHERE guild_id=?", [guildId]);
+  const stamp = Date.now();
+
+  if (sub === "add") {
+    if (existing) throw new Error("That Discord server is already blacklisted. Use `/blacklistedserver edit`.");
+    const name = clean(i.options.getString("name", true), 100);
+    const reason = clean(i.options.getString("reason", true), 300);
+    if (!name || !reason) throw new Error("Server name and reason cannot be blank.");
+    await db.query(
+      "INSERT INTO blacklisted_servers(guild_id,name,reason,added_by,added_at,updated_by,updated_at) VALUES(?,?,?,?,?,?,?)",
+      [guildId, name, reason, i.user.id, stamp, i.user.id, stamp],
+    );
+    await audit(i.user.id, "blacklistedserver.add", guildId, { name, reason });
+    await log(i.guild, { title: "Blacklisted server added", color: COLORS.warning, actor: i.user.id, fields: [["Server", `**${name}**\n\`${guildId}\``, false], ["Reason", reason, false]] }, "staff_audit");
+    return card("Blacklisted server added", { color: COLORS.success, rows: [["Server", `**${name}**\n\`${guildId}\``, false], ["Reason", reason, false]] });
+  }
+
+  if (!existing) throw new Error("That Discord server is not blacklisted.");
+  if (sub === "remove") {
+    await db.query("DELETE FROM blacklisted_servers WHERE guild_id=?", [guildId]);
+    await audit(i.user.id, "blacklistedserver.remove", guildId, { name: existing.name, reason: existing.reason });
+    await log(i.guild, { title: "Blacklisted server removed", color: COLORS.warning, actor: i.user.id, fields: [["Server", `**${clean(existing.name, 100)}**\n\`${guildId}\``, false]] }, "staff_audit");
+    return card("Blacklisted server removed", { color: COLORS.warning, rows: [["Server", `**${clean(existing.name, 100)}**\n\`${guildId}\``, false]] });
+  }
+
+  const nameInput = i.options.getString("name");
+  const reasonInput = i.options.getString("reason");
+  if (nameInput === null && reasonInput === null) throw new Error("Provide a new `name` or `reason`.");
+  const name = nameInput === null ? existing.name : clean(nameInput, 100);
+  const reason = reasonInput === null ? existing.reason : clean(reasonInput, 300);
+  if (!name || !reason) throw new Error("Server name and reason cannot be blank.");
+  await db.query("UPDATE blacklisted_servers SET name=?,reason=?,updated_by=?,updated_at=? WHERE guild_id=?", [name, reason, i.user.id, stamp, guildId]);
+  await audit(i.user.id, "blacklistedserver.edit", guildId, { before: { name: existing.name, reason: existing.reason }, after: { name, reason } });
+  await log(i.guild, { title: "Blacklisted server edited", color: COLORS.primary, actor: i.user.id, fields: [["Server", `**${name}**\n\`${guildId}\``, false], ["Reason", reason, false]] }, "staff_audit");
+  return card("Blacklisted server updated", { color: COLORS.success, rows: [["Server", `**${name}**\n\`${guildId}\``, false], ["Reason", reason, false]] });
 }
 
 /**
@@ -3306,8 +3518,8 @@ async function quarantineUnverifiedMember(member, reason = "Florida Bay verifica
 }
 
 /** Called by the website after a successful Discord sign-in. */
-async function recordPortalVerification({ discordId, address, connections, method }) {
-  const stored = await storeVerification(db, { discordId, address, connections, method });
+async function recordPortalVerification({ discordId, address, connections, guilds, method }) {
+  const stored = await storeVerification(db, { discordId, address, connections, guilds, method });
   const role = await grantVerifiedRole(client, discordId);
   await audit(discordId, "verify.complete", discordId, { method, role });
   await log((await mainGuild()) || client.guilds.cache.first(), {
@@ -3318,6 +3530,7 @@ async function recordPortalVerification({ discordId, address, connections, metho
       ["Method", humanize(method)],
       ["Verified role", humanize(role)],
       ["Identity links recorded", String(stored.links)],
+      ["Discord servers recorded", stored.servers === null ? "Unavailable" : String(stored.servers)],
     ],
   }, "verification");
   return { role };
@@ -3462,6 +3675,7 @@ const COMMAND_PERMISSIONS = {
   acelist: "`fbrp.perms.manage`",
   global: "`fbrp.global.<action>` (warn, timeout, kick, ban, blacklist, unban, invite, restore, lookup); moderated/restored targets must rank below you",
   blacklist: "`fbrp.global.blacklist`; target must rank below you",
+  blacklistedserver: "Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access",
   ticket: "Everyone; staff actions require `fbrp.tickets.support`",
   support: "`fbrp.tickets.manage`",
   ace: "`fbrp.perms.manage`",
@@ -3478,7 +3692,7 @@ const COMMAND_PERMISSIONS = {
   botguard: "`fbrp.security.manage`",
   security: "`fbrp.security.manage`",
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
-  userinfo: "`fbrp.investigate`",
+  userinfo: "`fbrp.investigate`; linked alt accounts also need `fbrp.global.alts`",
   office: "`fbrp.office.manage`",
   orgbank: "`balance`/`ledger`/`roster`: organization members; `transfer`: members whose rank can spend; `adjust`/`leader`: `fbrp.organizations.manage`",
   exam: "Head of Management and above",
@@ -4145,6 +4359,7 @@ const handlers = {
   roster: rosterCommand,
   global: globalCommand,
   blacklist: (i) => globalCommand(i, "blacklist"),
+  blacklistedserver: blacklistedServerCommand,
   acelist: aceListCommand,
   userinfo: userinfoCommand,
   office: officeCommand,
@@ -4388,7 +4603,11 @@ client.on("interactionCreate", async (i) => {
       await ensureProtectedRoleBoard().catch(() => {});
     if (i.commandName === "network" && i.options.getSubcommand(false) === "add")
       void reconcileGlobalCases(i.guild).catch((error) => console.error("[FBRP global] network add reconcile:", error));
-    await i.editReply(result instanceof EmbedBuilder ? { embeds: [result] } : result);
+    // A handler may return { ...reply, followUps: [message, ...] } for output that will not fit one message.
+    const payload = result instanceof EmbedBuilder ? { embeds: [result] } : result;
+    const followUps = Array.isArray(payload?.followUps) ? payload.followUps : [];
+    await i.editReply(followUps.length ? { ...payload, followUps: undefined } : payload);
+    for (const extra of followUps) await i.followUp({ ...extra, ephemeral: true }).catch((error) => console.error(`[FBRP bot] /${i.commandName} follow-up:`, error.message));
     void logCommandUse(i, null).catch(() => {});
   } catch (error) {
     void logCommandUse(i, error).catch(() => {});

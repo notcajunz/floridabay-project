@@ -1135,8 +1135,29 @@ const acelist = new SlashCommandBuilder()
 
 const userinfo = new SlashCommandBuilder()
   .setName("userinfo")
-  .setDescription("Investigate a member across game and Discord records")
+  .setDescription("Investigate a member: game and Discord records, servers and roles, and linked alt accounts")
   .addUserOption(user);
+
+const blacklistedserver = new SlashCommandBuilder()
+  .setName("blacklistedserver")
+  .setDescription("Manage Discord servers that should be flagged during member investigations")
+  .addSubcommand((s) =>
+    s.setName("add").setDescription("Add a Discord server to the investigation blacklist")
+      .addStringOption((o) => o.setName("server_id").setDescription("Discord server ID").setRequired(true).setMinLength(15).setMaxLength(24))
+      .addStringOption((o) => o.setName("name").setDescription("Server name shown in warnings").setRequired(true).setMaxLength(100))
+      .addStringOption((o) => o.setName("reason").setDescription("Why membership in this server is concerning").setRequired(true).setMaxLength(300)),
+  )
+  .addSubcommand((s) =>
+    s.setName("edit").setDescription("Edit a blacklisted Discord server")
+      .addStringOption((o) => o.setName("server_id").setDescription("Discord server ID").setRequired(true).setMinLength(15).setMaxLength(24))
+      .addStringOption((o) => o.setName("name").setDescription("New server name").setMaxLength(100))
+      .addStringOption((o) => o.setName("reason").setDescription("New blacklist reason").setMaxLength(300)),
+  )
+  .addSubcommand((s) =>
+    s.setName("remove").setDescription("Remove a Discord server from the investigation blacklist")
+      .addStringOption((o) => o.setName("server_id").setDescription("Discord server ID").setRequired(true).setMinLength(15).setMaxLength(24)),
+  )
+  .addSubcommand((s) => s.setName("list").setDescription("List blacklisted Discord servers"));
 
 const office = new SlashCommandBuilder()
   .setName("office")
@@ -1382,6 +1403,7 @@ export const commands = [
   roster,
   global,
   blacklist,
+  blacklistedserver,
   acelist,
   userinfo,
   office,

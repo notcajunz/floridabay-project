@@ -144,7 +144,7 @@ function nav() {
     ["Community", [
       ["roster", "Staff roster", "users"],
       ...(data.profile ? [["profile", "My staff profile", "user"]] : []),
-      ...(orgs.length ? [["organizations", "Organizations", "wallet"]] : []),
+      ...(orgs.length || access.orgAdmin ? [["organizations", "Organizations", "wallet"]] : []),
     ]],
     ...(showExams ? [["Career", [["exams", "Staff exams", "exam", (exams.exams || []).filter((e) => e.eligible).length]]]] : []),
     ...(access.staff || exams.reviewer || access.commandReference ? [["Staff workspace", [
@@ -157,7 +157,7 @@ function nav() {
       ...(exams.reviewer ? [["examreviews", "Exam reviews", "review", pendingExams]] : []),
       ...(access.commandReference ? [["commands", "Bot commands", "code"]] : []),
     ]]] : []),
-    ...(access.owner ? [["Owner", [["settings", "Live configuration", "gear"]]]] : []),
+    ...(access.owner ? [["Owner", [["settings", "Live configuration", "gear"]]]] : access.orgAdmin ? [["Management", [["settings", "Organization admin", "gear"]]]] : []),
   ];
   $("#portal-nav").innerHTML = groups.map(([label, items]) => `<div class="nav-label">${esc(label)}</div>${items.map(([view, title, ico, badge]) => `<button type="button" data-view="${view}" class="${state.view === view && !(view === "profile" && state.profile && state.profile.discord_id !== data.user.id) ? "active" : ""}">${icon(ico)}<span>${esc(title)}</span>${badge ? `<span class="badge">${fmt(badge)}</span>` : ""}</button>`).join("")}`).join("");
   const u = data.user;
@@ -221,7 +221,7 @@ function dashboard() {
           <button type="button" data-open-ticket style="--tone:255 122 69"><span class="feed-ico">${icon("life")}</span><div><b>Get support</b><small>Open a private ticket with staff</small></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>
           <button type="button" data-view="punishments" style="--tone:143 124 255"><span class="feed-ico">${icon("scale")}</span><div><b>Appeal a punishment</b><small>Use the case ID from your DM</small></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>
           <button type="button" data-view="roster" style="--tone:53 226 205"><span class="feed-ico">${icon("users")}</span><div><b>Meet the staff</b><small>Live roster with activity</small></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>
-          ${d.access.owner ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Live configuration</b><small>Owner control plane</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : ""}
+          ${d.access.owner ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Live configuration</b><small>Owner control plane</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : d.access.orgAdmin ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Organization admin</b><small>Create and edit every organization</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : ""}
         </div>
       </section>
     </div>`;
@@ -415,6 +415,20 @@ function liveOps() {
 }
 
 function settings() {
+  if (!state.data.access.owner && state.data.access.orgAdmin) {
+    setTitle("Management", "Organization admin");
+    $("#portal-content").innerHTML = `
+    <section class="welcome">
+      <div class="who">
+        <small>Co-Owner and above</small>
+        <h2>Manage every organization.</h2>
+        <p>Create, edit and deactivate gangs, businesses and departments, set the Discord roles that grant membership, their tags, the organization shop and wallet balances. Wallets, leaders, ranks and purchases for any organization are also on the Organizations page.</p>
+        <div class="chips"><span class="pill pill-sun">Organization admin</span></div>
+      </div>
+      <a class="btn btn-sun btn-lg" href="control.html">Open organization admin ${icon("external")}</a>
+    </section>`;
+    return;
+  }
   if (!state.data.access.owner) return go("dashboard");
   setTitle("Owner", "Live configuration");
   $("#portal-content").innerHTML = `
@@ -752,7 +766,7 @@ function examReviewDialog(id) {
 
 /* ---------- organizations ---------- */
 const TYPE_LABEL = { gang: "Gang", business: "Business", leo: "Law enforcement", fire: "Fire & rescue", government: "Government", other: "Organization" };
-const BUSINESS_LABEL = { mechanic: "Mechanic", bar: "Bar", club: "Nightclub", restaurant: "Restaurant", warehouse: "Warehouse", lab: "Drug lab" };
+const BUSINESS_LABEL = { mechanic: "Mechanic", bar: "Bar", club: "Nightclub", restaurant: "Restaurant", warehouse: "Warehouse", lab: "Drug lab", hideout: "Hideout" };
 const KIND_ICON = { property: "building", vehicle: "car", weapon: "target", outfit: "shirt", perk: "bolt" };
 const TX_TONE = { drug_sale: "143 124 255", business: "53 226 205", purchase: "255 122 69", adjust: "255 194 77", refund: "61 220 151", service: "85 196 255", transfer_in: "61 220 151", transfer_out: "255 122 69", seizure: "85 196 255", stipend: "53 226 205" };
 const TX_LABEL = { drug_sale: "Product sale", transfer_in: "Transfer in", transfer_out: "Transfer out", seizure: "Seizure bounty", stipend: "Duty pay" };
@@ -763,6 +777,11 @@ const money = (value) => `$${fmt(Math.round(Number(value || 0)))}`;
 function organizationsView() {
   const eco = state.data.economy;
   const orgs = eco?.organizations || [];
+  if (!orgs.length && state.data.access.orgAdmin) {
+    setTitle("Community", "Organizations");
+    $("#portal-content").innerHTML = `<section class="card">${empty("No organizations yet", "Create the first gang, business or department in organization admin.", "building")}<div style="padding:0 20px 20px"><a class="btn btn-sun" href="control.html">${icon("plus")} Organization admin</a></div></section>`;
+    return;
+  }
   if (!orgs.length) return go("dashboard");
   setTitle("Community", "Organizations");
   const selected = orgs.find((o) => String(o.id) === String(filter("org-id", orgs[0].id))) || orgs[0];
@@ -808,7 +827,7 @@ function organizationsView() {
     </article>`;
   };
   $("#portal-content").innerHTML = `
-    ${orgs.length > 1 ? `<div class="toolbar">${seg("org-id", orgs.map((o) => [String(o.id), o.name]), String(selected.id))}</div>` : ""}
+    ${orgs.length > 1 || state.data.access.orgAdmin ? `<div class="toolbar">${orgs.length > 1 ? seg("org-id", orgs.map((o) => [String(o.id), o.name]), String(selected.id)) : '<span style="flex:1"></span>'}${state.data.access.orgAdmin ? `<a class="btn btn-glass" href="control.html">${icon("gear")} Organization admin</a>` : ""}</div>` : ""}
     <section class="org-hero" style="--org:${esc(selected.color || "#35e2cd")}">
       <div class="org-hero-bg"></div>
       <div class="org-id"><span class="org-mark">${esc(initials(selected.name))}</span><div><small>${esc(TYPE_LABEL[selected.type] || titleCase(selected.type))} · ${esc(perms.member || perms.leader ? perms.rank : "Staff view")}</small><h2>${esc(selected.name)}</h2></div></div>
@@ -1544,7 +1563,7 @@ async function start() {
   $("#auth-view").hidden = true;
   $("#portal-app").hidden = false;
   await load();
-  if (new URLSearchParams(location.search).get("next") === "control" && state.data.access.owner) location.replace("control.html");
+  if (new URLSearchParams(location.search).get("next") === "control" && (state.data.access.owner || state.data.access.orgAdmin)) location.replace("control.html");
 }
 
 start().catch((error) => {
