@@ -108,6 +108,7 @@ import {
 import { startWebPanel } from "./web-panel.js";
 import { createStaffExams } from "./staff-exams.js";
 import { createEconomy } from "./economy.js";
+import { createStatusBoard } from "./status-board.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
@@ -172,6 +173,7 @@ async function log(guild, entry, purpose = "staff_audit") {
 
 const staffExams = createStaffExams({ client, db, audit, log });
 const economy = createEconomy({ client, db, audit, log, hasPermission });
+const statusBoard = createStatusBoard({ client, db, callGame, publicBase, connectUrl });
 
 /** /exam: Head of Management and above open an exam for one member for 60 minutes. */
 async function examCommand(i, sub) {
@@ -4203,6 +4205,7 @@ client.once("clientReady", async () => {
   await ticketSystem.backfillTranscripts()
     .then(({ found, saved }) => found && console.log(`[FBRP bot] Hosted ticket transcripts: ${saved}/${found} backfilled.`))
     .catch((error) => console.error("[FBRP bot] transcript backfill:", error));
+  await statusBoard.start().catch((error) => console.error("[FBRP status board] startup:", error.message || error));
   await ensureProtectedRoleBoard().catch((error) =>
     console.error("[FBRP bot] protected-role board:", error),
   );

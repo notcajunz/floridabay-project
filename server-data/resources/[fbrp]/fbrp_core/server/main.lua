@@ -1173,7 +1173,7 @@ SetHttpHandler(function(req,res)
     if req.path=='/health' and req.method=='GET' then
         res.writeHead(200,headers)
         return res.send(json.encode({
-            ok=ready,players=#GetPlayers(),aop=GlobalState['fbrp:aop'],
+            ok=ready,players=#GetPlayers(),maxPlayers=tonumber(GetConvar('sv_maxclients','48')) or 48,aop=GlobalState['fbrp:aop'],
             peacetime=GlobalState['fbrp:peacetime']==true,priority=GlobalState['fbrp:priority'] or {}
         }))
     end
