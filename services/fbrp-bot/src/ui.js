@@ -120,6 +120,7 @@ const CATEGORY = {
   callsigns: "Staff roster",
   role_sync: "Role sync",
   protected_roles: "Protected roles",
+  verification: "Verification",
   organizations: "Organizations",
   staff_audit: "Staff audit",
   staff_exams: "Staff exams",

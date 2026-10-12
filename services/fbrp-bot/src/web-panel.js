@@ -125,7 +125,7 @@ export const PANEL_RESOURCES = {
     order: "purpose",
     effect: "panels",
     fields: [
-      field("purpose", "Purpose", "text", { required: true, suggestions: ["ticket_panel", "tickets", "security", "moderation", "bans", "unbans", "blacklists", "staff_audit", "staff_exams", "staff_exams_head_admin", "staff_exams_management", "staff_duty", "roster", "role_sync", "protected_roles", "game", "organizations"].map((value) => ({ value })) }),
+      field("purpose", "Purpose", "text", { required: true, suggestions: ["ticket_panel", "tickets", "verification", "security", "moderation", "bans", "unbans", "blacklists", "staff_audit", "staff_exams", "staff_exams_head_admin", "staff_exams_management", "staff_duty", "roster", "role_sync", "protected_roles", "game", "organizations"].map((value) => ({ value })) }),
       field("guild_id", "Discord server", "guild", { required: true }),
       field("channel_id", "Channel", "channel", { guildField: "guild_id", required: true }),
       field("updated_by", "Updated by", "text", { default: ACTOR, advanced: true }),

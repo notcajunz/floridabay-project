@@ -3207,9 +3207,19 @@ const verifyPageUrl = () => `${publicBase()}/verify.html`;
 
 /** Called by the website after a successful Discord sign-in. */
 async function recordPortalVerification({ discordId, address, connections, method }) {
-  await storeVerification(db, { discordId, address, connections, method });
+  const stored = await storeVerification(db, { discordId, address, connections, method });
   const role = await grantVerifiedRole(client, discordId);
   await audit(discordId, "verify.complete", discordId, { method, role });
+  await log((await mainGuild()) || client.guilds.cache.first(), {
+    title: "Member verified",
+    color: role === "failed" ? COLORS.warning : COLORS.success,
+    target: discordId,
+    fields: [
+      ["Method", humanize(method)],
+      ["Verified role", humanize(role)],
+      ["Identity links recorded", String(stored.links)],
+    ],
+  }, "verification");
   return { role };
 }
 
@@ -3836,6 +3846,13 @@ async function verificationCommand(i, sub) {
     );
     const role = await grantVerifiedRole(client, user.id, `Verification granted by ${i.user.tag}`);
     await audit(i.user.id, "verify.grant", user.id, { role });
+    await log((await mainGuild()) || i.guild, {
+      title: "Verification granted manually",
+      color: role === "failed" ? COLORS.warning : COLORS.success,
+      actor: i.user.id,
+      target: user.id,
+      fields: [["Verified role", humanize(role)]],
+    }, "verification");
     return card("Verification granted", { color: COLORS.success, description: `${mention(user.id)} is verified (role: ${role}).` });
   }
   await db.query("DELETE FROM member_verifications WHERE discord_id=?", [user.id]);
@@ -3844,6 +3861,12 @@ async function verificationCommand(i, sub) {
     if (member?.roles.cache.has(VERIFIED_ROLE_ID)) await member.roles.remove(VERIFIED_ROLE_ID, `Verification revoked by ${i.user.tag}`).catch(() => {});
   }
   await audit(i.user.id, "verify.revoke", user.id, {});
+  await log((await mainGuild()) || i.guild, {
+    title: "Verification revoked",
+    color: COLORS.warning,
+    actor: i.user.id,
+    target: user.id,
+  }, "verification");
   return card("Verification revoked", { color: COLORS.warning, description: `${mention(user.id)} must verify again before rejoining a network server.` });
 }
 
