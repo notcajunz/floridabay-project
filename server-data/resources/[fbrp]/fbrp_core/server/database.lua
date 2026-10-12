@@ -23,7 +23,8 @@ local migrationFiles = {
     'migrations/027_staff_exam_grants.sql',
     'migrations/028_appeal_workflow.sql',
     'migrations/029_activities.sql',
-    'migrations/031_org_management.sql'
+    'migrations/031_org_management.sql',
+    'migrations/035_org_locked_headtags.sql'
 }
 
 local function splitSql(contents)

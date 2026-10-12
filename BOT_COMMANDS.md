@@ -130,7 +130,7 @@ Create and manage overhead tags
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/headtag create <kind> <label> <color> [role] [priority]` | Create a Discord-gated headtag or gang tag<br><small>Arguments: `kind` (required text) — Tag slot. Choices: `Headtag (top)`, `Gang tag (bottom)`. `label` (required text) — Text shown in game. `color` (required text) — Hex color, e.g. #43E8D8. `role` (optional role) — Existing role; leave blank to create one. `priority` (optional integer) — Wardrobe order.</small> | `fbrp.headtags.manage` |
+| `/headtag create <kind> <label> <color> [role] [priority] [organization]` | Create a Discord-gated headtag or gang tag<br><small>Arguments: `kind` (required text) — Tag slot. Choices: `Headtag (top)`, `Gang tag (bottom)`. `label` (required text) — Text shown in game. `color` (required text) — Hex color, e.g. #43E8D8. `role` (optional role) — Existing role; leave blank to create one. `priority` (optional integer) — Wardrobe order. `organization` (optional text) — Only wearable while on duty as this organization.</small> | `fbrp.headtags.manage` |
 | `/headtag delete <id> [delete_role]` | Delete a tag definition<br><small>Arguments: `id` (required integer) — Tag ID. `delete_role` (optional true/false) — Also delete the bot-created role.</small> | `fbrp.headtags.manage` |
 | `/headtag grant <id> <member>` | Grant a tag directly<br><small>Arguments: `id` (required integer) — Tag ID. `member` (required user) — Discord member.</small> | `fbrp.headtags.manage` |
 | `/headtag revoke <id> <member>` | Revoke direct tag access<br><small>Arguments: `id` (required integer) — Tag ID. `member` (required user) — Discord member.</small> | `fbrp.headtags.manage` |

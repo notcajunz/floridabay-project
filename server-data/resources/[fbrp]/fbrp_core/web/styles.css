@@ -492,6 +492,7 @@ kbd {
 .tag-row .name { flex: 1; min-width: 0; font: 700 20px/1.1 var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag-row .name.muted { color: var(--dim); font-weight: 600; }
 .tag-row .name.dark { text-shadow: -1px -1px 0 #e6eaec, 1px -1px 0 #e6eaec, -1px 1px 0 #e6eaec, 1px 1px 0 #e6eaec; }
+.tag-row .duty-lock { max-width: 115px; color: var(--dim); font: 700 9px/1.1 var(--display); letter-spacing: 0.08em; text-align: right; text-transform: uppercase; }
 .tag-row .tick { width: 22px; height: 22px; border-radius: 50%; font-size: 13px; color: transparent; border: 1px solid var(--line-2); }
 .tag-row.selected .tick { color: var(--ink); background: var(--aqua); border-color: var(--aqua); }
 

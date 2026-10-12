@@ -185,6 +185,12 @@ const headtag = new SlashCommandBuilder()
           .setDescription("Wardrobe order")
           .setMinValue(-1000)
           .setMaxValue(1000),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("organization")
+          .setDescription("Only wearable while on duty as this organization")
+          .setAutocomplete(true),
       ),
   )
   .addSubcommand((s) =>

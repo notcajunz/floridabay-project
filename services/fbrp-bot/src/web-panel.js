@@ -242,6 +242,7 @@ export const PANEL_RESOURCES = {
       field("color", "Color", "color", { default: "#43E8D8" }),
       field("guild_id", "Discord server", "guild"),
       field("role_id", "Required role", "role", { guildField: "guild_id" }),
+      field("org_id", "Organization duty lock", "relation", { source: "organizations", value: "id", display: "name" }),
       field("priority", "Priority", "number", { default: 0 }),
       field("enabled", "Enabled", "boolean", { default: true }),
       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),

@@ -477,13 +477,14 @@ function renderTags(data) {
     </div>`;
   const list = (kind, title, rows) => {
     const sel = Number(selected[kind]) || 0;
-    const row = (tid, label, color) => `
+    const row = (tid, label, color, orgName) => `
       <button class="tag-row${sel === tid ? " selected" : ""}" data-tag-kind="${kind}" data-tag-id="${tid}">
         <span class="swatch${tid ? "" : " none"}" style="--c:${safeColor(color)}"></span>
         <span class="name${tid ? (hexLuma(color) < 0.24 ? " dark" : "") : " muted"}" ${tid ? `style="color:${safeColor(color)}"` : ""}>${esc(label)}</span>
+        ${orgName ? `<span class="duty-lock">${esc(orgName)} duty</span>` : ""}
         <span class="tick">${icon("check")}</span>
       </button>`;
-    return `<div><div class="eyebrow">${title}</div><div class="tag-list">${row(0, "None")}${(rows || []).map((t) => row(Number(t.id), t.label, t.color)).join("")}</div></div>`;
+    return `<div><div class="eyebrow">${title}</div><div class="tag-list">${row(0, "None")}${(rows || []).map((t) => row(Number(t.id), t.label, t.color, t.org_name)).join("")}</div></div>`;
   };
   const total = (data.head || []).length + (data.gang || []).length;
   return `${head("Tag wardrobe", "Your headtag shows above your ID. Your gang tag sits underneath.", `<b>${total}</b> unlocked`)}${preview}

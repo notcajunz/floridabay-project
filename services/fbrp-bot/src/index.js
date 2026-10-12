@@ -662,7 +662,12 @@ async function headtagCommand(i, sub) {
   if (sub === "create") {
     const kind = i.options.getString("kind", true),
       label = clean(i.options.getString("label", true), 40),
-      color = hexColor(i.options.getString("color", true));
+      color = hexColor(i.options.getString("color", true)),
+      orgSlug = clean(i.options.getString("organization") || "", 40).toLowerCase(),
+      organization = orgSlug
+        ? await db.one("SELECT id,name,slug FROM organizations WHERE slug=? AND active=TRUE", [orgSlug])
+        : null;
+    if (orgSlug && !organization) throw new Error("That active organization was not found.");
     let role = i.options.getRole("role");
     let created = false;
     if (!role) {
@@ -674,13 +679,14 @@ async function headtagCommand(i, sub) {
       created = true;
     }
     const result = await db.query(
-      "INSERT INTO headtags(kind,label,color,role_id,guild_id,priority,created_by) VALUES(?,?,?,?,?,?,?)",
+      "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,created_by) VALUES(?,?,?,?,?,?,?,?)",
       [
         kind,
         label,
         color,
         role.id,
         i.guildId,
+        organization?.id || null,
         i.options.getInteger("priority") || 0,
         i.user.id,
       ],
@@ -690,14 +696,17 @@ async function headtagCommand(i, sub) {
       label,
       color,
       roleId: role.id,
+      orgId: organization?.id || null,
       created,
     });
     await syncGuild(client, i.guild);
     await refreshGame();
     return card("Tag created", {
       color: COLORS.success,
-      description: `Players with the role can select it in F6, in the ${kind === "head" ? "top headtag" : "bottom gang-tag"} slot.`,
-      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kind === "head" ? "Headtag" : "Gang tag"], ["Role", roleRef(role.id)], ["Color", `\`${color}\``]],
+      description: organization
+        ? `Players with the role can select it in F6 only while on duty as **${clean(organization.name)}**. It replaces that organization's normal duty tag.`
+        : `Players with the role can select it in F6, in the ${kind === "head" ? "top headtag" : "bottom gang-tag"} slot.`,
+      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kind === "head" ? "Headtag" : "Gang tag"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
     });
   }
   if (sub === "delete") {
@@ -747,14 +756,14 @@ async function headtagCommand(i, sub) {
     });
   }
   const rows = await db.query(
-    "SELECT * FROM headtags ORDER BY kind,priority DESC,label",
+    "SELECT t.*,o.name org_name,o.slug org_slug FROM headtags t LEFT JOIN organizations o ON o.id=t.org_id ORDER BY t.kind,t.priority DESC,t.label",
   );
   return card("Headtags and gang tags", {
     description:
       chunkLines(
         rows.map(
           (row) =>
-            `\`${row.id}\` · **${clean(row.label)}** · ${row.kind === "head" ? "Head" : "Gang"} · \`${row.color}\` · ${row.role_id ? roleRef(row.role_id) : "no role"}`,
+            `\`${row.id}\` · **${clean(row.label)}** · ${row.kind === "head" ? "Head" : "Gang"} · \`${row.color}\` · ${row.role_id ? roleRef(row.role_id) : "no role"}${row.org_name ? ` · duty: **${clean(row.org_name)}**` : ""}`,
         ),
         3900,
       )[0] || "No tags.",
@@ -827,6 +836,7 @@ async function organizationCommand(i, sub) {
           i.user.id,
         ],
       );
+      await q("UPDATE headtags SET org_id=? WHERE id=?", [org.insertId, tag.insertId]);
       await q(
         "INSERT INTO organization_role_requirements(org_id,guild_id,role_id,added_by,added_at) VALUES(?,?,?,?,?)",
         [org.insertId, accessGuildId, accessRoleId, i.user.id, Date.now()],
@@ -3919,6 +3929,19 @@ async function aceGroupAutocomplete(i) {
   );
 }
 
+async function headtagAutocomplete(i) {
+  const focused = i.options.getFocused(true);
+  if (focused.name !== "organization") return i.respond([]);
+  const needle = String(focused.value || "").toLowerCase();
+  const rows = await db.query("SELECT slug,name FROM organizations WHERE active=TRUE ORDER BY name");
+  return i.respond(
+    rows
+      .filter((row) => `${row.name} ${row.slug}`.toLowerCase().includes(needle))
+      .slice(0, 25)
+      .map((row) => ({ name: `${row.name} · ${row.slug}`.slice(0, 100), value: row.slug })),
+  );
+}
+
 /** A text channel in the guild where the bot may create invites that new members can see. */
 function inviteChannel(guild) {
   const me = guild.members.me;
@@ -4044,6 +4067,7 @@ async function joinAutocomplete(i) {
 
 const autocompleters = {
   join: joinAutocomplete,
+  headtag: headtagAutocomplete,
   ace: aceGroupAutocomplete,
   roster: aceGroupAutocomplete,
   staff: aceGroupAutocomplete,
