@@ -1,6 +1,7 @@
 local menuOpen = false
 local menuLocked = false
 local menuView = nil
+local sessionInfo = {}
 
 local function ui(message)
     SendNUIMessage(message)
@@ -65,7 +66,55 @@ RegisterNetEvent('fbrp:notify', function(message, tone)
 end)
 
 RegisterNetEvent('fbrp:session', function(data)
+    sessionInfo = data or {}
     ui({ type='session',data=data })
+end)
+
+-- M is the everyday interaction hub. The underlying commands/events remain
+-- available for power users, while the menu makes the systems discoverable.
+local function openHub()
+    if menuOpen then return FBRP.CloseMenu() end
+    local state = LocalPlayer.state
+    FBRP.OpenMenu('hub', {
+        jailed=state['fbrp:jailed'] == true,
+        communityService=state['fbrp:communityService'] == true,
+        restrained=state['fbrp:restrained'] ~= nil,
+        downed=FBRP.IsDowned and FBRP.IsDowned() or false,
+        discordLinked=sessionInfo.discordLinked == true,
+        staff=sessionInfo.staff == true,
+        inVehicle=IsPedInAnyVehicle(PlayerPedId(),false),
+    })
+end
+
+RegisterCommand('fbrp_hub', openHub, false)
+RegisterKeyMapping('fbrp_hub', 'Open Florida Bay interaction menu', 'keyboard', 'M')
+
+RegisterNUICallback('hubAction', function(data, cb)
+    local action = type(data) == 'table' and tostring(data.action or '') or ''
+    local commands = {
+        fish='fish', prisonwork='prisonwork', passport='passport', scenes='scenes',
+        emotes='emotes', radio='radio', vehicles='vehicles', tags='tags',
+        interactions='interactions', carcontrols='carcontrols', showid='showid',
+        org='org', bodycam='bodycam', spikes='spikes', handsup='handsup', point='point',
+    }
+    if action == 'activities' then
+        FBRP.CloseMenu(); TriggerServerEvent('fbrp:activities:request')
+    elseif action == 'custody' then
+        FBRP.CloseMenu(); TriggerServerEvent('fbrp:justice:status')
+    elseif action == 'mdt' then
+        FBRP.CloseMenu(); TriggerServerEvent('fbrp:mdt:request')
+    elseif commands[action] then
+        FBRP.CloseMenu(); ExecuteCommand(commands[action])
+    end
+    cb({ok=true})
+end)
+
+RegisterNUICallback('hubDispatch', function(data, cb)
+    local kind = type(data) == 'table' and tostring(data.kind or '') or ''
+    local message = type(data) == 'table' and tostring(data.message or '') or ''
+    TriggerServerEvent('fbrp:hub:dispatch', kind, message)
+    FBRP.CloseMenu()
+    cb({ok=true})
 end)
 
 -- pma-voice cycles proximity without showing any acknowledgement of its own.

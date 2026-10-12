@@ -133,7 +133,18 @@ export function createAppeals({ client, db, audit, log, hasPermission, liftAppea
       evidence.length ? `Evidence:\n${evidence.join("\n")}` : "",
     ].filter(Boolean).join("\n\n");
     const summary = text(`${answers.reason}\n\nResponsibility: ${responsibility}${evidence.length ? `\nEvidence: ${evidence.join(" ")}` : ""}\n\nFull appeal: ${publicBase()}/portal#appeals`, 1000);
-    const ticket = await openTicket(session, { type: "appeal", form: { ban: banId, why: summary } });
+    // Ban appeals are handled through the dedicated portal workflow. Their
+    // private staff ticket is routed through management rather than exposing a
+    // second Ban Appeal option in the public ticket panel.
+    const ticket = await openTicket(session, {
+      type: "management",
+      form: {
+        subject: `Ban appeal ${banId}`,
+        description: summary,
+        area: "Moderation appeal",
+        outcome: "Review the linked appeal in the staff portal.",
+      },
+    });
     const now = Date.now();
     const inserted = await db.query(
       "INSERT INTO moderation_appeals(case_id,author_id,ticket_id,status,statement,answers,evidence,created_at,updated_at) VALUES(?,?,?,'submitted',?,?,?,?,?)",

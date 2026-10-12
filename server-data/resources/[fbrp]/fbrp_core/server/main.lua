@@ -994,6 +994,22 @@ RegisterCommand('311', function(source, args)
     notify(source, ('Non-emergency report #%d submitted.'):format(id), 'success')
 end, false)
 
+RegisterNetEvent('fbrp:hub:dispatch', function(rawKind, rawMessage)
+    local src = source
+    if not sessions[src] then return end
+    local kind = tostring(rawKind or '')
+    local message = clean(rawMessage, 300)
+    if kind ~= '911' and kind ~= '311' then return end
+    if #message < 3 then return notify(src, 'Please describe what is happening.', 'error') end
+    local objects = kind == '911' and { FBRP.Ace.police, FBRP.Ace.ems } or { FBRP.Ace.police }
+    local id, sent = sendDispatch(kind, src, message, callerCoords(src), objects, true)
+    if kind == '911' then
+        notify(src, sent > 0 and ('911 call #%d submitted. %d unit(s) notified.'):format(id, sent) or ('911 call #%d submitted. No emergency units are on duty right now.'):format(id), sent > 0 and 'success' or 'warning')
+    else
+        notify(src, ('Non-emergency report #%d submitted.'):format(id), 'success')
+    end
+end)
+
 RegisterCommand('respond', function(source, args)
     if source <= 0 then return end
     if not hasPermission(source, FBRP.Ace.police) and not hasPermission(source, FBRP.Ace.ems) then return deny(source, FBRP.Ace.police) end

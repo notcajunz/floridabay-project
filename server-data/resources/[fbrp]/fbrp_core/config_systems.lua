@@ -383,6 +383,73 @@ FBRP.Passport = {
     },
 }
 
+-- Repeatable open-world activities. Routes are server validated one checkpoint
+-- at a time and store personal/server records. One geocache rotates daily so
+-- there is always a small reason to explore somewhere different.
+FBRP.Activities = {
+    checkpointRadius = 18.0,
+    cacheRadius = 8.0,
+    challenges = {
+        {
+            id='vespucci_sprint', label='Vespucci Sprint', mode='car', icon='car',
+            description='A quick street circuit through Vespucci and the canals.', minSeconds=38,
+            checkpoints={
+                vector3(-1178.8,-1507.2,4.4), vector3(-1028.4,-1598.1,4.9),
+                vector3(-875.5,-1420.2,6.1), vector3(-1021.2,-1191.8,5.7),
+                vector3(-1286.1,-1217.4,4.8), vector3(-1407.7,-1399.8,4.1),
+                vector3(-1178.8,-1507.2,4.4),
+            },
+        },
+        {
+            id='senora_scramble', label='Senora Scramble', mode='offroad', icon='gauge',
+            description='Dust, switchbacks, and rough ground across the Grand Senora.', minSeconds=55,
+            checkpoints={
+                vector3(1714.0,3254.5,41.1), vector3(2024.2,3307.6,45.7),
+                vector3(2357.7,3079.8,48.2), vector3(2498.7,2823.3,38.7),
+                vector3(2226.4,2703.1,46.1), vector3(1940.5,2870.2,46.1),
+                vector3(1714.0,3254.5,41.1),
+            },
+        },
+        {
+            id='chiliad_trail', label='Chiliad Trail Run', mode='foot', icon='walk',
+            description='A technical trail run from the cable station to the summit.', minSeconds=95,
+            checkpoints={
+                vector3(449.2,5571.8,781.2), vector3(421.8,5612.0,766.5),
+                vector3(356.6,5619.1,780.2), vector3(318.4,5597.7,796.7),
+                vector3(382.1,5537.6,747.1), vector3(450.2,5566.1,806.2),
+            },
+        },
+        {
+            id='beach_bike', label='Beach Bike Circuit', mode='bicycle', icon='heart-pulse',
+            description='A pedal-only circuit from Vespucci to Del Perro and back.', minSeconds=70,
+            checkpoints={
+                vector3(-1224.4,-1511.7,4.3), vector3(-1381.8,-1392.0,4.2),
+                vector3(-1618.7,-1074.2,13.0), vector3(-1819.0,-858.8,8.8),
+                vector3(-1912.0,-737.4,5.3), vector3(-1811.8,-1183.1,13.0),
+                vector3(-1503.0,-1270.8,2.3), vector3(-1224.4,-1511.7,4.3),
+            },
+        },
+    },
+    caches = {
+        { id='lifeguard', label='Vespucci Lifeguard Cache', region='Vespucci Beach', clue='Where lifeguards watch the southern sand.', x=-1203.7,y=-1560.2,z=4.6 },
+        { id='observatory', label='Observatory Cache', region='Vinewood Hills', clue='Behind the domes, beneath the city lights.', x=-416.4,y=1173.2,z=325.8 },
+        { id='sandy_tower', label='Sandy Water Tower Cache', region='Sandy Shores', clue='At the foot of the tower that watches the desert.', x=1681.1,y=3562.7,z=35.6 },
+        { id='paleto_dock', label='Paleto Dock Cache', region='Paleto Bay', clue='Where timber meets the cold northern water.', x=-280.5,y=6634.3,z=7.5 },
+        { id='lighthouse', label='Lighthouse Cache', region='Cape Catfish', clue='Below the beacon at the far eastern shore.', x=3319.0,y=5173.5,z=18.4 },
+        { id='quarry', label='Quarry Cache', region='Davis Quartz', clue='A quiet overlook above the industrial canyon.', x=2947.6,y=2788.8,z=40.6 },
+        { id='zancudo', label='River Cache', region='Zancudo River', clue='Under the old bridge where fresh water meets the sea.', x=-1524.2,y=1509.1,z=111.7 },
+        { id='mirror_park', label='Mirror Park Cache', region='Mirror Park', clue='Near the water, away from the city traffic.', x=1078.1,y=-689.7,z=57.7 },
+        { id='grapeseed', label='Grapeseed Cache', region='Grapeseed', clue='Beside the weathered barn at the edge of the fields.', x=2448.4,y=4978.8,z=46.8 },
+        { id='airport', label='Airport Lookout Cache', region='LSIA', clue='Watch the departures from outside the fence.', x=-984.6,y=-2637.7,z=13.9 },
+    },
+}
+
+function FBRP.FindActivity(id)
+    for _, activity in ipairs(FBRP.Activities.challenges) do
+        if activity.id == id then return activity end
+    end
+end
+
 function FBRP.FindLandmark(id)
     for _, landmark in ipairs(FBRP.Passport.landmarks) do
         if landmark.id == id then return landmark end

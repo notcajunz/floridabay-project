@@ -629,8 +629,80 @@ function renderScenes(data) {
     <section class="scene-list">${cards || '<div class="empty">No player scenes yet. Be the first: close this menu and use <b>/scenehost &lt;title&gt;</b>.</div>'}</section>`;
 }
 
+function hubCard(action, iconName, title, copy, badge = "") {
+  return `<button class="hub-card" data-hub-action="${esc(action)}">
+    <span class="hub-icon">${icon(iconName)}</span><span><strong>${esc(title)}</strong><small>${esc(copy)}</small></span>${badge ? `<em>${esc(badge)}</em>` : ""}
+  </button>`;
+}
+
+function renderHub(data) {
+  const custody = data.jailed
+    ? `<section class="hub-alert prison"><div>${icon("gavel")}<span><b>You are in Bolingbroke</b><small>Choose a work detail or check your remaining sentence.</small></span></div><button data-hub-action="prisonwork">Prison jobs</button><button data-hub-action="custody">Sentence status</button></section>`
+    : data.communityService
+      ? `<section class="hub-alert service"><div>${icon("trash")}<span><b>Community service active</b><small>Collect marked rubbish around Legion Square. Your timer pauses when idle.</small></span></div><button data-hub-action="custody">Service status</button></section>`
+      : "";
+  const explore = [
+    hubCard("activities", "target", "Challenges & caches", "Time trials, trail runs, bike circuits, records, and today's hidden cache.", "NEW"),
+    hubCard("fish", "fish", "Go fishing", "Cast or reel in your line when facing open water."),
+    hubCard("passport", "pin", "Coastal Passport", "Explore landmarks, collect stamps, and finish daily field notes."),
+    hubCard("scenes", "users", "Scene Hub", "Find live player scenes and community events."),
+  ].join("");
+  const roleplay = [
+    hubCard("interactions", "eye", "Player interactions", "Look at someone nearby to cuff, search, escort, identify, or help."),
+    hubCard("emotes", "sparkles", "Emotes", "Gestures, props, work animations, fitness, and dances."),
+    hubCard("showid", "id", "Show my ID", "Present your character ID to nearby players."),
+    hubCard("handsup", "user", "Hands up", "Raise or lower your hands."),
+  ].join("");
+  const tools = [
+    hubCard("vehicles", "car", "Vehicle garage", "Browse and spawn approved vehicles."),
+    hubCard("carcontrols", "gauge", "Vehicle controls", "Engine, locks, doors, cruise, and seatbelt."),
+    hubCard("radio", "radio", "Radio network", "Join public or organization frequencies."),
+    hubCard("org", "building", "Organization hub", "Duty work, properties, deliveries, armory, and wardrobe."),
+    hubCard("tags", "shirt", "Tag wardrobe", "Choose your granted headtag and organization tag."),
+    hubCard("mdt", "file", "Police MDT", "Dispatch, reports, warrants, citations, and corrections.", "DUTY"),
+  ].join("");
+  return `${head("Interaction Menu", "Everything you need for life around Florida Bay—without memorizing commands.", `<kbd>F1</kbd> vMenu`)}
+    ${custody}
+    <div class="hub-layout">
+      <section><div class="eyebrow">Explore & play</div><div class="hub-grid">${explore}</div></section>
+      <section><div class="eyebrow">Roleplay</div><div class="hub-grid">${roleplay}</div></section>
+      <section class="hub-tools"><div class="eyebrow">Tools & services</div><div class="hub-grid compact">${tools}</div></section>
+      <section class="hub-emergency"><div class="eyebrow">Call for help</div>
+        <form id="hub-dispatch-form"><div class="dispatch-kind"><label><input type="radio" name="kind" value="911" checked><span><b>911</b><small>Police & EMS</small></span></label><label><input type="radio" name="kind" value="311"><span><b>311</b><small>Non-emergency</small></span></label></div><textarea name="message" maxlength="300" required placeholder="Describe what is happening and where…"></textarea><button type="submit" class="primary-action">Send call</button></form>
+      </section>
+    </div>`;
+}
+
+function formatRun(ms) {
+  if (!ms) return "—";
+  const seconds = Number(ms) / 1000;
+  return `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, "0")}`;
+}
+
+function renderActivities(data) {
+  const p = data.profile || {};
+  const active = data.active;
+  const cards = (data.challenges || []).map((c) => {
+    const leader = c.leaders?.[0];
+    return `<article class="activity-card${c.featured ? " featured" : ""}">
+      <div class="activity-card-top"><span>${icon(c.icon || "target")}</span><div><small>${esc(c.mode)}${c.featured ? " · FEATURED TODAY" : ""}</small><h3>${esc(c.label)}</h3></div></div>
+      <p>${esc(c.description)}</p>
+      <div class="activity-stats"><span><small>Your best</small><b>${formatRun(c.personal)}</b></span><span><small>Server record</small><b>${leader ? formatRun(leader.ms) : "Open"}</b><em>${leader ? esc(leader.name) : "Be first"}</em></span><span><small>Finished</small><b>${Number(c.completions) || 0}</b></span></div>
+      <button class="primary-action" data-activity-start="${esc(c.id)}" ${active ? "disabled" : ""}>${active?.id === c.id ? "Run in progress" : "Start challenge"}</button>
+    </article>`;
+  }).join("");
+  const cache = data.cache || {};
+  return `${head("Florida Bay Activities", "Repeatable challenges, persistent records, and a new hidden cache every day.", `<b>${Number(p.points) || 0}</b> points`)}
+    <section class="activity-profile"><div><small>Total completions</small><b>${Number(p.completions) || 0}</b></div><div><small>Caches found</small><b>${Number(p.caches) || 0}</b></div><div><small>Cache streak</small><b>${Number(p.streak) || 0} days</b></div><aside>${icon("sparkles")} Personal bests earn 100 points. Repeat runs earn 35.</aside></section>
+    ${active ? `<section class="activity-active">${icon("target")}<div><b>Challenge in progress</b><small>Checkpoint ${Number(active.checkpoint) || 1}. Return to the route, or cancel this run to start another.</small></div><button data-activity-cancel>Cancel run</button></section>` : ""}
+    <section class="cache-card${cache.found ? " found" : ""}"><span class="cache-mark">${cache.found ? icon("check") : icon("search")}</span><div><small>DAILY GEOCACHE · ${esc(cache.region || "Florida Bay")}</small><h3>${esc(cache.found ? "Cache found" : cache.label || "Hidden cache")}</h3><p>${esc(cache.clue || "Follow the clue and search the area.")}</p></div><button data-activity-cache ${cache.found ? "disabled" : ""}>${cache.found ? "Come back tomorrow" : `${icon("pin")} Mark search area`}</button></section>
+    <div class="activity-grid">${cards}</div>`;
+}
+
 function renderMenu() {
   const titles = {
+    hub: "Interaction Menu",
+    activities: "Activities",
     tags: "Tags",
     vehicles: "Garage",
     interactions: "Interact",
@@ -647,6 +719,8 @@ function renderMenu() {
   };
   setText("#menu-title", titles[currentView] || "Menu");
   const renderers = {
+    hub: renderHub,
+    activities: renderActivities,
     tags: renderTags,
     vehicles: renderVehicles,
     interactions: renderInteractions,
@@ -891,6 +965,26 @@ function updateFishing(d) {
       <div class="catch-meta"><b>${Number(r.weight).toFixed(2)} lb</b><span style="color:${safeColor(r.color)}">${esc(r.rarity)}</span><span>${r.water === "fresh" ? "Freshwater" : "Saltwater"}</span></div>${badges ? `<div class="catch-badges">${badges}</div>` : ""}`;
     caught.classList.remove("hidden");
   }
+}
+
+let activityRunTimer = null;
+function updateActivityRun(d) {
+  const box = $("#activity-run");
+  clearInterval(activityRunTimer);
+  box.classList.toggle("hidden", !d.active);
+  if (!d.active) return;
+  const total = Math.max(1, Number(d.total) || 1);
+  const index = clamp(Number(d.index) || 1, 1, total);
+  const startedAt = Number(d.startedAt) || Date.now();
+  setText("#activity-run-label", d.label || "Activity");
+  setText("#activity-run-step", `Checkpoint ${index}/${total}`);
+  $("#activity-run-bar").style.width = `${clamp((index / total) * 100, 0, 100)}%`;
+  const tick = () => {
+    const seconds = Math.max(0, (Date.now() - startedAt) / 1000);
+    setText("#activity-run-time", `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, "0")}`);
+  };
+  tick();
+  activityRunTimer = setInterval(tick, 50);
 }
 
 /* ───────── Emote menu ───────── */
@@ -1597,6 +1691,7 @@ window.addEventListener("message", ({ data }) => {
   if (data.type === "bodycam") updateBodycam(data);
   if (data.type === "progress") updateProgress(data);
   if (data.type === "fishing") updateFishing(data);
+  if (data.type === "activityRun") updateActivityRun(data);
   if (data.type === "idcard") idCard(data.data || {});
   if (data.type === "citation") citationCard(data.data || {});
   if (data.type === "plate") plateCard(data.data || {});
@@ -1627,6 +1722,12 @@ $("#menu-content").addEventListener("click", (event) => {
     if (job) { job.disabled = true; post("prisonJob", { action: "start", id: job.dataset.prisonJob }); return; }
     if (event.target.closest("[data-prison-cancel]")) { post("prisonJob", { action: "cancel" }); post("close"); return; }
   }
+  const hubAction = event.target.closest("[data-hub-action]");
+  if (hubAction) { post("hubAction", { action: hubAction.dataset.hubAction }); return; }
+  const activity = event.target.closest("[data-activity-start]");
+  if (activity) { post("activityAction", { action: "start", id: activity.dataset.activityStart }); return; }
+  if (event.target.closest("[data-activity-cancel]")) { post("activityAction", { action: "cancel" }); post("close"); return; }
+  if (event.target.closest("[data-activity-cache]")) { post("activityAction", { action: "cache" }); return; }
   const emoteCat = event.target.closest("[data-emote-cat]");
   if (emoteCat) {
     ui.emoteCat = emoteCat.dataset.emoteCat;
@@ -1759,6 +1860,12 @@ $("#menu-content").addEventListener("submit", (event) => {
   if (event.target.id === "radio-tune") {
     event.preventDefault();
     post("radioAction", { action: "join", channel: Number(new FormData(event.target).get("channel")) });
+    return;
+  }
+  if (event.target.id === "hub-dispatch-form") {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(event.target).entries());
+    post("hubDispatch", values);
     return;
   }
   if (event.target.id !== "character-form") return;

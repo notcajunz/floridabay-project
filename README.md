@@ -21,6 +21,9 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 - ID cards (`/showid`, third eye "Show my ID"; police checks flag active warrants).
 - Emotes: F3 menu or `/e <name>` (55 emotes, some with props), X hands up / cancel, B point.
 - Fishing (`/fish`): salt- and freshwater species around Florida Bay, a reel-in mini-game, personal bests, server records (`/fishlog`, `/fishtop`).
+- Florida Bay Activities: four repeatable, mode-specific checkpoint challenges (street sprint, off-road scramble, trail run, and bicycle circuit) with server validation, persistent personal/server records, points, and an on-screen run timer.
+- Daily geocache hunt: one rotating hidden cache per day, search-area clues, persistent finds, bonus points, and streak tracking.
+- M interaction hub: fishing, prison work, community-service/sentence status, activities, passport, scenes, emotes, player interactions, ID, vehicles, radio, organizations, tags, police tools, and direct 911/311 forms in one discoverable menu.
 - Coastal Passport (`F4` or `/passport`): ten server-validated landmarks, permanent discovery stamps, five explorer ranks, a rotating featured stop, route setting, and three daily field notes tied to exploration and fishing.
 - Original Florida Bay loading screen and generated Florida Bay Roleplay logo.
 - AOP, peacetime, priority, announcements, dispatch calls, audit records, moderation cases, security incidents, tag selection, rosters, and all shift data in MariaDB.
@@ -121,7 +124,8 @@ Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11
 
 | Control | Action |
 |---|---|
-| M | vMenu |
+| F1 | vMenu |
+| M | Florida Bay interaction menu |
 | F4 | Coastal Passport and daily field notes |
 | F5 | Third-eye player interactions (look at a nearby player) |
 | F6 | Headtag/gang-tag wardrobe |

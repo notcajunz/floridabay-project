@@ -709,6 +709,18 @@ RegisterCommand('jailtime', function(source)
     notify(source, 'You are not serving a sentence.', 'info')
 end, false)
 
+RegisterNetEvent('fbrp:justice:status', function()
+    local src = source
+    local j = jailed[src]
+    if j then
+        return chat(src, 'BOLINGBROKE', ('%s remaining of %d months · behaviour %d (%s) · %s cut so far. Charges: %s'):format(
+            formatDuration(j.remaining),j.months,j.behaviour,tierOf(j.behaviour).label,formatDuration(j.reduced or 0),chargeTitles(j.charges) ~= '' and chargeTitles(j.charges) or 'none listed'), AMBER)
+    end
+    local c = serving[src]
+    if c then return chat(src, 'COMMUNITY SERVICE', ('%s of service left · %d pieces collected.'):format(formatDuration(c.remaining),c.collected), AMBER) end
+    notify(src, 'You have no active sentence or community service.', 'info')
+end)
+
 -- /jail <id> <months> [reason] - quick sentence without the MDT.
 local function quickBookingCheck(source, target)
     if source <= 0 or hasPermission(source, FBRP.Ace.staffJail) then return true end
@@ -1070,6 +1082,11 @@ RegisterCommand('mdt', function(source)
     if not canMdt(source) then return S.deny(source, FBRP.Ace.policeMdt) end
     openMdt(source)
 end, false)
+RegisterNetEvent('fbrp:mdt:request', function()
+    local src = source
+    if not canMdt(src) then return S.deny(src, FBRP.Ace.policeMdt) end
+    openMdt(src)
+end)
 RegisterCommand('cad', function(source) ExecuteCommand('mdt') end, false)
 
 -- A citation or sentence submitted from the MDT. Returns ok, message.
