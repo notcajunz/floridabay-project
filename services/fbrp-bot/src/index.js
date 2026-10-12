@@ -18,13 +18,20 @@ import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
 import { runGithubSync, githubStatus } from "./github-sync.js";
 import {
   VERIFIED_ROLE_ID,
+  VERIFICATION_CHANNEL_ID,
+  UNVERIFIED_ROLE_NAME,
   verificationRequired,
   isVerified,
   recordVerification as storeVerification,
   grantVerifiedRole,
 } from "./verification.js";
 import { saveAll, listBackups, restoreAll, backupBusy } from "./backup.js";
-import { OWNER_DISCORD_ID, requireOwnerId } from "./access-control.js";
+import {
+  OWNER_DISCORD_ID,
+  PROTECTED_ROLE_MANAGER_IDS,
+  requireOwnerId,
+  requireProtectedRoleManagerId,
+} from "./access-control.js";
 import {
   pool,
   db,
@@ -1600,7 +1607,7 @@ async function staffCommand(i, sub) {
 }
 
 async function protectRoleCommand(i, sub) {
-  await requirePermission(i, "fbrp.roles.protect");
+  requireProtectedRoleManagerId(i.user.id);
   if (sub === "list") {
     const rows = await db.query(
       "SELECT * FROM protected_roles WHERE guild_id=?",
@@ -1652,32 +1659,7 @@ async function protectRoleCommand(i, sub) {
       rows: [["Role", roleRef(role.id)]],
     });
   }
-  const isUser = sub.endsWith("user"),
-    add = sub.startsWith("allow-"),
-    subject = isUser
-      ? i.options.getUser("member", true)
-      : i.options.getRole("manager_role", true);
-  if (add)
-    await db.query(
-      "INSERT IGNORE INTO protected_role_access(guild_id,role_id,subject_type,subject_id,added_by) VALUES(?,?,?,?,?)",
-      [i.guildId, role.id, isUser ? "user" : "role", subject.id, i.user.id],
-    );
-  else
-    await db.query(
-      "DELETE FROM protected_role_access WHERE guild_id=? AND role_id=? AND subject_type=? AND subject_id=?",
-      [i.guildId, role.id, isUser ? "user" : "role", subject.id],
-    );
-  const subjectRef = isUser ? mention(subject.id) : roleRef(subject.id);
-  await log(i.guild, {
-    title: add ? "Protected-role manager added" : "Protected-role manager removed",
-    color: add ? COLORS.success : COLORS.warning,
-    actor: i.user.id,
-    fields: [["Role", roleRef(role.id)], [isUser ? "Member" : "Manager role", subjectRef]],
-  }, "protected_roles");
-  return card("Protected-role access updated", {
-    color: COLORS.success,
-    rows: [["Role", roleRef(role.id)], [isUser ? "Member" : "Manager role", subjectRef], ["Access", add ? "Can manage" : "Cannot manage"]],
-  });
+  throw new Error("Unknown protected-role action.");
 }
 
 async function botguardCommand(i, sub) {
@@ -3215,6 +3197,70 @@ async function globalCommand(i, sub) {
 /** Website verification: the page members must pass before joining any network server. */
 const verifyPageUrl = () => `${publicBase()}/verify.html`;
 
+const UNVERIFIED_LOBBY_ACCESS = {
+  ViewChannel: true,
+  ReadMessageHistory: true,
+  SendMessages: false,
+  AddReactions: false,
+  CreatePublicThreads: false,
+  CreatePrivateThreads: false,
+  SendMessagesInThreads: false,
+};
+
+/** Creates/repairs the role that keeps an unverified member out of every regular channel. */
+async function ensureUnverifiedRole(guild, only = null) {
+  await guild.roles.fetch();
+  let role = guild.roles.cache.find((item) => item.name === UNVERIFIED_ROLE_NAME) || null;
+  if (role?.managed) throw new Error(`The existing ${UNVERIFIED_ROLE_NAME} role is managed by an integration and cannot be used.`);
+  if (!role)
+    role = await guild.roles.create({
+      name: UNVERIFIED_ROLE_NAME,
+      permissions: [],
+      reason: "Florida Bay verification waiting-room role",
+    });
+  if (!role.editable) throw new Error(`Move the bot role above ${UNVERIFIED_ROLE_NAME}, then restart the bot.`);
+  if (role.permissions.bitfield !== 0n)
+    await role.setPermissions(0n, "Unverified members have no server-wide permissions");
+  if (!only) await guild.channels.fetch().catch(() => {});
+  for (const channel of only ? [only] : guild.channels.cache.values()) {
+    if (channel.isThread?.() || !channel.permissionOverwrites) continue;
+    const access = channel.id === VERIFICATION_CHANNEL_ID ? UNVERIFIED_LOBBY_ACCESS : { ViewChannel: false };
+    if (!overwriteMatches(channel, role.id, access))
+      await channel.permissionOverwrites.edit(role.id, access, {
+        reason: "Florida Bay unverified member channel isolation",
+      });
+  }
+
+  const lobby = guild.channels.cache.get(VERIFICATION_CHANNEL_ID);
+  if (lobby?.permissionOverwrites) {
+    // @everyone's denial gates every current and future ordinary role. Remove any
+    // existing role-level ViewChannel grants that would otherwise override it.
+    await lobby.permissionOverwrites.edit(guild.roles.everyone.id, { ViewChannel: false }, {
+      reason: "Verification lobby is private to unverified members",
+    });
+    const visibleRoleIds = new Set([VERIFIED_ROLE_ID]);
+    for (const overwrite of lobby.permissionOverwrites.cache.values())
+      if (overwrite.type === 0 && overwrite.id !== role.id && overwrite.allow.has(PermissionFlagsBits.ViewChannel))
+        visibleRoleIds.add(overwrite.id);
+    for (const roleId of visibleRoleIds) {
+      if (roleId === guild.roles.everyone.id || !guild.roles.cache.has(roleId)) continue;
+      await lobby.permissionOverwrites.edit(roleId, { ViewChannel: false }, {
+        reason: "Verification lobby is hidden from verified and community roles",
+      });
+    }
+  }
+  return role;
+}
+
+/** Replaces ordinary roles with the waiting-room role until website verification completes. */
+async function quarantineUnverifiedMember(member, reason = "Florida Bay verification required") {
+  const role = await ensureUnverifiedRole(member.guild);
+  if (!member.manageable) throw new Error(`Cannot quarantine ${member.user.tag}; their highest role is above the bot.`);
+  const keptManagedRoles = member.roles.cache.filter((item) => item.managed).map((item) => item.id);
+  await member.roles.set([role.id, ...keptManagedRoles], reason);
+  return role;
+}
+
 /** Called by the website after a successful Discord sign-in. */
 async function recordPortalVerification({ discordId, address, connections, method }) {
   const stored = await storeVerification(db, { discordId, address, connections, method });
@@ -3256,8 +3302,8 @@ async function grandfatherVerifiedMembers() {
 }
 
 /**
- * Unverified accounts cannot join any network server: they are sent the verification link and
- * removed. Verified accounts get the verified role. Returns true when the member was removed.
+ * Unverified accounts are kept in a private verification lobby. Verified accounts get the
+ * community-member role. Returns true when normal join syncing should stop for this member.
  */
 async function enforceVerificationOnJoin(member) {
   if (!verificationRequired() || member.user.bot) return false;
@@ -3276,11 +3322,11 @@ async function enforceVerificationOnJoin(member) {
     "Verify to join Florida Bay",
     [["Verify here", verifyPageUrl(), false]],
     COLORS.warning,
-    "Every Florida Bay server requires a verified account. Verify on the website with Discord (it takes a few seconds), then join again.",
+    "Every Florida Bay server requires a verified account. You can stay in the server while you verify; completing the website check unlocks the community automatically.",
   ).catch(() => {});
-  const removed = await member.kick("Florida Bay verification required").then(() => true, () => false);
-  await audit(client.user.id, "verify.removed_unverified", id, { guild: member.guild.id, removed });
-  return removed;
+  const unverifiedRole = await quarantineUnverifiedMember(member);
+  await audit(client.user.id, "verify.quarantined_unverified", id, { guild: member.guild.id, role: unverifiedRole.id });
+  return true;
 }
 
 /** Enforces active global bans/blacklists on someone joining a network server. Returns true when handled. */
@@ -3384,7 +3430,7 @@ const COMMAND_PERMISSIONS = {
   mod: "`fbrp.discord.mod`; ban/kick may use `fbrp.discord.mod.<action>`",
   server: "`/server status`: Everyone; other actions: `fbrp.ops`",
   staff: "`add`/`move`/`remove`: `fbrp.staff.assign` (ranks below yours only); others: `fbrp.staff.manage`",
-  protectrole: "`fbrp.roles.protect`",
+  protectrole: `Only <@${PROTECTED_ROLE_MANAGER_IDS[0]}> and <@${PROTECTED_ROLE_MANAGER_IDS[1]}>`,
   botguard: "`fbrp.security.manage`",
   security: "`fbrp.security.manage`",
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
@@ -3458,10 +3504,9 @@ function helpPayload(page = 0, filter = "") {
 
 /** Builds the board as one header embed plus one embed per network server (Discord allows 10 embeds and 6000 characters per message). */
 async function protectedRoleBoardEmbeds() {
-  const [servers, roles, access] = await Promise.all([
+  const [servers, roles] = await Promise.all([
     db.query("SELECT guild_id,name FROM network_guilds ORDER BY name"),
     db.query("SELECT guild_id,role_id FROM protected_roles ORDER BY guild_id,role_id"),
-    db.query("SELECT guild_id,role_id,subject_type,subject_id FROM protected_role_access ORDER BY guild_id,role_id,subject_type,subject_id"),
   ]);
   const sections = [];
   for (const row of servers) {
@@ -3469,10 +3514,7 @@ async function protectedRoleBoardEmbeds() {
     const resolved = [];
     for (const item of roles.filter((r) => String(r.guild_id) === String(row.guild_id))) {
       const role = guild ? await guild.roles.fetch(String(item.role_id)).catch(() => null) : null;
-      const managers = access
-        .filter((a) => String(a.guild_id) === String(row.guild_id) && String(a.role_id) === String(item.role_id))
-        .map((a) => (a.subject_type === "role" ? roleRef(a.subject_id) : mention(a.subject_id)));
-      resolved.push({ id: String(item.role_id), role, managers });
+      resolved.push({ id: String(item.role_id), role });
     }
     resolved.sort((x, y) => (y.role?.position ?? -1) - (x.role?.position ?? -1));
     sections.push({
@@ -3482,14 +3524,13 @@ async function protectedRoleBoardEmbeds() {
     });
   }
   const totalRoles = sections.reduce((n, section) => n + section.roles.length, 0);
-  const totalManagers = sections.reduce((n, section) => n + section.roles.reduce((m, r) => m + r.managers.length, 0), 0);
   const header = card("Protected roles", {
     description:
-      "These roles are locked across the Florida Bay network. Only the managers listed under a role, the bot, and exempt staff can grant or remove it. Any other change is reverted automatically and logged to the security channel.",
+      "These roles are locked across the Florida Bay network. Only the two authorized accounts below and the bot can grant or remove them. Any other change is reverted automatically and logged to the security channel.",
     rows: [
       ["Protected roles", String(totalRoles)],
       ["Servers", String(sections.length)],
-      ["Delegated managers", String(totalManagers)],
+      ["Authorized managers", PROTECTED_ROLE_MANAGER_IDS.map(mention).join(" ")],
     ],
     footer: "Florida Bay Roleplay \u00b7 Updates automatically",
   });
@@ -3503,11 +3544,9 @@ async function protectedRoleBoardEmbeds() {
   const budget = Math.max(400, Math.floor((5600 - headerSize) / visible.length));
   const embeds = [header];
   for (const section of visible) {
-    const blocks = section.roles.map(({ id, role, managers }) => {
-      const label = role ? roleRef(id) : `Deleted role \`${id}\``;
-      const managed = managers.length ? managers.join(" ") : "No delegated managers";
-      return `${label}\n${managed}`;
-    });
+    const blocks = section.roles.map(({ id, role }) =>
+      role ? roleRef(id) : `Deleted role \`${id}\``,
+    );
     let body = "";
     let shown = 0;
     for (const block of blocks) {
@@ -3866,9 +3905,11 @@ async function verificationCommand(i, sub) {
     return card("Verification granted", { color: COLORS.success, description: `${mention(user.id)} is verified (role: ${role}).` });
   }
   await db.query("DELETE FROM member_verifications WHERE discord_id=?", [user.id]);
+  const networkGuildIds = new Set((await networkRows()).map((row) => String(row.guild_id)));
   for (const guild of client.guilds.cache.values()) {
-    const member = guild.roles.cache.has(VERIFIED_ROLE_ID) ? await guild.members.fetch(user.id).catch(() => null) : null;
-    if (member?.roles.cache.has(VERIFIED_ROLE_ID)) await member.roles.remove(VERIFIED_ROLE_ID, `Verification revoked by ${i.user.tag}`).catch(() => {});
+    if (!networkGuildIds.has(guild.id)) continue;
+    const member = await guild.members.fetch(user.id).catch(() => null);
+    if (member) await quarantineUnverifiedMember(member, `Verification revoked by ${i.user.tag}`).catch(() => {});
   }
   await audit(i.user.id, "verify.revoke", user.id, {});
   await log((await mainGuild()) || i.guild, {
@@ -3877,7 +3918,7 @@ async function verificationCommand(i, sub) {
     actor: i.user.id,
     target: user.id,
   }, "verification");
-  return card("Verification revoked", { color: COLORS.warning, description: `${mention(user.id)} must verify again before rejoining a network server.` });
+  return card("Verification revoked", { color: COLORS.warning, description: `${mention(user.id)} is restricted to the verification lobby until they verify again.` });
 }
 
 const WELCOME_CATEGORY_ID = "1558252351624585246";
@@ -4189,6 +4230,13 @@ client.once("clientReady", async () => {
     if (guild) await registerCommands(guild);
   }
   await grandfatherVerifiedMembers().catch((error) => console.error("[FBRP verify] grandfather:", error));
+  const verificationLobby = await client.channels.fetch(VERIFICATION_CHANNEL_ID).catch(() => null);
+  if (verificationLobby?.guild)
+    await ensureUnverifiedRole(verificationLobby.guild).catch((error) =>
+      console.error("[FBRP verify] waiting-room setup:", error),
+    );
+  else
+    console.error(`[FBRP verify] waiting-room channel ${VERIFICATION_CHANNEL_ID} was not found.`);
   // Report gated roles that were granted while the bot was offline, then do the full reconcile.
   await serial(() => sweep(client, "sweep", { fetch: true }))
     .then((r) => (r.added || r.removed) && console.log(`[FBRP global sync] startup role sweep: +${r.added} / -${r.removed}`))
@@ -4357,7 +4405,7 @@ client.on("guildMemberAdd", (member) => {
   void guardBot(member, securityLog)
     .then(async () => {
       // Security join alerts must run before verification/global enforcement can remove the member.
-      if (member.user.bot || await guardJoin(member, securityLog) || await enforceVerificationOnJoin(member) || await enforceGlobalOnJoin(member)) return;
+      if (member.user.bot || await guardJoin(member, securityLog) || await enforceGlobalOnJoin(member) || await enforceVerificationOnJoin(member)) return;
       await applyPendingRoleRestore(member);
       await syncMember(client, member);
       if (await activeStaff(member.id)) await setStaffTeamRole(member.id, true);
@@ -4375,10 +4423,24 @@ async function enforceBlacklistRoles(member) {
   if (!censored || !member.roles.cache.has(censored.id) || ordinary)
     await censorMember(member, "Florida Bay global blacklist re-enforcement");
 }
+
+/** Prevents role grants from letting a waiting member escape the verification quarantine. */
+async function enforceUnverifiedMemberRoles(member) {
+  const role = member.guild.roles.cache.find((item) => item.name === UNVERIFIED_ROLE_NAME);
+  if (!role || !member.roles.cache.has(role.id)) return false;
+  if (await isVerified(db, member.id)) {
+    await grantVerifiedRole(client, member.id);
+    return true;
+  }
+  const ordinary = member.roles.cache.some((item) => item.id !== member.guild.id && item.id !== role.id && !item.managed);
+  if (ordinary) await quarantineUnverifiedMember(member, "Florida Bay verification quarantine enforcement");
+  return true;
+}
 client.on("guildMemberUpdate", (oldMember, newMember) => {
   void enforceProtectedRoles(oldMember, newMember, securityLog)
     .then(() => enforceBlacklistRoles(newMember))
-    .then(() => syncMember(client, newMember, { alert: "live" }))
+    .then(() => enforceUnverifiedMemberRoles(newMember))
+    .then((quarantined) => quarantined || syncMember(client, newMember, { alert: "live" }))
     .catch((error) => console.error("[FBRP bot] member update:", error));
 });
 client.on("channelCreate", (channel) => {
@@ -4386,6 +4448,8 @@ client.on("channelCreate", (channel) => {
     console.error("[FBRP bot] global channel access:", error),
   );
   void (async () => {
+    const unverified = channel.guild?.roles.cache.find((item) => item.name === UNVERIFIED_ROLE_NAME);
+    if (unverified) await ensureUnverifiedRole(channel.guild, channel);
     const main = await mainGuild();
     if (channel.guild?.id !== main?.id) return;
     if (await db.one("SELECT id FROM moderation_cases WHERE guild_id='global' AND action='blacklist' AND active=TRUE LIMIT 1"))

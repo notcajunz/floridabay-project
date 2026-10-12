@@ -487,22 +487,6 @@ export const PANEL_RESOURCES = {
       field("added_at", "Added at", "timestamp", { default: "now", advanced: true }),
     ],
   },
-  "protected-role-access": {
-    label: "Protected-role managers",
-    group: "Security",
-    description: "Users and roles allowed to manage protected roles.",
-    table: "protected_role_access",
-    pk: ["guild_id", "role_id", "subject_type", "subject_id"],
-    order: "guild_id,role_id,subject_type,subject_id",
-    effect: "security",
-    fields: [
-      field("guild_id", "Discord server", "guild", { required: true }),
-      field("role_id", "Protected role", "role", { guildField: "guild_id", required: true }),
-      field("subject_type", "Manager type", "select", { options: ["user", "role"], required: true }),
-      field("subject_id", "User or role ID", "snowflake", { required: true }),
-      field("added_by", "Added by", "text", { default: ACTOR, advanced: true }),
-    ],
-  },
   "allowed-bots": {
     label: "Allowed bots",
     group: "Security",

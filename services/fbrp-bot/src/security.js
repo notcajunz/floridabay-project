@@ -1,5 +1,6 @@
 import { AuditLogEvent, ChannelType, GuildVerificationLevel, PermissionFlagsBits, PermissionsBitField } from "discord.js";
 import { db, audit } from "./database.js";
+import { isProtectedRoleManagerId } from "./access-control.js";
 import { COLORS, card, clip, roleRef, serverRef, when, who } from "./ui.js";
 
 /* ------------------------------------------------------------------------------------------------
@@ -306,21 +307,8 @@ export async function sweepBots(guild) {
 
 async function protectedAccess(guild, actorId, roleId) {
   if (!actorId) return false;
-  if (isOwner(guild, actorId) || (await trusted(guild, actorId))) return true;
-  if (
-    await db.one(
-      "SELECT 1 FROM protected_role_access WHERE guild_id=? AND role_id=? AND subject_type='user' AND subject_id=?",
-      [guild.id, roleId, actorId],
-    )
-  )
-    return true;
-  const actor = await guild.members.fetch(actorId).catch(() => null);
-  if (!actor) return false;
-  const rows = await db.query(
-    "SELECT subject_id FROM protected_role_access WHERE guild_id=? AND role_id=? AND subject_type='role'",
-    [guild.id, roleId],
-  );
-  return rows.some((row) => actor.roles.cache.has(String(row.subject_id)));
+  if (String(actorId) === String(guild.client.user.id)) return true;
+  return isProtectedRoleManagerId(actorId);
 }
 
 export async function enforceProtectedRoles(oldMember, newMember, log) {

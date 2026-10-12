@@ -15,7 +15,7 @@ const FLORIDA_BAY = [
   ace("Florida Bay · Discord", "fbrp.discord.mod", "Discord moderation", "Ban, unban, kick, time out, warn and purge in one server (/mod)."),
   ace("Florida Bay · Discord", "fbrp.discord.mod.ban", "Discord ban", "Ban a member in one server with /mod ban."),
   ace("Florida Bay · Discord", "fbrp.discord.mod.kick", "Discord kick", "Kick a member from one server with /mod kick."),
-  ace("Florida Bay · Discord", "fbrp.roles.protect", "Protected roles", "Protect roles and choose who may manage them (/protectrole)."),
+  ace("Florida Bay · Discord", "fbrp.roles.protect", "Protected roles", "Legacy ACE object; /protectrole is restricted to the two authorized account IDs."),
   ace("Florida Bay · Discord", "fbrp.security.manage", "Bot Guard & anti-nuke", "Approve bots, trusted adders and exemptions (/botguard); anti-nuke, anti-raid, anti-spam and lockdowns (/security)."),
   ace("Florida Bay · Discord", "fbrp.office.manage", "Office management", "Assign and clear voice-office owners (/office)."),
   ace("Florida Bay · Global moderation", "fbrp.global", "All global moderation", "Use every /global command across every Florida Bay server."),

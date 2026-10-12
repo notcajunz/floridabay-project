@@ -61,6 +61,10 @@ support tickets, and browse the staff roster. Staff accounts also receive the
 shared ban/blacklist registry, appeal queue, staff profiles, organization
 manager, and ticket operations workspace.
 
+New members who have not verified are kept in an `FBRP | Unverified` waiting
+role instead of being kicked. That role can only see the configured verification
+channel; completing verification swaps it for the community-member role.
+
 The original live configuration plane remains available inside the portal and
 is hard-restricted to Discord user `1090083387638812755`. It covers global role
 syncs, ACE permissions, tickets, channels, headtags, organizations, staff ranks

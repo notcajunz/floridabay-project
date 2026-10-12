@@ -5,6 +5,7 @@ import {
   PermissionsBitField,
 } from "discord.js";
 import { db, audit } from "./database.js";
+import { VERIFICATION_CHANNEL_ID } from "./verification.js";
 
 const origin = (guildId) => `discord:${guildId}`;
 // These non-staff ACE groups are intentionally bidirectional: a bound Discord
@@ -119,6 +120,7 @@ function accessFor(channel) {
 async function applyChannelAccess(guild, roleId, enabled, only = null) {
   const result = { changed: 0, failed: 0 };
   for (const channel of only ? [only] : guild.channels.cache.values()) {
+    if (enabled && channel.id === VERIFICATION_CHANNEL_ID) continue;
     const access = accessFor(channel);
     if (!access || !("permissionOverwrites" in channel)) continue;
     const current = channel.permissionOverwrites.cache.get(String(roleId));
@@ -1018,6 +1020,9 @@ export async function deleteGlobalSync(client, rawGroup, deleteRoles = true, act
 }
 
 export async function enforceAllChannelAccess(client, channel = null) {
+  // The verification lobby is intentionally private to the Unverified role, even for
+  // network roles configured with the otherwise-global "all channels" option.
+  if (channel?.id === VERIFICATION_CHANNEL_ID) return;
   const rows = await db.query(
     `SELECT r.guild_id,r.role_id FROM network_sync_roles r
      JOIN network_syncs s ON s.id=r.sync_id WHERE s.all_channels=TRUE`,

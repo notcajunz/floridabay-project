@@ -3,6 +3,9 @@ import { isIPv4, isIPv6 } from "node:net";
 
 /** The role the bot gives once someone has verified on the website. */
 export const VERIFIED_ROLE_ID = String(process.env.FBRP_VERIFIED_ROLE_ID || "1557690864526954616");
+/** Members waiting to verify can only see this channel. */
+export const VERIFICATION_CHANNEL_ID = String(process.env.FBRP_VERIFICATION_CHANNEL_ID || "1558919447014547546");
+export const UNVERIFIED_ROLE_NAME = String(process.env.FBRP_UNVERIFIED_ROLE_NAME || "FBRP | Unverified");
 export const verificationRequired = () => String(process.env.FBRP_REQUIRE_VERIFICATION || "true").toLowerCase() !== "false";
 
 const PRIVATE_V4 = /^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/;
@@ -69,11 +72,20 @@ export async function grantVerifiedRole(client, userId, reason = "Verified on th
     if (!role) continue;
     const member = await guild.members.fetch(String(userId)).catch(() => null);
     if (!member) continue;
-    if (member.roles.cache.has(role.id)) {
+    const unverified = guild.roles.cache.find((item) => item.name === UNVERIFIED_ROLE_NAME);
+    if (member.roles.cache.has(role.id) && !member.roles.cache.has(unverified?.id)) {
       if (outcome === "pending") outcome = "granted";
       continue;
     }
-    const added = await member.roles.add(role, reason).then(() => true, (error) => {
+    // Replace the quarantine role atomically so role-update enforcement cannot remove the
+    // verified role in the gap between two separate Discord API calls.
+    const added = await (member.roles.cache.has(unverified?.id)
+      ? member.roles.set([
+          role.id,
+          ...member.roles.cache.filter((item) => item.managed).map((item) => item.id),
+        ], reason)
+      : member.roles.add(role, reason)
+    ).then(() => true, (error) => {
       console.error(`[FBRP verify] could not give ${role.id} to ${userId} in ${guild.id}:`, error.message);
       return false;
     });

@@ -1,6 +1,6 @@
 # Florida Bay bot command reference
 
-This file documents every command registered by the Discord bot: **30 top-level slash commands**, **154 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
+This file documents every command registered by the Discord bot: **30 top-level slash commands**, **150 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
 
 ## How permissions work
 
@@ -246,13 +246,11 @@ Guard sensitive Discord roles
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/protectrole add <role>` | Protect a role<br><small>Arguments: `role` (required role) — Protected role.</small> | `fbrp.roles.protect` |
-| `/protectrole remove <role>` | Stop protecting a role<br><small>Arguments: `role` (required role) — Protected role.</small> | `fbrp.roles.protect` |
-| `/protectrole allow-user <role> <member>` | Allow a user to manage a protected role<br><small>Arguments: `role` (required role) — Protected role. `member` (required user) — Discord member.</small> | `fbrp.roles.protect` |
-| `/protectrole allow-role <role> <manager_role>` | Allow members of a role to manage a protected role<br><small>Arguments: `role` (required role) — Protected role. `manager_role` (required role) — Manager role.</small> | `fbrp.roles.protect` |
-| `/protectrole deny-user <role> <member>` | Remove a user from protected-role access<br><small>Arguments: `role` (required role) — Protected role. `member` (required user) — Discord member.</small> | `fbrp.roles.protect` |
-| `/protectrole deny-role <role> <manager_role>` | Remove a role from protected-role access<br><small>Arguments: `role` (required role) — Protected role. `manager_role` (required role) — Manager role.</small> | `fbrp.roles.protect` |
-| `/protectrole list` | List protected roles | `fbrp.roles.protect` |
+| `/protectrole add <role>` | Protect a role<br><small>Arguments: `role` (required role) — Protected role.</small> | Discord IDs `1090083387638812755` or `1099651002208104488` only |
+| `/protectrole remove <role>` | Stop protecting a role<br><small>Arguments: `role` (required role) — Protected role.</small> | Discord IDs `1090083387638812755` or `1099651002208104488` only |
+| `/protectrole list` | List protected roles | Discord IDs `1090083387638812755` or `1099651002208104488` only |
+
+Only those two accounts (plus the bot itself for automated enforcement) can grant or remove a protected role. Security exemptions, Discord server ownership, ACE permissions, and other Discord roles do not bypass this policy.
 
 ## /botguard
 
@@ -485,4 +483,3 @@ Important behavior:
 ## Not included
 
 This reference covers commands handled by the Discord bot. FiveM chat/resource commands such as `/clockin`, `/duty`, `/aop`, `/me`, and `/ooc` are registered and permission-checked by the game resources rather than the Discord bot, so they are outside this file's scope.
-

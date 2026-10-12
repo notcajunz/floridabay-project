@@ -707,52 +707,6 @@ const protectrole = new SlashCommandBuilder()
       ),
   )
   .addSubcommand((s) =>
-    s
-      .setName("allow-user")
-      .setDescription("Allow a user to manage a protected role")
-      .addRoleOption((o) =>
-        o.setName("role").setDescription("Protected role").setRequired(true),
-      )
-      .addUserOption(user),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("allow-role")
-      .setDescription("Allow members of a role to manage a protected role")
-      .addRoleOption((o) =>
-        o.setName("role").setDescription("Protected role").setRequired(true),
-      )
-      .addRoleOption((o) =>
-        o
-          .setName("manager_role")
-          .setDescription("Manager role")
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("deny-user")
-      .setDescription("Remove a user from protected-role access")
-      .addRoleOption((o) =>
-        o.setName("role").setDescription("Protected role").setRequired(true),
-      )
-      .addUserOption(user),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("deny-role")
-      .setDescription("Remove a role from protected-role access")
-      .addRoleOption((o) =>
-        o.setName("role").setDescription("Protected role").setRequired(true),
-      )
-      .addRoleOption((o) =>
-        o
-          .setName("manager_role")
-          .setDescription("Manager role")
-          .setRequired(true),
-      ),
-  )
-  .addSubcommand((s) =>
     s.setName("list").setDescription("List protected roles"),
   );
 
