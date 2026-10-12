@@ -1,7 +1,8 @@
 import { createServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { ChannelType } from "discord.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NETWORK_KINDS, callGame } from "./sync.js";
@@ -10,6 +11,8 @@ import { connectUrl } from "./site-url.js";
 import { createAppeals } from "./appeals.js";
 import { OWNER_DISCORD_ID } from "./access-control.js";
 import { staffLevel } from "./database.js";
+import { findLinkedAccounts } from "./alts.js";
+import { organizationActivity } from "./investigation.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -19,6 +22,7 @@ const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../w
 const logoFile = path.resolve(webRoot, "../../../server-data/resources/[fbrp]/fbrp_loading/web/assets/fbrp-logo.png");
 const commandReferenceFile = path.resolve(webRoot, "../../../BOT_COMMANDS.md");
 const ACTOR = OWNER_DISCORD_ID;
+const INVESTIGATION_ROLE_ID = "1558227272107036755";
 /** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
 const ORG_ADMIN_RESOURCES = new Set(["organizations", "organization-requirements", "headtags", "org-shop", "org-wallets"]);
 /** Read-only lookups those sections need for their dropdowns. */
@@ -714,13 +718,11 @@ function parseJsonColumns(rows, resource) {
   });
 }
 
-// Authentication attempts are rate-limited by address. OAuth is preferred; a
-// one-time Discord DM code remains available when an OAuth redirect is not yet allow-listed.
+// Authentication attempts are rate-limited by address. Discord OAuth is the
+// only supported authentication path.
 const failedLogins = new Map();
-const dmStarts = new Map();
 const LOCKOUT_FAILURES = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
-const DM_START_LIMIT = 5;
 // The public site normally makes only a handful of requests per page load. This
 // generous ceiling sheds abusive clients before they can create database or
 // Discord API work, while allowing ordinary browsers and shared connections.
@@ -767,18 +769,6 @@ function recordFailure(request) {
   else entry.count += 1;
   if (failedLogins.get(address).count === LOCKOUT_FAILURES)
     console.warn(`[FBRP panel] ${address} locked out for 15 minutes after ${LOCKOUT_FAILURES} wrong tokens.`);
-}
-
-function allowDmStart(request) {
-  const address = clientAddress(request);
-  const entry = dmStarts.get(address);
-  if (!entry || Date.now() - entry.since > LOCKOUT_MS) {
-    dmStarts.set(address, { count: 1, since: Date.now() });
-    return true;
-  }
-  if (entry.count >= DM_START_LIMIT) return false;
-  entry.count += 1;
-  return true;
 }
 
 const sha256 = (value) => createHash("sha256").update(String(value)).digest("hex");
@@ -862,13 +852,12 @@ export function startWebPanel(context) {
   const baseUrl = (request) => baseFor(request).href.replace(/\/$/, "");
   const ownerDiscordId = String(context.ownerDiscordId || OWNER_DISCORD_ID);
   const oauthStates = new Map();
-  const dmChallenges = new Map();
   const {
     client, db, audit, refreshGame, syncAll, saveGlobalSync, deleteGlobalSync,
     bindSyncRole, setGlobalSyncOrder, pushGlobalSyncs, ensureTicketPanel,
     createWebsiteTicket, websiteTicketAction, websiteTicketTypes,
     websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard, announceCallsign,
-    hasPermission, liftAppealedCase, recordVerification, staffExams, economy, log,
+    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, log,
   } = context;
 
   const cookieFor = (request, name, value, maxAge) => {
@@ -916,13 +905,79 @@ export function startWebPanel(context) {
     return level >= Number(coOwner?.rank_order ?? 950) ? "organizations" : null;
   }
 
+  async function staffGuild() {
+    const row = await db.one("SELECT guild_id FROM network_guilds WHERE kind='staff' ORDER BY added_at LIMIT 1");
+    if (!row?.guild_id) return null;
+    return client.guilds.cache.get(String(row.guild_id)) || null;
+  }
+
+  async function hasInvestigationRole(discordId) {
+    const guild = client.guilds.cache.find((item) => item.roles.cache.has(INVESTIGATION_ROLE_ID));
+    if (!guild) return false;
+    const member = await guild.members.fetch(String(discordId)).catch(() => null);
+    return Boolean(member?.roles.cache.has(INVESTIGATION_ROLE_ID));
+  }
+
+  async function investigationAudit(actorId, record) {
+    const guild = await staffGuild();
+    if (!guild) throw new Error("The staff Discord is unavailable, so this investigation cannot be logged.");
+    const binding = await db.one(
+      "SELECT channel_id FROM discord_channel_bindings WHERE purpose='staff_audit' AND guild_id=?",
+      [guild.id],
+    );
+    let channel = binding?.channel_id
+      ? await client.channels.fetch(String(binding.channel_id)).catch(() => null)
+      : null;
+    if (!channel || channel.guildId !== guild.id || !channel.isTextBased())
+      channel = guild.channels.cache.find((item) =>
+        item.type === ChannelType.GuildText && ["staff-audit", "investigation-logs", "mod-logs", "logs"].includes(item.name),
+      );
+    if (!channel?.isTextBased())
+      throw new Error("The staff audit channel is unavailable, so this investigation cannot be opened.");
+
+    const actor = await client.users.fetch(String(actorId)).catch(() => null);
+    const riskCount = record.servers.blacklisted.length;
+    await channel.send({
+      embeds: [{
+        color: riskCount ? 0xff5f6d : 0x8f7cff,
+        title: "Portal member investigation",
+        description: "A staff member opened a full member record in the investigations panel.",
+        fields: [
+          {
+            name: "Investigator",
+            value: `${actor?.globalName || actor?.username || "Unknown user"}\n<@${actorId}> · \`${actorId}\``,
+            inline: true,
+          },
+          {
+            name: "Target",
+            value: `${record.user.displayName}\n<@${record.user.id}> · \`${record.user.id}\``,
+            inline: true,
+          },
+          {
+            name: "Risk summary",
+            value: `${riskCount} blacklisted server match${riskCount === 1 ? "" : "es"}\n${record.alts.accounts.length} linked account${record.alts.accounts.length === 1 ? "" : "s"}`,
+            inline: true,
+          },
+          {
+            name: "Record scope",
+            value: `${record.servers.live.length} live shared server${record.servers.live.length === 1 ? "" : "s"} · ${record.servers.other.length} OAuth-reported\n${record.organizations.length} organization record${record.organizations.length === 1 ? "" : "s"} · ${record.cases.length} moderation case${record.cases.length === 1 ? "" : "s"}`,
+          },
+        ],
+        footer: { text: "Florida Bay staff audit · portal.userinfo" },
+        timestamp: new Date().toISOString(),
+      }],
+      allowedMentions: { parse: [] },
+    });
+  }
+
   async function accessFor(discordId) {
     const owner = String(discordId) === ownerDiscordId;
     const roster = await db.one("SELECT status FROM staff_roster_members WHERE discord_id=?", [String(discordId)]);
     const staff = owner || Boolean(roster && roster.status !== "removed");
-    const [opsControl, sceneModerate, staffRank, communityManager] = await Promise.all([
+    const [opsControl, sceneModerate, gameUnban, staffRank, communityManager] = await Promise.all([
       owner ? true : hasPermission?.(discordId, "fbrp.announce"),
       owner ? true : hasPermission?.(discordId, "fbrp.staff.manage"),
+      owner ? true : hasPermission?.(discordId, "easyadmin.player.ban.remove"),
       db.one(
         `SELECT MAX(g.rank_order) level
            FROM ace_memberships m JOIN ace_groups g ON g.name=m.group_name
@@ -933,13 +988,19 @@ export function startWebPanel(context) {
       db.one("SELECT rank_order FROM ace_groups WHERE name='community_manager'"),
     ]);
     const commandReference = owner || Number(staffRank?.level ?? -1) >= Number(communityManager?.rank_order ?? 850);
+    const [managementScope, investigationRole] = await Promise.all([
+      panelScope(discordId),
+      hasInvestigationRole(discordId),
+    ]);
     return {
       owner,
-      orgAdmin: Boolean(await panelScope(discordId)),
+      orgAdmin: Boolean(managementScope),
+      investigate: Boolean(managementScope || investigationRole),
       staff,
       support: owner || staff || Boolean(await hasPermission?.(discordId, "fbrp.tickets.support")),
       opsControl: Boolean(opsControl),
       sceneModerate: Boolean(sceneModerate),
+      gameUnban: Boolean(gameUnban),
       commandReference,
     };
   }
@@ -1211,6 +1272,125 @@ export function startWebPanel(context) {
     };
   }
 
+  /** Full cross-system member record shown only to Co-Owners and above. */
+  async function investigationRecord(discordId) {
+    const id = String(discordId);
+    if (!/^\d{15,24}$/.test(id)) throw new Error("Enter a valid Discord user ID.");
+    const user = await client.users.fetch(id).catch(() => null);
+    if (!user) throw new Error("That Discord account could not be found.");
+    const stamp = Date.now();
+    const shiftDuration = "CASE WHEN ended_at IS NULL THEN GREATEST(0,FLOOR((heartbeat_at-started_at)/1000)) ELSE seconds END";
+    const [players, groups, organizations, cases, discipline, staffHours, verification, storedGuilds, blacklist, network, linked] = await Promise.all([
+      db.query("SELECT id,name,created_at,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 20", [id]),
+      db.query(`SELECT g.name,g.label,g.rank_order,m.origin FROM ace_memberships m JOIN ace_groups g ON g.name=m.group_name WHERE m.discord_id=? ORDER BY g.rank_order DESC,g.label`, [id]),
+      organizationActivity(db, id, stamp),
+      db.query("SELECT id,ban_id,guild_id,actor_id,action,reason,active,expires_at,created_at,source,game_ban_id FROM moderation_cases WHERE target_id=? ORDER BY id DESC LIMIT 100", [id]),
+      db.query("SELECT id,kind,reason,actor_id,created_at,revoked_at,revoke_reason FROM staff_roster_discipline WHERE discord_id=? ORDER BY id DESC LIMIT 100", [id]),
+      db.one(
+        `SELECT COUNT(*) shifts,
+                COALESCE(SUM(CASE WHEN started_at>=? THEN ${shiftDuration} ELSE 0 END),0) week_seconds,
+                COALESCE(SUM(CASE WHEN started_at>=? THEN ${shiftDuration} ELSE 0 END),0) month_seconds,
+                COALESCE(SUM(${shiftDuration}),0) total_seconds,
+                MAX(started_at) last_shift
+           FROM staff_shifts WHERE discord_id=?`,
+        [stamp - 7 * 86400000, stamp - 30 * 86400000, id],
+      ),
+      db.one("SELECT verified_at,last_verified_at,method,granted_by FROM member_verifications WHERE discord_id=?", [id]),
+      db.query("SELECT guild_id,guild_name,is_owner,first_seen,last_seen FROM member_guilds WHERE discord_id=? ORDER BY guild_name", [id]),
+      db.query("SELECT guild_id,name,reason FROM blacklisted_servers ORDER BY name"),
+      db.query("SELECT guild_id,name,kind FROM network_guilds ORDER BY FIELD(kind,'main','staff','department','community','business','gang','partner','other'),name"),
+      findLinkedAccounts(db, id),
+    ]);
+
+    const networkById = new Map(network.map((row) => [String(row.guild_id), row]));
+    const orderedGuilds = [
+      ...network.map((row) => client.guilds.cache.get(String(row.guild_id))).filter(Boolean),
+      ...[...client.guilds.cache.values()].filter((guild) => !networkById.has(guild.id)),
+    ];
+    const live = (await Promise.all(orderedGuilds.map(async (guild) => {
+      const member = await guild.members.fetch(id).catch(() => null);
+      if (!member) return null;
+      return {
+        id: guild.id,
+        name: guild.name,
+        network: networkById.has(guild.id),
+        kind: networkById.get(guild.id)?.kind || null,
+        joinedAt: member.joinedTimestamp || null,
+        roles: [...member.roles.cache.values()]
+          .filter((role) => role.id !== guild.id)
+          .sort((a, b) => b.position - a.position)
+          .map((role) => ({ id: role.id, name: role.name })),
+      };
+    }))).filter(Boolean);
+    const liveIds = new Set(live.map((row) => row.id));
+    const storedById = new Map(storedGuilds.map((row) => [String(row.guild_id), row]));
+    const blacklisted = blacklist.filter((row) => liveIds.has(String(row.guild_id)) || storedById.has(String(row.guild_id))).map((row) => ({
+      id: String(row.guild_id),
+      name: row.name,
+      reason: row.reason,
+      live: liveIds.has(String(row.guild_id)),
+      lastSeen: Number(storedById.get(String(row.guild_id))?.last_seen || 0) || null,
+    }));
+    const other = storedGuilds
+      .filter((row) => !client.guilds.cache.has(String(row.guild_id)))
+      .map((row) => ({ id: String(row.guild_id), name: row.guild_name, owner: Boolean(Number(row.is_owner)), firstSeen: Number(row.first_seen), lastSeen: Number(row.last_seen) }));
+
+    const altAccounts = await Promise.all(linked.alts.slice(0, 30).map(async (alt) => {
+      const [activeCase, level, exemption] = await Promise.all([
+        db.one("SELECT action,ban_id FROM moderation_cases WHERE target_id=? AND guild_id='global' AND action IN ('ban','blacklist') AND active=TRUE ORDER BY id DESC LIMIT 1", [alt.discordId]),
+        staffLevel(alt.discordId),
+        db.one("SELECT 1 exempt FROM discord_security_exemption_scopes WHERE discord_id=? AND guild_id='*' LIMIT 1", [alt.discordId]),
+      ]);
+      const status = activeCase ? `active ${activeCase.action}${activeCase.ban_id ? ` · ${activeCase.ban_id}` : ""}`
+        : level === Number.POSITIVE_INFINITY ? "bot owner"
+          : level >= 0 ? "staff account"
+            : exemption ? "security-exempt" : "not globally banned";
+      return { id: alt.discordId, strength: alt.strength, evidence: alt.evidence, status };
+    }));
+    const profiles = await resolvePeople([
+      id,
+      ...cases.map((row) => row.actor_id),
+      ...discipline.map((row) => row.actor_id),
+      ...altAccounts.map((row) => row.id),
+    ], { fetchLimit: 100 });
+
+    const normalizeDate = (value) => value ? new Date(value).getTime() : null;
+    return {
+      user: {
+        id,
+        username: user.username,
+        displayName: user.globalName || user.username,
+        avatar: user.displayAvatarURL({ size: 256, extension: "webp" }),
+        bot: user.bot,
+        createdAt: Number((BigInt(id) >> 22n) + 1420070400000n),
+      },
+      verification: verification ? { ...verification, verified_at: Number(verification.verified_at), last_verified_at: Number(verification.last_verified_at) } : null,
+      players: players.map((row) => ({ ...row, id: Number(row.id), created_at: normalizeDate(row.created_at), last_seen: normalizeDate(row.last_seen) })),
+      groups,
+      organizations,
+      cases: cases.map((row) => ({ ...row, id: Number(row.id), active: Boolean(Number(row.active)), expires_at: row.expires_at ? Number(row.expires_at) : null, created_at: Number(row.created_at) })),
+      discipline: discipline.map((row) => ({ ...row, id: Number(row.id), created_at: Number(row.created_at), revoked_at: row.revoked_at ? Number(row.revoked_at) : null })),
+      staffHours: {
+        shifts: Number(staffHours?.shifts || 0),
+        weekSeconds: Number(staffHours?.week_seconds || 0),
+        monthSeconds: Number(staffHours?.month_seconds || 0),
+        totalSeconds: Number(staffHours?.total_seconds || 0),
+        lastShift: staffHours?.last_shift ? Number(staffHours.last_shift) : null,
+      },
+      servers: {
+        live,
+        liveTotal: orderedGuilds.length,
+        other,
+        blacklisted,
+        seenAt: storedGuilds.reduce((latest, row) => Math.max(latest, Number(row.last_seen || 0)), 0) || null,
+        hasList: storedGuilds.length > 0,
+      },
+      alts: { accounts: altAccounts, unlinkedAccounts: Number(linked.unlinkedAccounts || 0) },
+      people: profiles,
+      generatedAt: stamp,
+    };
+  }
+
   async function portalBootstrap(session) {
     const access = await accessFor(session.id);
     const viewer = { id: session.id, ...access };
@@ -1414,51 +1594,6 @@ export function startWebPanel(context) {
         return sendJson(response, 200, { ok: true, next: pending.next, verified: Boolean(verification), role: verification?.role || null }, { "Set-Cookie": [sessionCookie(request, raw), stateCookie(request, "", 0)] });
       }
 
-      if (request.method === "POST" && url.pathname === "/api/auth/dm/start") {
-        if (lockedOut(request)) return sendJson(response, 429, { error: "Too many sign-in attempts. Try again in 15 minutes." });
-        if (!allowDmStart(request)) return sendJson(response, 429, { error: "Too many verification messages. Try again in 15 minutes." });
-        const input = await bodyJson(request);
-        const discordId = String(input.discordId || "").trim();
-        if (!/^\d{15,24}$/.test(discordId)) throw new Error("Enter your Discord user ID.");
-        const user = await client.users.fetch(discordId).catch(() => null);
-        if (!user || user.bot) throw new Error("That Discord account could not be verified.");
-        const existing = dmChallenges.get(discordId);
-        if (existing && Date.now() - existing.created < 60000) throw new Error("Please wait a minute before requesting another code.");
-        const code = String(randomInt(100000, 1000000));
-        dmChallenges.set(discordId, { hash: sha256(`${discordId}:${code}`), expires: Date.now() + 10 * 60000, attempts: 0, created: Date.now() });
-        const sent = await user.send({ content: `**Florida Bay Portal verification**\nYour one-time code is **${code}**. It expires in 10 minutes. If you did not request this, ignore this message.` }).then(() => true, () => false);
-        if (!sent) {
-          dmChallenges.delete(discordId);
-          throw new Error("I could not DM that account. Allow direct messages from the Florida Bay server and try again.");
-        }
-        return sendJson(response, 200, { ok: true });
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/auth/dm/verify") {
-        if (lockedOut(request)) return sendJson(response, 429, { error: "Too many sign-in attempts. Try again in 15 minutes." });
-        const input = await bodyJson(request);
-        const discordId = String(input.discordId || "").trim();
-        const code = String(input.code || "").replace(/\D/g, "");
-        const pending = dmChallenges.get(discordId);
-        const actual = sha256(`${discordId}:${code}`);
-        const valid = pending && pending.expires > Date.now() && actual.length === pending.hash.length && timingSafeEqual(Buffer.from(actual), Buffer.from(pending.hash));
-        if (!valid) {
-          if (pending) pending.attempts += 1;
-          if (pending?.attempts >= 5) dmChallenges.delete(discordId);
-          recordFailure(request);
-          return sendJson(response, 401, { error: "That code is incorrect or expired." });
-        }
-        dmChallenges.delete(discordId);
-        const user = await client.users.fetch(discordId).catch(() => null);
-        if (!user) throw new Error("Discord account unavailable.");
-        const raw = await createSession(user);
-        failedLogins.delete(clientAddress(request));
-        await audit(discordId, "portal.login", discordId, { method: "discord_dm" });
-        const verification = await recordVerification?.({ discordId, address: clientAddress(request), connections: [], method: "discord_dm" })
-          .catch((error) => { console.error("[FBRP panel] verification:", error); return null; });
-        return sendJson(response, 200, { ok: true, verified: Boolean(verification), role: verification?.role || null }, { "Set-Cookie": sessionCookie(request, raw) });
-      }
-
       if (request.method === "POST" && url.pathname === "/api/auth/logout") {
         const raw = parseCookies(request).fbrp_session;
         if (raw) await db.query("DELETE FROM portal_sessions WHERE session_hash=?", [sha256(raw)]).catch(() => {});
@@ -1505,6 +1640,19 @@ export function startWebPanel(context) {
         if (!profile) return sendJson(response, 404, { error: "Staff profile not found." });
         return sendJson(response, 200, profile);
       }
+      if (request.method === "GET" && url.pathname === "/api/portal/investigation") {
+        const access = await accessFor(session.id);
+        if (!access.investigate)
+          return sendJson(response, 403, { error: "Co-Owner rank or the investigations role is required." });
+        const id = String(url.searchParams.get("id") || "");
+        const record = await investigationRecord(id);
+        await audit(session.id, "portal.userinfo", id, {
+          blacklistedServers: record.servers.blacklisted.length,
+          linkedAccounts: record.alts.accounts.length,
+        });
+        await investigationAudit(session.id, record);
+        return sendJson(response, 200, record);
+      }
 
       if (request.method !== "POST" && url.pathname !== "/api/bootstrap")
         return sendJson(response, 405, { error: "Method not allowed." });
@@ -1541,6 +1689,9 @@ export function startWebPanel(context) {
         } else if (url.pathname === "/api/portal/appeal/review") {
           if (!access.staff) return sendJson(response, 403, { error: "Staff access is required." });
           result = await appeals.staffAction(session, input);
+        } else if (url.pathname === "/api/portal/game-ban/undo") {
+          if (!access.gameUnban) return sendJson(response, 403, { error: "The easyadmin.player.ban.remove permission is required." });
+          result = await liftEasyAdminCase(input.banId, session.id, textValue(input.reason, 300));
         } else if (url.pathname === "/api/portal/liveops/action") {
           if (!access.staff) return sendJson(response, 403, { error: "Staff access is required." });
           const action = String(input.action || "");

@@ -69,7 +69,7 @@ const PATHS = {
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[name] || ""}</svg>`;
 
 /* ---------- state ---------- */
-const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, filters: {}, commandReference: null };
+const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, investigation: null, investigationLoading: false, filters: {}, commandReference: null };
 const filter = (key, fallback = "") => state.filters[key] ?? fallback;
 
 async function api(path, options = {}) {
@@ -147,13 +147,14 @@ function nav() {
       ...(orgs.length || access.orgAdmin ? [["organizations", "Organizations", "wallet"]] : []),
     ]],
     ...(showExams ? [["Career", [["exams", "Staff exams", "exam", (exams.exams || []).filter((e) => e.eligible).length]]]] : []),
-    ...(access.staff || exams.reviewer || access.commandReference ? [["Staff workspace", [
+    ...(access.staff || exams.reviewer || access.commandReference || access.investigate ? [["Staff workspace", [
       ...(access.staff ? [
         ["liveops", "Live operations", "activity", (data.liveOps?.scenes?.length || 0) + (data.liveOps?.calls?.length || 0)],
         ["banlog", "Ban registry", "ban"],
         ["appeals", "Appeal queue", "scale", pendingAppeals],
         ["ticketops", "Tickets", "ticket", openTickets],
       ] : []),
+      ...(access.investigate ? [["investigation", "Member investigations", "search"]] : []),
       ...(exams.reviewer ? [["examreviews", "Exam reviews", "review", pendingExams]] : []),
       ...(access.commandReference ? [["commands", "Bot commands", "code"]] : []),
     ]]] : []),
@@ -337,18 +338,20 @@ function banLog() {
     game: (r) => r.guild_id === "game",
   };
   const people = state.data.people || {};
+  const canGameUnban = Boolean(state.data.access.gameUnban);
   const rows = all.filter((r) => tests[kind](r) && matches(query, r.ban_id, r.target_id, r.target_name, people[r.target_id]?.name, people[r.target_id]?.username, r.reason));
   const count = (k) => all.filter(tests[k]).length;
   $("#portal-content").innerHTML = `
     <div class="toolbar">${searchBox("ban-q", "Search case ID, user, or reason")}${seg("ban-kind", [["active", "Active", count("active")], ["all", "All", count("all")], ["network", "Network", count("network")], ["blacklist", "Blacklists", count("blacklist")], ["discord", "Discord", count("discord")], ["game", "In-game", count("game")]], kind)}</div>
     <section class="card">
-      ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Case</th><th>Member</th><th>Type</th><th>Reason</th><th>Issued by</th><th>Status</th></tr></thead><tbody>${rows.map((r) => `<tr>
+      ${rows.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Case</th><th>Member</th><th>Type</th><th>Reason</th><th>Issued by</th><th>Status</th>${canGameUnban ? "<th></th>" : ""}</tr></thead><tbody>${rows.map((r) => `<tr>
         <td>${idChip(r.ban_id)}<br><small style="color:var(--ink-3)" title="${esc(date(r.created_at))}">${esc(day(r.created_at))}</small></td>
         <td>${person(r.target_id, r.target_name)}</td>
         <td><span class="strong" style="color:var(--ink)">${esc(titleCase(r.action))}</span><br><small style="color:var(--ink-3)">${esc(sourceLabel(r))}</small></td>
         <td class="reason" title="${esc(r.reason)}">${esc(r.reason)}</td>
         <td>${/^\d{15,24}$/.test(String(r.actor_id)) ? person(r.actor_id, "", { size: "av-xs", sub: "" }) : `<span style="color:var(--ink-3)">${esc(titleCase(r.actor_id))}</span>`}</td>
         <td>${pill(caseState(r))}${Number(r.appeal_count) ? `<br><small style="color:var(--ink-3)">${plural(r.appeal_count, "appeal")}</small>` : ""}</td>
+        ${canGameUnban ? `<td>${r.guild_id === "game" && isActive(r) ? `<button class="btn btn-danger btn-sm" type="button" data-game-unban="${esc(r.ban_id)}">Undo</button>` : ""}</td>` : ""}
       </tr>`).join("")}</tbody></table></div>` : empty(query ? "No matches" : "Nothing here", query ? "Try another case ID, user, or reason." : "No bans match this filter.", "ban")}
     </section>`;
 }
@@ -1045,7 +1048,68 @@ function commandReferenceView() {
     <div class="command-doc-list">${shown.length ? shown.map((section) => `<section class="card command-doc-section" id="command-${esc(section.title.replace(/^\//, "").replace(/\s+/g, "-"))}">${markdownBlock(section.source)}</section>`).join("") : `<section class="card"><div class="card-body">${empty("No commands found", "Try a command name, action, or ACE permission.", "search")}</div></section>`}</div>`;
 }
 
-const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, commands: commandReferenceView };
+function investigationView() {
+  if (!state.data.access.investigate) return go("dashboard");
+  setTitle("Investigations workspace", "Member investigations");
+  const record = state.investigation;
+  const search = `<form id="investigation-search" class="toolbar investigation-search">
+    <label class="search">${icon("search")}<input name="discordId" inputmode="numeric" pattern="[0-9]{15,24}" maxlength="24" value="${esc(record?.user?.id || "")}" placeholder="Enter a Discord user ID" required aria-label="Discord user ID"></label>
+    <button class="btn btn-sun" type="submit">${icon("search")} Investigate</button>
+    ${record ? `<button class="btn btn-ghost" type="button" data-copy="${esc(record.user.id)}">${icon("copy")} Copy user ID</button>` : ""}
+  </form>`;
+  if (state.investigationLoading) {
+    $("#portal-content").innerHTML = `${search}<div class="loading"><div class="spinner"></div>Building the cross-system member record</div>`;
+    return;
+  }
+  if (!record) {
+    $("#portal-content").innerHTML = `${search}<section class="card"><div class="card-body">${empty("Look up a member", "Paste a Discord user ID to see verification, game identities, staff and organization hours, roles, servers, moderation history, discipline, and linked accounts.", "review", "143 124 255")}</div></section>`;
+    return;
+  }
+
+  const u = record.user;
+  const activeCases = record.cases.filter((row) => caseState(row) === "active");
+  const orgMonth = record.organizations.reduce((sum, row) => sum + Number(row.monthSeconds || 0), 0);
+  const flagged = record.servers.blacklisted || [];
+  const verified = record.verification;
+  const orgRows = record.organizations.map((org) => `<tr>
+    <td class="strong"><b>${esc(org.name)}</b><small>${esc(titleCase(org.type))}${org.active ? "" : " · inactive"}</small></td>
+    <td>${org.member ? `<span class="pill ${org.manager ? "pill-sun" : "pill-sea"}">${esc(org.manager ? "Leader" : org.rank || "Member")}</span>` : '<span class="pill plain">Former member</span>'}</td>
+    <td class="mono">${hours(org.weekSeconds)}</td><td class="mono">${hours(org.monthSeconds)}</td><td class="mono">${hours(org.totalSeconds)}</td>
+    <td>${fmt(org.shifts)}</td><td>${org.lastShift ? esc(ago(org.lastShift)) : "Never"}</td>
+  </tr>`).join("");
+  const liveServers = record.servers.live.map((server) => `<tr>
+    <td class="strong"><b>${esc(server.name)}</b><small class="mono">${esc(server.id)}</small></td>
+    <td>${server.network ? `<span class="pill pill-good">Network${server.kind ? ` · ${esc(titleCase(server.kind))}` : ""}</span>` : '<span class="pill pill-sea">Bot server</span>'}</td>
+    <td>${server.joinedAt ? esc(day(server.joinedAt)) : "-"}</td>
+    <td class="wrap"><div class="tags">${server.roles.length ? server.roles.map((role) => `<span class="pill plain" title="${esc(role.id)}">${esc(role.name)}</span>`).join("") : '<span class="pill plain">No roles</span>'}</div></td>
+  </tr>`).join("");
+  const otherServers = record.servers.other.map((server) => `<tr class="${flagged.some((row) => row.id === server.id) ? "risk-row" : ""}"><td class="strong">${esc(server.name)}</td><td class="mono">${esc(server.id)}</td><td>${server.owner ? '<span class="pill pill-sun">Owner</span>' : "Member"}</td><td>${esc(ago(server.lastSeen))}</td></tr>`).join("");
+  const cases = record.cases.map((row) => `<tr><td class="strong mono">${esc(row.ban_id || `#${row.id}`)}</td><td>${pill(caseState(row))}</td><td>${esc(titleCase(row.action))}</td><td>${esc(sourceLabel(row))}</td><td class="wrap reason" title="${esc(row.reason)}">${esc(row.reason)}</td><td>${esc(day(row.created_at))}</td></tr>`).join("");
+  const alts = record.alts.accounts.map((alt) => `<div class="feed-row"><div class="feed-ico" style="color:${alt.strength === "strong" ? "#ff9aa3" : "#ffd48a"}">${icon("users")}</div><div class="txt"><b>${esc(state.data.people?.[alt.id]?.name || alt.id)} · <span class="mono">${esc(alt.id)}</span></b><small>${esc(alt.strength === "strong" ? "Strong link" : "Shared IP lead")} · ${esc(alt.evidence.join(", "))} · ${esc(alt.status)}</small></div><button class="btn btn-ghost btn-sm" type="button" data-investigate-id="${esc(alt.id)}">Open</button></div>`).join("");
+
+  $("#portal-content").innerHTML = `${search}
+    ${flagged.length ? `<section class="risk-banner">${icon("alert")}<div><small>Blacklisted server match${flagged.length === 1 ? "" : "es"}</small><h2>${fmt(flagged.length)} high-risk server${flagged.length === 1 ? "" : "s"} found</h2>${flagged.map((row) => `<p><b>${esc(row.name)}</b> · <span class="mono">${esc(row.id)}</span> · ${esc(row.reason)} · ${row.live ? "live shared membership" : `reported ${esc(ago(row.lastSeen))}`}</p>`).join("")}</div></section>` : ""}
+    <section class="profile-hero investigation-identity">
+      <div class="profile-cover"></div><div class="profile-id">${avatar(u.avatar, u.displayName, "av-xl", u.id)}<div class="who"><h2>${esc(u.displayName)}</h2><p>@${esc(u.username)} · <span class="mono">${esc(u.id)}</span></p><div class="chips">${verified ? '<span class="pill pill-good">Website verified</span>' : '<span class="pill pill-warn">Not website verified</span>'}${u.bot ? '<span class="pill pill-dusk">Bot account</span>' : ""}${flagged.length ? `<span class="pill pill-bad">${fmt(flagged.length)} blacklisted server match${flagged.length === 1 ? "" : "es"}</span>` : ""}${activeCases.length ? `<span class="pill pill-bad">${fmt(activeCases.length)} active case${activeCases.length === 1 ? "" : "s"}</span>` : '<span class="pill pill-good">No active cases</span>'}</div></div><div class="callsign-badge"><small>Account created</small><b style="font-size:1rem">${esc(day(u.createdAt))}</b></div></div>
+    </section>
+    <div class="stats">
+      <div class="stat-tile tone-sun"><div class="ico">${icon("clock")}</div><span>Staff duty · 30d</span><strong>${hours(record.staffHours.monthSeconds)}</strong><small>${hours(record.staffHours.totalSeconds)} all time · ${fmt(record.staffHours.shifts)} shifts</small></div>
+      <div class="stat-tile tone-sea"><div class="ico">${icon("building")}</div><span>Organization duty · 30d</span><strong>${hours(orgMonth)}</strong><small>${plural(record.organizations.length, "organization")} with membership or shifts</small></div>
+      <div class="stat-tile tone-sky"><div class="ico">${icon("car")}</div><span>Game identities</span><strong>${fmt(record.players.length)}</strong><small>${record.players[0]?.last_seen ? `Last seen ${esc(ago(record.players[0].last_seen))}` : "No linked game account"}</small></div>
+      <div class="stat-tile ${flagged.length ? "tone-bad" : "tone-good"}"><div class="ico">${icon(flagged.length ? "alert" : "check")}</div><span>Server risk matches</span><strong>${fmt(flagged.length)}</strong><small>${fmt(record.servers.live.length)} live shared · ${fmt(record.servers.other.length)} OAuth-reported</small></div>
+    </div>
+    <section class="card"><div class="card-head"><div><h2>Organizations & duty hours</h2><p>Current and former memberships with recorded in-game organization shifts.</p></div></div>${orgRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Organization</th><th>Position</th><th>7 days</th><th>30 days</th><th>All time</th><th>Shifts</th><th>Last shift</th></tr></thead><tbody>${orgRows}</tbody></table></div>` : empty("No organization activity", "No memberships or organization shifts are linked to this Discord account.", "building")}</section>
+    <div class="grid-2 even">
+      <section class="card"><div class="card-head"><div><h2>Identity & access</h2><p>Website verification, ACE groups, and game accounts.</p></div></div><div class="card-body"><div class="kv"><div><small>Last verified</small><b>${verified ? esc(date(verified.last_verified_at)) : "Never"}</b></div><div><small>Verification method</small><b>${verified ? esc(titleCase(verified.method)) : "-"}</b></div><div><small>ACE groups</small><b>${record.groups.length ? record.groups.map((row) => esc(row.label || row.name)).join(", ") : "None"}</b></div><div><small>Highest ACE rank</small><b>${record.groups.length ? fmt(record.groups[0].rank_order) : "None"}</b></div></div></div>${record.players.length ? `<div class="feed">${record.players.map((player) => `<div class="feed-row"><div class="feed-ico">${icon("car")}</div><div class="txt"><b>#${fmt(player.id)} · ${esc(player.name)}</b><small>First linked ${esc(day(player.created_at))} · last seen ${esc(ago(player.last_seen))}</small></div></div>`).join("")}</div>` : ""}</section>
+      <section class="card"><div class="card-head"><div><h2>Linked accounts</h2><p>Direct strong identifiers and shared-IP leads.</p></div></div>${alts ? `<div class="feed">${alts}</div>` : empty("No linked accounts", record.alts.unlinkedAccounts ? `${plural(record.alts.unlinkedAccounts, "game account")} could not be tied to Discord.` : "No direct account links were found.", "check", "61 220 151")}</section>
+    </div>
+    <section class="card"><div class="card-head"><div><h2>Servers the bot shares</h2><p>Live membership and roles across ${fmt(record.servers.liveTotal)} connected bot servers.</p></div></div>${liveServers ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Server</th><th>Scope</th><th>Joined</th><th>Roles</th></tr></thead><tbody>${liveServers}</tbody></table></div>` : empty("No shared bot servers", "The member is not currently visible in a server the bot is in.", "users")}</section>
+    <section class="card"><div class="card-head"><div><h2>Other Discord servers</h2><p>${record.servers.seenAt ? `Reported at the latest website sign-in ${esc(ago(record.servers.seenAt))}.` : "No OAuth server list has been recorded."}</p></div></div>${otherServers ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Server</th><th>Server ID</th><th>Membership</th><th>Last reported</th></tr></thead><tbody>${otherServers}</tbody></table></div>` : empty("No other servers recorded", "The latest website sign-in did not report servers outside the bot's shared servers.", "shield")}</section>
+    <section class="card"><div class="card-head"><div><h2>Moderation history</h2><p>Up to 100 recent Discord, network, and in-game cases.</p></div></div>${cases ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Case</th><th>Status</th><th>Action</th><th>Scope</th><th>Reason</th><th>Date</th></tr></thead><tbody>${cases}</tbody></table></div>` : empty("Clean record", "No moderation cases are attached to this account.", "check", "61 220 151")}</section>
+    ${record.discipline.length ? `<section class="card"><div class="card-head"><div><h2>Staff discipline</h2><p>Warnings and strikes, including revoked records.</p></div></div><div class="feed">${record.discipline.map((row) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(row.kind))}${row.revoked_at ? " · revoked" : ""}</b><small>${esc(row.reason)}${row.revoke_reason ? ` · Revocation: ${esc(row.revoke_reason)}` : ""}</small></div><time>${esc(day(row.created_at))}</time></div>`).join("")}</div></section>` : ""}`;
+}
+
+const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, commands: commandReferenceView, investigation: investigationView };
 function render() {
   nav();
   (renders[state.view] || dashboard)();
@@ -1066,6 +1130,22 @@ async function load({ quiet = false } = {}) {
   if (!quiet) $("#portal-content").innerHTML = `<div class="loading"><div class="spinner"></div>Loading live data</div>`;
   state.data = await api("portal/bootstrap");
   if (state.profile) state.profile = await api(`portal/staff-profile?id=${encodeURIComponent(state.profile.discord_id)}`).catch(() => null);
+  if (state.investigation?.user?.id && state.view === "investigation") {
+    state.investigation = await api(`portal/investigation?id=${encodeURIComponent(state.investigation.user.id)}`).catch(() => null);
+    if (state.investigation?.people) state.data.people = { ...(state.data.people || {}), ...state.investigation.people };
+  }
+  render();
+}
+
+async function investigate(discordId) {
+  state.investigationLoading = true;
+  render();
+  try {
+    state.investigation = await api(`portal/investigation?id=${encodeURIComponent(String(discordId || "").trim())}`);
+    if (state.investigation.people) state.data.people = { ...(state.data.people || {}), ...state.investigation.people };
+  } finally {
+    state.investigationLoading = false;
+  }
   render();
 }
 
@@ -1145,6 +1225,12 @@ $("#portal-content").addEventListener("click", async (event) => {
   const target = event.target;
   const chip = target.closest("[data-copy]");
   if (chip) return copy(chip.dataset.copy);
+  const investigationTarget = target.closest("[data-investigate-id]");
+  if (investigationTarget) {
+    try { await investigate(investigationTarget.dataset.investigateId); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    catch (error) { toast(error.message, true); }
+    return;
+  }
   const filterBtn = target.closest("[data-filter]");
   if (filterBtn) { state.filters[filterBtn.dataset.filter] = filterBtn.dataset.value; return render(); }
   const view = target.closest("[data-view]");
@@ -1175,6 +1261,19 @@ $("#portal-content").addEventListener("click", async (event) => {
       toast(action === "event_end" ? "Community event ended." : action === "scene_end" ? "Scene ended and players notified." : "Handoff updated.");
     } catch (error) { toast(error.message, true); liveAction.disabled = false; }
     return;
+  }
+  const gameUnban = target.closest("[data-game-unban]");
+  if (gameUnban) {
+    const banId = gameUnban.dataset.gameUnban;
+    return openDialog({
+      kicker: "In-game moderation",
+      title: `Undo ${banId}?`,
+      submit: "Lift game ban",
+      tone: "btn-danger",
+      action: "game-unban",
+      data: { banId },
+      body: `<div class="callout warn">${icon("alert")}<div>This immediately removes the EasyAdmin ban and lets the member reconnect. The action is logged.</div></div><label class="field">Reason<textarea name="reason" minlength="3" maxlength="300" required placeholder="Why is this ban being lifted?"></textarea></label>`,
+    });
   }
   const appeal = target.closest("[data-appeal]");
   if (appeal) { state.appealing = appeal.dataset.appeal; state.appealStep = 1; render(); window.scrollTo({ top: 0 }); return; }
@@ -1304,6 +1403,15 @@ $("#portal-content").addEventListener("change", (event) => {
 });
 
 $("#portal-content").addEventListener("submit", async (event) => {
+  const investigationForm = event.target.closest("#investigation-search");
+  if (investigationForm) {
+    event.preventDefault();
+    const button = investigationForm.querySelector("button[type=submit]");
+    button.disabled = true;
+    try { await investigate(new FormData(investigationForm).get("discordId")); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    catch (error) { toast(error.message, true); }
+    return;
+  }
   const replyForm = event.target.closest("[data-appeal-reply]");
   if (replyForm) {
     event.preventDefault();
@@ -1445,6 +1553,9 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       result = await api("portal/appeal/review", { method: "POST", body: JSON.stringify(body) });
       const r = result.result || {};
       toast(data.kind === "info" ? `Question sent${r.dmSent === false ? " (DM failed - they will see it on the portal)" : ""}.` : data.kind === "note" ? "Note added." : data.kind === "vote" ? "Vote recorded." : r.decision === "approved" ? `Appeal approved - ${data.banId} has been lifted.` : r.decision === "reduced" ? `Ban reduced - now ends ${date(r.reducedUntil)}.` : "Appeal denied.");
+    } else if (action === "game-unban") {
+      result = await api("portal/game-ban/undo", { method: "POST", body: JSON.stringify({ banId: data.banId, reason: form.get("reason") }) });
+      toast(`${data.banId} was lifted in EasyAdmin.`);
     } else if (action === "ops-announce") {
       result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify({ action: "announce", message: form.get("message") }) });
       toast("Broadcast delivered to the game server.");
@@ -1514,34 +1625,6 @@ $("#discord-login").addEventListener("click", async () => {
   button.disabled = true;
   try { location.href = (await api("auth/start")).url; }
   catch (error) { $("#auth-message").textContent = error.message; button.disabled = false; }
-});
-
-$("#dm-start-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const discordId = new FormData(event.currentTarget).get("discordId");
-  const message = $("#auth-message");
-  message.className = "form-message good";
-  message.textContent = "Sending a private code…";
-  try {
-    await api("auth/dm/start", { method: "POST", body: JSON.stringify({ discordId }) });
-    $("#dm-verify-form").elements.discordId.value = discordId;
-    $("#dm-start-form").hidden = true;
-    $("#dm-verify-form").hidden = false;
-    $("#dm-verify-form").elements.code.focus();
-    message.textContent = "Code sent - check your Discord DMs from Florida Bay Network.";
-  } catch (error) { message.className = "form-message"; message.textContent = error.message; }
-});
-
-$("#dm-verify-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  const message = $("#auth-message");
-  message.className = "form-message good";
-  message.textContent = "Verifying…";
-  try {
-    await api("auth/dm/verify", { method: "POST", body: JSON.stringify({ discordId: form.get("discordId"), code: form.get("code") }) });
-    await start();
-  } catch (error) { message.className = "form-message"; message.textContent = error.message; }
 });
 
 $("#refresh-portal").addEventListener("click", () => load().then(() => toast("Refreshed.")).catch((error) => toast(error.message, true)));

@@ -478,10 +478,43 @@ end
 local function recordEasyAdminBan(ban, actorSource)
     if type(ban) ~= 'table' or not tonumber(ban.banid) then return end
     local reason = clean(ban.reason or 'EasyAdmin ban', 300)
-    -- /global ban creates its own unified network case after EasyAdmin returns.
-    if reason:find('Florida Bay global ban', 1, true) then return end
-    if MySQL.scalar.await('SELECT id FROM moderation_cases WHERE game_ban_id=? LIMIT 1', { tonumber(ban.banid) }) then return end
     local discord = banDiscordId(ban)
+    local target = discord or ('game:' .. tostring(ban.banid))
+
+    -- EasyAdmin numbers are only unique within its current banlist and are reused after
+    -- the highest ban is removed. Never let an old, inactive #3 suppress a new #3.
+    -- A stored Florida Bay ID is the strongest identity when this row was imported before.
+    local existing = nil
+    if type(ban.fbrp_id) == 'string' and ban.fbrp_id:match('^FB%-%d+$') then
+        existing = MySQL.single.await([[
+            SELECT id,ban_id,target_id FROM moderation_cases
+            WHERE ban_id=? AND active=TRUE LIMIT 1
+        ]], { ban.fbrp_id })
+    end
+    if not existing then
+        existing = MySQL.single.await([[
+            SELECT id,ban_id,target_id FROM moderation_cases
+            WHERE game_ban_id=? AND target_id=? AND active=TRUE
+            ORDER BY id DESC LIMIT 1
+        ]], { tonumber(ban.banid), target })
+    end
+    if existing then
+        ban.fbrp_id = existing.ban_id
+        return existing.ban_id
+    end
+
+    -- /global ban creates its unified network case after EasyAdmin returns. On a later
+    -- import, attach that case ID to the EasyAdmin row so every surface shows one ID.
+    if reason:find('Florida Bay global ban', 1, true) then
+        local global = MySQL.single.await([[
+            SELECT ban_id FROM moderation_cases
+            WHERE game_ban_id=? AND target_id=? AND action='ban'
+            ORDER BY id DESC LIMIT 1
+        ]], { tonumber(ban.banid), target })
+        if global and global.ban_id then ban.fbrp_id = global.ban_id end
+        return global and global.ban_id or nil
+    end
+
     local actorSession = sessions[tonumber(actorSource or -1)]
     local actor = actorSession and actorSession.discord or 'easyadmin'
     local expires = tonumber(ban.expire)
@@ -490,16 +523,25 @@ local function recordEasyAdminBan(ban, actorSource)
         INSERT INTO moderation_cases(guild_id,target_id,target_name,actor_id,action,source,reason,expires_at,created_at,active,duration_ms,game_ban_id)
         VALUES('game',?,?,?,?,?,?,?,?,TRUE,?,?)
     ]], {
-        discord or ('game:' .. tostring(ban.banid)), clean(ban.name or 'Unknown', 100), tostring(actor),
+        target, clean(ban.name or 'Unknown', 100), tostring(actor),
         'ban', 'easyadmin', reason, expiresAt, now(), expiresAt and math.max(0, expiresAt - now()) or nil, tonumber(ban.banid)
     })
     if id then
         local publicId = assignPublicCaseId(id)
-        FBRP.DB.audit(actor, 'moderation.game_ban', discord or ('game:' .. tostring(ban.banid)), {
+        ban.fbrp_id = publicId
+        FBRP.DB.audit(actor, 'moderation.game_ban', target, {
             caseId=id, banId=publicId, easyAdminId=tonumber(ban.banid), reason=reason
         })
+        return publicId
     end
 end
+
+-- EasyAdmin calls this export synchronously so the public ID is attached before it
+-- writes banlist.json, sends its webhook, or disconnects the player.
+exports('RecordEasyAdminBan', function(ban, actorSource)
+    if not ready then return nil end
+    return recordEasyAdminBan(ban, actorSource)
+end)
 
 AddEventHandler('fbrp:easyadminBanCreated', function(ban, actorSource)
     if not ready then return end
@@ -531,7 +573,9 @@ MySQL.ready(function()
     local rawBanlist = LoadResourceFile('EasyAdmin', 'banlist.json')
     local okBanlist, storedBans = pcall(json.decode, rawBanlist or '[]')
     if okBanlist and type(storedBans) == 'table' then
-        for _, ban in ipairs(storedBans) do recordEasyAdminBan(ban, nil) end
+        for _, ban in ipairs(storedBans) do
+            recordEasyAdminBan(ban, nil)
+        end
     end
     for _, id in ipairs(GetPlayers()) do initializePlayer(tonumber(id)) end
     print('[FBRP] Core online: MariaDB, ACE sync, tags, organizations and duty ready.')

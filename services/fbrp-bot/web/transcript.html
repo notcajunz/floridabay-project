@@ -25,9 +25,6 @@
         <h1>Sign in to continue</h1>
         <p>Transcripts can contain private support conversations. Sign in with the Discord account that opened the ticket, participated in it, or has staff access.</p>
         <button id="transcript-login" class="btn btn-discord btn-lg" type="button">Continue with Discord</button>
-        <div class="divider"><span>or use a one-time code</span></div>
-        <form id="transcript-dm-start" class="auth-form"><label class="field">Discord user ID<input name="discordId" inputmode="numeric" pattern="[0-9]{15,24}" required placeholder="Your Discord user ID"></label><button class="btn btn-glass" type="submit">Send code</button></form>
-        <form id="transcript-dm-verify" class="auth-form" hidden><input name="discordId" type="hidden"><label class="field">Six-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label><button class="btn btn-sun" type="submit">Open transcript</button></form>
         <p id="transcript-auth-message" class="form-message"></p>
       </section>
 
@@ -51,6 +48,6 @@
         <footer class="transcript-footer"><img src="logo-128.webp" alt="" width="34" height="34"><div><b>Florida Bay secure ticket archive</b><small id="transcript-generated"></small></div></footer>
       </section>
     </main>
-    <script type="module" src="transcript.js?v=1"></script>
+    <script type="module" src="transcript.js?v=2"></script>
   </body>
 </html>

@@ -867,8 +867,8 @@ Citizen.CreateThread(function()
 					
 					
 					PrintDebugMessage("Player "..getName(source,true).." warnbanned player "..CachedPlayers[id].name.." for "..reason, 3)
-					SendWebhookMessage(moderationNotification,string.format(GetLocalisedText("adminbannedplayer"), getName(source, false, true), bannedUsername, reason, formatDateString( expires ), tostring(ban.banid) ), "ban", 16711680)
-					DropPlayer(id, string.format(GetLocalisedText("banned"), reason, formatDateString( expires ) ) )
+					SendWebhookMessage(moderationNotification,string.format(GetLocalisedText("adminbannedplayer"), getName(source, false, true), bannedUsername, reason, formatDateString( expires ), ban.fbrp_id or tostring(ban.banid) ), "ban", 16711680)
+					DropPlayer(id, string.format(GetLocalisedText("banned"), reason, formatDateString( expires ), ban.fbrp_id or tostring(ban.banid) ) )
 					WarnedPlayers[id] = nil
 					
 				end
@@ -1084,7 +1084,7 @@ Citizen.CreateThread(function()
                             formatDateString(blacklist[bi].expire) .. '<br><strong>Banned By:</strong> ' .. banMessageStaffName ..
                             ' <br>            <strong>Ban Reason:</strong> ' .. banMessageReason ..
                             ' <br>            <strong>Ban ID:</strong> <code style="letter-spacing: 2px; background-color: #ff7f5059; padding: 2px 4px; border-radius: 6px;">' ..
-                            blacklist[bi].banid ..
+                            (blacklist[bi].fbrp_id or tostring(blacklist[bi].banid)) ..
                             '</code><br><br>' .. banMessageFooter .. ' <span style="font-style: italic;"></span></p><img src="' .. banMessageWatermark ..  '" style="position: absolute;right: 15px;bottom: 15px;opacity: 65%;"></div>')
 							return
 

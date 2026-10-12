@@ -1097,6 +1097,11 @@ const global = new SlashCommandBuilder()
       .addBooleanOption((o) => o.setName("game").setDescription("Also lift the linked game ban")),
   )
   .addSubcommand((s) =>
+    s.setName("game-unban").setDescription("Lift an EasyAdmin game ban by its Florida Bay case ID")
+      .addStringOption((o) => o.setName("case_id").setDescription("Florida Bay case ID, such as FB-660754").setRequired(true))
+      .addStringOption(globalReason(false)),
+  )
+  .addSubcommand((s) =>
     s.setName("invite").setDescription("Invite a member to every Florida Bay network server")
       .addUserOption(globalUser),
   )

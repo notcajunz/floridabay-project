@@ -1215,10 +1215,11 @@ function GenerateMenu() -- this is a big ass function
 
 
 			if banlist[banId].banid then
-				local thisItem = NativeUI.CreateItem("Ban ID: "..banlist[banId].banid, "")
+				local publicId = banlist[banId].fbrp_id or tostring(banlist[banId].banid)
+				local thisItem = NativeUI.CreateItem("Ban ID: "..publicId, "")
 				mainMenu:AddItem(thisItem)
 				thisItem.Activated = function(ParentMenu,SelectedItem)
-					copyToClipboard(banlist[banId].banid)
+					copyToClipboard(publicId)
 				end	
 			end
 
@@ -1320,7 +1321,7 @@ function GenerateMenu() -- this is a big ass function
 					if foundBan then
 						break
 					end
-					if tostring(theBanned.banid) == result then
+					if tostring(theBanned.banid) == result or string.upper(tostring(theBanned.fbrp_id or "")) == string.upper(result) then
 						foundBan=true
 						foundBanid=i
 						break

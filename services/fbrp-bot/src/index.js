@@ -15,6 +15,7 @@ import {
 import { randomInt } from "node:crypto";
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
+import { organizationActivity } from "./investigation.js";
 import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
 import { runGithubSync, githubStatus } from "./github-sync.js";
 import {
@@ -2294,10 +2295,7 @@ async function userinfoCommand(i) {
       "SELECT DISTINCT group_name FROM ace_memberships WHERE discord_id=? ORDER BY group_name",
       [user.id],
     ),
-    db.query(
-      "SELECT o.name FROM organization_members m JOIN organizations o ON o.id=m.org_id WHERE m.discord_id=? AND o.active=TRUE ORDER BY o.name",
-      [user.id],
-    ),
+    organizationActivity(db, user.id),
     db.query(
       "SELECT id,action,reason,created_at FROM moderation_cases WHERE target_id=? ORDER BY id DESC LIMIT 5",
       [user.id],
@@ -2317,11 +2315,14 @@ async function userinfoCommand(i) {
       ["Staff time", `${(Number(hours?.seconds || 0) / 3600).toFixed(1)} hours`],
       ["ACE groups", groups.map((row) => `\`${row.group_name}\``).join(" ") || "None", false],
       ["Game identities", chunkLines(players.map((row) => `\`#${row.id}\` · ${clean(row.name)} · last seen ${new Date(row.last_seen).toISOString().slice(0, 10)}`))[0] || "None linked", false],
-      ["Organizations", chunkLines(orgs.map((row) => clean(row.name)))[0] || "None", false],
+      ["Organizations & duty hours", chunkLines(orgs.map((row) => {
+        const role = row.member ? (row.manager ? "Leader" : row.rank || "Member") : "Former member";
+        return `**${clean(row.name, 60)}** · ${clean(role, 40)} · 7d ${(row.weekSeconds / 3600).toFixed(1)}h · 30d ${(row.monthSeconds / 3600).toFixed(1)}h · total ${(row.totalSeconds / 3600).toFixed(1)}h`;
+      }))[0] || "None", false],
       ["Recent cases", chunkLines(cases.map((row) => `\`#${row.id}\` · ${humanize(row.action)} · ${clean(row.reason, 80)}`))[0] || "None", false],
       ["Active staff discipline", chunkLines(discipline.map((row) => `\`#${row.id}\` · ${humanize(row.kind)} · ${clean(row.reason, 80)}`))[0] || "None", false],
     ],
-    footer: "Florida Bay Roleplay · Staff time covers 30 days",
+    footer: "Florida Bay Roleplay · Staff time covers 30 days · organization hours show 7d, 30d and all time",
   });
 
   // Servers and alts go in a second message: one message cannot carry more than 6000 embed characters.
@@ -2519,6 +2520,7 @@ const GLOBAL_ACE = {
   blacklist: "fbrp.global.blacklist",
   unblacklist: "fbrp.global.blacklist",
   unban: "fbrp.global.unban",
+  "game-unban": "easyadmin.player.ban.remove",
   invite: "fbrp.global.invite",
   restore: "fbrp.global.restore",
   lookup: "fbrp.global.lookup",
@@ -3153,9 +3155,58 @@ async function liftAppealedCase(caseId, actorId, response = "") {
   return { banId, results };
 }
 
+/** Lift one directly-issued EasyAdmin ban using its stable Florida Bay case ID. */
+async function liftEasyAdminCase(caseId, actorId, rawReason = "") {
+  const publicId = String(caseId || "").trim().toUpperCase();
+  if (!/^FB-\d{6,8}$/.test(publicId)) throw new Error("Enter a Florida Bay case ID such as FB-660754.");
+  if (!(await hasPermission(actorId, "easyadmin.player.ban.remove")))
+    throw new Error("The `easyadmin.player.ban.remove` permission is required. Nothing was changed.");
+  const c = await db.one(
+    "SELECT * FROM moderation_cases WHERE ban_id=? AND guild_id='game' AND action='ban' LIMIT 1",
+    [publicId],
+  );
+  if (!c) throw new Error("That EasyAdmin punishment was not found.");
+  if (!c.active) throw new Error(`${publicId} is already lifted.`);
+  if (!Number(c.game_ban_id)) throw new Error(`${publicId} is not linked to an EasyAdmin ban.`);
+  const reason = clean(rawReason || `EasyAdmin ban ${publicId} lifted`, 300);
+  const lifted = await callGame("/unban", { banid: Number(c.game_ban_id) }).catch(() => null);
+  if (!lifted?.ok) throw new Error("FiveM could not lift that EasyAdmin ban. It may already be gone or the game server may be unavailable.");
+  await db.query("UPDATE moderation_cases SET active=FALSE WHERE id=?", [c.id]);
+  await audit(actorId, "moderation.game_unban", c.target_id, {
+    caseId: c.id, banId: publicId, easyAdminId: Number(c.game_ban_id), reason,
+  });
+  const guild = (await mainGuild()) || client.guilds.cache.first();
+  if (guild)
+    await log(guild, {
+      title: `Game ban lifted · ${publicId}`,
+      color: COLORS.success,
+      actor: actorId,
+      target: c.target_id,
+      fields: [["EasyAdmin ban", `#${c.game_ban_id}`], ["Reason", reason, false]],
+      footer: publicId,
+    }, "unbans");
+  const user = /^\d{15,24}$/.test(String(c.target_id))
+    ? await client.users.fetch(String(c.target_id)).catch(() => null)
+    : null;
+  if (user)
+    await dm(user, "Your Florida Bay game ban was lifted", [
+      ["Case ID", `\`${publicId}\``],
+      ["Reason", reason, false],
+    ], COLORS.success, "You may reconnect to the game server.");
+  return { banId: publicId, gameBanId: Number(c.game_ban_id), targetId: String(c.target_id), reason };
+}
+
 async function globalCommand(i, sub) {
   await requirePermission(i, GLOBAL_ACE[sub]);
   const reason = i.options.getString("reason");
+  if (sub === "game-unban") {
+    const lifted = await liftEasyAdminCase(i.options.getString("case_id", true), i.user.id, reason);
+    return card(`${lifted.banId} · game ban lifted`, {
+      color: COLORS.success,
+      description: `EasyAdmin ban #${lifted.gameBanId} has been removed.`,
+      rows: [["Member", who(lifted.targetId)], ["Reason", lifted.reason, false]],
+    });
+  }
   if (sub === "unban" || sub === "unblacklist") {
     const id = i.options.getString("user_id", true).replace(/\D/g, "");
     if (!/^\d{15,24}$/.test(id)) throw new Error("Enter a Discord user ID.");
@@ -4199,7 +4250,7 @@ function welcomePayload(guild) {
           `**2.** Approve the Discord prompt. Your <@&${VERIFIED_ROLE_ID}> role is applied automatically.`,
           "**3.** Keep the **Discord desktop app** open on the PC you play on, so FiveM can see your Discord account.",
           `**4.** In FiveM press **F8** and enter \`${connect}\`.`,
-          `Sign-in not working? Use the one-time code option on the portal, or ${help}.`,
+          `If Discord sign-in is not working, ${help}.`,
         ].join("\n"),
         false,
       ],
@@ -4473,6 +4524,7 @@ client.once("clientReady", async () => {
     ownerDiscordId: OWNER_DISCORD_ID,
     hasPermission,
     liftAppealedCase,
+    liftEasyAdminCase,
     recordVerification: recordPortalVerification,
     staffExams,
     economy,

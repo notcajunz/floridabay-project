@@ -405,6 +405,7 @@ Manage a member across every Florida Bay Discord server
 | `/global blacklist <user> <reason>` | Ban from every other server and restrict to support in the main server<br><small>Arguments: `user` (required user) — Member. `reason` (required text) — Reason.</small> | `fbrp.global.blacklist`; target must rank below you |
 | `/global unblacklist <user_id> [reason]` | Lift a global blacklist (other servers are unbanned, main roles are not restored)<br><small>Arguments: `user_id` (required text) — User ID. `reason` (optional text) — Reason.</small> | `fbrp.global.blacklist` |
 | `/global unban <user_id> [reason] [game]` | Lift a network-wide ban<br><small>Arguments: `user_id` (required text) — User ID. `reason` (optional text) — Reason. `game` (optional true/false) — Also lift the linked game ban.</small> | `fbrp.global.unban`; if `game:true`, also `easyadmin.player.ban.remove` |
+| `/global game-unban <case_id> [reason]` | Lift a directly-issued EasyAdmin ban by its Florida Bay case ID<br><small>Arguments: `case_id` (required text) — Case ID such as `FB-660754`. `reason` (optional text) — Reason.</small> | `easyadmin.player.ban.remove` |
 | `/global invite <user>` | Invite a member to every Florida Bay network server<br><small>Arguments: `user` (required user) — Member.</small> | `fbrp.global.invite` |
 | `/global restore <user_id>` | Invite a former member back and restore their roles in each server<br><small>Arguments: `user_id` (required text) — Former member's Discord user ID.</small> | `fbrp.global.restore`; target must rank below you |
 | `/global lookup <user>` | See which Florida Bay servers a member is in and their network record<br><small>Arguments: `user` (required user) — Member.</small> | `fbrp.global.lookup` |
@@ -458,7 +459,7 @@ Investigate a member: game and Discord records, servers and roles, and linked al
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/userinfo <member>` | Investigate a member: game and Discord records, servers and roles, blacklisted-server matches, and linked alt accounts<br><small>Arguments: `member` (required user) — Discord member. Also lists every server the bot shares with them and their roles there, the other servers from their last website sign-in, and linked alt accounts (the alt section needs `fbrp.global.alts`).</small> | `fbrp.investigate`; linked alt accounts also need `fbrp.global.alts` |
+| `/userinfo <member>` | Investigate a member: game and Discord records, organization duty hours, servers and roles, blacklisted-server matches, and linked alt accounts<br><small>Arguments: `member` (required user) — Discord member. Organization activity shows current or former membership plus 7-day, 30-day, and all-time hours. Also lists every server the bot shares with them and their roles there, the other servers from their last website sign-in, and linked alt accounts (the alt section needs `fbrp.global.alts`).</small> | `fbrp.investigate`; linked alt accounts also need `fbrp.global.alts` |
 
 ## /office
 

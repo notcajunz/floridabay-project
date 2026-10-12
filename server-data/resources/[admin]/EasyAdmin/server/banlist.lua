@@ -12,6 +12,21 @@
 
 blacklist = {}
 
+-- EasyAdmin keeps a numeric internal ID for compatibility, while Florida Bay exposes
+-- one stable public case ID everywhere staff and players see the punishment.
+local function publicBanId(ban)
+    return ban and ban.fbrp_id or (ban and tostring(ban.banid)) or 'Unknown'
+end
+
+local function attachFloridaBayCase(ban, actorSource)
+    if type(ban) ~= 'table' or GetResourceState('fbrp_core') ~= 'started' then return nil end
+    local ok, caseId = pcall(function()
+        return exports.fbrp_core:RecordEasyAdminBan(ban, actorSource)
+    end)
+    if ok and caseId then ban.fbrp_id = caseId end
+    return ok and caseId or nil
+end
+
 ---Handles the banning of a player
 ---@param playerId number @The ID of the player to ban
 ---@param reason string @The reason for the ban
@@ -42,8 +57,8 @@ RegisterServerEvent("EasyAdmin:banPlayer", function(playerId,reason,expires)
             local ban = {banid = GetFreshBanId(), name = username,identifiers = bannedIdentifiers, banner = getName(source, true), reason = reason, expire = expires, expireString = formatDateString(expires) }
             updateBlacklist( ban )
             PrintDebugMessage("Player "..getName(source,true).." banned player "..CachedPlayers[playerId].name.." for "..reason, 3)
-            SendWebhookMessage(moderationNotification,string.format(GetLocalisedText("adminbannedplayer"), getName(source, false, true), CachedPlayers[playerId].name, reason, formatDateString( expires ), tostring(ban.banid) ), "ban", 16711680)
-            DropPlayer(playerId, string.format(GetLocalisedText("banned"), reason, formatDateString( expires ) ) )
+            SendWebhookMessage(moderationNotification,string.format(GetLocalisedText("adminbannedplayer"), getName(source, false, true), CachedPlayers[playerId].name, reason, formatDateString( expires ), publicBanId(ban) ), "ban", 16711680)
+            DropPlayer(playerId, string.format(GetLocalisedText("banned"), reason, formatDateString( expires ), publicBanId(ban) ) )
         elseif CachedPlayers[playerId].immune then
             TriggerClientEvent("EasyAdmin:showNotification", source, GetLocalisedText("adminimmune"))
         end
@@ -126,9 +141,9 @@ function addBanExport(playerId,reason,expires,banner)
     end
     
     
-    SendWebhookMessage(moderationNotification,string.format(GetLocalisedText("adminbannedplayer"), banner or "Unknown", getName(tostring(playerId) or "?", false, true), reason, formatDateString( expires ), tostring(ban.banid) ), "ban", 16711680)
+    SendWebhookMessage(moderationNotification,string.format(GetLocalisedText("adminbannedplayer"), banner or "Unknown", getName(tostring(playerId) or "?", false, true), reason, formatDateString( expires ), publicBanId(ban) ), "ban", 16711680)
     if not offline then
-        DropPlayer(playerId, string.format(GetLocalisedText("banned"), reason, formatDateString( expires ) ) )
+        DropPlayer(playerId, string.format(GetLocalisedText("banned"), reason, formatDateString( expires ), publicBanId(ban) ) )
     end
     return ban
 end
@@ -315,8 +330,8 @@ function updateBlacklist(data,remove, forceChange)
         PrintDebugMessage("You are using a Custom Banlist System, this is ^3not currently supported^7 and WILL cause issues! Only use this if you know what you are doing, otherwise, disable ea_custombanlist.", 1)
         if data and not remove then
             addBan(data)
+            attachFloridaBayCase(data, source)
             TriggerEvent("ea_data:addBan", data)
-            TriggerEvent("fbrp:easyadminBanCreated", data, source)
             
         elseif data and remove then
             UnbanId(data.banid)
@@ -360,7 +375,7 @@ function updateBlacklist(data,remove, forceChange)
     
     if data and not remove then
         addBan(data)
-        TriggerEvent("fbrp:easyadminBanCreated", data, source)
+        attachFloridaBayCase(data, source)
         PrintDebugMessage("Added the following data to banlist:\n"..table_to_string(data), 4)
         change=true
     elseif not data then
@@ -562,3 +577,24 @@ function IsIdentifierBanned(theIdentifier)
     return identifierfound
 end
 exports('IsIdentifierBanned', IsIdentifierBanned)
+
+-- fbrp_core starts before EasyAdmin. Once both are ready, enrich every stored ban
+-- (including legacy rows) and let EasyAdmin persist its own file.
+Citizen.CreateThread(function()
+    Citizen.Wait(2000)
+    for _ = 1, 10 do
+        local changed = false
+        local pending = 0
+        for _, ban in ipairs(blacklist) do
+            if not ban.fbrp_id then
+                local caseId = attachFloridaBayCase(ban, nil)
+                if caseId then changed = true else pending = pending + 1 end
+            end
+        end
+        if changed then
+            SaveResourceFile(GetCurrentResourceName(), "banlist.json", json.encode(blacklist, {indent = true}), -1)
+        end
+        if pending == 0 then return end
+        Citizen.Wait(1000)
+    end
+end)
