@@ -12,6 +12,7 @@ import {
   PermissionFlagsBits,
   StringSelectMenuBuilder,
 } from "discord.js";
+import { randomInt } from "node:crypto";
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
 import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
@@ -316,7 +317,23 @@ async function announceCallsign(discordId, callsign) {
 
 const levelText = (level) =>
   level === Number.POSITIVE_INFINITY ? "bot owner" : level < 0 ? "no staff rank" : `rank ${level}`;
+// Old rows used the sequential database ID. Keep that format only as a fallback for
+// legacy/imported rows whose stored ban_id is missing.
 const publicCaseId = (id) => `FB-${String(id).padStart(8, "0")}`;
+
+/** Assigns a non-sequential public ID; the unique DB index arbitrates rare collisions. */
+async function assignPublicCaseId(id) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const banId = `FB-${randomInt(100000, 1000000)}`;
+    try {
+      await db.query("UPDATE moderation_cases SET ban_id=? WHERE id=?", [banId, id]);
+      return banId;
+    } catch (error) {
+      if (error?.code !== "ER_DUP_ENTRY") throw error;
+    }
+  }
+  throw new Error("Could not allocate a unique public case ID.");
+}
 
 /** /staff and /global may only act on members strictly below the actor's highest ACE group rank. */
 async function requireOutranks(i, targetId, verb = "manage") {
@@ -341,16 +358,16 @@ async function caseRow(interaction, target, action, reason, expires = null) {
       Date.now(),
     ],
   );
-  const banId = publicCaseId(result.insertId);
-  await db.query("UPDATE moderation_cases SET ban_id=? WHERE id=?", [banId, result.insertId]);
+  const id = Number(result.insertId);
+  const banId = await assignPublicCaseId(id);
   await audit(interaction.user.id, `moderation.${action}`, target, {
     guild: interaction.guildId,
     reason,
-    caseId: result.insertId,
+    caseId: id,
     banId,
     expires,
   });
-  return result.insertId;
+  return { id, banId };
 }
 
 async function aceCommand(i, sub) {
@@ -1174,35 +1191,35 @@ async function moderationCommand(i, sub) {
     const count = i.options.getInteger("count", true),
       reason = i.options.getString("reason", true);
     const deleted = await i.channel.bulkDelete(count, true);
-    const id = await caseRow(i, i.channelId, "purge", reason);
+    const { banId } = await caseRow(i, i.channelId, "purge", reason);
     await log(i.guild, {
       title: "Messages purged",
       color: COLORS.warning,
       actor: i.user.id,
       fields: [["Channel", `${i.channel}`], ["Messages", String(deleted.size)], ["Reason", clean(reason, 300), false]],
-      footer: publicCaseId(id),
+      footer: banId,
     }, "moderation");
     return card("Messages purged", {
       color: COLORS.warning,
-      rows: [["Messages", String(deleted.size)], ["Channel", `${i.channel}`], ["Case", `\`${publicCaseId(id)}\``], ["Reason", clean(reason, 300), false]],
+      rows: [["Messages", String(deleted.size)], ["Channel", `${i.channel}`], ["Case", `\`${banId}\``], ["Reason", clean(reason, 300), false]],
     });
   }
   if (sub === "unban") {
     const id = clean(i.options.getString("user_id", true), 24),
       reason = i.options.getString("reason", true);
     await i.guild.bans.remove(id, reason);
-    const caseId = await caseRow(i, id, "unban", reason);
+    const { banId } = await caseRow(i, id, "unban", reason);
     await log(i.guild, {
       title: "Member unbanned",
       color: COLORS.success,
       actor: i.user.id,
       target: id,
       fields: [["Reason", clean(reason, 300), false]],
-      footer: publicCaseId(caseId),
+      footer: banId,
     }, "unbans");
     return card("Member unbanned", {
       color: COLORS.success,
-      rows: [["User", `\`${id}\``], ["Case", `\`${publicCaseId(caseId)}\``], ["Reason", clean(reason, 300), false]],
+      rows: [["User", `\`${id}\``], ["Case", `\`${banId}\``], ["Reason", clean(reason, 300), false]],
     });
   }
   const user = i.options.getUser("member", true),
@@ -1233,10 +1250,10 @@ async function moderationCommand(i, sub) {
     await member.timeout(minutes * 60000, reason);
     action = minutes ? "timeout" : "untimeout";
   }
-  const id = await caseRow(i, user.id, action, reason, expires);
+  const { banId } = await caseRow(i, user.id, action, reason, expires);
   if (["ban", "kick", "timeout", "warn"].includes(action))
     await dm(user, `Florida Bay ${action}`, [
-      ["Case ID", `\`${publicCaseId(id)}\``],
+      ["Case ID", `\`${banId}\``],
       ["Server", clean(i.guild.name, 100)],
       ...(expires ? [["Expires", when(expires)]] : []),
       ["Reason", clean(reason, 300), false],
@@ -1263,11 +1280,11 @@ async function moderationCommand(i, sub) {
       ...(expires ? [["Expires", when(expires)]] : []),
       ["Reason", clean(reason, 300), false],
     ],
-    footer: publicCaseId(id),
+    footer: banId,
   }, action === "ban" ? "bans" : "moderation");
   return card(verdict, {
     color: tone,
-    rows: [["Member", who(user.id)], ["Case", `\`${publicCaseId(id)}\``], ...(expires ? [["Expires", when(expires)]] : []), ["Reason", clean(reason, 300), false]],
+    rows: [["Member", who(user.id)], ["Case", `\`${banId}\``], ...(expires ? [["Expires", when(expires)]] : []), ["Reason", clean(reason, 300), false]],
   });
 }
 
@@ -2641,8 +2658,7 @@ async function globalCase(target, actor, action, reason, durationMs, results, ga
     [String(target), String(actor), action, text, durationMs ? stamp + durationMs : null, stamp, !["unban", "untimeout", "kick", "unblacklist"].includes(action), durationMs || null, gameBanId],
   );
   const id = Number(inserted.insertId);
-  const banId = publicCaseId(id);
-  await db.query("UPDATE moderation_cases SET ban_id=? WHERE id=?", [banId, id]);
+  const banId = await assignPublicCaseId(id);
   await audit(actor, `global.${action}`, target, { caseId: id, banId, reason: text, durationMs, gameBanId, results });
   const lifting = action.startsWith("un");
   await log((await mainGuild()) || client.guilds.cache.first(), {
@@ -2660,7 +2676,7 @@ async function globalCase(target, actor, action, reason, durationMs, results, ga
     ],
     footer: `Florida Bay Roleplay · ${banId}`,
   }, GLOBAL_LOG[action] || "moderation");
-  return id;
+  return { id, banId };
 }
 
 async function notifyGlobal(userId, action, reason, until = null, banId = null) {
@@ -2730,8 +2746,8 @@ async function screenAlts(linked, skip = new Set()) {
  * Applies a global ban to each linked account, recorded as its own case tied to `rootCaseId`.
  * With `game`, each alt is also banned through EasyAdmin by their own identifiers.
  */
-async function banLinkedAlts(alts, { rootCaseId, actorId, reason, durationMs = null, game = false }) {
-  const rootBan = publicCaseId(rootCaseId);
+async function banLinkedAlts(alts, { rootCaseId, rootBanId, actorId, reason, durationMs = null, game = false }) {
+  const rootBan = rootBanId || publicCaseId(rootCaseId);
   const lines = [];
   for (const alt of alts.slice(0, MAX_ALT_BANS)) {
     const label = alt.strength === "strong" ? "linked account" : "shared IP";
@@ -2751,10 +2767,10 @@ async function banLinkedAlts(alts, { rootCaseId, actorId, reason, durationMs = n
         gameBanId = banned?.ok && banned.banid ? Number(banned.banid) : null;
         results.push(gameBanId ? `✓ **FiveM** · EasyAdmin ban #${gameBanId}` : "✗ **FiveM** · game ban failed");
       }
-      const id = await globalCase(alt.discordId, actorId, "ban", why, durationMs, results, gameBanId);
-      await db.query("UPDATE moderation_cases SET source_case_id=? WHERE id=?", [rootCaseId, id]);
-      await notifyGlobal(alt.discordId, "ban", `This account is linked to a globally banned account (${rootBan}). ${reason || ""}`, durationMs ? Date.now() + durationMs : null, publicCaseId(id));
-      lines.push(`${ok ? "✓" : "✗"} ${mention(alt.discordId)} · ${label} · \`${publicCaseId(id)}\``);
+      const altCase = await globalCase(alt.discordId, actorId, "ban", why, durationMs, results, gameBanId);
+      await db.query("UPDATE moderation_cases SET source_case_id=? WHERE id=?", [rootCaseId, altCase.id]);
+      await notifyGlobal(alt.discordId, "ban", `This account is linked to a globally banned account (${rootBan}). ${reason || ""}`, durationMs ? Date.now() + durationMs : null, altCase.banId);
+      lines.push(`${ok ? "✓" : "✗"} ${mention(alt.discordId)} · ${label} · \`${altCase.banId}\``);
     } catch (error) {
       console.error(`[FBRP global] alt ban ${alt.discordId} (${rootBan}):`, error);
       lines.push(`✗ ${mention(alt.discordId)} · ${label} · ${clean(error?.message || "failed", 80)}`);
@@ -2772,7 +2788,7 @@ async function sweepLinkedAlts() {
   altSweepBusy = true;
   try {
     const roots = await db.query(
-      "SELECT id,target_id,reason,expires_at,game_ban_id FROM moderation_cases WHERE guild_id='global' AND action='ban' AND active=TRUE AND alt_scan=TRUE AND source_case_id IS NULL",
+      "SELECT id,ban_id,target_id,reason,expires_at,game_ban_id FROM moderation_cases WHERE guild_id='global' AND action='ban' AND active=TRUE AND alt_scan=TRUE AND source_case_id IS NULL",
     );
     for (const root of roots) {
       const remaining = root.expires_at ? Number(root.expires_at) - Date.now() : null;
@@ -2781,7 +2797,7 @@ async function sweepLinkedAlts() {
       const done = new Set((await db.query("SELECT target_id FROM moderation_cases WHERE source_case_id=?", [root.id])).map((row) => String(row.target_id)));
       const { bannable } = await screenAlts(await findLinkedAccounts(db, root.target_id), done);
       if (!bannable.length) continue;
-      await banLinkedAlts(bannable, { rootCaseId: Number(root.id), actorId: client.user.id, reason: root.reason, durationMs: remaining, game: Boolean(root.game_ban_id) });
+      await banLinkedAlts(bannable, { rootCaseId: Number(root.id), rootBanId: root.ban_id, actorId: client.user.id, reason: root.reason, durationMs: remaining, game: Boolean(root.game_ban_id) });
     }
   } finally {
     altSweepBusy = false;
@@ -2807,8 +2823,8 @@ async function liftGlobalBlacklist(id, actorId, auditReason, reason) {
     await g.members.unban(id, reason || "Global blacklist lifted");
     return "✓ unbanned";
   });
-  const caseId = await globalCase(id, actorId, "unblacklist", reason, null, results);
-  return { caseId, results, ok };
+  const moderationCase = await globalCase(id, actorId, "unblacklist", reason, null, results);
+  return { moderationCase, results, ok };
 }
 
 /**
@@ -2844,8 +2860,8 @@ async function liftGlobalBan(id, actorId, reason, { game = false } = {}) {
     );
   }
   if (altsLifted) results.push(`✓ ${altsLifted} linked alt account${altsLifted === 1 ? "" : "s"} unbanned too`);
-  const caseId = await globalCase(id, actorId, "unban", reason, null, results);
-  return { caseId, results, ok };
+  const moderationCase = await globalCase(id, actorId, "unban", reason, null, results);
+  return { moderationCase, results, ok };
 }
 
 /**
@@ -2905,8 +2921,8 @@ async function globalCommand(i, sub) {
     if (!/^\d{15,24}$/.test(id)) throw new Error("Enter a Discord user ID.");
     if (sub === "unblacklist") {
       if (!(await activeGlobal(id, "blacklist"))) throw new Error("That user is not globally blacklisted.");
-      const { caseId, results, ok } = await liftGlobalBlacklist(id, i.user.id, `Global blacklist lifted by ${i.user.tag}`, reason);
-      return card(`${publicCaseId(caseId)} · blacklist lifted`, {
+      const { moderationCase, results, ok } = await liftGlobalBlacklist(id, i.user.id, `Global blacklist lifted by ${i.user.tag}`, reason);
+      return card(`${moderationCase.banId} · blacklist lifted`, {
         color: COLORS.success,
         description: `${mention(id)} is no longer blacklisted (${ok} server${ok === 1 ? "" : "s"} updated). Run **/global restore** to give back their saved roles in every server.`,
         rows: [["Servers", results.join("\n") || "Nothing to change", false]],
@@ -2916,8 +2932,8 @@ async function globalCommand(i, sub) {
     const game = Boolean(i.options.getBoolean("game"));
     if (game && !(await hasPermission(i.user.id, "easyadmin.player.ban.remove")))
       throw new Error("Lifting the game ban needs `easyadmin.player.ban.remove`. Nothing was changed.");
-    const { caseId, results, ok } = await liftGlobalBan(id, i.user.id, reason, { game });
-    return card(`${publicCaseId(caseId)} · unbanned`, {
+    const { moderationCase, results, ok } = await liftGlobalBan(id, i.user.id, reason, { game });
+    return card(`${moderationCase.banId} · unbanned`, {
       color: COLORS.success,
       description: `Unbanned ${mention(id)} in ${ok} server${ok === 1 ? "" : "s"}.`,
       rows: [["Servers", results.join("\n") || "Not banned anywhere", false]],
@@ -3052,8 +3068,8 @@ async function globalCommand(i, sub) {
     await enforceCommandCooldown(i, `global.${sub}`);
   if (sub === "warn") {
     const c = await globalCase(user.id, i.user.id, "warn", reason, null, ["Recorded on the network record"]);
-    await notifyGlobal(user.id, "warning", reason, null, publicCaseId(c));
-    return card(`${publicCaseId(c)} · warned`, { color: COLORS.warning, rows: [["Member", who(user.id)], ["Reason", clean(reason, 300), false]] });
+    await notifyGlobal(user.id, "warning", reason, null, c.banId);
+    return card(`${c.banId} · warned`, { color: COLORS.warning, rows: [["Member", who(user.id)], ["Reason", clean(reason, 300), false]] });
   }
   if (sub === "timeout") {
     const ms = parseDuration(i.options.getString("duration", true));
@@ -3066,8 +3082,8 @@ async function globalCommand(i, sub) {
       return "✓";
     });
     const c = await globalCase(user.id, i.user.id, "timeout", reason, ms, results);
-    await notifyGlobal(user.id, "timeout", reason, Date.now() + ms, publicCaseId(c));
-    return card(`${publicCaseId(c)} · timed out`, {
+    await notifyGlobal(user.id, "timeout", reason, Date.now() + ms, c.banId);
+    return card(`${c.banId} · timed out`, {
       color: COLORS.warning,
       description: `${mention(user.id)} is timed out in ${ok} server${ok === 1 ? "" : "s"} until ${when(Date.now() + ms)}.`,
       rows: [["Servers", results.join("\n") || "Not in any network server", false]],
@@ -3082,7 +3098,7 @@ async function globalCommand(i, sub) {
     });
     await db.query("UPDATE moderation_cases SET active=FALSE WHERE guild_id='global' AND target_id=? AND action='timeout' AND active=TRUE", [user.id]);
     const c = await globalCase(user.id, i.user.id, "untimeout", reason, null, results);
-    return card(`${publicCaseId(c)} · timeout lifted`, {
+    return card(`${c.banId} · timeout lifted`, {
       color: COLORS.success,
       description: `Timeout lifted in ${ok} server${ok === 1 ? "" : "s"}.`,
       rows: [["Servers", results.join("\n") || "No active timeouts", false]],
@@ -3097,8 +3113,8 @@ async function globalCommand(i, sub) {
       return "✓";
     });
     const c = await globalCase(user.id, i.user.id, "kick", reason, null, results);
-    await notifyGlobal(user.id, "kick", reason, null, publicCaseId(c));
-    return card(`${publicCaseId(c)} · kicked`, {
+    await notifyGlobal(user.id, "kick", reason, null, c.banId);
+    return card(`${c.banId} · kicked`, {
       color: COLORS.danger,
       description: `Kicked ${mention(user.id)} from ${ok} server${ok === 1 ? "" : "s"}.`,
       rows: [["Servers", results.join("\n") || "Not in any network server", false]],
@@ -3139,14 +3155,14 @@ async function globalCommand(i, sub) {
     const { results, ok } = await banAcrossNetwork(user.id, reason, deleteMessageSeconds);
     if (gameLine) results.push(gameLine);
     const c = await globalCase(user.id, i.user.id, "ban", reason, ms, results, gameBanId);
-    if (huntAlts) await db.query("UPDATE moderation_cases SET alt_scan=TRUE WHERE id=?", [c]);
-    const altLines = await banLinkedAlts(bannable, { rootCaseId: c, actorId: i.user.id, reason, durationMs: ms, game: gameBanId !== null });
+    if (huntAlts) await db.query("UPDATE moderation_cases SET alt_scan=TRUE WHERE id=?", [c.id]);
+    const altLines = await banLinkedAlts(bannable, { rootCaseId: c.id, rootBanId: c.banId, actorId: i.user.id, reason, durationMs: ms, game: gameBanId !== null });
     for (const alt of skipped) altLines.push(`• ${mention(alt.discordId)} · linked but not banned (${alt.why})`);
     if (linked?.unlinkedAccounts)
       altLines.push(`• ${linked.unlinkedAccounts} linked game account${linked.unlinkedAccounts === 1 ? "" : "s"} with no Discord attached${gameBanId ? " (covered by the game ban)" : ""}`);
     if (huntAlts && !altLines.length) altLines.push("No linked accounts found.");
-    await notifyGlobal(user.id, "ban", reason, ms ? Date.now() + ms : null, publicCaseId(c));
-    return card(`${publicCaseId(c)} · banned`, {
+    await notifyGlobal(user.id, "ban", reason, ms ? Date.now() + ms : null, c.banId);
+    return card(`${c.banId} · banned`, {
       color: COLORS.danger,
       description: `Banned ${mention(user.id)} from ${ok} server${ok === 1 ? "" : "s"}${ms ? ` until ${when(Date.now() + ms)}` : ""}. Servers added to the network later inherit the ban.${
         bannable.length ? ` ${bannable.length} linked account${bannable.length === 1 ? "" : "s"} banned with them.` : ""
@@ -3182,9 +3198,9 @@ async function globalCommand(i, sub) {
     }, { skipMain: true });
     results.push(...others.results);
     const c = await globalCase(user.id, i.user.id, "blacklist", reason, null, results);
-    await notifyGlobal(user.id, "blacklist", reason, null, publicCaseId(c));
+    await notifyGlobal(user.id, "blacklist", reason, null, c.banId);
     invalidateBlacklistCache();
-    return card(`${publicCaseId(c)} · blacklisted`, {
+    return card(`${c.banId} · blacklisted`, {
       color: COLORS.danger,
       description: `${mention(user.id)} is blacklisted. Main-server roles were removed and bans were applied in ${others.ok} other server${others.ok === 1 ? "" : "s"}.`,
       rows: [["Servers", results.join("\n"), false]],
@@ -4382,8 +4398,7 @@ async function recordNativeDiscordBan(ban) {
     "INSERT INTO moderation_cases(guild_id,target_id,target_name,actor_id,action,source,reason,created_at,active) VALUES(?,?,?,?,'ban','discord_native',?,?,TRUE)",
     [ban.guild.id, ban.user.id, ban.user.globalName || ban.user.username, actor, clean(entry?.reason || "Banned directly in Discord", 300), Date.now()],
   );
-  const banId = publicCaseId(inserted.insertId);
-  await db.query("UPDATE moderation_cases SET ban_id=? WHERE id=?", [banId, inserted.insertId]);
+  const banId = await assignPublicCaseId(Number(inserted.insertId));
   await audit(actor, "moderation.native_ban", ban.user.id, { guild: ban.guild.id, banId });
   await log(ban.guild, {
     title: `Discord ban recorded · ${banId}`,

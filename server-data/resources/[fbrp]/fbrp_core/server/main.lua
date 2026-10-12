@@ -21,6 +21,22 @@ local function clean(value, max)
     return value:sub(1, max or 120)
 end
 
+-- Assign a six-digit, non-sequential public case ID. The unique database index
+-- settles the extremely unlikely race where two writers pick the same number.
+local function assignPublicCaseId(id)
+    for _ = 1, 20 do
+        local publicId = ('FB-%06d'):format(math.random(100000, 999999))
+        local exists = MySQL.scalar.await('SELECT 1 FROM moderation_cases WHERE ban_id=? LIMIT 1', { publicId })
+        if not exists then
+            local ok, changed = pcall(function()
+                return MySQL.update.await('UPDATE moderation_cases SET ban_id=? WHERE id=? AND ban_id IS NULL', { publicId, id })
+            end)
+            if ok and tonumber(changed or 0) > 0 then return publicId end
+        end
+    end
+    error('Could not allocate a unique public case ID')
+end
+
 local function identifier(source, kind)
     local prefix = kind .. ':'
     for _, value in ipairs(GetPlayerIdentifiers(source)) do
@@ -478,8 +494,7 @@ local function recordEasyAdminBan(ban, actorSource)
         'ban', 'easyadmin', reason, expiresAt, now(), expiresAt and math.max(0, expiresAt - now()) or nil, tonumber(ban.banid)
     })
     if id then
-        local publicId = ('FB-%08d'):format(tonumber(id))
-        MySQL.update.await('UPDATE moderation_cases SET ban_id=? WHERE id=?', { publicId, id })
+        local publicId = assignPublicCaseId(id)
         FBRP.DB.audit(actor, 'moderation.game_ban', discord or ('game:' .. tostring(ban.banid)), {
             caseId=id, banId=publicId, easyAdminId=tonumber(ban.banid), reason=reason
         })

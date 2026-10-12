@@ -59,7 +59,7 @@ One bot owns the Discord-facing control plane:
 The bot also serves the Florida Bay website and authenticated member portal on
 `127.0.0.1:8080` by default. The public landing page includes live server
 status. Discord OAuth or a one-time bot DM verifies portal members, who can see
-their linked punishments and stable `FB-########` IDs, submit ban appeals, open
+their linked punishments and stable random `FB-######` IDs, submit ban appeals, open
 support tickets, and browse the staff roster. Staff accounts also receive the
 shared ban/blacklist registry, appeal queue, staff profiles, organization
 manager, and ticket operations workspace.
