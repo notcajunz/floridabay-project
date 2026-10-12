@@ -95,21 +95,31 @@ export function createEconomy({ client, db, audit, log, hasPermission }) {
 
   const canManage = async (discordId) => superuserIds().has(String(discordId)) || Boolean(await hasPermission(discordId, "fbrp.organizations.manage"));
 
-  /** Organizations the member belongs to (holds the access role, or is listed as a member) with their leader flag. */
+  /**
+   * Organizations the member belongs to with their leader flag. As with /duty, membership is holding the
+   * access role; the roster row only carries the leader flag (and is removed by the role sync on leaving).
+   */
   async function memberships(discordId) {
     const rows = await db.query(
       `SELECT o.id,o.slug,o.name,o.type,o.color,
               COALESCE((SELECT MAX(m.manager) FROM organization_members m WHERE m.org_id=o.id AND m.discord_id=?),0) leader
          FROM organizations o
-        WHERE o.active=TRUE AND (
-          EXISTS(SELECT 1 FROM organization_role_requirements r
+        WHERE o.active=TRUE AND EXISTS(SELECT 1 FROM organization_role_requirements r
                    JOIN discord_member_cache c ON c.guild_id=r.guild_id AND c.discord_id=? AND JSON_CONTAINS(c.roles, JSON_QUOTE(r.role_id))
                   WHERE r.org_id=o.id)
-          OR EXISTS(SELECT 1 FROM organization_members m WHERE m.org_id=o.id AND m.discord_id=?))
         ORDER BY o.name`,
-      [String(discordId), String(discordId), String(discordId)],
+      [String(discordId), String(discordId)],
     );
     return rows.map((row) => ({ ...row, leader: Boolean(Number(row.leader)) }));
+  }
+
+  async function holdsAccessRole(discordId, orgId) {
+    return Boolean(await db.one(
+      `SELECT 1 ok FROM organization_role_requirements r
+         JOIN discord_member_cache c ON c.guild_id=r.guild_id AND c.discord_id=? AND JSON_CONTAINS(c.roles, JSON_QUOTE(r.role_id))
+        WHERE r.org_id=? LIMIT 1`,
+      [String(discordId), Number(orgId)],
+    ));
   }
 
   async function accessTo(discordId, orgId) {
@@ -283,6 +293,9 @@ export function createEconomy({ client, db, audit, log, hasPermission }) {
     if (!org) throw new Error("Organization not found.");
     const target = String(input.discordId || "").trim();
     if (!/^\d{15,24}$/.test(target)) throw new Error("Enter a Discord user ID.");
+    // The role sync deletes roster rows of anyone without the access role, so a leader must hold it.
+    if (input.leader && !(await holdsAccessRole(target, org.id)))
+      throw new Error(`<@${target}> does not hold ${org.name}'s access role. Give them the role first, then make them a leader.`);
     if (input.leader) {
       await db.query(
         `INSERT INTO organization_members(org_id,discord_id,rank_name,manager,added_by,added_at) VALUES(?,?,'Leader',TRUE,?,?)
