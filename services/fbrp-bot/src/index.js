@@ -1085,6 +1085,24 @@ async function globalSyncServersComponent(i) {
 async function globalSyncAutocomplete(i) {
   const focused = i.options.getFocused(true);
   const value = String(focused.value).toLowerCase();
+  if (focused.name === "groups") {
+    const parts = value.split(",");
+    const needle = parts.pop().trim();
+    const selected = new Set(parts.map((part) => part.trim()).filter(Boolean));
+    const prefix = selected.size ? `${[...selected].join(", ")}, ` : "";
+    const rows = await db.query("SELECT group_name,role_name FROM network_syncs ORDER BY sort_order,id");
+    return i.respond(
+      rows
+        .filter((row) => !selected.has(row.group_name))
+        .filter((row) => row.group_name.includes(needle) || row.role_name.toLowerCase().includes(needle))
+        .map((row) => ({
+          name: `Add ${row.role_name} ← ${row.group_name}`.slice(0, 100),
+          value: `${prefix}${row.group_name}`,
+        }))
+        .filter((choice) => choice.value.length <= 100)
+        .slice(0, 25),
+    );
+  }
   if (focused.name !== "group") return i.respond([]);
   if (["edit", "remove", "move", "servers"].includes(i.options.getSubcommand(false) ?? "")) {
     const rows = await db.query("SELECT group_name,role_name FROM network_syncs ORDER BY sort_order,id");
@@ -3918,7 +3936,10 @@ let webPanelServer = null;
 async function aceGroupAutocomplete(i) {
   const focused = i.options.getFocused(true);
   if (i.commandName === "staff" && focused.name === "rank") return staffRankAutocomplete(i);
-  if (focused.name !== "group" && focused.name !== "ace_group") return i.respond([]);
+  const deletingGroup = i.commandName === "ace"
+    && i.options.getSubcommand(false) === "group-delete"
+    && focused.name === "name";
+  if (focused.name !== "group" && focused.name !== "ace_group" && !deletingGroup) return i.respond([]);
   const needle = String(focused.value || "").toLowerCase();
   const rows = await db.query("SELECT name,label,rank_order FROM ace_groups ORDER BY rank_order DESC,name");
   return i.respond(
@@ -4069,6 +4090,7 @@ const autocompleters = {
   join: joinAutocomplete,
   headtag: headtagAutocomplete,
   ace: aceGroupAutocomplete,
+  vmenu: aceGroupAutocomplete,
   roster: aceGroupAutocomplete,
   staff: aceGroupAutocomplete,
   globalsync: globalSyncAutocomplete,

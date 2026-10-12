@@ -40,7 +40,7 @@ const ace = new SlashCommandBuilder()
       .setName("group-delete")
       .setDescription("Delete an ACE group and its mappings")
       .addStringOption((o) =>
-        o.setName("name").setDescription("Group name").setRequired(true),
+        o.setName("name").setDescription("Group name").setRequired(true).setAutocomplete(true),
       ),
   )
   .addSubcommand((s) =>
@@ -48,7 +48,7 @@ const ace = new SlashCommandBuilder()
       .setName("permission")
       .setDescription("Allow or deny an ACE object for a group")
       .addStringOption((o) =>
-        o.setName("group").setDescription("Group name").setRequired(true),
+        o.setName("group").setDescription("Group name").setRequired(true).setAutocomplete(true),
       )
       .addStringOption((o) =>
         o
@@ -73,7 +73,7 @@ const ace = new SlashCommandBuilder()
       .setName("bundle")
       .setDescription("Grant or remove a curated permission bundle")
       .addStringOption((o) =>
-        o.setName("group").setDescription("Group name").setRequired(true),
+        o.setName("group").setDescription("Group name").setRequired(true).setAutocomplete(true),
       )
       .addStringOption((o) =>
         o
@@ -97,7 +97,7 @@ const ace = new SlashCommandBuilder()
       .setName("member-add")
       .setDescription("Add a direct group member")
       .addStringOption((o) =>
-        o.setName("group").setDescription("Group name").setRequired(true),
+        o.setName("group").setDescription("Group name").setRequired(true).setAutocomplete(true),
       )
       .addUserOption(user),
   )
@@ -106,7 +106,7 @@ const ace = new SlashCommandBuilder()
       .setName("member-remove")
       .setDescription("Remove direct group membership")
       .addStringOption((o) =>
-        o.setName("group").setDescription("Group name").setRequired(true),
+        o.setName("group").setDescription("Group name").setRequired(true).setAutocomplete(true),
       )
       .addUserOption(user),
   )
@@ -115,7 +115,7 @@ const ace = new SlashCommandBuilder()
       .setName("bind-role")
       .setDescription("Gate a Discord role behind direct ACE membership")
       .addStringOption((o) =>
-        o.setName("group").setDescription("Group name").setRequired(true),
+        o.setName("group").setDescription("Group name").setRequired(true).setAutocomplete(true),
       )
       .addRoleOption((o) =>
         o.setName("role").setDescription("Role to bind").setRequired(true),
@@ -475,7 +475,8 @@ const globalsync = new SlashCommandBuilder()
         o
           .setName("groups")
           .setDescription("Comma-separated ACE groups from top to bottom")
-          .setMaxLength(1000),
+          .setMaxLength(1000)
+          .setAutocomplete(true),
       ),
   )
   .addSubcommand((s) =>
@@ -857,15 +858,15 @@ const vmenu = new SlashCommandBuilder()
   .setName("vmenu")
   .setDescription("Manage vMenu permissions for ACE groups")
   .addSubcommand((s) => s.setName("permission").setDescription("Grant, deny, or remove a vMenu permission")
-    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true))
+    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true).setAutocomplete(true))
     .addStringOption((o) => o.setName("permission").setDescription("vMenu permission object").setRequired(true))
     .addStringOption((o) => o.setName("mode").setDescription("Permission mode").setRequired(true).addChoices({ name: "Allow", value: "allow" }, { name: "Deny", value: "deny" }, { name: "Remove", value: "remove" })))
   .addSubcommand((s) => s.setName("bundle").setDescription("Apply or remove a vMenu bundle")
-    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true))
+    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true).setAutocomplete(true))
     .addStringOption((o) => o.setName("bundle").setDescription("player, staff, or full").setRequired(true).addChoices({ name: "Player", value: "player" }, { name: "Staff", value: "staff" }, { name: "Full", value: "full" }))
     .addStringOption((o) => o.setName("mode").setDescription("Grant or remove").setRequired(true).addChoices({ name: "Grant", value: "grant" }, { name: "Remove", value: "remove" })))
   .addSubcommand((s) => s.setName("show").setDescription("Show a group's vMenu permissions")
-    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true)))
+    .addStringOption((o) => o.setName("group").setDescription("ACE group").setRequired(true).setAutocomplete(true)))
   .addSubcommand((s) => s.setName("catalog").setDescription("List vMenu permissions and bundles"));
 
 const invite = new SlashCommandBuilder()
