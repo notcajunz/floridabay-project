@@ -1,4 +1,4 @@
--- Exam access is handed out by Head of Management and above with /exam give.
+-- Exam access is handed out by Assistant Community Director and above with /exam give.
 -- A grant opens one exam for one member for 60 minutes and is used up on submit.
 
 CREATE TABLE IF NOT EXISTS staff_exam_grants (

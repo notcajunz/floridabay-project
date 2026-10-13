@@ -38,9 +38,13 @@ export const DEFAULT_SETTINGS = {
     "assistant director": [4, 4],
     "chief of staff": [5, 5],
     "section chief": [7, 10],
+    "special agent in charge": [11, 19],
+    "asst. special agent in charge": [20, 29],
   },
   // Every other rank is numbered in rank order from here.
-  callsignStart: 11,
+  callsignStart: 30,
+  // Given to everyone appointed through /iaa add.
+  addRoles: ["1558227271754457122", "1558227271754457121", "1558227271662309573", "1558227271662309572"],
 };
 
 /* ------------------------------------------------------------------ config */

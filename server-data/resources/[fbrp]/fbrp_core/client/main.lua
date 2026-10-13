@@ -8,6 +8,54 @@ local function ui(message)
     SendNUIMessage(message)
 end
 
+-- A loadscreen NUI can survive the normal spawnmanager shutdown and leave a
+-- dark, focused browser layer over gameplay. Clear every transient loading /
+-- visual state once the session is usable and whenever the player spawns.
+local function clearStuckScreen()
+    ShutdownLoadingScreen()
+    ShutdownLoadingScreenNui()
+    SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
+    ClearTimecycleModifier()
+    ClearExtraTimecycleModifier()
+    AnimpostfxStopAll()
+
+    if IsScreenFadedOut() or IsScreenFadingOut() then
+        DoScreenFadeIn(250)
+    end
+end
+
+local function resetCoreUi()
+    menuOpen = false
+    menuLocked = false
+    menuView = nil
+    radialOpen = false
+    clearStuckScreen()
+    ui({ type='reset' })
+end
+
+AddEventHandler('onClientResourceStart', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    resetCoreUi()
+
+    CreateThread(function()
+        while not NetworkIsSessionStarted() do Wait(100) end
+        clearStuckScreen()
+        Wait(1000)
+        clearStuckScreen()
+    end)
+end)
+
+AddEventHandler('playerSpawned', function()
+    SetTimeout(250, resetCoreUi)
+end)
+
+RegisterCommand('fixscreen', function()
+    resetCoreUi()
+    TriggerEvent('fbrp:screen:fix')
+    TriggerEvent('fbrp:notify', 'Screen and UI effects reset.', 'success')
+end, false)
+
 local function closeRadial()
     if not radialOpen then return end
     radialOpen = false
@@ -75,6 +123,7 @@ RegisterNetEvent('fbrp:notify', function(message, tone)
 end)
 
 RegisterNetEvent('fbrp:session', function(data)
+    resetCoreUi()
     sessionInfo = data or {}
     ui({ type='session',data=data })
 end)
@@ -116,7 +165,7 @@ RegisterNUICallback('hubAction', function(data, cb)
     local commands = {
         fish='fish', prisonwork='prisonwork', passport='passport', scenes='scenes',
         emotes='emotes', radio='radio', vehicles='vehicles', tags='tags',
-        interactions='interactions', carcontrols='carcontrols', showid='showid',
+        pastimes='pastimes', interactions='interactions', carcontrols='carcontrols', showid='showid',
         org='org', bodycam='bodycam', spikes='spikes', handsup='handsup', point='point',
     }
     if action == 'activities' then

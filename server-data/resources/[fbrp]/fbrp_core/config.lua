@@ -15,6 +15,15 @@ FBRP.Config = {
     defaultPeacetime = false,
     maxTagLabel = 40,
     vehicleSpawnCooldownMs = 3500,
+    -- Every driven vehicle is capped client-side. Holding the configured Discord
+    -- role raises the cap; the server publishes the allowed value in player state.
+    vehicleSpeedLimitMph = 180,
+    vehicleSpeedPrivilegedLimitMph = 250,
+    vehicleSpeedPrivilegedRoleId = '1559633446429786162',
+    -- Staff normally cannot clock in while already working an organization.
+    -- This role and Head Administrator-or-higher staff ranks bypass that guard.
+    staffOrgDutyBypassRoleId = '1559580245093253272',
+    staffOrgDutyBypassMinGroup = 'head_administrator',
     -- Fuel is measured as a percentage. A typical car lasts roughly an hour
     -- of mixed driving, while an empty tank takes about 35 seconds to fill.
     fuelTickMs = 1000,

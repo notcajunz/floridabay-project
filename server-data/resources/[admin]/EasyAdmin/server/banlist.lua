@@ -190,7 +190,7 @@ end, false)
 RegisterServerEvent("EasyAdmin:editBan", function(ban)
     if DoesPlayerHavePermission(source, "player.ban.edit") then
         updateBan(ban.banid,ban)
-        -- TODO Webhook
+        SendWebhookMessage(moderationNotification, getName(source, false, true).." edited EasyAdmin ban #"..tostring(ban.banid)..".", "ban", 16777214)
     end
 end)
 

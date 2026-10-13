@@ -5,14 +5,16 @@ import { UserError, mention } from "./util.js";
  * Callsigns are derived from the roster, never hand-picked:
  *  - Low Command and above have fixed slots (settings.callsignPlan, by rank name):
  *    Overseer IA-00, Director IA-01, Deputy Director IA-02, Assistant Deputy Director IA-03,
- *    Assistant Director IA-04, Chief of Staff IA-05, Section Chief IA-07 to IA-10.
- *  - Everyone else is numbered in rank order from settings.callsignStart (IA-11), highest rank first,
+ *    Assistant Director IA-04, Chief of Staff IA-05, Section Chief IA-07 to IA-10,
+ *    Special Agent In Charge IA-011 to IA-019, Asst. Special Agent in Charge IA-020 to IA-029.
+ *  - Everyone else is numbered in rank order from settings.callsignStart (IA-030), highest rank first,
  *    and by time in rank within a rank. A promotion therefore shifts everyone between the old and
  *    new position by one, and resequence() renumbers them.
  * Suspended agents keep their number. Members who left the server keep theirs until removed.
  */
 
-export const format = (n) => `IA-${String(n).padStart(2, "0")}`;
+// Single digits keep two digits (IA-07). Two-digit numbers get a leading zero (IA-020).
+export const format = (n) => `IA-${n >= 10 && n < 100 ? "0" : ""}${String(n).padStart(2, "0")}`;
 
 async function plan() {
   const { settings } = await config();

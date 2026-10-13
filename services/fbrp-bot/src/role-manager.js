@@ -192,6 +192,46 @@ async function wipeManagers(interaction) {
   });
 }
 
+async function holders(interaction, role) {
+  await interaction.guild.members.fetch().catch(() => null);
+  const live = interaction.guild.roles.cache.get(role.id) || role;
+  return [...live.members.values()].map((m) => m);
+}
+
+const rich = (embed) => ({ embeds: [embed], rich: true, allowedMentions: { parse: [] } });
+
+async function viewRole(interaction) {
+  if (!interaction.guild) throw new Error("Role-manager commands can only be used in a server.");
+  const role = interaction.options.getRole("role", true);
+  const count = (await holders(interaction, role)).length;
+  const record = await db.one("SELECT owner_id FROM role_manager_roles WHERE guild_id=? AND role_id=?", [interaction.guildId, role.id]);
+  const managers = await db.query("SELECT discord_id FROM role_manager_members WHERE guild_id=? AND role_id=?", [interaction.guildId, role.id]);
+  const list = managers.map((m) => `<@${m.discord_id}>`).join(" ") || "None";
+  return rich(card("Role info", {
+    color: role.color || COLORS.primary,
+    rows: [
+      ["Tag", `<@&${role.id}>`],
+      ["Role ID", `\`${role.id}\``],
+      ["Holders", String(count)],
+      ["Owner", record?.owner_id ? `<@${record.owner_id}>` : "None set"],
+      ["Managers", list.slice(0, 1000), false],
+    ],
+  }));
+}
+
+async function viewUsers(interaction) {
+  if (!interaction.guild) throw new Error("Role-manager commands can only be used in a server.");
+  const role = interaction.options.getRole("role", true);
+  const members = await holders(interaction, role);
+  const shown = members.slice(0, 150).map((m) => `<@${m.id}>`).join(" ");
+  const more = members.length > 150 ? `\n…and ${members.length - 150} more.` : "";
+  return rich(card("Role members", {
+    color: role.color || COLORS.primary,
+    description: members.length ? shown + more : "Nobody holds this role.",
+    rows: [["Tag", `<@&${role.id}>`], ["Users", String(members.length)]],
+  }));
+}
+
 export async function roleManagerCommand(interaction) {
   switch (interaction.commandName) {
     case "addrole": return addRole(interaction, false);
@@ -201,6 +241,8 @@ export async function roleManagerCommand(interaction) {
     case "useradd": return changeManager(interaction, false);
     case "userdel": return changeManager(interaction, true);
     case "mgrwipe": return wipeManagers(interaction);
+    case "viewrole": return viewRole(interaction);
+    case "viewusers": return viewUsers(interaction);
     default: throw new Error("Unknown role-manager command.");
   }
 }

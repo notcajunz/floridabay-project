@@ -90,7 +90,7 @@ export async function add(i, actor) {
   await demandSlot(rank, member.id);
 
   await i.deferReply(EPHEMERAL);
-  await setRoles(member, { rank, add: orientation ? [cfg.roles.orientation] : [] }, `Appointed ${rank.name} by ${i.user.tag}`);
+  await setRoles(member, { rank, add: [...(cfg.settings.addRoles || []), ...(orientation ? [cfg.roles.orientation] : [])] }, `Appointed ${rank.name} by ${i.user.tag}`);
   const now = Date.now();
   await db.query(
     `INSERT INTO iaa_members(discord_id,username,callsign,rank_role_id,status,joined_at,rank_changed_at,updated_at) VALUES(?,?,NULL,?,'active',?,?,?)

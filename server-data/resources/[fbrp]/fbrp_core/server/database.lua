@@ -31,7 +31,10 @@ local migrationFiles = {
     'migrations/040_co_owner_control_plane.sql',
     'migrations/041_owner_only_easyadmin_privacy.sql',
     'migrations/042_co_owner_protected_roles.sql',
-    'migrations/044_personal_bulletproof.sql'
+    'migrations/044_personal_bulletproof.sql',
+    'migrations/047_pastimes.sql',
+    'migrations/048_easyadmin_logs.sql',
+    'migrations/049_chat_headtags.sql'
 }
 
 local function splitSql(contents)

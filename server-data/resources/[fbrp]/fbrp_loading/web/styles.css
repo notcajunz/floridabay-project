@@ -25,6 +25,13 @@ body {
     Arial,
     sans-serif;
 }
+html {
+  transition: opacity 0.45s ease;
+}
+html.complete {
+  opacity: 0;
+  pointer-events: none;
+}
 body {
   background: linear-gradient(
     180deg,

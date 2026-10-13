@@ -232,7 +232,7 @@ const giveaways = createGiveaways({ client, db, audit, clean });
 const statusBoard = createStatusBoard({ client, db, callGame, publicBase, connectUrl });
 const chainOfCommand = createChainOfCommand({ client, db, audit, hasPermission });
 
-/** /exam: Head of Management and above open an exam for one member for 60 minutes. */
+/** /exam: Assistant Community Director and above open an exam for one member for 60 minutes. */
 async function examCommand(i, sub) {
   if (sub === "give") {
     const member = i.options.getUser("member", true);
@@ -783,6 +783,7 @@ async function headtagCommand(i, sub) {
       kindLabel = kind === "both" ? "Headtag + gang tag" : kind === "head" ? "Headtag" : "Gang tag",
       label = clean(i.options.getString("label", true), 40),
       color = hexColor(i.options.getString("color", true)),
+      chatTag = i.options.getBoolean("chat_tag") === true,
       orgSlug = clean(i.options.getString("organization") || "", 40).toLowerCase(),
       organization = orgSlug
         ? await db.one("SELECT id,name,slug FROM organizations WHERE slug=? AND active=TRUE", [orgSlug])
@@ -799,7 +800,7 @@ async function headtagCommand(i, sub) {
       created = true;
     }
     const result = await db.query(
-      "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,created_by) VALUES(?,?,?,?,?,?,?,?)",
+      "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,chat_tag,created_by) VALUES(?,?,?,?,?,?,?,?,?)",
       [
         kind,
         label,
@@ -808,6 +809,7 @@ async function headtagCommand(i, sub) {
         i.guildId,
         organization?.id || null,
         i.options.getInteger("priority") || 0,
+        chatTag,
         i.user.id,
       ],
     );
@@ -817,6 +819,7 @@ async function headtagCommand(i, sub) {
       color,
       roleId: role.id,
       orgId: organization?.id || null,
+      chatTag,
       created,
     });
     await syncGuild(client, i.guild);
@@ -826,7 +829,7 @@ async function headtagCommand(i, sub) {
       description: organization
         ? `Players with the role can select it in F6 only while on duty as **${clean(organization.name)}**. It replaces that organization's normal duty tag.`
         : `Players with the role can select it in F6 in ${kind === "both" ? "both the top headtag and bottom gang-tag slots" : kind === "head" ? "the top headtag slot" : "the bottom gang-tag slot"}.`,
-      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
+      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Chat tag", chatTag ? "Available" : "No"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
     });
   }
   if (sub === "delete") {
@@ -883,7 +886,7 @@ async function headtagCommand(i, sub) {
       chunkLines(
         rows.map(
           (row) =>
-            `\`${row.id}\` · **${clean(row.label)}** · ${row.kind === "both" ? "Head + Gang" : row.kind === "head" ? "Head" : "Gang"} · \`${row.color}\` · ${row.role_id ? roleRef(row.role_id) : "no role"}${row.org_name ? ` · duty: **${clean(row.org_name)}**` : ""}`,
+            `\`${row.id}\` · **${clean(row.label)}** · ${row.kind === "both" ? "Head + Gang" : row.kind === "head" ? "Head" : "Gang"}${row.chat_tag ? " + Chat" : ""} · \`${row.color}\` · ${row.role_id ? roleRef(row.role_id) : "no role"}${row.org_name ? ` · duty: **${clean(row.org_name)}**` : ""}`,
         ),
         3900,
       )[0] || "No tags.",
@@ -3940,7 +3943,7 @@ const COMMAND_PERMISSIONS = {
   userinfo: "`fbrp.investigate`; linked alt accounts also need `fbrp.global.alts`",
   office: "Co-Owner rank or higher and `fbrp.office.manage`",
   orgbank: "`balance`/`ledger`/`roster`: organization members; `transfer`: members whose rank can spend; `adjust`/`leader`: Co-Owner rank or higher",
-  exam: "Head of Management and above",
+  exam: "Assistant Community Director and above",
 };
 
 function commandPermission(command, sub = "") {

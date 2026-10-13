@@ -405,12 +405,16 @@ Citizen.CreateThread(function()
 	RegisterServerEvent("EasyAdmin:JoinPlayerRoutingBucket", function(playerId)
 		if DoesPlayerHavePermission(source, "player.bucket") then
 			SetPlayerRoutingBucket(source, GetPlayerRoutingBucket(playerId))
+			local preferredWebhook = detailNotification ~= "false" and detailNotification or moderationNotification
+			SendWebhookMessage(preferredWebhook, getName(source, false, true).." joined "..getName(playerId, true, true).."'s routing bucket.", "routingbucket", 16777214)
 		end
 	end)
 	
 	RegisterServerEvent("EasyAdmin:ForcePlayerRoutingBucket", function(playerId)
 		if DoesPlayerHavePermission(source, "player.bucket") then
 			SetPlayerRoutingBucket(playerId, GetPlayerRoutingBucket(source))
+			local preferredWebhook = detailNotification ~= "false" and detailNotification or moderationNotification
+			SendWebhookMessage(preferredWebhook, getName(source, false, true).." moved "..getName(playerId, true, true).." into their routing bucket.", "routingbucket", 16777214)
 		end
 	end)
 
@@ -572,6 +576,8 @@ Citizen.CreateThread(function()
 		local source=source
 		if not CachedPlayers[id].dropped and DoesPlayerHavePermission(source, "player.teleport.single") then
 			TriggerClientEvent('EasyAdmin:TeleportPlayerBack', id)
+			local preferredWebhook = detailNotification ~= "false" and detailNotification or moderationNotification
+			SendWebhookMessage(preferredWebhook, getName(source, false, true).." returned "..getName(id, true, true).." to their previous location.", "teleport", 16777214)
 		end
 	end)
 
@@ -771,13 +777,18 @@ Citizen.CreateThread(function()
 	
 	RegisterServerEvent("EasyAdmin:SetAnonymous", function(playerId)
 		if DoesPlayerHavePermission(source, "anon") then
+			local enabled
 			if AnonymousAdmins[source] then
 				AnonymousAdmins[source] = nil
+				enabled = false
 				PrintDebugMessage("Player "..getName(source,true).." un-anoned themself", 3)
 			else
 				AnonymousAdmins[source] = true
+				enabled = true
 				PrintDebugMessage("Player "..getName(source,true).." anoned themself", 3)
 			end
+			local preferredWebhook = detailNotification ~= "false" and detailNotification or moderationNotification
+			SendWebhookMessage(preferredWebhook, getName(source, true, true).." "..(enabled and "enabled" or "disabled").." anonymous EasyAdmin actions.", "anonymous", 16777214)
 		end
 	end)
 

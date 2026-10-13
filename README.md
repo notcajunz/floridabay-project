@@ -6,7 +6,7 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 
 - Police interactions: soft/hard cuffs, arrest state, uncuffing, searching visible weapons, checking ID, escorting, seating/unseating, blindfolds, `/911`, and officer `/panic`.
 - Civilian interactions: zip ties, blindfolds, restraint removal, nearby `/me`, `/do`, and OOC chat.
-- `s4_chat` is installed as the active chat UI, including branded automated messages and compatibility exports used by the framework.
+- `fbrp_chat` is the active, fully custom chat UI with large readable text, proximity OOC, `/me` and `/do`, command completion, history, anti-spam, announcements, and compatibility events/exports used by the framework and EasyAdmin.
 - Three-line overhead identity: role-gated headtag on top, server ID/name always visible, role-gated or on-duty organization tag on the bottom.
 - F6 tag wardrobe with two independently selected slots. Players can only select tags granted by synchronized Discord roles or direct bot grants. Tags may also be locked to one organization's duty and replace its normal duty tag while worn.
 - Staff `/clockin` and `/clockout`. Staff-only ACE principals - and therefore EasyAdmin/vMenu staff permissions - exist only during an open shift. Every shift has a MariaDB heartbeat and duration.
@@ -25,6 +25,12 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 - Daily geocache hunt: one rotating hidden cache per day, search-area clues, persistent finds, bonus points, and streak tracking.
 - M interaction hub: fishing, prison work, community-service/sentence status, activities, passport, scenes, emotes, player interactions, ID, vehicles, radio, organizations, tags, police tools, and direct 911/311 forms in one discoverable menu.
 - Coastal Passport (`F4` or `/passport`): ten server-validated landmarks, permanent discovery stamps, five explorer ranks, a rotating featured stop, route setting, and three daily field notes tied to exploration and fishing.
+- Florida Bay Pastimes (`/pastimes`, M > Explore): everything feeds one **Bay Rep** ladder (Newcomer to Florida Icon).
+  - Side jobs: rideshare (passenger ped, tips for smooth driving), courier runs, bike messenger and air charter. The server picks both legs, checks vehicle type and position, rejects legs that were faster than physically possible, and rewards speed plus a ten-minute shift streak.
+  - Supply drops: a crate lands somewhere on the map every 25 to 45 minutes. Everyone sees a search circle, the exact spot is revealed to anyone who gets close, and the first player to finish holding E wins. Staff with `fbrp.announce` can call one with `/supplydrop`.
+  - Street duels (`/duel`, `/duelaccept`, `/dueldecline`, `/forfeit`): race another driver to your map waypoint. The server watches both cars (teleports and abandoned cars forfeit), keeps an Elo duel rating, win streaks and a leaderboard.
+  - Skydiving: four jumps (Maze Bank, Observatory, Chiliad, high altitude) scored by landing distance from the target, with personal bests and server records.
+  - Achievements and titles (about 35, computed from fishing, passport, challenges and every pastime), a daily check-in streak, and weekly community goals that everyone on the server fills together.
 - Original Florida Bay loading screen and generated Florida Bay Roleplay logo.
 - AOP, peacetime, priority, announcements, dispatch calls, audit records, moderation cases, security incidents, tag selection, rosters, and all shift data in MariaDB.
 - Badger-compatible `GetDiscordRoles`, identity, role-list exports plus `DiscordAcePerms`-style role-to-ACE syncing, backed by the centralized bot cache. The Discord bot token is not exposed to FXServer.
@@ -187,7 +193,7 @@ The stock vMenu vehicle spawner is not granted. Players use the F7 garage; edit 
 - `services/fbrp-bot`: centralized Discord bot.
 - `services/fbrp-bot/src/role-manager-bot.js`: dedicated delegated-role bot.
 - `server-data/resources/[discord]`: Badger compatibility adapters.
-- `server-data/resources/[standalone]/s4_chat`: installed custom chat resource.
+- `server-data/resources/[standalone]/fbrp_chat`: Florida Bay's custom proximity roleplay chat resource.
 - `server-data/resources/[fbrp]/fbrp_loading`: loading screen and primary logo.
 - `server-data/config`: vMenu, voice, EasyAdmin, and static ACE configuration.
 - `docker-compose.yml`: local MariaDB deployment.

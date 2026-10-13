@@ -39,6 +39,14 @@ const builders = [
     .setName("mgrwipe")
     .setDescription("Remove every manager from one of your roles")
     .addRoleOption(managedRole),
+  new SlashCommandBuilder()
+    .setName("viewrole")
+    .setDescription("Show a role's tag, ID, holder count and managers")
+    .addRoleOption(managedRole),
+  new SlashCommandBuilder()
+    .setName("viewusers")
+    .setDescription("List every member who holds a role")
+    .addRoleOption(managedRole),
 ];
 
 export const roleManagerCommands = builders.map((command) => command.toJSON());

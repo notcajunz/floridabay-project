@@ -39,13 +39,13 @@ Important behavior:
 
 ## /exam
 
-Give out staff promotion exams (Head of Management and above)
+Give out staff promotion exams (Assistant Community Director and above)
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/exam give <member> <exam>` | Open an exam for a member for 60 minutes<br><small>Arguments: `member` (required user) — Staff member sitting the exam. `exam` (required text) — Which exam. Choices: `Head Administrator exam`, `Management exam`.</small> | Head of Management rank or higher; configured bot superusers also qualify |
-| `/exam revoke <member> <exam>` | Close a member's exam access early<br><small>Arguments: `member` (required user) — Staff member. `exam` (required text) — Which exam. Choices: `Head Administrator exam`, `Management exam`.</small> | Head of Management rank or higher; configured bot superusers also qualify |
-| `/exam active` | List exam access that is open right now | Head of Management rank or higher; configured bot superusers also qualify |
+| `/exam give <member> <exam>` | Open an exam for a member for 60 minutes<br><small>Arguments: `member` (required user) — Staff member sitting the exam. `exam` (required text) — Which exam. Choices: `Head Administrator exam`, `Management exam`.</small> | Assistant Community Director rank or higher; configured bot superusers also qualify |
+| `/exam revoke <member> <exam>` | Close a member's exam access early<br><small>Arguments: `member` (required user) — Staff member. `exam` (required text) — Which exam. Choices: `Head Administrator exam`, `Management exam`.</small> | Assistant Community Director rank or higher; configured bot superusers also qualify |
+| `/exam active` | List exam access that is open right now | Assistant Community Director rank or higher; configured bot superusers also qualify |
 
 Important behavior:
 

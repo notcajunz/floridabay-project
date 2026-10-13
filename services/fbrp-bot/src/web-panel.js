@@ -139,7 +139,7 @@ export const PANEL_RESOURCES = {
     order: "purpose",
     effect: "panels",
     fields: [
-      field("purpose", "Purpose", "text", { required: true, suggestions: ["ticket_panel", "tickets", "verification", "security", "moderation", "bans", "unbans", "blacklists", "staff_audit", "staff_exams", "staff_exams_head_admin", "staff_exams_management", "staff_duty", "roster", "role_sync", "protected_roles", "game", "organizations"].map((value) => ({ value })) }),
+      field("purpose", "Purpose", "text", { required: true, suggestions: ["ticket_panel", "tickets", "verification", "security", "moderation", "bans", "unbans", "blacklists", "staff_audit", "staff_exams", "staff_exams_head_admin", "staff_exams_management", "staff_duty", "roster", "role_sync", "protected_roles", "game", "easyadmin", "organizations"].map((value) => ({ value })) }),
       field("guild_id", "Discord server", "guild", { required: true }),
       field("channel_id", "Channel", "channel", { guildField: "guild_id", required: true }),
       field("updated_by", "Updated by", "text", { default: ACTOR, advanced: true }),
@@ -248,7 +248,7 @@ export const PANEL_RESOURCES = {
       field("org_id", "Organization duty lock", "relation", { source: "organizations", value: "id", display: "name" }),
       field("priority", "Priority", "number", { default: 0 }),
       field("enabled", "Enabled", "boolean", { default: true }),
-      field("bulletproof", "Bulletproof (glass holds, nobody inside can be shot or shoot out)", "boolean", { default: false }),
+      field("chat_tag", "Available as an additional in-game chat tag", "boolean", { default: false }),
       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
     ],
   },

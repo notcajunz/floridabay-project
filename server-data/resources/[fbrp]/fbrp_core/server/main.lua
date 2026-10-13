@@ -63,10 +63,10 @@ local function notify(source, message, tone)
 end
 
 local function chat(source, title, message, color)
-    if GetResourceState('s4_chat') == 'started' then
+    if GetResourceState('fbrp_chat') == 'started' then
         local rgb = color or { 67, 232, 216 }
         local ok = pcall(function()
-            exports['s4_chat']:SendMessage(source, {
+            exports['fbrp_chat']:SendMessage(source, {
                 badge = clean(title, 24),
                 message = clean(message, 500),
                 color = ('#%02X%02X%02X'):format(rgb[1] or 67, rgb[2] or 232, rgb[3] or 216),
@@ -83,10 +83,10 @@ local function chat(source, title, message, color)
 end
 
 local function broadcast(title, message, color)
-    if GetResourceState('s4_chat') == 'started' then
+    if GetResourceState('fbrp_chat') == 'started' then
         local rgb = color or { 67, 232, 216 }
         local ok = pcall(function()
-            exports['s4_chat']:SendMessage(-1, {
+            exports['fbrp_chat']:SendMessage(-1, {
                 badge = clean(title, 24),
                 message = clean(message, 500),
                 color = ('#%02X%02X%02X'):format(rgb[1] or 67, rgb[2] or 232, rgb[3] or 216),
@@ -115,12 +115,37 @@ end
 local function membershipRows(discord)
     if not discord then return {} end
     return MySQL.query.await([[
-        SELECT DISTINCT g.name,g.staff_only
+        SELECT DISTINCT g.name,g.staff_only,g.rank_order
         FROM ace_memberships m
         JOIN ace_groups g ON g.name=m.group_name
         WHERE m.discord_id=?
         ORDER BY g.rank_order DESC
     ]], { discord })
+end
+
+local function discordHasRole(discord, roleId)
+    if not discord or not roleId or tostring(roleId) == '' then return false end
+    return MySQL.scalar.await([[
+        SELECT 1 FROM discord_member_cache
+        WHERE discord_id=? AND JSON_CONTAINS(roles, JSON_QUOTE(?))
+        LIMIT 1
+    ]], { tostring(discord), tostring(roleId) }) ~= nil
+end
+
+local function hasStaffGroupAtLeast(source, minimumGroup)
+    local s = sessions[tonumber(source)]
+    if not s or not minimumGroup or minimumGroup == '' then return false end
+    local threshold = MySQL.scalar.await(
+        'SELECT rank_order FROM ace_groups WHERE name=? AND staff_only=TRUE LIMIT 1',
+        { minimumGroup }
+    )
+    threshold = tonumber(threshold)
+    if not threshold then return false end
+    for _, group in ipairs(s.groups or {}) do
+        local staffOnly = group.staff_only == 1 or group.staff_only == true
+        if staffOnly and tonumber(group.rank_order or -1) >= threshold then return true end
+    end
+    return false
 end
 
 local function isStaffMember(source)
@@ -295,7 +320,8 @@ local function tagRow(row)
     if not row then return nil end
     return {
         id = tonumber(row.id), label = row.label, color = row.color, kind = row.kind,
-        orgId = row.org_id and tonumber(row.org_id) or nil, orgName = row.org_name
+        orgId = row.org_id and tonumber(row.org_id) or nil, orgName = row.org_name,
+        chatTag = row.chat_tag == true or row.chat_tag == 1 or tostring(row.chat_tag) == '1'
     }
 end
 
@@ -303,16 +329,20 @@ local function loadSelectedTags(s)
     if not s.discord then return end
     local selected = MySQL.single.await([[
         SELECT hs.id head_id,hs.label head_label,hs.color head_color,hs.kind head_kind,hs.org_id head_org_id,ho.name head_org_name,
-               gs.id gang_id,gs.label gang_label,gs.color gang_color,gs.kind gang_kind,gs.org_id gang_org_id,go.name gang_org_name
+               gs.id gang_id,gs.label gang_label,gs.color gang_color,gs.kind gang_kind,gs.org_id gang_org_id,go.name gang_org_name,
+               cs.id chat_id,cs.label chat_label,cs.color chat_color,cs.kind chat_kind,cs.org_id chat_org_id,co.name chat_org_name,cs.chat_tag chat_enabled
         FROM player_tag_selection p
         LEFT JOIN headtags hs ON hs.id=p.headtag_id AND hs.enabled=TRUE
         LEFT JOIN organizations ho ON ho.id=hs.org_id
         LEFT JOIN headtags gs ON gs.id=p.gangtag_id AND gs.enabled=TRUE
         LEFT JOIN organizations go ON go.id=gs.org_id
+        LEFT JOIN headtags cs ON cs.id=p.chat_tag_id AND cs.enabled=TRUE AND cs.chat_tag=TRUE
+        LEFT JOIN organizations co ON co.id=cs.org_id
         WHERE p.discord_id=?
     ]], { s.discord })
     s.headtag = selected and selected.head_id and tagRow({ id=selected.head_id,label=selected.head_label,color=selected.head_color,kind=selected.head_kind,org_id=selected.head_org_id,org_name=selected.head_org_name }) or nil
     s.gangtag = selected and selected.gang_id and tagRow({ id=selected.gang_id,label=selected.gang_label,color=selected.gang_color,kind=selected.gang_kind,org_id=selected.gang_org_id,org_name=selected.gang_org_name }) or nil
+    s.chatTag = selected and selected.chat_id and tagRow({ id=selected.chat_id,label=selected.chat_label,color=selected.chat_color,kind=selected.chat_kind,org_id=selected.chat_org_id,org_name=selected.chat_org_name,chat_tag=selected.chat_enabled }) or nil
 end
 
 local function selectedTagOnDuty(s, tag)
@@ -331,8 +361,10 @@ local function publishPlayer(source)
     player.state:set('fbrp:id', source, true)
     player.state:set('fbrp:name', player.state['fbrp:characterName'] or GetPlayerName(source) or s.name, true)
     player.state:set('fbrp:staffDuty', s.staffDuty == true, true)
+    player.state:set('fbrp:maxVehicleSpeedMph', s.maxVehicleSpeedMph or FBRP.Config.vehicleSpeedLimitMph or 180, true)
     local headtag = selectedTagVisible(s, s.headtag)
     local gangtag = selectedTagVisible(s, s.gangtag)
+    local chatTag = selectedTagVisible(s, s.chatTag)
     -- A selected org-locked tag in either slot fulfills the on-duty tag role.
     -- Locked gang tags replace the usual bottom duty tag directly; locked head
     -- tags suppress it and leave the independently selected gang slot available.
@@ -341,6 +373,7 @@ local function publishPlayer(source)
     end
     player.state:set('fbrp:headtag', headtag, true)
     player.state:set('fbrp:gangtag', gangtag, true)
+    player.state:set('fbrp:chatTag', chatTag and { id=chatTag.id,label=chatTag.label,color=chatTag.color } or nil, true)
     player.state:set('fbrp:organization', s.org and { id=s.org.id,slug=s.org.slug,name=s.org.name,type=s.org.type } or nil, true)
 end
 
@@ -401,9 +434,11 @@ local function initializePlayer(source)
         MySQL.prepare.await('INSERT IGNORE INTO player_identifiers(player_id,identifier) VALUES(?,?)', { playerId, value })
     end
 
+    local privilegedSpeed = discordHasRole(discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
     sessions[source] = {
         source=source, playerId=tonumber(playerId), license=license, discord=discord, name=name,
-        groups=membershipRows(discord), staffDuty=false, staffShift=nil, org=nil, orgShift=nil
+        groups=membershipRows(discord), staffDuty=false, staffShift=nil, org=nil, orgShift=nil,
+        maxVehicleSpeedMph=privilegedSpeed and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250) or (FBRP.Config.vehicleSpeedLimitMph or 180)
     }
     loadSelectedTags(sessions[source])
     reconcilePrincipals(source)
@@ -419,6 +454,9 @@ local function refreshPlayer(source)
     local s = sessions[source]
     if not s then return initializePlayer(source) end
     s.groups = membershipRows(s.discord)
+    s.maxVehicleSpeedMph = discordHasRole(s.discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
+        and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250)
+        or (FBRP.Config.vehicleSpeedLimitMph or 180)
     if s.staffDuty and s.staffShift then
         local ended = MySQL.scalar.await('SELECT ended_at FROM staff_shifts WHERE id=?', { s.staffShift.id })
         if ended then
@@ -442,20 +480,22 @@ end
 local function wardrobe(discord, kind, orgId)
     if not discord then return {} end
     local dutyFilter = 'AND t.org_id IS NULL'
-    local params = { discord, kind }
+    local params = { discord }
     if orgId then
         dutyFilter = 'AND (t.org_id IS NULL OR t.org_id=?)'
         params[#params + 1] = tonumber(orgId)
     end
+    local slotFilter = kind == 'chat' and 'AND t.chat_tag=TRUE' or "AND (t.kind=? OR t.kind='both')"
+    if kind ~= 'chat' then table.insert(params, 2, kind) end
     return MySQL.query.await(([=[
-        SELECT DISTINCT t.id,t.kind,t.label,t.color,t.priority,t.org_id,o.name org_name
+        SELECT DISTINCT t.id,t.kind,t.label,t.color,t.priority,t.org_id,o.name org_name,t.chat_tag
         FROM headtags t
         JOIN headtag_grants g ON g.tag_id=t.id
         LEFT JOIN organizations o ON o.id=t.org_id
-        WHERE g.discord_id=? AND (t.kind=? OR t.kind='both') AND t.enabled=TRUE
+        WHERE g.discord_id=? %s AND t.enabled=TRUE
           %s
         ORDER BY t.priority DESC,t.label
-    ]=]):format(dutyFilter), params)
+    ]=]):format(slotFilter, dutyFilter), params)
 end
 
 local function tagWardrobePayload(s)
@@ -463,16 +503,19 @@ local function tagWardrobePayload(s)
     return {
         head=wardrobe(s.discord,'head',orgId),
         gang=wardrobe(s.discord,'gang',orgId),
-        selected={head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil}
+        chat=wardrobe(s.discord,'chat',orgId),
+        selected={head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil,chat=s.chatTag and s.chatTag.id or nil}
     }
 end
 
 local function canWear(discord, tagId, kind, orgId)
     if not tagId then return true, nil end
-    local row = MySQL.single.await([[
+    local eligibility = kind == 'chat' and 't.chat_tag=TRUE' or "(t.kind=? OR t.kind='both')"
+    local params = kind == 'chat' and { discord, tagId } or { discord, tagId, kind }
+    local row = MySQL.single.await(([=[
         SELECT t.org_id FROM headtags t JOIN headtag_grants g ON g.tag_id=t.id
-        WHERE g.discord_id=? AND t.id=? AND (t.kind=? OR t.kind='both') AND t.enabled=TRUE LIMIT 1
-    ]], { discord, tagId, kind })
+        WHERE g.discord_id=? AND t.id=? AND %s AND t.enabled=TRUE LIMIT 1
+    ]=]):format(eligibility), params)
     if not row then return false, 'grant' end
     if row.org_id and tonumber(row.org_id) ~= tonumber(orgId) then return false, 'duty' end
     return true, nil
@@ -730,6 +773,12 @@ RegisterCommand('clockin', function(source)
     if not s.discord then return notify(source, 'Link Discord before using staff duty.', 'error') end
     if not isStaffMember(source) then return notify(source, 'You are not assigned to a staff ACE group.', 'error') end
     if s.staffDuty then return notify(source, 'You are already clocked in.', 'info') end
+    if s.org
+        and not discordHasRole(s.discord, FBRP.Config.staffOrgDutyBypassRoleId)
+        and not hasStaffGroupAtLeast(source, FBRP.Config.staffOrgDutyBypassMinGroup)
+    then
+        return notify(source, ('Clock out of %s before clocking in as staff.'):format(s.org.name), 'error')
+    end
     local started = now()
     local id = MySQL.insert.await('INSERT INTO staff_shifts(discord_id,player_id,name,started_at,heartbeat_at) VALUES(?,?,?,?,?)', {
         s.discord, s.playerId, s.name, started, started
@@ -1157,7 +1206,7 @@ end)
 
 RegisterNetEvent('fbrp:tags:equip', function(kind, rawId)
     local src=source; local s=sessions[src]
-    if not s or not s.discord or (kind~='head' and kind~='gang') then return end
+    if not s or not s.discord or (kind~='head' and kind~='gang' and kind~='chat') then return end
     local tagId=tonumber(rawId); if tagId and tagId<=0 then tagId=nil end
     local allowed, reason=canWear(s.discord,tagId,kind,s.org and s.org.id or nil)
     if not allowed then
@@ -1165,11 +1214,11 @@ RegisterNetEvent('fbrp:tags:equip', function(kind, rawId)
         return notify(src,'That Discord role does not grant this tag.','error')
     end
     MySQL.prepare.await([[
-        INSERT INTO player_tag_selection(discord_id,headtag_id,gangtag_id,updated_at) VALUES(?,?,?,?)
-        ON DUPLICATE KEY UPDATE headtag_id=IF(?='head',VALUES(headtag_id),headtag_id),gangtag_id=IF(?='gang',VALUES(gangtag_id),gangtag_id),updated_at=VALUES(updated_at)
-    ]], {s.discord,kind=='head' and tagId or nil,kind=='gang' and tagId or nil,now(),kind,kind})
+        INSERT INTO player_tag_selection(discord_id,headtag_id,gangtag_id,chat_tag_id,updated_at) VALUES(?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE headtag_id=IF(?='head',VALUES(headtag_id),headtag_id),gangtag_id=IF(?='gang',VALUES(gangtag_id),gangtag_id),chat_tag_id=IF(?='chat',VALUES(chat_tag_id),chat_tag_id),updated_at=VALUES(updated_at)
+    ]], {s.discord,kind=='head' and tagId or nil,kind=='gang' and tagId or nil,kind=='chat' and tagId or nil,now(),kind,kind,kind})
     loadSelectedTags(s); publishPlayer(src)
-    TriggerClientEvent('fbrp:tags:selected',src,{head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil})
+    TriggerClientEvent('fbrp:tags:selected',src,{head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil,chat=s.chatTag and s.chatTag.id or nil})
 end)
 
 RegisterNetEvent('fbrp:interactions:request', function(target)

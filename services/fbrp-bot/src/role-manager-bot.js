@@ -2,7 +2,18 @@ import { Client, EmbedBuilder, GatewayIntentBits, Partials } from "discord.js";
 import { pool } from "./database.js";
 import { roleManagerCommand } from "./role-manager.js";
 import { roleManagerCommandNames, roleManagerCommands } from "./role-manager-commands.js";
-import { COLORS, embed } from "./ui.js";
+
+// Replies are plain public text, not embeds. Mentions render but never ping.
+function plain(embedLike) {
+  const d = embedLike?.data || embedLike || {};
+  const lines = [];
+  if (d.title) lines.push(`**${d.title}**`);
+  if (d.description) lines.push(d.description);
+  for (const f of d.fields || []) lines.push(`**${f.name}:** ${f.value}`);
+  if (d.footer?.text) lines.push(`-# ${d.footer.text}`);
+  return lines.join("\n").slice(0, 2000) || "Done.";
+}
+const textReply = (content) => ({ content, embeds: [], allowedMentions: { parse: [] } });
 
 const token = String(process.env.ROLE_MANAGER_BOT_TOKEN || "");
 if (!token) throw new Error("ROLE_MANAGER_BOT_TOKEN is required.");
@@ -31,16 +42,23 @@ client.once("clientReady", async () => {
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand() || !roleManagerCommandNames.has(interaction.commandName)) return;
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply();
   try {
     const result = await roleManagerCommand(interaction);
-    const payload = result instanceof EmbedBuilder ? { embeds: [result] } : result;
+    if (result?.rich) {
+      delete result.rich;
+      await interaction.editReply(result);
+      return;
+    }
+    const payload = result instanceof EmbedBuilder
+      ? textReply(plain(result))
+      : result?.embeds?.length
+        ? textReply([result.content, ...result.embeds.map(plain)].filter(Boolean).join("\n"))
+        : result;
     await interaction.editReply(payload);
   } catch (error) {
     console.error(`[FBRP role manager] /${interaction.commandName}:`, error);
-    await interaction.editReply({
-      embeds: [embed("Command failed", String(error?.message || error).slice(0, 1000), COLORS.danger)],
-    }).catch(() => {});
+    await interaction.editReply(textReply(`**Command failed**\n${String(error?.message || error).slice(0, 1000)}`)).catch(() => {});
   }
 });
 

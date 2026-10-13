@@ -7,6 +7,11 @@ version '1.0.0'
 
 loadscreen 'web/index.html'
 loadscreen_cursor 'yes'
+-- client.lua closes it once the session starts, so FiveM never swaps in its own
+-- dark "bridge" loading layer between this page and gameplay.
+loadscreen_manual_shutdown 'yes'
+
+client_script 'client.lua'
 
 files {
     'web/index.html',

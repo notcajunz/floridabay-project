@@ -301,7 +301,13 @@ function spawnPlayer(spawnIdx, cb)
             Wait(0)
         end
 
+        -- The game loading screen and its Chromium overlay are separate.
+        -- Closing only the former can leave FiveM's dark "mod packs loaded"
+        -- layer and spinner covering gameplay after a character has spawned.
         ShutdownLoadingScreen()
+        ShutdownLoadingScreenNui()
+        SetNuiFocus(false, false)
+        SetNuiFocusKeepInput(false)
 
         if IsScreenFadedOut() then
             DoScreenFadeIn(500)

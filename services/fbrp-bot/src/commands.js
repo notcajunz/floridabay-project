@@ -192,6 +192,11 @@ const headtag = new SlashCommandBuilder()
           .setName("organization")
           .setDescription("Only wearable while on duty as this organization")
           .setAutocomplete(true),
+      )
+      .addBooleanOption((o) =>
+        o
+          .setName("chat_tag")
+          .setDescription("Also let players equip this beside their name in chat"),
       ),
   )
   .addSubcommand((s) =>
@@ -1368,7 +1373,7 @@ const examChoice = (o) =>
     .addChoices({ name: "Head Administrator exam", value: "head_admin" }, { name: "Management exam", value: "management" });
 const exam = new SlashCommandBuilder()
   .setName("exam")
-  .setDescription("Give out staff promotion exams (Head of Management and above)")
+  .setDescription("Give out staff promotion exams (Assistant Community Director and above)")
   .addSubcommand((s) =>
     s.setName("give").setDescription("Open an exam for a member for 60 minutes")
       .addUserOption((o) => o.setName("member").setDescription("Staff member sitting the exam").setRequired(true))

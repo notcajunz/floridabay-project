@@ -99,6 +99,7 @@ const RADIAL_CATEGORIES = [
   {
     id: "explore", label: "Explore", hint: "Play & discover", icon: "target", color: "#3fe3d2",
     actions: [
+      { action: "pastimes", label: "Pastimes", hint: "Jobs, drops & duels", icon: "sparkles" },
       { action: "activities", label: "Challenges", hint: "Records & caches", icon: "target" },
       { action: "fish", label: "Fishing", hint: "Cast or reel", icon: "fish" },
       { action: "passport", label: "Passport", hint: "Explore landmarks", icon: "pin" },
@@ -467,6 +468,7 @@ function renderTags(data) {
   const find = (kind) => (data[kind] || []).find((t) => Number(t.id) === Number(selected[kind]));
   const h = find("head");
   const g = find("gang");
+  const c = find("chat");
   const id = data.serverId ?? lastHud.id ?? 0;
   const darkCls = (tag) => (tag && hexLuma(tag.color) < 0.24 ? "dark" : "");
   const preview = `
@@ -474,6 +476,7 @@ function renderTags(data) {
       <span class="stage-label">Preview</span>
       <div class="gta-head">${h ? `<span class="${darkCls(h)}" style="color:${safeColor(h.color)}">${esc(h.label)}</span> ` : ""}<span class="gid">[${Number(id) || 0}]</span></div>
       ${g ? `<div class="gta-sub ${darkCls(g)}" style="color:${safeColor(g.color)}">${esc(g.label)}</div>` : ""}
+      <div class="chat-tag-preview"><span>CHAT</span> ${c ? `<b style="color:${safeColor(c.color)}">${esc(c.label)}</b>` : "<em>No additional tag</em>"} <strong>${esc(lastHud.name || "Your Name")}</strong></div>
     </div>`;
   const list = (kind, title, rows) => {
     const sel = Number(selected[kind]) || 0;
@@ -486,9 +489,9 @@ function renderTags(data) {
       </button>`;
     return `<div><div class="eyebrow">${title}</div><div class="tag-list">${row(0, "None")}${(rows || []).map((t) => row(Number(t.id), t.label, t.color, t.org_name)).join("")}</div></div>`;
   };
-  const total = (data.head || []).length + (data.gang || []).length;
-  return `${head("Tag wardrobe", "Your headtag shows above your ID. Your gang tag sits underneath.", `<b>${total}</b> unlocked`)}${preview}
-    <div class="tag-columns">${list("head", "Headtag", data.head)}${list("gang", "Gang tag", data.gang)}</div>`;
+  const total = (data.head || []).length + (data.gang || []).length + (data.chat || []).length;
+  return `${head("Tag wardrobe", "Choose overhead tags and an optional extra tag beside your name in chat.", `<b>${total}</b> choices`)}${preview}
+    <div class="tag-columns">${list("head", "Headtag", data.head)}${list("gang", "Gang tag", data.gang)}${list("chat", "Additional chat tag", data.chat)}</div>`;
 }
 
 function renderVehicles(data) {
@@ -783,7 +786,8 @@ function renderHub(data) {
       ? `<section class="hub-alert service"><div>${icon("trash")}<span><b>Community service active</b><small>Collect marked rubbish around Legion Square. Your timer pauses when idle.</small></span></div><button data-hub-action="custody">Service status</button></section>`
       : "";
   const explore = [
-    hubCard("activities", "target", "Challenges & caches", "Time trials, trail runs, bike circuits, records, and today's hidden cache.", "NEW"),
+    hubCard("pastimes", "sparkles", "Pastimes", "Side jobs, supply drops, street duels, skydiving, achievements and weekly goals.", "NEW"),
+    hubCard("activities", "target", "Challenges & caches", "Time trials, trail runs, bike circuits, records, and today's hidden cache."),
     hubCard("fish", "fish", "Go fishing", "Cast or reel in your line when facing open water."),
     hubCard("passport", "pin", "Coastal Passport", "Explore landmarks, collect stamps, and finish daily field notes."),
     hubCard("scenes", "users", "Scene Hub", "Find live player scenes and community events."),
@@ -840,10 +844,155 @@ function renderActivities(data) {
     <div class="activity-grid">${cards}</div>`;
 }
 
+/* ───────── Pastimes: side jobs, supply drops, street duels, skydiving, achievements ───────── */
+const PT_TABS = [
+  ["overview", "Overview", "sparkles"],
+  ["jobs", "Side jobs", "car"],
+  ["duels", "Street duels", "gauge"],
+  ["skydive", "Skydiving", "target"],
+  ["achievements", "Achievements", "check"],
+  ["goals", "Community", "users"],
+];
+const PT_TIER = { common: "#93a3ab", rare: "#6fa8ff", epic: "#c48bff", legendary: "#ffb547" };
+
+const ptList = (value) => (Array.isArray(value) ? value : []);
+
+function ptBar(value, max, color) {
+  const pct = max > 0 ? clamp((Number(value) / Number(max)) * 100, 0, 100) : 0;
+  return `<div class="pt-bar"><i style="width:${pct.toFixed(1)}%${color ? `;background:${esc(color)}` : ""}"></i></div>`;
+}
+
+function ptButton(action, id, label, extra = "") {
+  return `<button class="primary-action" data-pt-action="${esc(action)}"${id !== undefined ? ` data-pt-id="${esc(id)}"` : ""} ${extra}>${label}</button>`;
+}
+
+function ptPace(ms) {
+  if (!ms) return "—";
+  const seconds = Number(ms) / 1000;
+  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")} /km`;
+}
+
+function ptOverview(data) {
+  const p = data.profile || {};
+  const s = p.stats || {};
+  const d = p.daily || {};
+  const drops = data.drops || {};
+  const levelSpan = p.next ? p.next.rep - p.floor : 1;
+  const levelDone = p.next ? p.rep - p.floor : 1;
+  const leaders = ptList(p.leaders).map((row, index) =>
+    `<li><span>${index + 1}</span><b>${esc(row.name)}</b>${row.title ? `<em>${esc(row.title)}</em>` : ""}<strong>${Number(row.rep) || 0}</strong></li>`).join("");
+  return `<section class="pt-hero">
+      <div><small>BAY REP</small><h3>${esc(p.level || "Newcomer")}</h3><p>${Number(p.rep) || 0} rep${p.next ? ` · ${p.next.rep - p.rep} to ${esc(p.next.label)}` : " · top rank reached"}</p>${p.title ? `<span class="pt-title">${esc(p.title)}</span>` : ""}</div>
+      <div class="pt-hero-bar">${ptBar(levelDone, levelSpan)}</div>
+    </section>
+    <div class="pt-row">
+      <section class="pt-card"><div class="eyebrow">Daily check-in</div>
+        <p class="pt-copy">${d.streak ? `<b>${Number(d.streak)}</b> day streak.` : "Start a streak."} Every seventh day pays a bonus.</p>
+        ${ptButton("daily", undefined, d.claimed ? "Claimed today" : `Check in · +${Number(d.nextRep) || 0} rep`, d.claimed ? "disabled" : "")}
+      </section>
+      <section class="pt-card${drops.active ? " live" : ""}"><div class="eyebrow">Supply drop</div>
+        <p class="pt-copy">${drops.active
+          ? `A crate is down near <b>${esc(drops.active.region)}</b>. ${Math.ceil((Number(drops.active.seconds) || 0) / 60)} min left. Check your map for the search circle.`
+          : `Next crate in about <b>${Number(drops.nextMinutes) || "a few"}</b> minutes. First player to hold E on it wins ${Number(drops.rep) || 0}+ rep.`}</p>
+        <small class="pt-note">${Number(drops.won) || 0} secured</small>
+      </section>
+    </div>
+    <section class="activity-profile pt-stats"><div><small>Side jobs</small><b>${Number(s.jobs) || 0}</b></div><div><small>Supply drops</small><b>${Number(s.drops) || 0}</b></div><div><small>Skydives</small><b>${Number(s.skydives) || 0}</b></div><div><small>Street duels</small><b>${Number(s.duels) || 0}</b></div></section>
+    <section class="pt-card"><div class="eyebrow">Top Bay Rep</div><ol class="pt-leaders">${leaders || '<li class="empty">Nobody on the board yet. Finish a job to claim the top spot.</li>'}</ol></section>`;
+}
+
+function ptJobs(data) {
+  const jobs = data.jobs || {};
+  const active = jobs.active;
+  const cards = ptList(jobs.types).map((j) => `<article class="activity-card">
+      <div class="activity-card-top"><span>${icon(j.icon || "car")}</span><div><small>${esc(j.requirement || "")}</small><h3>${esc(j.label)}</h3></div></div>
+      <p>${esc(j.description)}</p>
+      <div class="activity-stats"><span><small>Finished</small><b>${Number(j.completions) || 0}</b></span><span><small>Distance</small><b>${Number(j.km) || 0} km</b></span><span><small>Best pace</small><b>${ptPace(j.bestPace)}</b></span></div>
+      ${ptButton("job", j.id, active ? "Job in progress" : "Take this job", active ? "disabled" : "")}
+    </article>`).join("");
+  return `${active ? `<section class="activity-active">${icon("car")}<div><b>Job in progress</b><small>Stage ${Number(active.stage) || 1} of 2. Follow the route on your map, or cancel to take a different job.</small></div><button data-pt-action="jobcancel">Cancel job</button></section>` : ""}
+    <section class="pt-card"><div class="eyebrow">How it works</div><p class="pt-copy">Pick a job, drive to the pickup, stop inside the marker, then deliver. Faster legs pay up to <b>+40%</b>. Chain jobs within ten minutes to build a shift streak${jobs.streak > 1 ? ` (<b>x${Number(jobs.streak)}</b> now)` : ""}.</p></section>
+    <div class="activity-grid">${cards}</div>`;
+}
+
+function ptDuels(data) {
+  const d = data.duels || {};
+  const invite = d.invite;
+  const nearby = ptList(d.nearby).map((n) => `<li><b>${esc(n.name)}</b><small>#${Number(n.id)}</small>${ptButton("duel", n.id, "Challenge")}</li>`).join("");
+  const leaders = ptList(d.leaders).map((row, index) =>
+    `<li><span>${index + 1}</span><b>${esc(row.name)}</b>${row.title ? `<em>${esc(row.title)}</em>` : ""}<small>${Number(row.won)}W ${Number(row.lost)}L</small><strong>${Number(row.rating)}</strong></li>`).join("");
+  return `<section class="activity-profile pt-stats"><div><small>Duel rating</small><b>${Number(d.rating) || 1000}</b></div><div><small>Record</small><b>${Number(d.won) || 0}W · ${Number(d.lost) || 0}L</b></div><div><small>Win streak</small><b>${Number(d.streak) || 0}</b></div><div><small>Best streak</small><b>${Number(d.best) || 0}</b></div></section>
+    ${invite ? `<section class="activity-active">${icon("alert")}<div><b>${esc(invite.from)} challenged you</b><small>${Math.round((Number(invite.meters) || 0) / 10) / 100} km street race. First to the finish marker wins.</small></div><button data-pt-action="duelaccept">Accept</button><button data-pt-action="dueldecline">Decline</button></section>` : ""}
+    <section class="pt-card"><div class="eyebrow">Challenge a driver</div>
+      <p class="pt-copy">Set a map waypoint 0.4 to 6.5 km away. That is the finish line. Pull up beside another driver, then challenge them. Both of you freeze for a 5 second countdown. You can also type <b>/duel</b> to challenge the nearest driver.</p>
+      ${d.driving ? (nearby ? `<ul class="pt-list">${nearby}</ul>` : '<p class="pt-note">No other drivers are close enough yet.</p>') : '<p class="pt-note">Sit in the driver seat of a car or bike to see nearby drivers.</p>'}
+    </section>
+    <section class="pt-card"><div class="eyebrow">Top duelists</div><ol class="pt-leaders">${leaders || '<li class="empty">No duels have been run yet.</li>'}</ol></section>`;
+}
+
+function ptSkydive(data) {
+  const sky = data.skydive || {};
+  const cards = ptList(sky.jumps).map((j) => `<article class="activity-card">
+      <div class="activity-card-top"><span>${icon("target")}</span><div><small>${esc(j.difficulty)}</small><h3>${esc(j.label)}</h3></div></div>
+      <p>${esc(j.description)}</p>
+      <div class="activity-stats"><span><small>Your best</small><b>${j.best != null ? Number(j.best).toFixed(1) + " m" : "—"}</b></span><span><small>Server record</small><b>${j.record ? Number(j.record.meters).toFixed(1) + " m" : "Open"}</b><em>${j.record ? esc(j.record.name) : "Be first"}</em></span><span><small>Jumps</small><b>${Number(j.attempts) || 0}</b></span></div>
+      ${ptButton("skydive", j.id, sky.active ? "Jump in progress" : "Start jump", sky.active ? "disabled" : "")}
+    </article>`).join("");
+  return `${sky.active ? `<section class="activity-active">${icon("target")}<div><b>Jump in progress</b><small>Land on the orange marker. Score is the distance from its centre.</small></div><button data-pt-action="skydivecancel">Abort jump</button></section>` : ""}
+    <section class="pt-card"><div class="eyebrow">How it works</div><p class="pt-copy">You are taken to the platform with a parachute. Step off, hold <b>SPACE</b> to open your chute, steer onto the marker. Landing within <b>5 m</b> is a bullseye.</p></section>
+    <div class="activity-grid">${cards}</div>`;
+}
+
+function ptAchievements(data) {
+  const a = data.achievements || {};
+  const title = (data.profile || {}).title;
+  const tiles = ptList(a.list).map((row) => {
+    const color = PT_TIER[row.tier] || PT_TIER.common;
+    const wear = row.unlocked && row.title
+      ? `<button class="pt-wear" data-pt-action="title" data-pt-id="${esc(row.id)}">${title === row.title ? "Wearing" : `Wear “${esc(row.title)}”`}</button>`
+      : (row.title ? `<small class="pt-note">Title: ${esc(row.title)}</small>` : "");
+    return `<article class="pt-ach${row.unlocked ? " done" : ""}" style="--tier:${color}">
+      <header><b>${esc(row.label)}</b><em>${esc(row.tier)}</em></header>
+      <p>${esc(row.desc)}</p>
+      ${ptBar(row.progress, row.target, color)}
+      <footer><small>${row.unlocked ? "Unlocked" : `${Number(row.progress)} / ${Number(row.target)}`}</small><small>+${Number(row.rep)} rep</small></footer>
+      ${wear}
+    </article>`;
+  }).join("");
+  return `<section class="pt-card"><div class="eyebrow">${Number(a.unlocked) || 0} of ${Number(a.total) || 0} unlocked</div>
+      <p class="pt-copy">Achievements unlock automatically from fishing, the passport, challenges and every pastime. Titles show beside your name on leaderboards and announcements.${title ? ` <button class="pt-wear" data-pt-action="title" data-pt-id="">Clear title</button>` : ""}</p></section>
+    <div class="pt-ach-grid">${tiles}</div>`;
+}
+
+function ptGoals(data) {
+  const c = data.community || {};
+  const cards = ptList(c.goals).map((g) => `<article class="activity-card${g.complete ? " featured" : ""}">
+      <div class="activity-card-top"><span>${icon(g.icon || "users")}</span><div><small>${g.complete ? "COMPLETE" : "THIS WEEK"}</small><h3>${esc(g.label)}</h3></div></div>
+      <p>${esc(g.description)}</p>
+      ${ptBar(g.total, g.target, g.complete ? "#4fe08c" : "")}
+      <div class="activity-stats"><span><small>Community</small><b>${Number(g.total)} / ${Number(g.target)}</b></span><span><small>Your share</small><b>${Number(g.mine)}</b></span><span><small>Reward</small><b>+${Number(g.reward)}</b></span></div>
+      ${ptButton("claim", g.id, g.claimed ? "Reward claimed" : (g.complete ? "Claim reward" : "In progress"), g.claimed || !g.complete || !g.mine ? "disabled" : "")}
+    </article>`).join("");
+  const ends = c.endsAt ? new Date(Number(c.endsAt)).toLocaleDateString(undefined, { weekday: "long" }) : "Sunday";
+  return `<section class="pt-card"><div class="eyebrow">Weekly community goals</div><p class="pt-copy">Everyone on the server fills the same bar. When a goal is met, anyone who contributed can claim the reward. New goals arrive each Monday (UTC), and this week's end ${esc(ends)} night.</p></section>
+    <div class="activity-grid">${cards}</div>`;
+}
+
+function renderPastimes(data) {
+  const tab = ui.pastimeTab || "overview";
+  const p = data.profile || {};
+  const tabs = `<nav class="pt-tabs">${PT_TABS.map(([id, label, ic]) =>
+    `<button class="${tab === id ? "on" : ""}" data-pt-tab="${id}">${icon(ic)}<span>${label}</span></button>`).join("")}</nav>`;
+  const views = { overview: ptOverview, jobs: ptJobs, duels: ptDuels, skydive: ptSkydive, achievements: ptAchievements, goals: ptGoals };
+  return `${head("Florida Bay Pastimes", "Side jobs, supply drops, street duels, skydiving, achievements and weekly goals.", `<b>${Number(p.rep) || 0}</b> Bay Rep`)}
+    ${tabs}${(views[tab] || ptOverview)(data)}`;
+}
+
 function renderMenu() {
   const titles = {
     hub: "Interaction Menu",
     activities: "Activities",
+    pastimes: "Pastimes",
     tags: "Tags",
     vehicles: "Garage",
     interactions: "Interact",
@@ -862,6 +1011,7 @@ function renderMenu() {
   const renderers = {
     hub: renderHub,
     activities: renderActivities,
+    pastimes: renderPastimes,
     tags: renderTags,
     vehicles: renderVehicles,
     interactions: renderInteractions,
@@ -1798,8 +1948,22 @@ function updateContraband(d) {
 }
 
 /* ───────── Messages ───────── */
+function resetCoreUi() {
+  ["#radial-menu", "#menu", "#third-eye", "#blindfold", "#downed", "#car-controls"].forEach((selector) => $(selector)?.classList.add("hidden"));
+  document.body.classList.remove("menu-locked");
+  currentView = null;
+  currentPayload = {};
+  thirdEyePayload = null;
+  radialCategory = null;
+  closeRadialDispatch();
+}
+
 window.addEventListener("message", ({ data }) => {
   if (!data || typeof data !== "object") return;
+  if (data.type === "reset") {
+    resetCoreUi();
+    return;
+  }
   if (data.type === "hud") updateHud(data.data || {});
   if (data.type === "notify") notice(data.message, data.tone);
   if (data.type === "dispatch") dispatch(data.data || {});
@@ -1929,6 +2093,15 @@ $("#third-eye-actions").addEventListener("click", (event) => {
 $("#menu-content").addEventListener("click", (event) => {
   if (currentView === "mdt" && mdtClick(event)) return;
   if (currentView === "orghub" && orgClick(event)) return;
+  if (currentView === "pastimes") {
+    const tabButton = event.target.closest("[data-pt-tab]");
+    if (tabButton) { ui.pastimeTab = tabButton.dataset.ptTab; renderMenu(); return; }
+    const pastime = event.target.closest("[data-pt-action]");
+    if (pastime && !pastime.disabled) {
+      post("pastimeAction", { action: pastime.dataset.ptAction, id: pastime.dataset.ptId });
+      return;
+    }
+  }
   if (currentView === "prisonjobs") {
     const job = event.target.closest("[data-prison-job]");
     if (job) { job.disabled = true; post("prisonJob", { action: "start", id: job.dataset.prisonJob }); return; }
@@ -2118,4 +2291,5 @@ document.addEventListener("keyup", (event) => {
   }
 });
 
+resetCoreUi();
 hydrate();

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Florida Bay Chat</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="chat" class="chat-shell idle" aria-label="Florida Bay chat">
+    <header class="chat-header">
+      <div class="brand-mark">FB</div>
+      <div class="brand-copy"><strong>FLORIDA BAY</strong><span>ROLEPLAY CHAT</span></div>
+      <div class="range"><i></i> NEARBY · 20M</div>
+    </header>
+    <section id="messages" class="transcript" aria-live="polite"></section>
+    <section id="suggestions" class="suggestions" aria-label="Command suggestions"></section>
+    <form id="composer" class="composer" autocomplete="off">
+      <div class="prompt">›</div>
+      <input id="input" maxlength="300" placeholder="Speak nearby or type / for commands…" aria-label="Chat message">
+      <span id="counter" class="counter">0 / 300</span>
+      <button type="submit">SEND</button>
+    </form>
+    <footer class="chat-footer"><span><kbd>↑</kbd><kbd>↓</kbd> history</span><span><kbd>TAB</kbd> complete</span><span><kbd>ESC</kbd> close</span></footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
+

@@ -653,7 +653,7 @@ setInterval(() => {
       node.dataset.done = "1";
       node.classList.add("expired");
       const submit = $("#exam-form button[type=submit]");
-      if (submit && node.closest(".exam-sheet-head")) { submit.disabled = true; submit.textContent = "Access expired"; toast("Your exam access expired. Ask Head of Management to give you the exam again.", true); }
+      if (submit && node.closest(".exam-sheet-head")) { submit.disabled = true; submit.textContent = "Access expired"; toast("Your exam access expired. Ask an Assistant Community Director or above to give you the exam again.", true); }
     }
   }
 }, 1000);
@@ -683,7 +683,7 @@ function examsView() {
   const apps = ex.applications || [];
   $("#portal-content").innerHTML = `
     <section class="exam-hero">
-      <div><span class="kicker">Staff development</span><h2>Earn your next rank.</h2><p>Exams are only visible to the rank they are written for, and Head of Management or above has to open yours with <b>/exam give</b>. You then have 60 minutes to submit. Your answers go privately to Head of Management and above, and the result is posted to the staff Discord together with your new role.</p></div>
+      <div><span class="kicker">Staff development</span><h2>Earn your next rank.</h2><p>Exams are only visible to the rank they are written for, and Assistant Community Director or above has to open yours with <b>/exam give</b>. You then have 60 minutes to submit. Your answers go privately to Assistant Community Director and above, and the result is posted to the staff Discord together with your new role.</p></div>
       <div class="exam-rank"><small>Your current rank</small><b>${esc(ex.rank?.label || "Staff")}</b></div>
     </section>
     <div class="exam-grid">${cards || `<section class="card">${empty("No exams for your rank", "There is no promotion exam open to your current rank right now.", "exam")}</section>`}</div>
@@ -713,7 +713,7 @@ function examForm() {
           ? `<div class="exam-options">${(q.options || []).map((option, i) => `<label><input type="radio" name="${esc(q.id)}" value="${i}" ${Number(draft[q.id]) === i && draft[q.id] !== undefined && draft[q.id] !== null && draft[q.id] !== "" ? "checked" : ""}><span><i>${String.fromCharCode(65 + i)}</i>${esc(option)}</span></label>`).join("")}</div>`
           : `<textarea name="${esc(q.id)}" rows="6" maxlength="${Number(q.max) || 3000}" placeholder="Write a thorough answer…">${esc(draft[q.id] || "")}</textarea><small class="exam-count" data-count="${esc(q.id)}">${String(draft[q.id] || "").trim().length} / ${fmt(q.min || 0)} characters minimum</small>`}
       </fieldset>`).join("")}
-      <footer><div class="callout">${icon("info")}<div>Submit before your 60-minute access runs out. Once submitted your answers are locked. Head of Management and above will review them and you will be notified in Discord.</div></div><button class="btn btn-sun btn-lg" type="submit">${icon("check")} Submit exam</button></footer>
+      <footer><div class="callout">${icon("info")}<div>Submit before your 60-minute access runs out. Once submitted your answers are locked. Assistant Community Director and above will review them and you will be notified in Discord.</div></div><button class="btn btn-sun btn-lg" type="submit">${icon("check")} Submit exam</button></footer>
     </form>`;
 }
 
@@ -728,7 +728,7 @@ function examReviews() {
   const count = (k) => all.filter(tests[k]).length;
   const open = state.examOpen;
   $("#portal-content").innerHTML = `
-    <div class="callout good">${icon("info")}<div>Only <b>Head of Management and above</b> can see this queue. Passing an application grants its role in the staff Discord automatically and posts the result to the staff log.</div></div>
+    <div class="callout good">${icon("info")}<div>Only <b>Assistant Community Director and above</b> can see this queue. Passing an application grants its role in the staff Discord automatically and posts the result to the staff log.</div></div>
     <div class="toolbar">${seg("exr-kind", [["pending", "Waiting", count("pending")], ["passed", "Passed", count("passed")], ["failed", "Failed", count("failed")], ["all", "All", count("all")]], kind)}</div>
     ${rows.length ? `<div class="cases">${rows.map((a) => {
       const expanded = Number(open) === Number(a.id);

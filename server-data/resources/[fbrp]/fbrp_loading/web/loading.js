@@ -52,6 +52,10 @@ window.addEventListener("message", ({ data }) => {
         : amount > 35
           ? "Loading coastal services"
           : "Establishing a secure session";
+
+  if (amount >= 100) {
+    document.documentElement.classList.add("complete");
+  }
 });
 setInterval(() => {
   tipIndex = (tipIndex + 1) % tips.length;

@@ -8,6 +8,19 @@ local lastRefuelAt=0
 local lastFuelReplicateAt=0
 local emptyFuelWarned=false
 
+local MPH_TO_METERS_PER_SECOND=0.44704
+
+local function vehicleSpeedLimit()
+    local mph=tonumber(LocalPlayer.state['fbrp:maxVehicleSpeedMph']) or tonumber(FBRP.Config.vehicleSpeedLimitMph) or 180
+    return mph*MPH_TO_METERS_PER_SECOND
+end
+
+local function applyVehicleSpeedLimit(vehicle)
+    if vehicle and vehicle~=0 and DoesEntityExist(vehicle) then
+        SetEntityMaxSpeed(vehicle,vehicleSpeedLimit())
+    end
+end
+
 local function clamp(value,minimum,maximum)
     return math.max(minimum,math.min(maximum,value))
 end
@@ -174,8 +187,9 @@ RegisterKeyMapping('vehlock','Toggle vehicle locks','keyboard','L')
 RegisterCommand('cruise',function()
     local vehicle=myVehicle(true); if not vehicle then return end
     cruise=not cruise
-    cruiseSpeed=GetEntitySpeed(vehicle)
+    cruiseSpeed=math.min(GetEntitySpeed(vehicle),vehicleSpeedLimit())
     if cruise and cruiseSpeed>4.0 then SetEntityMaxSpeed(vehicle,cruiseSpeed) else cruise=false; SetEntityMaxSpeed(vehicle,GetVehicleEstimatedMaxSpeed(vehicle)) end
+    if not cruise then applyVehicleSpeedLimit(vehicle) end
     TriggerEvent('fbrp:notify',cruise and ('Cruise set: %d MPH'):format(math.floor(cruiseSpeed*2.236936)) or 'Cruise disabled.','info')
 end,false)
 RegisterKeyMapping('cruise','Toggle cruise control','keyboard','Y')
@@ -220,7 +234,10 @@ CreateThread(function()
                 DisableControlAction(0,71,true)
                 SetVehicleEngineOn(vehicle,false,true,true)
             end
-            if cruise and (IsControlPressed(0,72) or IsControlPressed(0,76) or GetEntitySpeed(vehicle)<2.0) then cruise=false; SetEntityMaxSpeed(vehicle,GetVehicleEstimatedMaxSpeed(vehicle)) end
+            if cruise and (IsControlPressed(0,72) or IsControlPressed(0,76) or GetEntitySpeed(vehicle)<2.0) then cruise=false end
+            if GetPedInVehicleSeat(vehicle,-1)==PlayerPedId() then
+                if cruise then SetEntityMaxSpeed(vehicle,math.min(cruiseSpeed,vehicleSpeedLimit())) else applyVehicleSpeedLimit(vehicle) end
+            end
             if not seatbelt and GetEntitySpeed(vehicle)>16.0 then
                 local velocity=GetEntityVelocity(vehicle)
                 if #(previousVelocity-velocity)>11.0 then

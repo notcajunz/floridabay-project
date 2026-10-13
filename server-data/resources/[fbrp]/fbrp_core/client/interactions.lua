@@ -36,6 +36,15 @@ local function closeThirdEye()
     SendNUIMessage({type='thirdEye',open=false})
 end
 
+AddEventHandler('onClientResourceStart', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    thirdEyeOpen = false
+    blindfolded = false
+    LocalPlayer.state:set('fbrp:blindfolded', false, true)
+    SendNUIMessage({type='thirdEye',open=false})
+    SendNUIMessage({type='blindfold',active=false})
+end)
+
 local function loadAnim(dict)
     RequestAnimDict(dict)
     local untilAt = GetGameTimer() + 4000
