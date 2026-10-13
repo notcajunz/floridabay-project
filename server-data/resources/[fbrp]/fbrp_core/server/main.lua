@@ -1312,6 +1312,7 @@ SetHttpHandler(function(req,res)
         local ok,payload=pcall(json.decode,body~='' and body or '{}'); if not ok then payload={} end
         if req.path=='/refresh' then loadPermissionModel(); for src in pairs(sessions) do refreshPlayer(src) end; TriggerEvent('fbrp:radio:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/personals/refresh' then TriggerEvent('fbrp:personals:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
+        if req.path=='/personals/install' and FBRP.Personals and FBRP.Personals.install then res.writeHead(200,headers); return res.send(json.encode(FBRP.Personals.install(payload.resource,payload.model))) end
         if req.path=='/economy/refresh' then TriggerEvent('fbrp:economy:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/announce' then broadcast('FLORIDA BAY',clean(payload.message,300)); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/ops/action' and FBRP.Server and FBRP.Server.liveOpsAction then

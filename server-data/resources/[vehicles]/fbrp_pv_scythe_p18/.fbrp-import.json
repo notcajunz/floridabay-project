@@ -1,0 +1,122 @@
+{
+  "source": "Scythe_P18.zip",
+  "model": "scythe_p18",
+  "by": "1090083387638812755",
+  "at": 1791911359800,
+  "request": {
+    "topSpeedMph": 300,
+    "acceleration": "much_higher",
+    "braking": "much_higher",
+    "grip": "much_higher",
+    "weightKg": 11800,
+    "drivetrain": "rwd",
+    "instructions": "stable at high speeds, never flips, turns easily at max speed"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fAntiRollBarForce",
+      "from": "1.200000",
+      "to": "1.800000",
+      "reason": "Additional support for reducing roll and flipping at high speed."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fAntiRollBarBiasFront",
+      "from": "0.530000",
+      "to": "0.550000",
+      "reason": "Balances roll stiffness slightly toward the front for more stable cornering."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fSuspensionForce",
+      "from": "2.600000",
+      "to": "3.100000",
+      "reason": "Stiffens the suspension to improve high-speed composure and reduce body roll."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fSuspensionCompDamp",
+      "from": "1.400000",
+      "to": "1.650000",
+      "reason": "Adds compression damping to keep the car settled over bumps at speed."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fSuspensionReboundDamp",
+      "from": "3.200000",
+      "to": "3.750000",
+      "reason": "Improves rebound control to help prevent instability and flipping."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fRollCentreHeightFront",
+      "from": "0.390000",
+      "to": "0.450000",
+      "reason": "Slightly raises roll center to reduce excessive body roll."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fRollCentreHeightRear",
+      "from": "0.400000",
+      "to": "0.460000",
+      "reason": "Slightly raises roll center to reduce excessive body roll."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fSteeringLock",
+      "from": "38.000000",
+      "to": "42.000000",
+      "reason": "Gives a little more steering angle so it turns more easily at high speed."
+    },
+    {
+      "file": "handling.meta",
+      "field": "vecInertiaMultiplier",
+      "from": "1.000000,1.600000,1.600000",
+      "to": "1.100000,1.700000,1.800000",
+      "reason": "Improves resistance to tipping and helps the car remain stable when changing direction quickly."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "145.000000",
+      "to": "365.853659",
+      "reason": "Top speed about 300 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.240000",
+      "to": "0.312000",
+      "reason": "Acceleration much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "0.900000",
+      "to": "1.170000",
+      "reason": "Braking much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "2.550000",
+      "to": "3.315000",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "2.350000",
+      "to": "3.055000",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fMass",
+      "from": "1800.000000",
+      "to": "11800.000000",
+      "reason": "Weight 11800 kg"
+    }
+  ]
+}

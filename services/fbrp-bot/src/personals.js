@@ -59,6 +59,7 @@ export function createPersonals({ db, audit }) {
       customPlate: Boolean(row.plate),
       owner_id: String(row.owner_id),
       enabled: Boolean(Number(row.enabled)),
+      bulletproof: Boolean(Number(row.bulletproof)),
       created_at: Number(row.created_at),
       trusted: trust.filter((item) => Number(item.personal_id) === Number(row.id)).map((item) => ({ discord_id: String(item.discord_id), added_by: item.added_by, added_at: Number(item.added_at) })),
       tags: tags.filter((item) => Number(item.personal_id) === Number(row.id)).map((item) => ({ id: Number(item.id), label: item.label, color: item.color, kind: item.kind, enabled: Boolean(Number(item.enabled)) })),
@@ -160,11 +161,12 @@ export function createPersonals({ db, audit }) {
     const label = text(input.label, 60) || model;
     const ownerId = discordIdOf(input.ownerId);
     const plate = await plateOf(input.plate);
+    const bulletproof = flag(input.bulletproof);
     const result = await db.query(
-      "INSERT INTO personal_vehicles(model,label,plate,owner_id,enabled,created_by,created_at) VALUES(?,?,?,?,TRUE,?,?)",
-      [model, label, plate, ownerId, String(actorId), Date.now()],
+      "INSERT INTO personal_vehicles(model,label,plate,owner_id,enabled,bulletproof,created_by,created_at) VALUES(?,?,?,?,TRUE,?,?,?)",
+      [model, label, plate, ownerId, bulletproof, String(actorId), Date.now()],
     );
-    await audit(actorId, "personal.create", result.insertId, { model, label, plate, ownerId });
+    await audit(actorId, "personal.create", result.insertId, { model, label, plate, ownerId, bulletproof });
     await notifyGame();
     return find(result.insertId);
   }
@@ -176,8 +178,9 @@ export function createPersonals({ db, audit }) {
     const label = input.label !== undefined ? text(input.label, 60) || current.label : current.label;
     const plate = input.plate !== undefined ? await plateOf(input.plate, current.id) : current.customPlate ? current.plate : null;
     const enabled = input.enabled !== undefined ? flag(input.enabled) : current.enabled;
-    await db.query("UPDATE personal_vehicles SET model=?,label=?,plate=?,enabled=? WHERE id=?", [model, label, plate, enabled, current.id]);
-    await audit(actorId, "personal.update", current.id, { model, label, plate, enabled });
+    const bulletproof = input.bulletproof !== undefined ? flag(input.bulletproof) : current.bulletproof;
+    await db.query("UPDATE personal_vehicles SET model=?,label=?,plate=?,enabled=?,bulletproof=? WHERE id=?", [model, label, plate, enabled, bulletproof, current.id]);
+    await audit(actorId, "personal.update", current.id, { model, label, plate, enabled, bulletproof });
     await notifyGame();
     return find(current.id);
   }
@@ -284,6 +287,7 @@ export function createPersonals({ db, audit }) {
 
   return {
     MAX_TRUSTED,
+    assertManager, modelOf,
     canManage, portalData, find, relation, create, update, remove, setOwner, trust, untrust, lockTag, unlockTag, listFor, choices, lockableTags,
   };
 }

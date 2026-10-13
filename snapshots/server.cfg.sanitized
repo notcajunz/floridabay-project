@@ -57,6 +57,8 @@ ensure oxmysql
 ensure screenshot-basic
 ensure pma-voice
 ensure s4_chat
+# Lets the website vehicle importer pick up new [vehicles] folders without a restart.
+add_ace resource.fbrp_core command.refresh allow
 ensure fbrp_core
 ensure Badger_Discord_API
 ensure DiscordAcePerms

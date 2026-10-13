@@ -1295,3 +1295,27 @@ button.stat-tile:hover { transform: translateY(-3px); border-color: rgb(var(--to
 .personal-guide-body ol { margin: 14px 0; padding-left: 22px; display: grid; gap: 12px; }
 .personal-guide-body pre { margin: 8px 0 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface-2); font: .8rem/1.5 var(--font-mono); color: var(--ink); overflow-x: auto; white-space: pre; }
 .personal-guide-body code { overflow-wrap: anywhere; }
+.personal-pill-icon svg, .card.personal .pill svg { width: 13px; height: 13px; vertical-align: -2px; margin-right: 3px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+.dialog .body:has(.personal-import) { grid-auto-rows: max-content; }
+.personal-import { border: 1px solid var(--line); border-radius: 12px; }
+.personal-drop { position: relative; display: flex; align-items: center; gap: 12px; padding: 16px; border: 1.5px dashed var(--line-2); border-radius: 12px; background: rgba(0, 0, 0, .2); cursor: pointer; transition: border-color .2s, background .2s; }
+.personal-drop:hover, .personal-drop.drag, .personal-drop:focus-within { border-color: var(--sea); background: rgba(53, 226, 205, .05); }
+.personal-drop input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.personal-drop svg { width: 22px; height: 22px; flex: none; stroke: var(--sea); fill: none; stroke-width: 1.6; }
+.personal-drop span { display: grid; gap: 2px; min-width: 0; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.personal-drop small { font-weight: 400; color: var(--ink-3); font-size: .8rem; }
+.personal-drop.has-file { border-style: solid; border-color: rgb(from var(--sea) r g b / .6); }
+.personal-import > summary { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.personal-import > summary::-webkit-details-marker { display: none; }
+.personal-import > summary::after { content: ""; width: 7px; height: 7px; margin-left: auto; border-right: 1.8px solid var(--ink-3); border-bottom: 1.8px solid var(--ink-3); transform: rotate(-45deg); transition: transform .16s; flex: none; }
+.personal-import[open] > summary::after { transform: rotate(45deg); }
+.personal-import > summary svg { width: 18px; height: 18px; flex: none; stroke: var(--sun); fill: none; stroke-width: 1.6; }
+.personal-import > summary span { display: grid; gap: 2px; min-width: 0; }
+.personal-import > summary small { color: var(--ink-3); font-size: .78rem; font-weight: 400; }
+.personal-import-body { display: grid; gap: 14px; padding: 14px; border-top: 1px solid var(--line); }
+.personal-import-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+.personal-import-body textarea { min-height: 70px; }
+.personal-import-body .btn .spinner { width: 14px; height: 14px; border-width: 2px; display: inline-block; vertical-align: -2px; }
+.personal-import-list { margin: 8px 0; padding-left: 18px; display: grid; gap: 4px; font-size: .84rem; }
+.personal-import-list small { display: block; color: var(--ink-3); }
+.personal-import-list.notes { color: var(--ink-2); }

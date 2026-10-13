@@ -164,12 +164,14 @@ Important behavior:
 
 ## /personal
 
+> Runs on the separate **FBRP | Vehicle Manager** bot (`src/personals-bot.js`), not the Florida Bay Network bot.
+
 Personal vehicles: cars only their owner and trusted people can spawn from F7 and drive
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/personal add <model> <owner> [label] [plate]` | Management: make a vehicle model someone's personal<br><small>Arguments: `model` (required text) — Spawn name of the vehicle, e.g. sultanrs. `owner` (required user) — Who owns it. `label` (optional text) — Name shown in the F7 garage. `plate` (optional text) — Custom plate, up to 8 characters.</small> | Co-Owner rank or higher |
-| `/personal edit <vehicle> [label] [model] [plate] [enabled]` | Management: change a personal's name, model, plate or availability<br><small>Arguments: `vehicle` (required text) — Personal vehicle (autocomplete). `plate` — `-` resets to the automatic plate. `enabled` (optional true/false) — Turn the vehicle on or off.</small> | Co-Owner rank or higher |
+| `/personal add <model> <owner> [label] [plate] [bulletproof]` | Management: make a vehicle model someone's personal<br><small>Arguments: `model` (required text) — Spawn name of the vehicle, e.g. sultanrs. `owner` (required user) — Who owns it. `label` (optional text) — Name shown in the F7 garage. `plate` (optional text) — Custom plate, up to 8 characters. `bulletproof` (optional true/false) — Bullets cannot break the glass or hit anyone inside, and nobody inside can shoot out.</small> | Co-Owner rank or higher |
+| `/personal edit <vehicle> [label] [model] [plate] [enabled] [bulletproof]` | Management: change a personal's name, model, plate or availability<br><small>Arguments: `vehicle` (required text) — Personal vehicle (autocomplete). `plate` — `-` resets to the automatic plate. `enabled` (optional true/false) — Turn the vehicle on or off. `bulletproof` (optional true/false) — Bulletproof glass and occupants, no shooting out.</small> | Co-Owner rank or higher |
 | `/personal owner <vehicle> <member>` | Management: transfer a personal to someone else<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — New owner.</small> | Co-Owner rank or higher |
 | `/personal remove <vehicle>` | Management: delete a personal vehicle<br><small>Arguments: `vehicle` (required text) — Personal vehicle.</small> | Co-Owner rank or higher |
 | `/personal trust <vehicle> <member>` | Let someone spawn and drive a personal (up to 3 people)<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to trust.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |

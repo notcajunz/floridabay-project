@@ -10,13 +10,14 @@ local S = FBRP.Server
 local sessions = S.sessions
 local notify, hasPermission = S.notify, S.hasPermission
 
-local personals = {}      -- id -> { id, model, hash, label, plate, owner, ownerName, trust, tags, tagLabels }
+local personals = {}      -- id -> { id, model, hash, label, plate, owner, ownerName, trust, tags, tagLabels, bulletproof }
 local holders = {}        -- tag id -> { [discord id] = true }
 local restricted = {}     -- model hash -> { personal ids }; only models not sold in a public garage
 local registry = {}       -- network id -> personal id (set when a personal is spawned)
 local active = {}         -- personal id -> network id
 local lastEject = {}      -- source -> game timer of the last notice
 local synced = {}         -- source -> true once the client has its first list
+local armored = {}        -- source -> true while they sit in a bulletproof personal
 
 local BYPASS = 'fbrp.personals.bypass'
 
@@ -42,7 +43,7 @@ end
 
 local function load()
     local okRows, rows = pcall(function()
-        return MySQL.query.await('SELECT id,model,label,plate,owner_id FROM personal_vehicles WHERE enabled=TRUE')
+        return MySQL.query.await('SELECT id,model,label,plate,owner_id,bulletproof FROM personal_vehicles WHERE enabled=TRUE')
     end)
     if not okRows then return end -- migration not applied yet
     local nextPersonals, ids = {}, {}
@@ -52,6 +53,7 @@ local function load()
         nextPersonals[id] = {
             id = id, model = model, hash = hash(model), label = row.label, plate = row.plate and row.plate ~= '' and row.plate or defaultPlate(id),
             owner = tostring(row.owner_id), ownerName = nil, trust = {}, tags = {}, tagLabels = {},
+            bulletproof = row.bulletproof == true or tonumber(row.bulletproof) == 1,
         }
         ids[#ids + 1] = id
     end
@@ -131,14 +133,29 @@ local function bypasses(source)
     return hasPermission(source, BYPASS) == true
 end
 
--- Whether the player may sit in the driver seat of this vehicle entity.
-local function mayDrive(source, vehicle)
-    local netId = NetworkGetNetworkIdFromEntity(vehicle)
-    local id = registry[netId]
+-- The personal id a spawned vehicle belongs to, if any.
+local function personalIdOf(vehicle)
+    local id = registry[NetworkGetNetworkIdFromEntity(vehicle)]
     if not id then
         local ok, value = pcall(function() return Entity(vehicle).state.fbrpPersonal end)
         id = ok and tonumber(value) or nil
     end
+    return id
+end
+
+-- Bulletproof: a spawned bulletproof personal, or a personal-only model whose personal is bulletproof.
+local function isBulletproof(vehicle)
+    local id = personalIdOf(vehicle)
+    if id then return personals[id] ~= nil and personals[id].bulletproof == true end
+    for _, pid in ipairs(restricted[GetEntityModel(vehicle)] or {}) do
+        if personals[pid] and personals[pid].bulletproof then return true end
+    end
+    return false
+end
+
+-- Whether the player may sit in the driver seat of this vehicle entity.
+local function mayDrive(source, vehicle)
+    local id = personalIdOf(vehicle)
     local discord = discordOf(source)
     if id then
         local p = personals[id]
@@ -171,7 +188,20 @@ local function push(source)
     end
     local names = {}
     for model in pairs(models) do names[#names + 1] = model end
-    TriggerClientEvent('fbrp:personals:sync', source, { denied = denied, models = names, bypass = bypasses(source) })
+    -- Every client protects bulletproof vehicles it can see, not only the people allowed to drive them.
+    local bulletproof, bulletproofModels = {}, {}
+    for id, p in pairs(personals) do
+        if p.bulletproof then bulletproof[#bulletproof + 1] = id end
+    end
+    for _, ids in pairs(restricted) do
+        for _, pid in ipairs(ids) do
+            if personals[pid].bulletproof then bulletproofModels[#bulletproofModels + 1] = personals[pid].model break end
+        end
+    end
+    TriggerClientEvent('fbrp:personals:sync', source, {
+        denied = denied, models = names, bypass = bypasses(source),
+        bulletproof = bulletproof, bulletproofModels = bulletproofModels,
+    })
 end
 
 local function pushAll()
@@ -255,6 +285,21 @@ RegisterNetEvent('fbrp:personals:spawned', function(personalId, netId)
     end)
 end)
 
+-- Occupants of a bulletproof personal cannot be shot. The client makes its ped bullet proof only
+-- after this confirms it, and the anticheat is told the protection is legitimate (renewed every second).
+local function armor(source, on)
+    if on then
+        pcall(function() exports.corevia_ac:recordProtectionGrant(source, 3) end)
+        if not armored[source] then
+            armored[source] = true
+            TriggerClientEvent('fbrp:personals:armor', source, true)
+        end
+    elseif armored[source] then
+        armored[source] = nil
+        TriggerClientEvent('fbrp:personals:armor', source, false)
+    end
+end
+
 -- Enforcement: nobody without access keeps the driver seat of a personal vehicle.
 CreateThread(function()
     while true do
@@ -268,6 +313,7 @@ CreateThread(function()
                 local ped = GetPlayerPed(src)
                 if ped and ped ~= 0 then
                     local vehicle = GetVehiclePedIsIn(ped, false)
+                    armor(src, vehicle ~= 0 and isBulletproof(vehicle))
                     if vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped and not mayDrive(src, vehicle) then
                         TriggerClientEvent('fbrp:personals:eject', src)
                         local stamp = GetGameTimer()
@@ -285,9 +331,31 @@ end)
 AddEventHandler('playerDropped', function()
     lastEject[source] = nil
     synced[source] = nil
+    armored[source] = nil
 end)
 
 AddEventHandler('fbrp:personals:reload', reload)
+
+-- The website importer installed a vehicle resource: start it, or restart it when it was converted
+-- again. A running one is only restarted while nobody has that model spawned, because restarting
+-- streamed vehicles under players can crash them.
+function FBRP.Personals.install(resource, model)
+    resource = tostring(resource or '')
+    if not resource:match('^fbrp_pv_[a-z0-9_]+$') then return { ok = false, error = 'bad resource' } end
+    ExecuteCommand('refresh')
+    local state = GetResourceState(resource)
+    if state == 'started' or state == 'starting' then
+        local modelHash = GetHashKey(tostring(model or resource:sub(9)))
+        for _, vehicle in ipairs(GetAllVehicles()) do
+            if GetEntityModel(vehicle) == modelHash then return { ok = true, state = 'in_use' } end
+        end
+        StopResource(resource)
+        StartResource(resource)
+        return { ok = GetResourceState(resource) == 'started', state = 'restarted' }
+    end
+    StartResource(resource)
+    return { ok = GetResourceState(resource) == 'started', state = GetResourceState(resource) == 'started' and 'started' or state }
+end
 
 -- Re-read periodically as a fallback; the bot also triggers a reload on every change.
 CreateThread(function()

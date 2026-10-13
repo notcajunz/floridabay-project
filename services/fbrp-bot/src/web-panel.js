@@ -248,6 +248,7 @@ export const PANEL_RESOURCES = {
       field("org_id", "Organization duty lock", "relation", { source: "organizations", value: "id", display: "name" }),
       field("priority", "Priority", "number", { default: 0 }),
       field("enabled", "Enabled", "boolean", { default: true }),
+      field("bulletproof", "Bulletproof (glass holds, nobody inside can be shot or shoot out)", "boolean", { default: false }),
       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
     ],
   },
@@ -294,6 +295,7 @@ export const PANEL_RESOURCES = {
       field("plate", "Plate (blank = automatic)", "text"),
       field("owner_id", "Owner Discord ID", "snowflake", { required: true }),
       field("enabled", "Enabled", "boolean", { default: true }),
+      field("bulletproof", "Bulletproof (glass holds, nobody inside can be shot or shoot out)", "boolean", { default: false }),
       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
       field("created_at", "Created at", "timestamp", { default: "now", advanced: true }),
     ],
@@ -398,6 +400,7 @@ export const PANEL_RESOURCES = {
       field("org_id", "Duty organization", "relation", { source: "organizations", value: "id", display: "name" }),
       field("sort_order", "Display order", "number", { default: 0 }),
       field("enabled", "Enabled", "boolean", { default: true }),
+      field("bulletproof", "Bulletproof (glass holds, nobody inside can be shot or shoot out)", "boolean", { default: false }),
       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
       field("created_at", "Created at", "timestamp", { default: "now", advanced: true }),
     ],
@@ -935,7 +938,7 @@ export function startWebPanel(context) {
     bindSyncRole, setGlobalSyncOrder, pushGlobalSyncs, ensureTicketPanel,
     createWebsiteTicket, websiteTicketAction, websiteTicketTypes,
     websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard,
-    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, log,
+    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, personalImporter, log,
   } = context;
 
   const cookieFor = (request, name, value, maxAge) => {
@@ -1740,6 +1743,10 @@ export function startWebPanel(context) {
       if (request.method !== "POST" && url.pathname !== "/api/bootstrap")
         return sendJson(response, 405, { error: "Method not allowed." });
 
+      // Raw zip chunks for the personal vehicle importer; every other portal route takes JSON.
+      if (url.pathname === "/api/portal/personal/upload")
+        return sendJson(response, 200, await personalImporter.uploadChunk(session.id, url.searchParams, request));
+
       if (url.pathname.startsWith("/api/portal/")) {
         const input = await bodyJson(request);
         const access = await accessFor(session.id);
@@ -1768,6 +1775,7 @@ export function startWebPanel(context) {
         else if (url.pathname === "/api/portal/personal/untrust") result = await personals.untrust(session.id, input);
         else if (url.pathname === "/api/portal/personal/tag") result = await personals.lockTag(session.id, input);
         else if (url.pathname === "/api/portal/personal/untag") result = await personals.unlockTag(session.id, input);
+        else if (url.pathname === "/api/portal/personal/import") result = await personalImporter.convert(session.id, input);
         else if (url.pathname === "/api/portal/ticket/request-close") {
           const ticket = await db.one("SELECT * FROM support_tickets WHERE id=? AND author_id=?", [Number(input.ticketId), session.id]);
           if (!ticket || ticket.status === "closed") throw new Error("That open ticket was not found.");

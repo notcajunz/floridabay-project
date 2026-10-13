@@ -6,6 +6,8 @@ local deniedModels = {} -- model hash -> true
 local bypass = false
 local lastNotice = 0
 local shuffleBlocked = false
+local bulletproof = {}       -- personal id -> true
+local bulletproofModels = {} -- model hash -> true (models that only exist as a bulletproof personal)
 
 RegisterNetEvent('fbrp:personals:sync', function(data)
     data = type(data) == 'table' and data or {}
@@ -13,6 +15,9 @@ RegisterNetEvent('fbrp:personals:sync', function(data)
     for _, id in ipairs(data.denied or {}) do denied[tonumber(id)] = true end
     for _, model in ipairs(data.models or {}) do deniedModels[joaat(model)] = true end
     bypass = data.bypass == true
+    bulletproof, bulletproofModels = {}, {}
+    for _, id in ipairs(data.bulletproof or {}) do bulletproof[tonumber(id)] = true end
+    for _, model in ipairs(data.bulletproofModels or {}) do bulletproofModels[joaat(model)] = true end
 end)
 
 local function blocked(vehicle)
@@ -69,6 +74,100 @@ CreateThread(function()
                 SetPedConfigFlag(ped, 184, false)
             end
             Wait(entering ~= 0 and 100 or 300)
+        end
+    end
+end)
+
+-- Bulletproof personals. Every client protects the bulletproof vehicles near it: the glass does
+-- not shatter and the body takes no bullet damage. The people inside cannot be shot (their own
+-- client makes their ped bullet proof once the server confirms the seat) and cannot shoot out.
+
+local function personalOf(vehicle)
+    if not NetworkGetEntityIsNetworked(vehicle) then return nil end
+    local ok, value = pcall(function() return Entity(vehicle).state.fbrpPersonal end)
+    return ok and tonumber(value) or nil
+end
+
+local function isBulletproof(vehicle)
+    if vehicle == 0 or not DoesEntityExist(vehicle) then return false end
+    local id = personalOf(vehicle)
+    if id then return bulletproof[id] == true end
+    return bulletproofModels[GetEntityModel(vehicle)] == true
+end
+
+-- Turns only the bullet proof on or off, keeping whatever other proofs another script set.
+local function setBulletProof(entity, on)
+    local _, _, fire, explosion, collision, melee, steam, p7, drown = GetEntityProofs(entity)
+    SetEntityProofs(entity, on, fire == 1 or fire == true, explosion == 1 or explosion == true, collision == 1 or collision == true,
+        melee == 1 or melee == true, steam == 1 or steam == true, p7 == 1 or p7 == true, drown == 1 or drown == true)
+end
+
+local hardened = {} -- vehicle handle -> true
+
+local function harden(vehicle, on)
+    setBulletProof(vehicle, on)
+    if SetDontProcessVehicleGlass then SetDontProcessVehicleGlass(vehicle, on) end
+    hardened[vehicle] = on or nil
+end
+
+CreateThread(function()
+    while true do
+        local seen = {}
+        local me = GetEntityCoords(PlayerPedId())
+        for _, vehicle in ipairs(GetGamePool('CVehicle')) do
+            if #(GetEntityCoords(vehicle) - me) < 400.0 and isBulletproof(vehicle) then
+                seen[vehicle] = true
+                if not hardened[vehicle] then harden(vehicle, true) end
+            end
+        end
+        for vehicle in pairs(hardened) do
+            if not seen[vehicle] then
+                if DoesEntityExist(vehicle) then harden(vehicle, false) else hardened[vehicle] = nil end
+            end
+        end
+        Wait(1000)
+    end
+end)
+
+local armorGranted = false  -- the server confirmed we sit in a bulletproof personal
+local armored = nil         -- vehicle our ped is protected in
+local pedProofed = false
+
+RegisterNetEvent('fbrp:personals:armor', function(on)
+    armorGranted = on == true
+end)
+
+local ATTACK_CONTROLS = { 24, 25, 47, 58, 68, 69, 70, 91, 92, 114, 140, 141, 142, 257, 263, 264, 331 }
+
+CreateThread(function()
+    while true do
+        local ped = PlayerPedId()
+        local vehicle = GetVehiclePedIsIn(ped, false)
+        local inside = vehicle ~= 0 and isBulletproof(vehicle)
+        if inside then
+            -- Nobody inside a bulletproof personal can shoot out of it.
+            SetPlayerCanDoDriveBy(PlayerId(), false)
+            for _, control in ipairs(ATTACK_CONTROLS) do DisableControlAction(0, control, true) end
+            if armored ~= vehicle then
+                armored = vehicle
+                SetPedCanBeShotInVehicle(ped, false)
+                TriggerEvent('fbrp:notify', 'Bulletproof vehicle: bullets cannot reach you in here, and you cannot shoot out of it.', 'info')
+            end
+            -- Full bullet proofing waits for the server, which also clears it with the anticheat.
+            if armorGranted and not pedProofed then
+                pedProofed = true
+                setBulletProof(ped, true)
+            end
+            Wait(0)
+        else
+            if armored then
+                armored = nil
+                SetPedCanBeShotInVehicle(ped, true)
+                if pedProofed then setBulletProof(ped, false) end
+                pedProofed = false
+                SetPlayerCanDoDriveBy(PlayerId(), true)
+            end
+            Wait(250)
         end
     end
 end)

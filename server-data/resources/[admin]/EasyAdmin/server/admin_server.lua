@@ -1121,8 +1121,29 @@ end)
 
 curVersion, isMaster = GetVersion()
 local resourceName = "EasyAdmin ("..GetCurrentResourceName()..")"
+
+local function compareVersions(left, right)
+	local leftParts, rightParts = {}, {}
+	for part in tostring(left or ""):gmatch("%d+") do
+		table.insert(leftParts, tonumber(part))
+	end
+	for part in tostring(right or ""):gmatch("%d+") do
+		table.insert(rightParts, tonumber(part))
+	end
+	if #leftParts == 0 or #rightParts == 0 then return nil end
+
+	for i = 1, math.max(#leftParts, #rightParts) do
+		local leftPart = leftParts[i] or 0
+		local rightPart = rightParts[i] or 0
+		if leftPart < rightPart then return -1 end
+		if leftPart > rightPart then return 1 end
+	end
+	return 0
+end
+
 function checkVersion()
 	local remoteVersion,remoteURL = getLatestVersion()
+	local versionComparison = compareVersions(curVersion, remoteVersion)
 
 	if GetResourceKvpString('currentVersion') ~= curVersion then
 		local legacyFiles = {
@@ -1185,14 +1206,14 @@ function checkVersion()
 		PrintDebugMessage("You are using an unstable version of EasyAdmin, if this was not your intention, please download the latest stable version from "..remoteURL, 1)
 	end
 
-	if not tonumber(curVersion) then
-		PrintDebugMessage("EasyAdmin's Version Number is invalid, this usually means you are using a pre-release version")
-	elseif curVersion ~= remoteVersion and tonumber(curVersion) < tonumber(remoteVersion) then
+	if versionComparison == nil then
+		PrintDebugMessage("EasyAdmin could not compare the local version '"..tostring(curVersion).."' with the remote version '"..tostring(remoteVersion).."'.", 2)
+	elseif versionComparison < 0 then
 		print("\n--------------------------------------------------------------------------")
 		print("\n"..resourceName.." is outdated.\nNewest Version: "..remoteVersion.."\nYour Version: "..curVersion.."\nPlease update it from "..remoteURL)
 		print("\n--------------------------------------------------------------------------")
 		updateAvailable = remoteVersion
-	elseif tonumber(curVersion) > tonumber(remoteVersion) then
+	elseif versionComparison > 0 then
 		PrintDebugMessage("Your version of "..resourceName.." seems to be higher than the current stable version.", 2)
 	end
 	
