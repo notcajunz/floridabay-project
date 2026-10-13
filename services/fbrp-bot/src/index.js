@@ -117,6 +117,7 @@ import {
 import { startWebPanel } from "./web-panel.js";
 import { createStaffExams } from "./staff-exams.js";
 import { createEconomy } from "./economy.js";
+import { createPersonals } from "./personals.js";
 import { createStatusBoard } from "./status-board.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
@@ -209,6 +210,7 @@ async function log(guild, entry, purpose = "staff_audit") {
 
 const staffExams = createStaffExams({ client, db, audit, log });
 const economy = createEconomy({ client, db, audit, log, hasPermission });
+const personals = createPersonals({ db, audit, hasPermission });
 const statusBoard = createStatusBoard({ client, db, callGame, publicBase, connectUrl });
 
 /** /exam: Head of Management and above open an exam for one member for 60 minutes. */
@@ -688,6 +690,7 @@ async function headtagCommand(i, sub) {
   await requirePermission(i, "fbrp.headtags.manage");
   if (sub === "create") {
     const kind = i.options.getString("kind", true),
+      kindLabel = kind === "both" ? "Headtag + gang tag" : kind === "head" ? "Headtag" : "Gang tag",
       label = clean(i.options.getString("label", true), 40),
       color = hexColor(i.options.getString("color", true)),
       orgSlug = clean(i.options.getString("organization") || "", 40).toLowerCase(),
@@ -699,7 +702,7 @@ async function headtagCommand(i, sub) {
     let created = false;
     if (!role) {
       role = await i.guild.roles.create({
-        name: `${kind === "head" ? "Tag" : "Gang"} · ${label}`,
+        name: `${kind === "gang" ? "Gang" : "Tag"} · ${label}`,
         color: Number.parseInt(color.slice(1), 16),
         reason: `Headtag created by ${i.user.tag}`,
       });
@@ -732,8 +735,8 @@ async function headtagCommand(i, sub) {
       color: COLORS.success,
       description: organization
         ? `Players with the role can select it in F6 only while on duty as **${clean(organization.name)}**. It replaces that organization's normal duty tag.`
-        : `Players with the role can select it in F6, in the ${kind === "head" ? "top headtag" : "bottom gang-tag"} slot.`,
-      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kind === "head" ? "Headtag" : "Gang tag"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
+        : `Players with the role can select it in F6 in ${kind === "both" ? "both the top headtag and bottom gang-tag slots" : kind === "head" ? "the top headtag slot" : "the bottom gang-tag slot"}.`,
+      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
     });
   }
   if (sub === "delete") {
@@ -790,11 +793,113 @@ async function headtagCommand(i, sub) {
       chunkLines(
         rows.map(
           (row) =>
-            `\`${row.id}\` · **${clean(row.label)}** · ${row.kind === "head" ? "Head" : "Gang"} · \`${row.color}\` · ${row.role_id ? roleRef(row.role_id) : "no role"}${row.org_name ? ` · duty: **${clean(row.org_name)}**` : ""}`,
+            `\`${row.id}\` · **${clean(row.label)}** · ${row.kind === "both" ? "Head + Gang" : row.kind === "head" ? "Head" : "Gang"} · \`${row.color}\` · ${row.role_id ? roleRef(row.role_id) : "no role"}${row.org_name ? ` · duty: **${clean(row.org_name)}**` : ""}`,
         ),
         3900,
       )[0] || "No tags.",
   });
+}
+
+/** One personal vehicle as an embed. */
+function personalCard(title, row, { color = COLORS.success, description } = {}) {
+  return card(title, {
+    color,
+    description,
+    rows: [
+      ["Vehicle", `${clean(row.label)}\n\`${row.model}\``],
+      ["ID · plate", `#${row.id} · \`${row.plate}\``],
+      ["Owner", who(row.owner_id)],
+      ["Status", row.enabled ? "Enabled" : "Disabled"],
+      [`Trusted (${row.trusted.length}/${personals.MAX_TRUSTED})`, row.trusted.length ? row.trusted.map((item) => `<@${item.discord_id}>`).join("\n") : "Nobody", false],
+      ["Tag locks", row.tags.length ? row.tags.map((tag) => clean(tag.label)).join(", ") : "None", false],
+    ],
+  });
+}
+
+/** /personal: owner-only vehicles with a short trust list. Management (Co-Owner+) runs the whole fleet. */
+async function personalCommand(i, sub) {
+  const actor = i.user.id;
+  const vehicleId = () => {
+    const id = Number(i.options.getString("vehicle", true));
+    if (!Number.isInteger(id) || id < 1) throw new Error("Pick a vehicle from the list.");
+    return id;
+  };
+  if (sub === "add") {
+    const owner = i.options.getUser("owner", true);
+    const row = await personals.create(actor, {
+      model: i.options.getString("model", true),
+      label: i.options.getString("label") || "",
+      plate: i.options.getString("plate") || "",
+      ownerId: owner.id,
+    });
+    return personalCard("Personal vehicle added", row, { description: `${who(owner.id).split("\n")[0]} can spawn it from the **F7** garage under **Personal**.` });
+  }
+  if (sub === "edit") {
+    const input = { id: vehicleId() };
+    const label = i.options.getString("label");
+    const model = i.options.getString("model");
+    const plate = i.options.getString("plate");
+    const enabled = i.options.getBoolean("enabled");
+    if (label !== null) input.label = label;
+    if (model !== null) input.model = model;
+    if (plate !== null) input.plate = plate.trim() === "-" ? "" : plate;
+    if (enabled !== null) input.enabled = enabled;
+    if (Object.keys(input).length === 1) throw new Error("Choose at least one thing to change.");
+    return personalCard("Personal vehicle updated", await personals.update(actor, input));
+  }
+  if (sub === "owner")
+    return personalCard("Personal vehicle transferred", await personals.setOwner(actor, { id: vehicleId(), ownerId: i.options.getUser("member", true).id }));
+  if (sub === "remove") {
+    const row = await personals.remove(actor, { id: vehicleId() });
+    return personalCard("Personal vehicle removed", row, { color: COLORS.warning });
+  }
+  if (sub === "trust")
+    return personalCard("Trust updated", await personals.trust(actor, { id: vehicleId(), discordId: i.options.getUser("member", true).id }));
+  if (sub === "untrust")
+    return personalCard("Trust updated", await personals.untrust(actor, { id: vehicleId(), discordId: i.options.getUser("member", true).id }));
+  if (sub === "locktag" || sub === "unlocktag") {
+    const tagId = Number(i.options.getString("tag", true));
+    if (!Number.isInteger(tagId)) throw new Error("Pick a tag from the list.");
+    const row = await (sub === "locktag" ? personals.lockTag : personals.unlockTag)(actor, { id: vehicleId(), tagId });
+    return personalCard("Tag lock updated", row);
+  }
+  if (sub === "info") {
+    const row = await personals.find(vehicleId());
+    const relation = await personals.relation(actor, row);
+    if (!relation && !(await personals.canManage(actor))) throw new Error("That vehicle is not yours.");
+    return personalCard(`Personal #${row.id}`, row, { color: COLORS.primary });
+  }
+  const member = i.options.getUser("member");
+  const all = Boolean(i.options.getBoolean("all"));
+  const { manage, rows } = await personals.listFor(actor, { memberId: member?.id || null, all });
+  const lines = rows.map(
+    (row) => `\`${row.id}\` · **${clean(row.label)}** (\`${row.model}\` · \`${row.plate}\`)${row.enabled ? "" : " · disabled"} · <@${row.owner_id}> · ${row.trusted.length}/${personals.MAX_TRUSTED} trusted${row.tags.length ? ` · tags: ${row.tags.map((tag) => clean(tag.label)).join(", ")}` : ""}`,
+  );
+  return card(all ? "All personal vehicles" : member ? `Personal vehicles · ${clean(member.globalName || member.username)}` : "Your personal vehicles", {
+    description: chunkLines(lines, 3900)[0] || "No personal vehicles.",
+    footer: manage ? "Management view" : undefined,
+  });
+}
+
+async function personalAutocomplete(i) {
+  const focused = i.options.getFocused(true);
+  if (focused.name === "vehicle") return i.respond(await personals.choices(i.user.id, focused.value));
+  if (focused.name !== "tag") return i.respond([]);
+  const needle = String(focused.value || "").toLowerCase();
+  const sub = i.options.getSubcommand(false);
+  let rows;
+  if (sub === "unlocktag") {
+    const id = Number(i.options.getString("vehicle"));
+    rows = id ? (await personals.find(id).catch(() => null))?.tags || [] : [];
+  } else {
+    rows = await personals.lockableTags(i.user.id, await personals.canManage(i.user.id));
+  }
+  return i.respond(
+    rows
+      .filter((row) => String(row.label).toLowerCase().includes(needle))
+      .slice(0, 25)
+      .map((row) => ({ name: `${row.label} · #${row.id}`.slice(0, 100), value: String(row.id) })),
+  );
 }
 
 async function organizationCommand(i, sub) {
@@ -3792,6 +3897,7 @@ const COMMAND_PERMISSIONS = {
   ace: "`fbrp.perms.manage`",
   vmenu: "`fbrp.perms.manage`",
   headtag: "`fbrp.headtags.manage`",
+  personal: "Owners manage their own vehicles; add, edit, transfer and remove need Co-Owner rank or higher (or `fbrp.personals.manage`)",
   organization: "`fbrp.organizations.manage`",
   radio: "`fbrp.radio.manage`",
   network: "`fbrp.network.manage`",
@@ -4205,6 +4311,7 @@ async function joinAutocomplete(i) {
 const autocompleters = {
   join: joinAutocomplete,
   headtag: headtagAutocomplete,
+  personal: personalAutocomplete,
   ace: aceGroupAutocomplete,
   vmenu: aceGroupAutocomplete,
   roster: aceGroupAutocomplete,
@@ -4561,6 +4668,7 @@ const handlers = {
   join: joinCommand,
   ace: aceCommand,
   headtag: headtagCommand,
+  personal: personalCommand,
   organization: organizationCommand,
   radio: radioCommand,
   network: networkCommand,
@@ -4695,6 +4803,7 @@ client.once("clientReady", async () => {
     recordVerification: recordPortalVerification,
     staffExams,
     economy,
+    personals,
     log,
   });
   // Commands are registered per guild (instant updates) in every server the bot is in, plus any

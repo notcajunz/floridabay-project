@@ -118,7 +118,16 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     initialiseFuel(vehicle,true)
     TaskWarpPedIntoVehicle(ped,vehicle,-1)
     SetModelAsNoLongerNeeded(hash)
-    TriggerServerEvent('fbrp:justice:register',GetVehicleNumberPlateText(vehicle),model,label or model,true)
+    -- Personal vehicles are tagged so every client and the server know who may drive them.
+    local personal=type(style)=='table' and tonumber(style.personal) or nil
+    if personal then
+        pcall(function() Entity(vehicle).state:set('fbrpPersonal',personal,true) end)
+        TriggerServerEvent('fbrp:personals:spawned',personal,NetworkGetNetworkIdFromEntity(vehicle))
+    end
+    -- Only the owner registers a personal vehicle; trusted drivers must not take the registration over.
+    if not (type(style)=='table' and style.register==false) then
+        TriggerServerEvent('fbrp:justice:register',GetVehicleNumberPlateText(vehicle),model,label or model,true)
+    end
     TriggerEvent('fbrp:notify',(label or model)..' ready.','success')
 end)
 

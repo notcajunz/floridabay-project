@@ -24,7 +24,9 @@ local migrationFiles = {
     'migrations/028_appeal_workflow.sql',
     'migrations/029_activities.sql',
     'migrations/031_org_management.sql',
-    'migrations/035_org_locked_headtags.sql'
+    'migrations/035_org_locked_headtags.sql',
+    'migrations/036_dual_slot_headtags.sql',
+    'migrations/037_personal_vehicles.sql'
 }
 
 local function splitSql(contents)

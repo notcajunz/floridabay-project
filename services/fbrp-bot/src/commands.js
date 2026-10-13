@@ -150,7 +150,7 @@ const headtag = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("create")
-      .setDescription("Create a Discord-gated headtag or gang tag")
+      .setDescription("Create a Discord-gated headtag, gang tag, or dual-slot tag")
       .addStringOption((o) =>
         o
           .setName("kind")
@@ -159,6 +159,7 @@ const headtag = new SlashCommandBuilder()
           .addChoices(
             { name: "Headtag (top)", value: "head" },
             { name: "Gang tag (bottom)", value: "gang" },
+            { name: "Headtag + gang tag (both)", value: "both" },
           ),
       )
       .addStringOption((o) =>
@@ -1389,6 +1390,82 @@ const exam = new SlashCommandBuilder()
   )
   .addSubcommand((s) => s.setName("active").setDescription("List exam access that is open right now"));
 
+const personalVehicle = (o) =>
+  o.setName("vehicle").setDescription("Personal vehicle").setRequired(true).setAutocomplete(true);
+
+const personal = new SlashCommandBuilder()
+  .setName("personal")
+  .setDescription("Personal vehicles: cars only their owner and trusted people can spawn and drive")
+  .addSubcommand((s) =>
+    s
+      .setName("add")
+      .setDescription("Management: make a vehicle model someone's personal")
+      .addStringOption((o) =>
+        o.setName("model").setDescription("Spawn name of the vehicle, e.g. sultanrs").setRequired(true).setMaxLength(40),
+      )
+      .addUserOption((o) => o.setName("owner").setDescription("Who owns it").setRequired(true))
+      .addStringOption((o) => o.setName("label").setDescription("Name shown in the F7 garage").setMaxLength(60))
+      .addStringOption((o) => o.setName("plate").setDescription("Custom plate, up to 8 characters").setMaxLength(8)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("edit")
+      .setDescription("Management: change a personal's name, model, plate or availability")
+      .addStringOption(personalVehicle)
+      .addStringOption((o) => o.setName("label").setDescription("Name shown in the F7 garage").setMaxLength(60))
+      .addStringOption((o) => o.setName("model").setDescription("Spawn name of the vehicle").setMaxLength(40))
+      .addStringOption((o) => o.setName("plate").setDescription("Plate, up to 8 characters; \"-\" resets it").setMaxLength(8))
+      .addBooleanOption((o) => o.setName("enabled").setDescription("Turn the vehicle on or off")),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("owner")
+      .setDescription("Management: transfer a personal to someone else")
+      .addStringOption(personalVehicle)
+      .addUserOption((o) => o.setName("member").setDescription("New owner").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s.setName("remove").setDescription("Management: delete a personal vehicle").addStringOption(personalVehicle),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("trust")
+      .setDescription("Let someone spawn and drive a personal (up to 3 people)")
+      .addStringOption(personalVehicle)
+      .addUserOption((o) => o.setName("member").setDescription("Who to trust").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("untrust")
+      .setDescription("Remove someone from a personal's trust list")
+      .addStringOption(personalVehicle)
+      .addUserOption((o) => o.setName("member").setDescription("Who to remove").setRequired(true)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("locktag")
+      .setDescription("Lock a personal to a tag so everyone holding the tag can use it")
+      .addStringOption(personalVehicle)
+      .addStringOption((o) => o.setName("tag").setDescription("Headtag or gang tag").setRequired(true).setAutocomplete(true)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("unlocktag")
+      .setDescription("Remove a tag lock from a personal")
+      .addStringOption(personalVehicle)
+      .addStringOption((o) => o.setName("tag").setDescription("Tag to remove").setRequired(true).setAutocomplete(true)),
+  )
+  .addSubcommand((s) =>
+    s.setName("info").setDescription("Show one personal vehicle").addStringOption(personalVehicle),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("list")
+      .setDescription("List your personal vehicles (management can look up anyone or list them all)")
+      .addUserOption((o) => o.setName("member").setDescription("Management: whose vehicles to show"))
+      .addBooleanOption((o) => o.setName("all").setDescription("Management: show every personal vehicle")),
+  );
+
 export const commands = [
   exam,
   orgbank,
@@ -1398,6 +1475,7 @@ export const commands = [
   backup,
   ace,
   headtag,
+  personal,
   organization,
   radio,
   network,

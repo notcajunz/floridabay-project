@@ -66,6 +66,8 @@ const FLORIDA_BAY = [
   ace("Florida Bay · Vehicles", "fbrp.vehicles.leo", "Police vehicles", "Spawn law-enforcement vehicles from the F7 garage."),
   ace("Florida Bay · Vehicles", "fbrp.vehicles.fire", "Fire & EMS vehicles", "Spawn fire and rescue vehicles from the F7 garage."),
   ace("Florida Bay · Vehicles", "fbrp.vehicles.staff", "Staff vehicles", "Spawn staff-only vehicles from the F7 garage."),
+  ace("Florida Bay · Vehicles", "fbrp.personals.manage", "Personal vehicle management", "Add, edit, transfer and remove personal vehicles and their trust lists (/personal)."),
+  ace("Florida Bay · Vehicles", "fbrp.personals.bypass", "Drive any personal vehicle", "Sit in the driver seat of personal vehicles without being trusted."),
 ];
 
 const EASYADMIN = [

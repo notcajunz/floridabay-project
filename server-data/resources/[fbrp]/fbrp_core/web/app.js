@@ -501,9 +501,9 @@ function renderVehicles(data) {
     .join("");
   const cards = (active.vehicles || [])
     .map(
-      (v) => `<button class="vehicle-card" data-category="${esc(active.id)}" data-model="${esc(v.model)}">
+      (v) => `<button class="vehicle-card" data-category="${esc(active.id)}" data-model="${esc(v.key || v.model)}">
         <div class="shot"><img src="https://docs.fivem.net/vehicles/${encodeURIComponent(String(v.model).toLowerCase())}.webp" alt="" data-fallback="${esc(active.icon || "car")}"></div>
-        <div class="meta"><div><strong>${esc(v.label)}</strong><small>${esc(v.model)}</small></div><span class="go">Spawn</span></div>
+        <div class="meta"><div><strong>${esc(v.label)}</strong><small>${esc(v.note || v.model)}</small></div><span class="go">Spawn</span></div>
       </button>`,
     )
     .join("");

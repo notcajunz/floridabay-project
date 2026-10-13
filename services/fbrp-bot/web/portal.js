@@ -145,6 +145,7 @@ function nav() {
       ["roster", "Staff roster", "users"],
       ...(data.profile ? [["profile", "My staff profile", "user"]] : []),
       ...(orgs.length || access.orgAdmin ? [["organizations", "Organizations", "wallet"]] : []),
+      ...(data.personals && ((data.personals.mine || []).length || data.personals.manage) ? [["personals", "Personal vehicles", "car"]] : []),
     ]],
     ...(showExams ? [["Career", [["exams", "Staff exams", "exam", (exams.exams || []).filter((e) => e.eligible).length]]]] : []),
     ...(access.staff || exams.reviewer || access.commandReference || access.investigate ? [["Staff workspace", [
@@ -255,18 +256,19 @@ function roster() {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(p);
   }
-  const maxWeek = Math.max(3600, ...all.map((p) => Number(p.week_seconds || 0)));
   $("#portal-content").innerHTML = `
     <div class="toolbar">${searchBox("roster-q", "Search name, rank, or callsign")}${categories.length > 1 ? seg("roster-cat", [["all", "Everyone", all.length], ...categories.map((c) => [c, c, all.filter((p) => (p.category_name || "Staff") === c).length])], cat) : ""}</div>
     ${groups.size ? [...groups].map(([name, people]) => `<section class="roster-group">
       <div class="group-head"><h2>${esc(name)}</h2><span>${plural(people.length, "member")}</span></div>
       <div class="roster">${people.map((p) => {
         const display = p.display_name || p.discord_name || p.username;
+        const required = Number(p.weekly_seconds || 0);
+        const progress = required ? Math.min(100, (Number(p.week_seconds || 0) / required) * 100) : 0;
         return `<button class="member" type="button" data-profile="${esc(p.discord_id)}">
           ${p.callsign ? `<span class="callsign">${esc(p.callsign)}</span>` : ""}
           <div class="top">${avatar(p.avatar, display, "", p.discord_id)}<div><b>${esc(display)}</b><small>${esc(p.rank_name)}${p.discord_name ? ` · @${esc(p.discord_name)}` : ""}</small></div></div>
-          <div><div class="meter"><i style="width:${Math.min(100, (Number(p.week_seconds || 0) / maxWeek) * 100).toFixed(1)}%"></i></div></div>
-          <div class="foot"><span class="hrs"><b>${hours(p.week_seconds)}</b> this week</span>${p.status && p.status !== "active" ? pill(p.status) : `<span class="hrs">${hours(p.total_seconds)} total</span>`}</div>
+          <div><div class="meter"><i style="width:${progress.toFixed(1)}%"></i></div></div>
+          <div class="foot"><span class="hrs"><b>${hours(p.week_seconds)}</b> this week</span>${p.status && p.status !== "active" ? pill(p.status) : required ? `<span class="hrs"><b>${hours(required)}</b> required</span>` : `<span class="hrs">No requirement</span>`}</div>
         </button>`;
       }).join("")}</div>
     </section>`).join("") : `<section class="card">${empty(query ? "No matches" : "Roster unavailable", query ? "Try a different name, rank, or callsign." : "No active staff members are listed right now.", "users")}</section>`}`;
@@ -960,6 +962,104 @@ function orgLeaderDialog(id) {
       <div class="field">Access<div class="choice"><label class="approve"><input type="radio" name="leader" value="1" checked><span>Make leader<small>Can buy from the shop</small></span></label><label class="deny"><input type="radio" name="leader" value="0"><span>Remove<small>Back to member</small></span></label></div></div>` });
 }
 
+/* ---------- personal vehicles ---------- */
+const PERSONAL_VIA = { owner: ["Yours", "good"], trusted: ["Trusted", "sea"], tag: ["Tag access", "sun"], manage: ["Management", ""] };
+const personalById = (id) => [...(state.data.personals?.all || []), ...(state.data.personals?.mine || [])].find((p) => Number(p.id) === Number(id));
+
+function personalCardHtml(p, d) {
+  const edit = p.viewer === "owner" || d.manage;
+  const [viaLabel, viaTone] = PERSONAL_VIA[p.viewer] || PERSONAL_VIA.manage;
+  const locked = new Set(p.tags.map((t) => t.id));
+  const canLock = edit && (d.tags || []).some((t) => !locked.has(Number(t.id)));
+  const trusted = p.trusted.length
+    ? `<div class="feed">${p.trusted.map((t) => `<div class="feed-row">${person(t.discord_id)}<div class="row-end">${edit ? `<button class="btn btn-ghost btn-sm" type="button" data-personal-untrust="${p.id}:${esc(t.discord_id)}">Remove</button>` : ""}</div></div>`).join("")}</div>`
+    : `<p class="personal-none">Nobody yet.</p>`;
+  const tags = p.tags.length
+    ? `<div class="personal-tags">${p.tags.map((t) => `<span class="pill" style="--tone:${esc(t.color || "#35e2cd")}">${esc(t.label)}${edit ? `<button type="button" class="personal-x" data-personal-untag="${p.id}:${t.id}" title="Remove this tag lock" aria-label="Remove ${esc(t.label)} lock">×</button>` : ""}</span>`).join("")}</div>`
+    : `<p class="personal-none">Not locked to a tag.</p>`;
+  return `<article class="card personal">
+    <div class="personal-shot">${icon("car")}<img class="personal-img" src="https://docs.fivem.net/vehicles/${encodeURIComponent(String(p.model).toLowerCase())}.webp" alt="" loading="lazy" referrerpolicy="no-referrer"></div>
+    <div class="personal-main">
+      <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.model)}</span> · plate <span class="mono">${esc(p.plate)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill${viaTone ? ` pill-${viaTone}` : ""}">${viaLabel}</span>${p.enabled ? "" : '<span class="pill pill-bad">Disabled</span>'}</div></div>
+      <div class="personal-section"><small>Owner</small>${person(p.owner_id)}</div>
+      <div class="personal-section"><small>Trusted drivers · ${p.trusted.length} of ${d.limit}</small>${trusted}</div>
+      <div class="personal-section"><small>Locked to tags <span>(everyone holding the tag can use it)</span></small>${tags}</div>
+      ${edit || d.manage ? `<div class="personal-actions">
+        ${edit && p.trusted.length < d.limit ? `<button class="btn btn-sun btn-sm" type="button" data-personal-trust="${p.id}">${icon("plus")} Trust someone</button>` : ""}
+        ${canLock ? `<button class="btn btn-glass btn-sm" type="button" data-personal-tag="${p.id}">${icon("badge")} Lock to a tag</button>` : ""}
+        ${d.manage ? `<button class="btn btn-ghost btn-sm" type="button" data-personal-edit="${p.id}">Edit</button><button class="btn btn-ghost btn-sm" type="button" data-personal-owner="${p.id}">Transfer</button><button class="btn btn-ghost btn-sm" type="button" data-personal-delete="${p.id}">Delete</button>` : ""}
+      </div>` : ""}
+    </div>
+  </article>`;
+}
+
+function personalsView() {
+  const d = state.data.personals;
+  if (!d || (!(d.mine || []).length && !d.manage)) return go("dashboard");
+  setTitle("Community", "Personal vehicles");
+  const scope = d.manage ? filter("personal-scope", "all") : "mine";
+  const query = filter("personal-q");
+  const name = (id) => state.data.people?.[id]?.name || "";
+  const source = scope === "all" && d.all ? d.all : d.mine;
+  const rows = source.filter((p) => matches(query, p.label, p.model, p.plate, p.id, name(p.owner_id), p.owner_id, ...p.trusted.map((t) => name(t.discord_id)), ...p.tags.map((t) => t.label)));
+  $("#portal-content").innerHTML = `
+    <div class="toolbar">${searchBox("personal-q", "Search vehicles, owners or plates")}${d.manage ? seg("personal-scope", [["all", "Every vehicle", (d.all || []).length], ["mine", "Mine", d.mine.length]], scope) : ""}<span style="flex:1"></span>${d.manage ? `<button class="btn btn-sun" type="button" data-personal-new>${icon("plus")} Add personal vehicle</button>` : ""}</div>
+    <div class="callout">${icon("car")}<div>Spawn personals from the <kbd>F7</kbd> garage under <b>Personal</b>. Only the owner, the people they trust (up to ${d.limit}) and holders of a locked tag can drive them. Changes apply in game within seconds.</div></div>
+    ${rows.length ? `<div class="personal-grid">${rows.map((p) => personalCardHtml(p, d)).join("")}</div>` : `<section class="card">${empty(query ? "No vehicles match" : "No personal vehicles", d.manage ? "Add one to get started." : "Ask management to make a vehicle your personal.", "car")}</section>`}`;
+}
+
+function personalCreateDialog() {
+  openDialog({ kicker: "Management", title: "Add a personal vehicle", submit: "Add vehicle", action: "personal-create",
+    body: `<label class="field">Vehicle model <small>(the spawn name of the installed vehicle)</small><input name="model" required minlength="2" maxlength="40" pattern="[A-Za-z0-9_]+" placeholder="sultanrs" autocapitalize="off"></label>
+      <label class="field">Name in the garage<input name="label" maxlength="60" placeholder="Sultan RS"></label>
+      <label class="field">Owner Discord ID<input name="ownerId" inputmode="numeric" required placeholder="123456789012345678"></label>
+      <label class="field">Plate <small>(optional, up to 8 characters)</small><input name="plate" maxlength="8" placeholder="Automatic" style="text-transform:uppercase"></label>` });
+}
+
+function personalEditDialog(id) {
+  const p = personalById(id);
+  if (!p) return;
+  openDialog({ kicker: p.label, title: "Edit personal vehicle", submit: "Save", action: "personal-edit", data: { id: p.id },
+    body: `<label class="field">Name in the garage<input name="label" required maxlength="60" value="${esc(p.label)}"></label>
+      <label class="field">Vehicle model<input name="model" required minlength="2" maxlength="40" pattern="[A-Za-z0-9_]+" value="${esc(p.model)}" autocapitalize="off"></label>
+      <label class="field">Plate <small>(blank = automatic)</small><input name="plate" maxlength="8" value="${esc(p.customPlate ? p.plate : "")}" placeholder="${esc(p.plate)}" style="text-transform:uppercase"></label>
+      <label class="check-row"><input type="checkbox" name="enabled" ${p.enabled ? "checked" : ""}><span><b>Enabled</b><small>Turn off to hide it from the F7 garage without deleting it.</small></span></label>` });
+}
+
+function personalOwnerDialog(id) {
+  const p = personalById(id);
+  if (!p) return;
+  openDialog({ kicker: p.label, title: "Transfer ownership", submit: "Transfer", action: "personal-owner", data: { id: p.id },
+    body: `<div class="feed"><div class="feed-row">${person(p.owner_id)}<div class="row-end"><span class="pill plain">Current owner</span></div></div></div>
+      <label class="field">New owner's Discord ID<input name="ownerId" inputmode="numeric" required placeholder="123456789012345678"></label>
+      <div class="callout">${icon("info")}<div>The new owner is removed from the trust list if they were on it. Existing trusted people and tag locks stay.</div></div>` });
+}
+
+function personalTrustDialog(id) {
+  const p = personalById(id);
+  if (!p) return;
+  openDialog({ kicker: p.label, title: "Trust someone", submit: "Trust", action: "personal-trust", data: { id: p.id },
+    body: `<label class="field">Discord user ID<input name="discordId" inputmode="numeric" required placeholder="123456789012345678"></label>
+      <div class="callout">${icon("info")}<div>They can spawn this vehicle from F7 and drive it. You can trust up to ${state.data.personals.limit} people (${p.trusted.length} used).</div></div>` });
+}
+
+function personalTagDialog(id) {
+  const p = personalById(id);
+  if (!p) return;
+  const locked = new Set(p.tags.map((t) => t.id));
+  const options = (state.data.personals.tags || []).filter((t) => !locked.has(Number(t.id)));
+  openDialog({ kicker: p.label, title: "Lock to a tag", submit: "Lock", action: "personal-tag", data: { id: p.id },
+    body: `<label class="field">Tag<select name="tagId" required>${options.map((t) => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>
+      <div class="callout">${icon("info")}<div>Everyone who holds this tag can spawn and drive the vehicle.${state.data.personals.manage ? "" : " You can only pick tags you hold."}</div></div>` });
+}
+
+function personalDeleteDialog(id) {
+  const p = personalById(id);
+  if (!p) return;
+  openDialog({ kicker: p.label, title: "Delete this personal vehicle?", submit: "Delete", tone: "btn-danger", action: "personal-delete", data: { id: p.id },
+    body: `<div class="callout warn">${icon("alert")}<div>The vehicle, its trust list and tag locks are removed. Anyone who has it spawned keeps driving it until it despawns.</div></div>` });
+}
+
 const inlineMarkdown = (value) => {
   let html = esc(value);
   html = html.replace(/&lt;br&gt;/gi, "<br>").replace(/&lt;small&gt;/gi, "<small>").replace(/&lt;\/small&gt;/gi, "</small>");
@@ -1109,7 +1209,7 @@ function investigationView() {
     ${record.discipline.length ? `<section class="card"><div class="card-head"><div><h2>Staff discipline</h2><p>Warnings and strikes, including revoked records.</p></div></div><div class="feed">${record.discipline.map((row) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(row.kind))}${row.revoked_at ? " · revoked" : ""}</b><small>${esc(row.reason)}${row.revoke_reason ? ` · Revocation: ${esc(row.revoke_reason)}` : ""}</small></div><time>${esc(day(row.created_at))}</time></div>`).join("")}</div></section>` : ""}`;
 }
 
-const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, commands: commandReferenceView, investigation: investigationView };
+const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, personals: personalsView, commands: commandReferenceView, investigation: investigationView };
 function render() {
   nav();
   (renders[state.view] || dashboard)();
@@ -1388,6 +1488,29 @@ $("#portal-content").addEventListener("click", async (event) => {
   if (orgMember) return orgMemberDialog(orgMember.dataset.orgMember);
   const orgLeader = target.closest("[data-org-leader]");
   if (orgLeader) return orgLeaderDialog(orgLeader.dataset.orgLeader);
+  if (target.closest("[data-personal-new]")) return personalCreateDialog();
+  const personalEdit = target.closest("[data-personal-edit]");
+  if (personalEdit) return personalEditDialog(personalEdit.dataset.personalEdit);
+  const personalOwner = target.closest("[data-personal-owner]");
+  if (personalOwner) return personalOwnerDialog(personalOwner.dataset.personalOwner);
+  const personalDelete = target.closest("[data-personal-delete]");
+  if (personalDelete) return personalDeleteDialog(personalDelete.dataset.personalDelete);
+  const personalTrust = target.closest("[data-personal-trust]");
+  if (personalTrust) return personalTrustDialog(personalTrust.dataset.personalTrust);
+  const personalTag = target.closest("[data-personal-tag]");
+  if (personalTag) return personalTagDialog(personalTag.dataset.personalTag);
+  const personalUntrust = target.closest("[data-personal-untrust]");
+  const personalUntag = target.closest("[data-personal-untag]");
+  if (personalUntrust || personalUntag) {
+    const [id, other] = (personalUntrust?.dataset.personalUntrust || personalUntag.dataset.personalUntag).split(":");
+    const p = personalById(id);
+    if (!confirm(personalUntrust ? "Remove this person from the trust list?" : `Remove the lock to ${p?.tags.find((t) => String(t.id) === other)?.label || "this tag"}?`)) return;
+    try {
+      const result = await api(personalUntrust ? "portal/personal/untrust" : "portal/personal/untag", { method: "POST", body: JSON.stringify(personalUntrust ? { id: Number(id), discordId: other } : { id: Number(id), tagId: Number(other) }) });
+      state.data = result.data; render(); toast(personalUntrust ? "Trust removed." : "Tag lock removed.");
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
 });
 
 $("#portal-content").addEventListener("change", (event) => {
@@ -1492,7 +1615,7 @@ $("#portal-content").addEventListener("input", (event) => {
 
 // Discord avatars occasionally 404 (changed avatar); fall back to initials.
 document.addEventListener("error", (event) => {
-  if (event.target instanceof HTMLImageElement && event.target.parentElement?.classList.contains("av")) event.target.remove();
+  if (event.target instanceof HTMLImageElement && (event.target.parentElement?.classList.contains("av") || event.target.classList.contains("personal-img"))) event.target.remove();
 }, true);
 
 $("#portal-dialog").addEventListener("change", (event) => {
@@ -1597,6 +1720,24 @@ $("#dialog-form").addEventListener("submit", async (event) => {
     } else if (action === "org-leader") {
       result = await api("portal/org/leader", { method: "POST", body: JSON.stringify({ orgId: data.orgId, discordId: form.get("discordId"), leader: form.get("leader") === "1" }) });
       toast(result.result.leader ? "Leader added." : "Leader removed.");
+    } else if (action === "personal-create") {
+      result = await api("portal/personal/create", { method: "POST", body: JSON.stringify({ model: form.get("model"), label: form.get("label"), ownerId: form.get("ownerId"), plate: form.get("plate") }) });
+      toast(`${result.result.label} added.`);
+    } else if (action === "personal-edit") {
+      result = await api("portal/personal/update", { method: "POST", body: JSON.stringify({ id: data.id, label: form.get("label"), model: form.get("model"), plate: form.get("plate"), enabled: form.get("enabled") === "on" }) });
+      toast(`Saved ${result.result.label}.`);
+    } else if (action === "personal-owner") {
+      result = await api("portal/personal/owner", { method: "POST", body: JSON.stringify({ id: data.id, ownerId: form.get("ownerId") }) });
+      toast("Ownership transferred.");
+    } else if (action === "personal-delete") {
+      result = await api("portal/personal/delete", { method: "POST", body: JSON.stringify({ id: data.id }) });
+      toast(`Deleted ${result.result.label}.`);
+    } else if (action === "personal-trust") {
+      result = await api("portal/personal/trust", { method: "POST", body: JSON.stringify({ id: data.id, discordId: form.get("discordId") }) });
+      toast("Trusted. They can spawn it from F7 right away.");
+    } else if (action === "personal-tag") {
+      result = await api("portal/personal/tag", { method: "POST", body: JSON.stringify({ id: data.id, tagId: Number(form.get("tagId")) }) });
+      toast("Tag lock added.");
     } else if (action === "ops-handoff") {
       result = await api("portal/liveops/action", { method: "POST", body: JSON.stringify({ action: "handoff_add", body: form.get("body"), pinned: form.get("pinned") === "on" }) });
       toast("Handoff posted for the staff team.");

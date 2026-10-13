@@ -446,7 +446,7 @@ local function wardrobe(discord, kind, orgId)
         FROM headtags t
         JOIN headtag_grants g ON g.tag_id=t.id
         LEFT JOIN organizations o ON o.id=t.org_id
-        WHERE g.discord_id=? AND t.kind=? AND t.enabled=TRUE
+        WHERE g.discord_id=? AND (t.kind=? OR t.kind='both') AND t.enabled=TRUE
           AND (t.org_id IS NULL OR t.org_id=?)
         ORDER BY t.priority DESC,t.label
     ]], { discord, kind, orgId })
@@ -456,7 +456,7 @@ local function canWear(discord, tagId, kind, orgId)
     if not tagId then return true, nil end
     local row = MySQL.single.await([[
         SELECT t.org_id FROM headtags t JOIN headtag_grants g ON g.tag_id=t.id
-        WHERE g.discord_id=? AND t.id=? AND t.kind=? AND t.enabled=TRUE LIMIT 1
+        WHERE g.discord_id=? AND t.id=? AND (t.kind=? OR t.kind='both') AND t.enabled=TRUE LIMIT 1
     ]], { discord, tagId, kind })
     if not row then return false, 'grant' end
     if row.org_id and tonumber(row.org_id) ~= tonumber(orgId) then return false, 'duty' end
@@ -1207,11 +1207,17 @@ RegisterNetEvent('fbrp:vehicles:request', function()
     end
     local orgGarage=FBRP.Economy and FBRP.Economy.garageCategory and FBRP.Economy.garageCategory(src)
     if orgGarage then table.insert(categories,1,orgGarage) end
+    local personal=FBRP.Personals and FBRP.Personals.category and FBRP.Personals.category(src)
+    if personal then table.insert(categories,1,personal) end
     TriggerClientEvent('fbrp:vehicles:data',src,categories)
 end)
 
 RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
     local src=source; categoryId=clean(categoryId,32); model=clean(model,40):lower()
+    if categoryId=='personal' then
+        if FBRP.Personals and FBRP.Personals.spawn then return FBRP.Personals.spawn(src,model) end
+        return notify(src,'Personal vehicles are not available right now.','error')
+    end
     local orgGarage=categoryId=='org' and FBRP.Economy and FBRP.Economy.garageCategory and FBRP.Economy.garageCategory(src)
     if orgGarage then
         for _,vehicle in ipairs(orgGarage.vehicles) do
@@ -1291,6 +1297,7 @@ SetHttpHandler(function(req,res)
     req.setDataHandler(function(body)
         local ok,payload=pcall(json.decode,body~='' and body or '{}'); if not ok then payload={} end
         if req.path=='/refresh' then loadPermissionModel(); for src in pairs(sessions) do refreshPlayer(src) end; TriggerEvent('fbrp:radio:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
+        if req.path=='/personals/refresh' then TriggerEvent('fbrp:personals:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/economy/refresh' then TriggerEvent('fbrp:economy:reload'); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/announce' then broadcast('FLORIDA BAY',clean(payload.message,300)); res.writeHead(200,headers); return res.send('{"ok":true}') end
         if req.path=='/ops/action' and FBRP.Server and FBRP.Server.liveOpsAction then

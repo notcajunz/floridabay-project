@@ -25,7 +25,8 @@ server_scripts {
     'server/life.lua',
     'server/activities.lua',
     'server/scenes.lua',
-    'server/economy.lua'
+    'server/economy.lua',
+    'server/personals.lua'
 }
 
 client_scripts {
@@ -41,7 +42,8 @@ client_scripts {
     'client/life.lua',
     'client/activities.lua',
     'client/scenes.lua',
-    'client/economy.lua'
+    'client/economy.lua',
+    'client/personals.lua'
 }
 
 ui_page 'web/index.html'

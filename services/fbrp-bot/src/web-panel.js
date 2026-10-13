@@ -13,6 +13,7 @@ import { OWNER_DISCORD_ID } from "./access-control.js";
 import { staffLevel } from "./database.js";
 import { findLinkedAccounts } from "./alts.js";
 import { organizationActivity } from "./investigation.js";
+import { MAX_TRUSTED } from "./personals.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -24,7 +25,7 @@ const commandReferenceFile = path.resolve(webRoot, "../../../BOT_COMMANDS.md");
 const ACTOR = OWNER_DISCORD_ID;
 const INVESTIGATION_ROLE_ID = "1558227272107036755";
 /** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
-const ORG_ADMIN_RESOURCES = new Set(["organizations", "organization-requirements", "headtags", "org-shop", "org-wallets"]);
+const ORG_ADMIN_RESOURCES = new Set(["organizations", "organization-requirements", "headtags", "org-shop", "org-wallets", "personals", "personal-trust", "personal-tags"]);
 /** Read-only lookups those sections need for their dropdowns. */
 const ORG_ADMIN_LOOKUPS = { "ace-groups": ["name", "label"] };
 const now = () => Date.now();
@@ -230,14 +231,14 @@ export const PANEL_RESOURCES = {
   headtags: {
     label: "Headtags",
     group: "Community",
-    description: "Top headtags and bottom gang tags available in game.",
+    description: "Top headtags, bottom gang tags, and dual-slot tags available in game.",
     table: "headtags",
     pk: ["id"],
     order: "kind,priority DESC,label",
     effect: "game",
     fields: [
       field("id", "ID", "number", { readonly: true, auto: true }),
-      field("kind", "Tag slot", "select", { options: ["head", "gang"], default: "head" }),
+      field("kind", "Tag slot", "select", { options: ["head", "gang", "both"], default: "head" }),
       field("label", "Label", "text", { required: true }),
       field("color", "Color", "color", { default: "#43E8D8" }),
       field("guild_id", "Discord server", "guild"),
@@ -275,6 +276,70 @@ export const PANEL_RESOURCES = {
       const tag = await db.one("SELECT guild_id,role_id FROM headtags WHERE id=?", [key.tag_id]);
       await setRole(client, tag?.guild_id, tag?.role_id, key.discord_id, false, "Headtag revoke (control panel)");
     },
+  },
+  personals: {
+    label: "Personal vehicles",
+    group: "Community",
+    description: "Vehicle models reserved for one owner. Only the owner, their trusted people and tag holders can spawn and drive them from F7.",
+    table: "personal_vehicles",
+    pk: ["id"],
+    order: "label,id",
+    effect: "personals",
+    fields: [
+      field("id", "ID", "number", { readonly: true, auto: true }),
+      field("model", "Vehicle model (spawn name)", "text", { required: true }),
+      field("label", "Name in the garage", "text", { required: true }),
+      field("plate", "Plate (blank = automatic)", "text"),
+      field("owner_id", "Owner Discord ID", "snowflake", { required: true }),
+      field("enabled", "Enabled", "boolean", { default: true }),
+      field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
+      field("created_at", "Created at", "timestamp", { default: "now", advanced: true }),
+    ],
+    validate: async (values) => {
+      values.model = String(values.model || "").trim().toLowerCase();
+      if (!/^[a-z0-9_]{2,40}$/.test(values.model)) throw new Error("Model must be the vehicle's spawn name (letters, numbers and underscores).");
+      if (values.plate != null) {
+        values.plate = String(values.plate).trim().toUpperCase();
+        if (!/^[A-Z0-9 ]{1,8}$/.test(values.plate)) throw new Error("Plates are up to 8 letters, numbers or spaces.");
+      }
+    },
+  },
+  "personal-trust": {
+    label: "Personal vehicle trust",
+    group: "Community",
+    description: `People a vehicle's owner trusts to spawn and drive it (up to ${MAX_TRUSTED} per vehicle).`,
+    table: "personal_vehicle_trust",
+    pk: ["personal_id", "discord_id"],
+    order: "personal_id,added_at",
+    effect: "personals",
+    fields: [
+      field("personal_id", "Personal vehicle", "relation", { source: "personals", value: "id", display: "label", required: true }),
+      field("discord_id", "Discord user ID", "snowflake", { required: true }),
+      field("added_by", "Added by", "text", { default: ACTOR, advanced: true }),
+      field("added_at", "Added at", "timestamp", { default: "now", advanced: true }),
+    ],
+    validate: async (values, { db }) => {
+      const owner = await db.one("SELECT owner_id FROM personal_vehicles WHERE id=?", [values.personal_id]);
+      if (!owner) throw new Error("That personal vehicle no longer exists.");
+      if (String(owner.owner_id) === String(values.discord_id)) throw new Error("The owner already has access.");
+      const row = await db.one("SELECT COUNT(*) n FROM personal_vehicle_trust WHERE personal_id=? AND discord_id<>?", [values.personal_id, values.discord_id]);
+      if (Number(row?.n || 0) >= MAX_TRUSTED) throw new Error(`A personal vehicle can trust up to ${MAX_TRUSTED} people.`);
+    },
+  },
+  "personal-tags": {
+    label: "Personal vehicle tag locks",
+    group: "Community",
+    description: "Tags a personal vehicle is locked to. Everyone holding the tag can spawn and drive it.",
+    table: "personal_vehicle_tags",
+    pk: ["personal_id", "tag_id"],
+    order: "personal_id,tag_id",
+    effect: "personals",
+    fields: [
+      field("personal_id", "Personal vehicle", "relation", { source: "personals", value: "id", display: "label", required: true }),
+      field("tag_id", "Tag", "relation", { source: "headtags", value: "id", display: "label", required: true }),
+      field("added_by", "Added by", "text", { default: ACTOR, advanced: true }),
+      field("added_at", "Added at", "timestamp", { default: "now", advanced: true }),
+    ],
   },
   organizations: {
     label: "Organizations",
@@ -368,7 +433,15 @@ export const PANEL_RESOURCES = {
       field("discord_role_id", "Rank role", "role", { guildField: "discord_guild_id" }),
       field("ace_group", "ACE group (/staff add)", "relation", { source: "ace-groups", value: "name", display: "label" }),
       field("sort_order", "Display order", "number", { default: 0 }),
-      field("weekly_seconds", "Weekly requirement (seconds)", "number", { default: 0 }),
+      field("weekly_seconds", "Weekly hour requirement", "number", {
+        default: 0,
+        min: 0,
+        max: 168,
+        step: 0.25,
+        multiplier: 3600,
+        suffix: "h / week",
+        help: "Required staff-duty hours in a rolling 7-day period. Use 0 for no requirement.",
+      }),
       field("minimum_days", "Minimum days", "number", { default: 0 }),
       field("created_at", "Created at", "timestamp", { default: "now", advanced: true }),
     ],
@@ -684,7 +757,11 @@ function normalizedValue(meta, value) {
     if (value === "now") return now();
     const number = Number(value);
     if (!Number.isFinite(number)) throw new Error(`${meta.label} must be a number.`);
-    return number;
+    if (meta.min !== undefined && number < Number(meta.min)) throw new Error(`${meta.label} must be at least ${meta.min}.`);
+    if (meta.max !== undefined && number > Number(meta.max)) throw new Error(`${meta.label} must be no more than ${meta.max}.`);
+    const stored = number * Number(meta.multiplier || 1);
+    if (!Number.isSafeInteger(stored)) throw new Error(`${meta.label} has too many decimal places.`);
+    return stored;
   }
   if (meta.type === "json") {
     if (typeof value === "string") {
@@ -858,7 +935,7 @@ export function startWebPanel(context) {
     bindSyncRole, setGlobalSyncOrder, pushGlobalSyncs, ensureTicketPanel,
     createWebsiteTicket, websiteTicketAction, websiteTicketTypes,
     websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard, announceCallsign,
-    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, log,
+    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, log,
   } = context;
 
   const cookieFor = (request, name, value, maxAge) => {
@@ -1018,6 +1095,7 @@ export function startWebPanel(context) {
     } else if (resource.effect === "game") await refreshGame();
     else if (resource.effect === "tickets") await ensureTicketPanel();
     else if (resource.effect === "economy") await callGame("/economy/refresh", {}).catch(() => null);
+    else if (resource.effect === "personals") await callGame("/personals/refresh", {}).catch(() => null);
     else if (resource.effect === "security") await ensureProtectedRoleBoard();
     else if (resource.effect === "panels") {
       await ensureTicketPanel().catch(() => {});
@@ -1218,7 +1296,7 @@ export function startWebPanel(context) {
     const week = Date.now() - 7 * 86400000;
     return db.query(
       `SELECT m.discord_id,m.display_name,m.username,m.rank_name,m.callsign,m.status,m.joined_at,m.rank_changed_at,m.tickets_handled,m.activity_note,
-              r.id rank_id,r.sort_order rank_sort,c.name category_name,c.sort_order category_sort,
+              r.id rank_id,r.sort_order rank_sort,r.weekly_seconds,c.name category_name,c.sort_order category_sort,
               COALESCE(h.total_seconds,0) total_seconds,COALESCE(h.week_seconds,0) week_seconds,COALESCE(h.shift_count,0) shift_count
          FROM staff_roster_members m
          LEFT JOIN staff_roster_ranks r ON r.id=m.rank_id
@@ -1417,15 +1495,17 @@ export function startWebPanel(context) {
       websiteTicketPriorities(),
     ]);
     const appealData = await appeals.memberData(session.id, punishments);
-    const [exams, orgEconomy] = await Promise.all([
+    const [exams, orgEconomy, personalVehicles] = await Promise.all([
       staffExams ? staffExams.portalData(session.id).catch((error) => { console.error("[FBRP panel] exams:", error); return null; }) : null,
       economy ? economy.portalData(session.id).catch((error) => { console.error("[FBRP panel] economy:", error); return null; }) : null,
+      personals ? personals.portalData(session.id).catch((error) => { console.error("[FBRP panel] personals:", error); return null; }) : null,
     ]);
     const data = {
       user,
       access,
       exams,
       economy: orgEconomy,
+      personals: personalVehicles,
       verified: { discord: true, game: Boolean(player), gameName: player?.name || null, lastSeen: player?.last_seen || null },
       roster,
       profile,
@@ -1457,6 +1537,7 @@ export function startWebPanel(context) {
       ...(data.handoffNotes || []).flatMap((row) => [row.author_id, row.resolved_by]),
       ...appealData.appeals.map((row) => row.reviewed_by),
       ...(exams?.reviewQueue || []).flatMap((row) => [row.discord_id, row.reviewer_id]),
+      ...(personalVehicles?.all || personalVehicles?.mine || []).flatMap((row) => [row.owner_id, ...row.trusted.map((item) => item.discord_id)]),
       ...(orgEconomy?.organizations || []).flatMap((org) => [...org.leaders, ...org.transactions.map((row) => row.actor_id), ...org.purchases.map((row) => row.purchased_by), ...(org.roster || []).map((row) => row.discord_id)]),
     ]);
     return data;
@@ -1678,6 +1759,14 @@ export function startWebPanel(context) {
         else if (url.pathname === "/api/portal/org/motd") result = await economy.setMotd(session.id, input);
         else if (url.pathname === "/api/portal/org/adjust") result = await economy.adjust(session.id, input);
         else if (url.pathname === "/api/portal/org/leader") result = await economy.setLeader(session.id, input);
+        else if (url.pathname === "/api/portal/personal/create") result = await personals.create(session.id, input);
+        else if (url.pathname === "/api/portal/personal/update") result = await personals.update(session.id, input);
+        else if (url.pathname === "/api/portal/personal/delete") result = await personals.remove(session.id, input);
+        else if (url.pathname === "/api/portal/personal/owner") result = await personals.setOwner(session.id, input);
+        else if (url.pathname === "/api/portal/personal/trust") result = await personals.trust(session.id, input);
+        else if (url.pathname === "/api/portal/personal/untrust") result = await personals.untrust(session.id, input);
+        else if (url.pathname === "/api/portal/personal/tag") result = await personals.lockTag(session.id, input);
+        else if (url.pathname === "/api/portal/personal/untag") result = await personals.unlockTag(session.id, input);
         else if (url.pathname === "/api/portal/ticket/request-close") {
           const ticket = await db.one("SELECT * FROM support_tickets WHERE id=? AND author_id=?", [Number(input.ticketId), session.id]);
           if (!ticket || ticket.status === "closed") throw new Error("That open ticket was not found.");

@@ -1,6 +1,6 @@
 # Florida Bay bot command reference
 
-This file documents every command registered by the Discord bot: **31 top-level slash commands**, **156 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
+This file documents every command registered by the Discord bot: **32 top-level slash commands**, **166 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
 
 ## How permissions work
 
@@ -13,7 +13,7 @@ This file documents every command registered by the Discord bot: **31 top-level 
 
 ## Command index
 
-[`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
+[`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/personal`](#personal) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
 
 ## /exam
 
@@ -130,7 +130,7 @@ Create and manage overhead tags
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/headtag create <kind> <label> <color> [role] [priority] [organization]` | Create a Discord-gated headtag or gang tag<br><small>Arguments: `kind` (required text) — Tag slot. Choices: `Headtag (top)`, `Gang tag (bottom)`. `label` (required text) — Text shown in game. `color` (required text) — Hex color, e.g. #43E8D8. `role` (optional role) — Existing role; leave blank to create one. `priority` (optional integer) — Wardrobe order. `organization` (optional text) — Only wearable while on duty as this organization.</small> | `fbrp.headtags.manage` |
+| `/headtag create <kind> <label> <color> [role] [priority] [organization]` | Create a Discord-gated headtag, gang tag, or dual-slot tag<br><small>Arguments: `kind` (required text) — Tag slot. Choices: `Headtag (top)`, `Gang tag (bottom)`, `Headtag + gang tag (both)`. `label` (required text) — Text shown in game. `color` (required text) — Hex color, e.g. #43E8D8. `role` (optional role) — Existing role; leave blank to create one. `priority` (optional integer) — Wardrobe order. `organization` (optional text) — Only wearable while on duty as this organization.</small> | `fbrp.headtags.manage` |
 | `/headtag delete <id> [delete_role]` | Delete a tag definition<br><small>Arguments: `id` (required integer) — Tag ID. `delete_role` (optional true/false) — Also delete the bot-created role.</small> | `fbrp.headtags.manage` |
 | `/headtag grant <id> <member>` | Grant a tag directly<br><small>Arguments: `id` (required integer) — Tag ID. `member` (required user) — Discord member.</small> | `fbrp.headtags.manage` |
 | `/headtag revoke <id> <member>` | Revoke direct tag access<br><small>Arguments: `id` (required integer) — Tag ID. `member` (required user) — Discord member.</small> | `fbrp.headtags.manage` |
@@ -139,6 +139,32 @@ Create and manage overhead tags
 Important behavior:
 
 - If `create` is run without a role, the bot creates one. `delete_role` controls whether deleting a tag also deletes its Discord role.
+
+## /personal
+
+Personal vehicles: cars only their owner and trusted people can spawn from F7 and drive
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/personal add <model> <owner> [label] [plate]` | Management: make a vehicle model someone's personal<br><small>Arguments: `model` (required text) — Spawn name of the vehicle, e.g. sultanrs. `owner` (required user) — Who owns it. `label` (optional text) — Name shown in the F7 garage. `plate` (optional text) — Custom plate, up to 8 characters.</small> | Co-Owner rank or higher; `fbrp.personals.manage` also grants access |
+| `/personal edit <vehicle> [label] [model] [plate] [enabled]` | Management: change a personal's name, model, plate or availability<br><small>Arguments: `vehicle` (required text) — Personal vehicle (autocomplete). `plate` — `-` resets to the automatic plate. `enabled` (optional true/false) — Turn the vehicle on or off.</small> | Co-Owner rank or higher; `fbrp.personals.manage` also grants access |
+| `/personal owner <vehicle> <member>` | Management: transfer a personal to someone else<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — New owner.</small> | Co-Owner rank or higher; `fbrp.personals.manage` also grants access |
+| `/personal remove <vehicle>` | Management: delete a personal vehicle<br><small>Arguments: `vehicle` (required text) — Personal vehicle.</small> | Co-Owner rank or higher; `fbrp.personals.manage` also grants access |
+| `/personal trust <vehicle> <member>` | Let someone spawn and drive a personal (up to 3 people)<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to trust.</small> | Vehicle owner; Co-Owner rank or higher (or `fbrp.personals.manage`) for any vehicle |
+| `/personal untrust <vehicle> <member>` | Remove someone from a personal's trust list<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to remove.</small> | Vehicle owner; Co-Owner rank or higher (or `fbrp.personals.manage`) for any vehicle |
+| `/personal locktag <vehicle> <tag>` | Lock a personal to a tag so everyone holding the tag can use it<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `tag` (required text) — Headtag or gang tag (autocomplete). Owners can only pick tags they hold.</small> | Vehicle owner; Co-Owner rank or higher (or `fbrp.personals.manage`) for any vehicle |
+| `/personal unlocktag <vehicle> <tag>` | Remove a tag lock from a personal<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `tag` (required text) — Tag to remove.</small> | Vehicle owner; Co-Owner rank or higher (or `fbrp.personals.manage`) for any vehicle |
+| `/personal info <vehicle>` | Show one personal vehicle<br><small>Arguments: `vehicle` (required text) — Personal vehicle.</small> | Owner, trusted people and tag holders; management can view any |
+| `/personal list [member] [all]` | List your personal vehicles<br><small>Arguments: `member` (optional user) — Management: whose vehicles to show. `all` (optional true/false) — Management: show every personal vehicle.</small> | Everyone for their own; management for others |
+
+Important behavior:
+
+- A personal is a vehicle **model** reserved for one owner. It is spawned from the **F7** garage under **Personal**; nobody else sees it there. The model must already be installed on the game server.
+- The owner can trust up to **3** people. Trusted people and tag holders can spawn and drive it but are never registered as its owner.
+- A tag lock gives access to everyone holding that tag (Discord role or direct grant). Owners can only lock to tags they hold; management can lock to any tag.
+- Only the driver seat is restricted: anyone can ride along, but only the owner, trusted people and tag holders can drive. `fbrp.personals.bypass` lets staff drive any personal vehicle.
+- The same controls are on the website under **Community → Personal vehicles** (owners) and in the live configuration panel (Co-Owner and above).
+- Changes reach the game server immediately.
 
 ## /organization
 

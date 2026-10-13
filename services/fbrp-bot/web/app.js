@@ -232,6 +232,10 @@ function renderOverview() {
 /* --------------------------------- resources --------------------------------- */
 function displayValue(meta, value) {
   if (value === null || value === undefined || value === "") return `<span class="faint">-</span>`;
+  if (meta.type === "number" && meta.multiplier) {
+    const shown = Number(value) / Number(meta.multiplier);
+    return `<span>${esc(Number.isInteger(shown) ? shown : shown.toFixed(2).replace(/0+$/, "").replace(/\.$/, ""))}${meta.suffix ? ` ${esc(meta.suffix)}` : ""}</span>`;
+  }
   if (meta.type === "boolean") return `<span class="chip ${value ? "on" : ""}">${value ? "Yes" : "No"}</span>`;
   if (meta.type === "color") return `<span class="chip"><span class="swatch" style="background:${esc(value)}"></span>${esc(value)}</span>`;
   if (meta.type === "timestamp") return `<span title="${esc(time(value))}">${esc(ago(value))}</span>`;
@@ -316,7 +320,8 @@ function resourceRows(id, rows, fields) {
 function inputFor(meta, value) {
   const required = meta.required ? "required" : "";
   const disabled = meta.readonly ? "disabled" : "";
-  const current = value ?? (meta.default === "now" ? Date.now() : meta.default ?? "");
+  const raw = value ?? (meta.default === "now" ? Date.now() : meta.default ?? "");
+  const current = meta.type === "number" && meta.multiplier && raw !== "" ? Number(raw) / Number(meta.multiplier) : raw;
   const help = meta.help ? `<small>${esc(meta.help)}</small>` : "";
   const label = `<span>${esc(meta.label)}${meta.required ? "" : ` <span class="opt">(optional)</span>`}</span>`;
   if (meta.type === "boolean") return `<label class="toggle"><input name="${esc(meta.name)}" type="checkbox" ${current ? "checked" : ""} ${disabled}> ${esc(meta.label)}</label>`;
@@ -338,7 +343,8 @@ function inputFor(meta, value) {
   const type = meta.type === "number" ? "number" : meta.type === "color" ? "color" : "text";
   const list = meta.suggestions?.length ? `list="dl-${esc(meta.name)}"` : "";
   const datalist = meta.suggestions?.length ? `<datalist id="dl-${esc(meta.name)}">${meta.suggestions.map((item) => `<option value="${esc(item.value)}">${esc(item.label || "")}</option>`).join("")}</datalist>` : "";
-  return `<label class="field">${label}<input name="${esc(meta.name)}" type="${type}" value="${esc(current)}" ${list} ${required} ${disabled}>${datalist}${help}</label>`;
+  const limits = meta.type === "number" ? `${meta.min !== undefined ? `min="${esc(meta.min)}"` : ""} ${meta.max !== undefined ? `max="${esc(meta.max)}"` : ""} ${meta.step !== undefined ? `step="${esc(meta.step)}"` : ""}` : "";
+  return `<label class="field">${label}<input name="${esc(meta.name)}" type="${type}" value="${esc(current)}" ${list} ${limits} ${required} ${disabled}>${datalist}${help}</label>`;
 }
 
 /** Role and channel pickers only list entries from the server picked in the same form. */

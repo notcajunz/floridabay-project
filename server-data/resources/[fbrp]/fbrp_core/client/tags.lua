@@ -1,8 +1,11 @@
 -- Overhead identity: a large headtag with the server ID on the top line and the
 -- gang/organization tag underneath. Player names are never drawn.
 
-local HEAD_FONT, SUB_FONT = 4, 4
-local HEAD_SCALE, ID_SCALE, SUB_SCALE = 0.82, 0.66, 0.82
+-- Match the reference tag treatment: GTA's clean proportional Chalet face
+-- with equal-size rank/ID and gang lines. Font 4 is the condensed Chalet face
+-- and reads much narrower/heavier than the reference.
+local HEAD_FONT, SUB_FONT = 0, 0
+local HEAD_SCALE, ID_SCALE, SUB_SCALE = 0.60, 0.52, 0.60
 local HEAD_BONE = 31086
 
 local function hexColor(hex)
@@ -59,17 +62,25 @@ local visible = {}
 local noclipActive = false
 local lastNoclipSignal = 0
 
--- vMenu keeps its noclip flag internal, but while noclip is active it makes
--- the controlled ped/vehicle hidden with 20% alpha every frame. Detect that
--- exact combination and publish a small privacy state for every other client.
+-- vMenu keeps its noclip flag internal, but its NoClipHandler runs every frame on the
+-- controlled entity (the ped, or the vehicle it is in): FreezeEntityPosition(true),
+-- SetEntityCollision(false), SetEntityVisible(false) and SetEntityAlpha(51), with
+-- SetLocalPlayerVisibleLocally(true) so the staff member still sees themself.
+-- Detect that combination and publish a small privacy state for every other client.
 -- The short grace period bridges vMenu's per-frame property reset.
+local function looksNoclipped(entity)
+    if not DoesEntityExist(entity) or GetEntityAlpha(entity) >= 200 then return false end
+    -- The frozen check is the fallback should visibility read back as true because of
+    -- SetLocalPlayerVisibleLocally.
+    return not IsEntityVisible(entity) or IsEntityPositionFrozen(entity)
+end
+
 CreateThread(function()
     LocalPlayer.state:set('fbrp:noclip', false, true)
     while true do
         local ped = PlayerPedId()
-        local entity = GetVehiclePedIsIn(ped, false)
-        if entity == 0 then entity = ped end
-        if DoesEntityExist(entity) and not IsEntityVisible(entity) and GetEntityAlpha(entity) < 200 then
+        local vehicle = GetVehiclePedIsIn(ped, false)
+        if looksNoclipped(ped) or (vehicle ~= 0 and looksNoclipped(vehicle)) then
             lastNoclipSignal = GetGameTimer()
         end
         local active = lastNoclipSignal > 0 and GetGameTimer() - lastNoclipSignal < 650
@@ -80,6 +91,21 @@ CreateThread(function()
         Wait(0)
     end
 end)
+
+-- vMenu's overhead names are native gamer tags ("Name [id]") that stay drawn over invisible
+-- noclipping staff and cannot be hidden per player from outside vMenu. fbrp's own tags are
+-- the only overhead identity, so vMenu's gamer tags are cleared. Nothing else in this
+-- server creates gamer tags; the engine pool is 32 entries.
+if FBRP.Config.hideVmenuGamerTags then
+    CreateThread(function()
+        while true do
+            for id = 0, 31 do
+                if IsMpGamerTagActive(id) then RemoveMpGamerTag(id) end
+            end
+            Wait(250)
+        end
+    end)
+end
 
 -- Gather who should have a tag a few times a second; draw every frame.
 CreateThread(function()
