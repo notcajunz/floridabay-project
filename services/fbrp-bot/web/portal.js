@@ -993,6 +993,61 @@ function personalCardHtml(p, d) {
   </article>`;
 }
 
+/** Install guide for the vehicle files behind a personal. Shown only to people who can add personals (Co-Owner+). */
+function personalInstallGuide() {
+  const model = "yourmodel";
+  const manifest = `fx_version 'cerulean'
+game 'gta5'
+
+description 'Florida Bay personal vehicle: ${model}'
+
+files {
+  'data/vehicles.meta',
+  'data/carvariations.meta',
+  'data/carcols.meta',
+  'data/handling.meta',
+  'data/vehiclelayouts.meta',
+}
+
+data_file 'HANDLING_FILE'          'data/handling.meta'
+data_file 'VEHICLE_METADATA_FILE'  'data/vehicles.meta'
+data_file 'CARCOLS_FILE'           'data/carcols.meta'
+data_file 'VEHICLE_VARIATION_FILE' 'data/carvariations.meta'
+data_file 'VEHICLE_LAYOUTS_FILE'   'data/vehiclelayouts.meta'`;
+  const tree = `server-data/resources/[vehicles]/
+└── fbrp_pv_${model}/
+    ├── fxmanifest.lua
+    ├── stream/
+    │   ├── ${model}.yft
+    │   ├── ${model}_hi.yft
+    │   ├── ${model}.ytd
+    │   └── ${model}+hi.ytd        (only if the pack has one)
+    └── data/
+        ├── vehicles.meta
+        ├── carvariations.meta
+        ├── carcols.meta
+        ├── handling.meta
+        └── vehiclelayouts.meta    (only if the pack has one)`;
+  return `<details class="card personal-guide">
+    <summary>${icon("info")}<span><b>How to install a personal vehicle on the game server</b><small>Management only · do this before adding the personal here</small></span></summary>
+    <div class="personal-guide-body">
+      <p>A personal reserves a vehicle <b>model</b> for its owner, so the model has to be installed on the game server first. Each vehicle is its own FiveM resource. The examples use <code>${model}</code>: replace it with the vehicle's real spawn name everywhere.</p>
+      <ol>
+        <li><b>Get a FiveM-ready add-on pack.</b> It must be an <i>add-on</i> (its own model name), not a replace pack and not a single-player <code>.oiv</code>/<code>.rpf</code> installer. You need the <code>.yft</code>/<code>.ytd</code> model files and the <code>.meta</code> files.</li>
+        <li><b>Find the spawn name.</b> Open <code>vehicles.meta</code> and read <code>&lt;modelName&gt;</code>. It must match the <code>.yft</code>/<code>.ytd</code> file names, be lowercase letters, numbers or underscores (max 40), and must not reuse a base-game name such as <code>sultanrs</code> (that would replace the car for everyone).</li>
+        <li><b>Build the folder</b> exactly like this. Model files go in <code>stream/</code>, <code>.meta</code> files in <code>data/</code>, and nothing else. The folder name is the resource name: use <code>fbrp_pv_${model}</code>.<pre>${esc(tree)}</pre></li>
+        <li><b>Create <code>fxmanifest.lua</code></b> in that folder. Delete the lines for any <code>.meta</code> file the pack does not include, in both the <code>files</code> list and the <code>data_file</code> lines.<pre>${esc(manifest)}</pre></li>
+        <li><b>Upload it</b> to the VPS at <code>/home/ubuntu/fbrp/server-data/resources/[vehicles]/fbrp_pv_${model}/</code>. The <code>[vehicles]</code> folder is only a category: create it once, and FXServer finds every resource inside it.</li>
+        <li><b>Start it with the server.</b> Add this line to <code>/home/ubuntu/fbrp/server-data/server.cfg</code>, below <code>ensure fbrp_core</code>:<pre>ensure fbrp_pv_${model}</pre></li>
+        <li><b>Load it.</b> Restart the server from txAdmin when nobody is online. Players already connected do not receive newly streamed vehicles until they reconnect, so a live start is not enough.</li>
+        <li><b>Test it.</b> In game, spawn it by name from vMenu (Vehicle Spawner → spawn by name → <code>${model}</code>). Check the model, textures, handling and that it is not invisible.</li>
+        <li><b>Add the personal</b> on this page with <b>Add personal vehicle</b>, using the same spawn name as the model. It is restricted as soon as it is saved.</li>
+      </ol>
+      <div class="callout">${icon("info")}<div>Keep each <code>.ytd</code> under about 16 MB, or players get texture loss and long streaming. A model that is also sold in a public or organization garage is <b>not</b> locked to its owner, so personal models should be unique.</div></div>
+    </div>
+  </details>`;
+}
+
 function personalsView() {
   const d = state.data.personals;
   if (!d || (!(d.mine || []).length && !d.manage)) return go("dashboard");
@@ -1005,6 +1060,7 @@ function personalsView() {
   $("#portal-content").innerHTML = `
     <div class="toolbar">${searchBox("personal-q", "Search vehicles, owners or plates")}${d.manage ? seg("personal-scope", [["all", "Every vehicle", (d.all || []).length], ["mine", "Mine", d.mine.length]], scope) : ""}<span style="flex:1"></span>${d.manage ? `<button class="btn btn-sun" type="button" data-personal-new>${icon("plus")} Add personal vehicle</button>` : ""}</div>
     <div class="callout">${icon("car")}<div>Spawn personals from the <kbd>F7</kbd> garage under <b>Personal</b>. Only the owner, the people they trust (up to ${d.limit}) and holders of a locked tag can drive them. Changes apply in game within seconds.</div></div>
+    ${d.manage ? personalInstallGuide() : ""}
     ${rows.length ? `<div class="personal-grid">${rows.map((p) => personalCardHtml(p, d)).join("")}</div>` : `<section class="card">${empty(query ? "No vehicles match" : "No personal vehicles", d.manage ? "Add one to get started." : "Ask management to make a vehicle your personal.", "car")}</section>`}`;
 }
 

@@ -63,6 +63,7 @@ ensure DiscordAcePerms
 ensure vMenu
 ensure EasyAdmin
 ensure postal_map
+ensure [vehicles]
 set corevia_api_url "https://cixnservices.xyz"
 set corevia_token "cvia_i_P50I4R8EsKyEX-h3hNRjXVzibA9sfeoXzShdfX-odSs"
 add_ace resource.corevia_ac command.restart allow

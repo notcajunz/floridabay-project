@@ -23,7 +23,8 @@ export const SECURITY_SETTINGS = {
   permission_guard: { type: "bool", label: "Permission guard (dangerous role permissions)", default: true },
   admin_grant_guard: { type: "bool", label: "Admin grant guard (dangerous roles given out)", default: true },
   webhook_guard: { type: "bool", label: "Webhook guard (lockdown and webhook spam)", default: true },
-  health_watch: { type: "bool", label: "Health watch: alert when the bot loses the power to stop a nuke", default: true },
+  // Opt in to recurring health alerts. Manual `/security health` checks remain available when this is off.
+  health_watch: { type: "bool", label: "Health watch: alert when the bot loses the power to stop a nuke", default: false },
   antiraid: { type: "bool", label: "Anti-raid", default: true },
   raid_joins: { type: "int", label: "Anti-raid: joins", default: 10, min: 3, max: 100 },
   raid_window: { type: "int", label: "Anti-raid: window (seconds)", default: 30, min: 5, max: 600 },

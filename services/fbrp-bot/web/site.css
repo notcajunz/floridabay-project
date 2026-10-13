@@ -1283,3 +1283,15 @@ button.stat-tile:hover { transform: translateY(-3px); border-color: rgb(var(--to
 .personal-x { margin-left: 2px; border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 2px; opacity: .7; }
 .personal-x:hover { opacity: 1; }
 .personal-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 22px 20px; margin-top: auto; }
+.personal-guide { margin: 14px 0 18px; overflow: hidden; }
+.personal-guide > summary { display: flex; align-items: center; gap: 12px; padding: 16px 20px; cursor: pointer; list-style: none; }
+.personal-guide > summary::-webkit-details-marker { display: none; }
+.personal-guide > summary::after { content: ""; width: 7px; height: 7px; margin-left: auto; border-right: 1.8px solid var(--ink-3); border-bottom: 1.8px solid var(--ink-3); transform: rotate(-45deg); transition: transform .16s; flex: none; }
+.personal-guide[open] > summary::after { transform: rotate(45deg); }
+.personal-guide > summary svg { width: 20px; height: 20px; flex: none; stroke: var(--sea); fill: none; stroke-width: 1.6; }
+.personal-guide > summary span { display: grid; gap: 2px; min-width: 0; }
+.personal-guide > summary small { color: var(--ink-3); font-size: .78rem; }
+.personal-guide-body { padding: 0 22px 20px; color: var(--ink-2); font-size: .9rem; line-height: 1.6; border-top: 1px solid var(--line); }
+.personal-guide-body ol { margin: 14px 0; padding-left: 22px; display: grid; gap: 12px; }
+.personal-guide-body pre { margin: 8px 0 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface-2); font: .8rem/1.5 var(--font-mono); color: var(--ink); overflow-x: auto; white-space: pre; }
+.personal-guide-body code { overflow-wrap: anywhere; }

@@ -24,6 +24,8 @@ const logoFile = path.resolve(webRoot, "../../../server-data/resources/[fbrp]/fb
 const commandReferenceFile = path.resolve(webRoot, "../../../BOT_COMMANDS.md");
 const ACTOR = OWNER_DISCORD_ID;
 const INVESTIGATION_ROLE_ID = "1558227272107036755";
+const PORTAL_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
+const PORTAL_SESSION_TTL_SECONDS = PORTAL_SESSION_TTL_MS / 1000;
 /** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
 const ORG_ADMIN_RESOURCES = new Set(["organizations", "organization-requirements", "headtags", "org-shop", "org-wallets", "personals", "personal-trust", "personal-tags"]);
 /** Read-only lookups those sections need for their dropdowns. */
@@ -940,14 +942,15 @@ export function startWebPanel(context) {
     const base = baseFor(request);
     return `${name}=${encodeURIComponent(value)}; Path=${base.pathname === "/" ? "/" : base.pathname.replace(/\/$/, "")}; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${base.protocol === "https:" ? "; Secure" : ""}`;
   };
-  const sessionCookie = (request, value, maxAge = 7 * 86400) => cookieFor(request, "fbrp_session", value, maxAge);
+  const sessionCookie = (request, value, maxAge = PORTAL_SESSION_TTL_SECONDS) => cookieFor(request, "fbrp_session", value, maxAge);
   const stateCookie = (request, value, maxAge = 600) => cookieFor(request, "fbrp_oauth_state", value, maxAge);
 
   async function sessionFor(request) {
     const raw = parseCookies(request).fbrp_session;
     if (!raw) return null;
     const row = await db.one("SELECT * FROM portal_sessions WHERE session_hash=?", [sha256(raw)]).catch(() => null);
-    if (!row || Number(row.expires_at) <= Date.now()) {
+    const hardExpiry = row ? Math.min(Number(row.expires_at), Number(row.created_at) + PORTAL_SESSION_TTL_MS) : 0;
+    if (!row || hardExpiry <= Date.now()) {
       if (row) await db.query("DELETE FROM portal_sessions WHERE session_hash=?", [row.session_hash]).catch(() => {});
       return null;
     }
@@ -965,7 +968,7 @@ export function startWebPanel(context) {
       : typeof user.displayAvatarURL === "function" ? user.displayAvatarURL({ size: 128 }) : null;
     await db.query(
       "INSERT INTO portal_sessions(session_hash,discord_id,username,avatar,created_at,last_seen,expires_at) VALUES(?,?,?,?,?,?,?)",
-      [sha256(raw), String(user.id), username, avatar, stamp, stamp, stamp + 7 * 86400000],
+      [sha256(raw), String(user.id), username, avatar, stamp, stamp, stamp + PORTAL_SESSION_TTL_MS],
     );
     await db.query("DELETE FROM portal_sessions WHERE expires_at<?", [stamp]).catch(() => {});
     return raw;

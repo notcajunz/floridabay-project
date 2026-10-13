@@ -2146,6 +2146,7 @@ async function securityCommand(i, sub) {
     });
   }
   if (sub === "health") {
+    const healthWatch = (await getSecuritySettings()).health_watch;
     const report = await securityHealth(client);
     const icon = { ok: "🟢", warning: "🟡", critical: "🔴" };
     const items = report.map((item) => {
@@ -2156,7 +2157,9 @@ async function securityCommand(i, sub) {
     return card("Anti-nuke health · every network server", {
       color: critical ? COLORS.danger : report.some((item) => item.grade === "warning") ? COLORS.warning : COLORS.success,
       description: `${critical ? `**${critical} server(s) cannot be fully protected.** ` : ""}Anti-nuke can only stop accounts whose highest role is below the Florida Bay bot role. Members are checked from the bot's member cache.\n\n${chunkLines(items, 3500, "\n\n")[0] || "No network servers."}`,
-      footer: "Florida Bay Roleplay · Checked every 10 minutes; regressions are logged and DMed to owners",
+      footer: healthWatch
+        ? "Florida Bay Roleplay · Checked every 10 minutes; regressions are logged and DMed to owners"
+        : "Florida Bay Roleplay · Automatic health alerts are off; this report is available on demand",
     });
   }
   if (sub === "offenders") {
