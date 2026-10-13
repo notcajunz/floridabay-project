@@ -1597,6 +1597,52 @@ export function startWebPanel(context) {
       if (request.method === "POST" && !sameOrigin(request))
         return sendJson(response, 403, { error: "Cross-site request blocked." });
 
+      // Read-only org and duty-hours lookups for the Gang Manager bot. Authenticated by a shared bearer token.
+      if (url.pathname.startsWith("/api/gangs/")) {
+        const expected = String(process.env.GANGS_API_TOKEN || "");
+        if (expected.length < 24) return sendJson(response, 503, { error: "Gangs API is not configured." });
+        const header = String(request.headers.authorization || "");
+        const given = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+        const same = createHash("sha256").update(given).digest();
+        if (!timingSafeEqual(same, createHash("sha256").update(expected).digest()))
+          return sendJson(response, 401, { error: "Invalid token." });
+        if (request.method !== "GET") return sendJson(response, 405, { error: "Method not allowed." });
+        const match = /^\/api\/gangs\/org\/([^/]{1,80})(?:\/(hours))?$/.exec(url.pathname);
+        if (!match) return sendJson(response, 404, { error: "Not found." });
+        const ref = decodeURIComponent(match[1]);
+        const org = await db.one(
+          `SELECT id,slug,name,type,color,active,guild_id FROM organizations WHERE ${/^\d+$/.test(ref) ? "id=?" : "slug=?"}`,
+          [ref],
+        );
+        if (!org) return sendJson(response, 404, { error: "Organization not found." });
+        if (!match[2]) {
+          const members = await db.one("SELECT COUNT(*) count FROM organization_members WHERE org_id=?", [org.id]);
+          return sendJson(response, 200, { org: { ...org, active: Boolean(org.active), members: Number(members.count) } });
+        }
+        const now = Date.now();
+        const until = Number(url.searchParams.get("until")) || now;
+        const since = Number(url.searchParams.get("since")) || until - 7 * 86400000;
+        const user = String(url.searchParams.get("discord_id") || "");
+        if (user && !/^\d{5,24}$/.test(user)) return sendJson(response, 400, { error: "Invalid discord_id." });
+        // An open shift counts only up to its last heartbeat, so a crashed server cannot inflate it.
+        const rows = await db.query(
+          `SELECT s.discord_id,
+                  SUM(CASE WHEN s.ended_at IS NULL THEN GREATEST(0,FLOOR((s.heartbeat_at-s.started_at)/1000)) ELSE s.seconds END) seconds,
+                  COUNT(*) shifts, MAX(s.ended_at IS NULL) on_duty
+             FROM organization_shifts s
+            WHERE s.org_id=? AND s.started_at>=? AND s.started_at<? ${user ? "AND s.discord_id=?" : ""}
+            GROUP BY s.discord_id ORDER BY seconds DESC LIMIT 500`,
+          user ? [org.id, since, until, user] : [org.id, since, until],
+        );
+        const members = rows.map((row) => ({
+          discordId: String(row.discord_id), seconds: Number(row.seconds), shifts: Number(row.shifts), onDuty: Boolean(Number(row.on_duty)),
+        }));
+        return sendJson(response, 200, {
+          org: { id: org.id, slug: org.slug, name: org.name }, since, until,
+          totalSeconds: members.reduce((sum, row) => sum + row.seconds, 0), members,
+        });
+      }
+
       if (request.method === "GET" && url.pathname === "/api/public/status") {
         const [staff, cases, health, operations] = await Promise.all([
           db.one("SELECT COUNT(*) count FROM staff_roster_members WHERE status<>'removed'"),

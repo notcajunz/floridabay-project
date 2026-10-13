@@ -29,8 +29,7 @@ export async function sync(guild) {
       if (rank) {
         // Group roles follow the rank (and a second rank role is dropped).
         const wantLeadership = rank.tier === "leadership";
-        // Development Team is for developers only: management must not hold it (see roster.js setRoles).
-        const hasBase = !cfg.roles.base || member.roles.cache.has(cfg.roles.base) === !wantLeadership;
+        const hasBase = !cfg.roles.base || member.roles.cache.has(cfg.roles.base);
         const hasLeadership = !cfg.roles.leadership || member.roles.cache.has(cfg.roles.leadership) === wantLeadership;
         const extraRanks = ladder.filter((r) => r.role_id !== rank.role_id && member.roles.cache.has(r.role_id));
         if (!hasBase || !hasLeadership || extraRanks.length) {

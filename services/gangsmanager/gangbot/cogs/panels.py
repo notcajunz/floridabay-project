@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable
 
 import discord
 from discord.ext import commands, tasks
 
+from ..fbrp_api import FbrpApi, FbrpApiError
 from ..common import GangCog, money, without_embed_emojis
 
 log = logging.getLogger(__name__)
 
 PAGE_LIMIT = 3800  # Embed descriptions allow 4096 characters.
-KINDS = ("shop", "leaderboard", "locations")
+KINDS = ("shop", "leaderboard", "locations", "hours")
+HOURS_DAYS = 7
 
 
 def paginate(lines: list[str], limit: int = PAGE_LIMIT) -> list[str]:
@@ -51,6 +55,7 @@ class PanelsCog(GangCog):
             "shop": config.shop_channel_id,
             "leaderboard": config.leaderboard_channel_id,
             "locations": config.location_channel_id,
+            "hours": config.hours_channel_id,
         }[kind]
 
     @tasks.loop(minutes=1)
@@ -78,6 +83,7 @@ class PanelsCog(GangCog):
             "shop": self._shop_embeds,
             "leaderboard": self._leaderboard_embeds,
             "locations": self._location_embeds,
+            "hours": self._hours_embeds,
         }
         for kind in kinds or KINDS:
             channel = guild.get_channel(self._channel_id(kind))
@@ -211,4 +217,39 @@ class PanelsCog(GangCog):
             lines,
             "No gang locations have been added yet.",
             f"{len(by_gang)} gang(s) • {len(rows)} location(s) • Updates automatically",
+        )
+
+    async def _hours_embeds(self, guild: discord.Guild) -> list[discord.Embed]:
+        """Weekly in-game duty hours for every gang linked to an FBRP org."""
+        rows = await self.db.fetch_all(
+            "SELECT name,tier,fbrp_org_id FROM gangs WHERE guild_id=? AND hide_leaderboard=0 "
+            "AND fbrp_org_id IS NOT NULL AND fbrp_org_id<>''",
+            (guild.id,),
+        )
+        api = FbrpApi()
+        until = int(time.time() * 1000)
+
+        async def fetch(row):
+            try:
+                data = await api.hours(row["fbrp_org_id"], until - HOURS_DAYS * 86_400_000, until)
+            except FbrpApiError:
+                return None
+            return row, data
+
+        results = [r for r in await asyncio.gather(*(fetch(r) for r in rows)) if r]
+        results.sort(key=lambda item: (-item[1]["totalSeconds"], item[0]["name"].lower()))
+        lines = []
+        for rank, (row, data) in enumerate(results, 1):
+            total = int(data["totalSeconds"])
+            on_duty = sum(1 for m in data["members"] if m["onDuty"])
+            lines.append(
+                f"`{rank}.` **{row['name']}** · T{row['tier']} · **{total // 3600}h {total % 3600 // 60}m**\n"
+                f"┗ {len(data['members'])} active member(s)" + (f" · {on_duty} on duty" if on_duty else "")
+            )
+        return self._pages(
+            "Hours Leaderboard",
+            discord.Color.green(),
+            lines,
+            "No gangs have an FBRP org linked yet." if not rows else "No duty hours recorded yet.",
+            f"Last {HOURS_DAYS} days of in-game duty • Updates automatically",
         )

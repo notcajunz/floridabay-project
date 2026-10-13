@@ -1,0 +1,176 @@
+diff --git a/services/fbrp-bot/src/devops/layout.js b/services/fbrp-bot/src/devops/layout.js
+index 4c46ba5..a86fa0f 100644
+--- a/services/fbrp-bot/src/devops/layout.js
++++ b/services/fbrp-bot/src/devops/layout.js
+@@ -48,14 +48,20 @@ export const ROLES = [
+ 
+ /**
+  * Who sees and writes in a channel. Roles are referenced by blueprint key.
+- *  public     everyone reads, nobody (but the bot) writes
+- *  open       everyone reads and writes
+- *  team       Development Team reads and writes
+- *  teamRead   Development Team reads, the bot writes
+- *  lead       Leadership reads and writes
+- *  leadRead   Leadership reads, the bot writes
+- *  voice      Development Team connects
+- *  leadVoice  Leadership connects
++ *  public       everyone reads, nobody (but the bot) writes
++ *  open         everyone reads and writes
++ *  team         Development Team reads and writes
++ *  teamRead     Development Team reads, the bot writes
++ *  teamLeadRead Development Team and Leadership read, the bot writes
++ *  lead         Leadership reads and writes
++ *  leadRead     Leadership reads, the bot writes
++ *  voice        Development Team connects
++ *  leadVoice    Leadership connects
++ *  tickets:<k>  the ticket role `k` (support or purchase) reads and writes
++ *
++ * Management (the Leadership group) is deliberately absent from team, teamRead, voice and tickets.
++ * Management members also lose the Development Team role (see roster.js and ranksync.js), because a
++ * channel overwrite cannot hide a channel from one role when another role the member holds allows it.
+  */
+ export const CATEGORIES = [
+   {
+@@ -102,10 +108,10 @@ export const CATEGORIES = [
+     key: "records",
+     emoji: "📚",
+     name: "TEAM RECORDS",
+-    access: "teamRead",
++    access: "teamLeadRead",
+     channels: [
+-      { key: "movements", emoji: "📜", name: "movements", topic: "Every rank movement: hires, promotions, demotions and removals.", access: "teamRead" },
+-      { key: "commendations", emoji: "🏅", name: "commendations", topic: "Commendations and Developer of the Month.", access: "teamRead" },
++      { key: "movements", emoji: "📜", name: "movements", topic: "Every rank movement: hires, promotions, demotions and removals.", access: "teamLeadRead" },
++      { key: "commendations", emoji: "🏅", name: "commendations", topic: "Commendations and Developer of the Month.", access: "teamLeadRead" },
+       { key: "leaveRequests", emoji: "🌴", name: "loa-requests", topic: "Leave of absence requests. Leadership decides with the buttons.", access: "leadRead" },
+       { key: "warnings", emoji: "⚠️", name: "warnings", topic: "Warnings and strikes on file.", access: "leadRead" },
+     ],
+@@ -178,9 +184,10 @@ export function overwritesFor(access, ids, { category = false } = {}) {
+     out.push({ ...everyone, allow: [...READ, P.SendMessages, P.AddReactions] });
+   } else if (kind === "team") {
+     out.push(lockEveryone, allow(team, [...READ, ...WRITE]));
+-    if (leadership) out.push(allow(leadership, [...READ, ...WRITE]));
+   } else if (kind === "teamRead") {
+     out.push(lockEveryone, { id: team, allow: READ, deny: [...WRITE, ...THREADS] });
++  } else if (kind === "teamLeadRead") {
++    out.push(lockEveryone, { id: team, allow: READ, deny: [...WRITE, ...THREADS] });
+     if (leadership) out.push({ id: leadership, allow: READ, deny: [...WRITE, ...THREADS] });
+   } else if (kind === "lead") {
+     out.push(lockEveryone);
+@@ -190,13 +197,12 @@ export function overwritesFor(access, ids, { category = false } = {}) {
+     if (leadership) out.push({ id: leadership, allow: READ, deny: [...WRITE, ...THREADS] });
+   } else if (kind === "voice") {
+     out.push(lockEveryone, allow(team, [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD]));
+-    if (leadership) out.push(allow(leadership, [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD, P.MuteMembers, P.MoveMembers]));
+   } else if (kind === "leadVoice") {
+     out.push(lockEveryone);
+     if (leadership) out.push(allow(leadership, [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD, P.MuteMembers, P.MoveMembers]));
+   } else if (kind === "tickets") {
+     out.push(lockEveryone);
+-    for (const id of [ids[who], leadership]) if (id) out.push(allow(id, [...READ, ...WRITE]));
++    if (ids[who]) out.push(allow(ids[who], [...READ, ...WRITE]));
+   }
+   void category;
+   return [...out.filter((o) => o.id), ...bot];
+diff --git a/services/fbrp-bot/src/devops/ranksync.js b/services/fbrp-bot/src/devops/ranksync.js
+index 9e7c018..2fd4e7c 100644
+--- a/services/fbrp-bot/src/devops/ranksync.js
++++ b/services/fbrp-bot/src/devops/ranksync.js
+@@ -29,7 +29,8 @@ export async function sync(guild) {
+       if (rank) {
+         // Group roles follow the rank (and a second rank role is dropped).
+         const wantLeadership = rank.tier === "leadership";
+-        const hasBase = !cfg.roles.base || member.roles.cache.has(cfg.roles.base);
++        // Development Team is for developers only: management must not hold it (see roster.js setRoles).
++        const hasBase = !cfg.roles.base || member.roles.cache.has(cfg.roles.base) === !wantLeadership;
+         const hasLeadership = !cfg.roles.leadership || member.roles.cache.has(cfg.roles.leadership) === wantLeadership;
+         const extraRanks = ladder.filter((r) => r.role_id !== rank.role_id && member.roles.cache.has(r.role_id));
+         if (!hasBase || !hasLeadership || extraRanks.length) {
+diff --git a/services/fbrp-bot/src/devops/roster.js b/services/fbrp-bot/src/devops/roster.js
+index 4e98947..cd2e5aa 100644
+--- a/services/fbrp-bot/src/devops/roster.js
++++ b/services/fbrp-bot/src/devops/roster.js
+@@ -27,7 +27,11 @@ export async function setRoles(member, { rank = undefined, add = [], remove = []
+     for (const r of ladder) next.delete(r.role_id);
+     if (rank) {
+       next.add(rank.role_id);
+-      if (cfg.roles.base) next.add(cfg.roles.base);
++      // Management is kept out of the Development Team role so it cannot see dev or ticket channels.
++      if (cfg.roles.base) {
++        if (rank.tier === "leadership") next.delete(cfg.roles.base);
++        else next.add(cfg.roles.base);
++      }
+       if (cfg.roles.leadership) {
+         if (rank.tier === "leadership") next.add(cfg.roles.leadership);
+         else next.delete(cfg.roles.leadership);
+diff --git a/services/fbrp-bot/src/devops/setup.js b/services/fbrp-bot/src/devops/setup.js
+index de75e50..6e2a50f 100644
+--- a/services/fbrp-bot/src/devops/setup.js
++++ b/services/fbrp-bot/src/devops/setup.js
+@@ -143,18 +143,15 @@ export async function ensureServer(guild, { actorId = null, log = () => {} } = {
+   await setConfig("channels", channelIds, actorId);
+ 
+   // Ticket support roles. Existing configuration wins so manual /support role changes survive a repair.
+-  if (!(cfg.ticketRoles || []).length) {
+-    await setConfig(
+-      "ticketRoles",
+-      [
++  // Management is never ticket staff, so any leadership row is pruned here (and never seeded).
++  const ticketRoles = (cfg.ticketRoles || []).length
++    ? cfg.ticketRoles
++    : [
+         { type: "general", roleId: ids.support, level: "support" },
+-        { type: "general", roleId: ids.leadership, level: "manager" },
+         { type: "purchase", roleId: ids.purchase, level: "support" },
+-        { type: "purchase", roleId: ids.leadership, level: "manager" },
+-      ],
+-      actorId,
+-    );
+-  }
++      ];
++  const staff = ticketRoles.filter((r) => String(r.roleId) !== String(ids.leadership));
++  if (JSON.stringify(staff) !== JSON.stringify(cfg.ticketRoles || [])) await setConfig("ticketRoles", staff, actorId);
+ 
+   /* ------------------------------------------------------------- server settings */
+   await guild
+diff --git a/services/fbrp-bot/src/devops/tickets.js b/services/fbrp-bot/src/devops/tickets.js
+index 175f5cd..5a61ff1 100644
+--- a/services/fbrp-bot/src/devops/tickets.js
++++ b/services/fbrp-bot/src/devops/tickets.js
+@@ -114,11 +114,19 @@ const isAdmin = async (guild, userId) => {
+   return member ? (await authority(member)).admin : false;
+ };
+ 
+-/** Roles that handle a ticket type: configured support roles plus leadership. */
++/**
++ * Configured ticket staff rows. Management is never ticket staff: it is kept out of ticket channels, so
++ * a stored leadership row (from older setups) is ignored here as well.
++ */
++function staffRows(cfg) {
++  const leadership = cfg.roles.leadership ? String(cfg.roles.leadership) : null;
++  return (cfg.ticketRoles || []).filter((r) => String(r.roleId) !== leadership);
++}
++
++/** Roles that handle a ticket type: the configured support roles. */
+ async function supportRoleIds(guild, type) {
+   const cfg = await config();
+-  const ids = new Set((cfg.ticketRoles || []).filter((r) => r.type === type || r.type === "all").map((r) => String(r.roleId)));
+-  if (cfg.roles.leadership) ids.add(cfg.roles.leadership);
++  const ids = new Set(staffRows(cfg).filter((r) => r.type === type || r.type === "all").map((r) => String(r.roleId)));
+   return [...ids].filter((id) => guild.roles.cache.has(id));
+ }
+ 
+@@ -126,11 +134,8 @@ async function access(i, type = "all", managersOnly = false) {
+   const member = await i.guild.members.fetch(i.user.id).catch(() => null);
+   if (!member) return false;
+   if ((await authority(member)).admin) return true;
+-  const cfg = await config();
+-  const rows = (cfg.ticketRoles || []).filter((r) => (type === "all" || r.type === type || r.type === "all") && (!managersOnly || r.level === "manager"));
+-  if (rows.some((r) => member.roles.cache.has(String(r.roleId)))) return true;
+-  // Leadership always manages tickets.
+-  return Boolean(cfg.roles.leadership && member.roles.cache.has(cfg.roles.leadership));
++  const rows = staffRows(await config()).filter((r) => (type === "all" || r.type === type || r.type === "all") && (!managersOnly || r.level === "manager"));
++  return rows.some((r) => member.roles.cache.has(String(r.roleId)));
+ }
+ 
+ async function overwrites(guild, row, participantIds = []) {

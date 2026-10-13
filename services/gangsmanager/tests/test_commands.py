@@ -43,7 +43,7 @@ async def test_all_requested_commands_are_registered(tmp_path: Path):
         "bank info", "bank market", "bank rate", "bank remove",
         "coord activity", "coord add", "coord liaison", "coord remove", "coord update",
         "creation", "dm send", "embed edit", "embed get", "embed post",
-        "gang add", "gang balance", "gang info", "gang remove", "gang report",
+        "gang add", "gang balance", "gang hours", "gang info", "gang remove", "gang report",
         "gang role", "gang update", "gang view", "help", "lineadd",
         "launder rate", "launder request", "launder self", "leaderboard",
         "location add", "location audit", "location refresh", "location remove", "location view",

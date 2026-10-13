@@ -59,6 +59,7 @@ class Config:
     trade_channel_id: int = 1559683574670692553
     shop_channel_id: int = 1559683570438635550
     leaderboard_channel_id: int = 1559683565007020072
+    hours_channel_id: int = 1559683464347918366
     market_log_channel_id: int = 1559683584246153276
     location_channel_id: int = 1559683615875407912
     server_log_channel_id: int = 1559683839851241573
@@ -264,6 +265,7 @@ class Config:
             leaderboard_channel_id=int(
                 bot_config.get("leaderboard_channel_id", 1559683565007020072)
             ),
+            hours_channel_id=int(bot_config.get("hours_channel_id", 1559683464347918366)),
             market_log_channel_id=int(
                 bot_config.get("market_log_channel_id", 1559683584246153276)
             ),

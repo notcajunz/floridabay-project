@@ -24,6 +24,8 @@ FBRP.Config = {
     -- This role and Head Administrator-or-higher staff ranks bypass that guard.
     staffOrgDutyBypassRoleId = '1559580245093253272',
     staffOrgDutyBypassMinGroup = 'head_administrator',
+    -- Holders of this role may clock in as staff while on duty as a gang (not other org types).
+    staffGangDutyBypassRoleId = '1559683033576247326',
     -- Fuel is measured as a percentage. A typical car lasts roughly an hour
     -- of mixed driving, while an empty tank takes about 35 seconds to fill.
     fuelTickMs = 1000,

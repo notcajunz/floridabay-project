@@ -45,7 +45,7 @@ class GangService:
     async def create(self, guild_id: int, name: str, gang_type: str, **values: Any) -> int:
         allowed = {
             "initials", "subtype", "tier", "role_color", "emoji", "base_role_id",
-            "command_role_id", "owner_id", "sal_org_id", "external_guild_id", "movement",
+            "command_role_id", "owner_id", "fbrp_org_id", "external_guild_id", "movement",
         }
         cols = ["guild_id", "name", "gang_type"]
         params: list[Any] = [guild_id, name.strip(), gang_type.strip()]

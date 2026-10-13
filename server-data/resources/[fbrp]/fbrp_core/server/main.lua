@@ -776,6 +776,7 @@ RegisterCommand('clockin', function(source)
     if s.org
         and not discordHasRole(s.discord, FBRP.Config.staffOrgDutyBypassRoleId)
         and not hasStaffGroupAtLeast(source, FBRP.Config.staffOrgDutyBypassMinGroup)
+        and not (s.org.type == 'gang' and discordHasRole(s.discord, FBRP.Config.staffGangDutyBypassRoleId))
     then
         return notify(source, ('Clock out of %s before clocking in as staff.'):format(s.org.name), 'error')
     end

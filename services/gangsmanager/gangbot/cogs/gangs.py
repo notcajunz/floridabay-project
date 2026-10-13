@@ -17,11 +17,13 @@ from ..common import (
     guild_id,
     manager_only,
     refresh_panels,
+    require_gang_access,
     require_role_manager,
     role_management_admin_only,
     reply,
     without_embed_emojis,
 )
+from ..fbrp_api import FbrpApi, FbrpApiError
 from ..services import bank_fee_rate, deduct_fee, future_timestamp, parse_color
 from ..role_policy import assign_parole, category_conflict, gang_for_role, gang_role_restriction, require_restricted_role_manager, send_conflict_alert, send_role_action
 from ..constants import (
@@ -134,7 +136,7 @@ class GangsCog(GangCog):
         command_role: discord.Role,
         gang_owner: discord.Member,
         category: discord.CategoryChannel,
-        sal_org_id: str | None = None,
+        fbrp_org_id: str | None = None,
         guild_id_value: str | None = None,
         subtype: str | None = None,
         movement: bool = False,
@@ -172,7 +174,7 @@ class GangsCog(GangCog):
                 base_role_id=base_role.id,
                 command_role_id=command_role.id,
                 owner_id=gang_owner.id,
-                sal_org_id=sal_org_id,
+                fbrp_org_id=fbrp_org_id,
                 external_guild_id=guild_id_value,
                 subtype=validate_gang_type(type.value, subtype),
                 movement=int(movement),
@@ -296,10 +298,42 @@ class GangsCog(GangCog):
         if detailed:
             embed.add_field(name="Initials", value=row["initials"] or "—")
             embed.add_field(name="Movement", value="Yes" if movement_enabled(row["movement"]) else "No")
-            embed.add_field(name="SAL org", value=row["sal_org_id"] or "—")
+            embed.add_field(name="FBRP org", value=row["fbrp_org_id"] or "—")
             embed.add_field(name="Base role", value=f"<@&{row['base_role_id']}>" if row["base_role_id"] else "—")
             embed.add_field(name="Command role", value=f"<@&{row['command_role_id']}>" if row["command_role_id"] else "—")
             embed.add_field(name="Leaderboard", value="Hidden" if row["hide_leaderboard"] else "Visible")
+        await reply(interaction, embed=embed)
+
+    @gang.command(name="hours", description="Show in-game duty hours for a gang's linked FBRP org")
+    @app_commands.autocomplete(gang=gang_autocomplete)
+    async def gang_hours(
+        self,
+        interaction: discord.Interaction,
+        gang: str,
+        days: app_commands.Range[int, 1, 90] = 7,
+        member: discord.Member | None = None,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        row = await self.service.gang(guild_id(interaction), gang)
+        await require_gang_access(interaction, row)
+        if not row["fbrp_org_id"]:
+            raise ValueError("This gang has no FBRP org linked. Set one with `/gang edit`.")
+        until = int(datetime.now(UTC).timestamp() * 1000)
+        try:
+            data = await FbrpApi().hours(
+                row["fbrp_org_id"], until - days * 86_400_000, until, member.id if member else None
+            )
+        except FbrpApiError as error:
+            raise ValueError(str(error)) from None
+        def fmt(seconds: int) -> str:
+            return f"{seconds // 3600}h {seconds % 3600 // 60}m"
+        lines = [
+            f"<@{m['discordId']}> — **{fmt(m['seconds'])}** ({m['shifts']} shifts){' 🟢' if m['onDuty'] else ''}"
+            for m in data["members"][:25]
+        ]
+        embed = discord.Embed(title=f"{row['name']} duty hours", color=row["role_color"])
+        embed.description = "\n".join(lines) or "No duty time recorded."
+        embed.set_footer(text=f"Last {days} days · {data['org']['name']} · total {fmt(data['totalSeconds'])}")
         await reply(interaction, embed=embed)
 
     @gang.command(name="remove", description="Permanently remove a gang record")
@@ -366,7 +400,7 @@ class GangsCog(GangCog):
         hide_from_leaderboard: bool | None = None,
         hide_from_recruitment: bool | None = None,
         new_owner: discord.Member | None = None,
-        org_id: str | None = None,
+        fbrp_org_id: str | None = None,
         guild_id_value: str | None = None,
         new_subtype: str | None = None,
         new_command_role: discord.Role | None = None,
@@ -381,7 +415,7 @@ class GangsCog(GangCog):
             "hide_leaderboard": int(hide_from_leaderboard) if hide_from_leaderboard is not None else None,
             "hide_recruitment": int(hide_from_recruitment) if hide_from_recruitment is not None else None,
             "owner_id": new_owner.id if new_owner else None,
-            "sal_org_id": org_id,
+            "fbrp_org_id": fbrp_org_id,
             "external_guild_id": guild_id_value,
             "subtype": new_subtype,
             "command_role_id": new_command_role.id if new_command_role else None,

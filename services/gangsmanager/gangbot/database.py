@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS gangs (
     base_role_id INTEGER,
     command_role_id INTEGER,
     owner_id INTEGER,
-    sal_org_id TEXT,
+    fbrp_org_id TEXT,
     external_guild_id TEXT,
     movement TEXT,
     hide_leaderboard INTEGER NOT NULL DEFAULT 0,
@@ -268,6 +268,11 @@ class Database:
             await asyncio.to_thread(
                 self._conn.execute,
                 "ALTER TABLE gangs ADD COLUMN dirty_money INTEGER NOT NULL DEFAULT 0 CHECK(dirty_money >= 0)",
+            )
+        if "sal_org_id" in columns and "fbrp_org_id" not in columns:
+            await asyncio.to_thread(
+                self._conn.execute,
+                "ALTER TABLE gangs RENAME COLUMN sal_org_id TO fbrp_org_id",
             )
         reward_columns = await asyncio.to_thread(
             lambda: {row[1] for row in self._conn.execute("PRAGMA table_info(rewards)").fetchall()}
