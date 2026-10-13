@@ -121,6 +121,33 @@ import { createStatusBoard } from "./status-board.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
+const COMMUNITY_JOIN_CHANNEL_ID = "1558253012793958431";
+const COMMUNITY_JOIN_SERVERS = Object.freeze([
+  {
+    id: "1558235113295315004",
+    label: "Departments Hub",
+    description: "Join the central hub for Florida Bay departments",
+    emoji: "🏛️",
+  },
+  {
+    id: "1558950044042797169",
+    label: "Org Hub",
+    description: "Join the community hub for Florida Bay organizations",
+    emoji: "🏢",
+  },
+  {
+    id: "1559333794597576754",
+    label: "Tags Hub",
+    description: "Join the community for custom tags and tag requests",
+    emoji: "🏷️",
+  },
+  {
+    id: "1558346587120599184",
+    label: "Respected Civilian",
+    description: "Join the Respected Civilian community server",
+    emoji: "⭐",
+  },
+]);
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -3974,6 +4001,95 @@ function inviteChannel(guild) {
   return [guild.rulesChannel, guild.systemChannel, ...guild.channels.cache.sort((a, b) => a.rawPosition - b.rawPosition).values()].find(usable) || null;
 }
 
+function communityJoinPanelPayload(channel) {
+  const panel = new EmbedBuilder()
+    .setColor(COLORS.primary)
+    .setTitle("Join a Community Server")
+    .setDescription("Explore more of the Florida Bay community. Select a server below and I’ll send you a temporary invite by DM.")
+    .addFields({
+      name: "Available servers",
+      value: COMMUNITY_JOIN_SERVERS.map((server) => `${server.emoji} **${server.label}**\n${server.description}`).join("\n\n"),
+    })
+    .setFooter({ text: "Florida Bay Network · Invites are single-use and expire after 10 minutes" });
+  if (channel.guild?.iconURL?.()) panel.setThumbnail(channel.guild.iconURL({ size: 256 }));
+  return {
+    embeds: [panel],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("community_join:select")
+          .setPlaceholder("Select a server to join")
+          .setMinValues(1)
+          .setMaxValues(1)
+          .addOptions(
+            COMMUNITY_JOIN_SERVERS.map((server) => ({
+              label: server.label,
+              description: server.description,
+              value: server.id,
+              emoji: server.emoji,
+            })),
+          ),
+      ),
+    ],
+  };
+}
+
+async function ensureCommunityJoinPanel() {
+  const channel = await client.channels.fetch(COMMUNITY_JOIN_CHANNEL_ID).catch(() => null);
+  if (!channel?.isTextBased?.() || !channel.guild)
+    throw new Error(`Community join channel ${COMMUNITY_JOIN_CHANNEL_ID} is unavailable.`);
+  const config = await db.one("SELECT value FROM bot_config WHERE `key`='community_join_panel'");
+  let value = config?.value || {};
+  if (typeof value === "string") try { value = JSON.parse(value); } catch { value = {}; }
+  const payload = communityJoinPanelPayload(channel);
+  let message = value.channel_id === channel.id && value.message_id
+    ? await channel.messages.fetch(String(value.message_id)).catch(() => null)
+    : null;
+  if (message) await message.edit(payload);
+  else message = await channel.send(payload);
+  await db.query(
+    "INSERT INTO bot_config(`key`,value,updated_by,updated_at) VALUES('community_join_panel',?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)",
+    [JSON.stringify({ channel_id: channel.id, message_id: message.id }), client.user.id, Date.now()],
+  );
+  return message;
+}
+
+async function communityJoinComponent(i) {
+  await i.deferReply({ ephemeral: true });
+  const spec = COMMUNITY_JOIN_SERVERS.find((server) => server.id === i.values[0]);
+  if (!spec) return i.editReply({ embeds: [embed("Server unavailable", "That server is not available from this panel.", COLORS.danger)] });
+  try {
+    const guild = client.guilds.cache.get(spec.id) || await client.guilds.fetch(spec.id).catch(() => null);
+    if (!guild) throw new Error("That community server is temporarily unavailable.");
+    const result = await createMemberInvite(guild, i.user, `Community join panel selection by ${i.user.tag}`, 600);
+    if (result.state === "member")
+      return i.editReply({ embeds: [embed("Already a member", `You are already in **${clean(guild.name)}**.`, COLORS.primary)] });
+    if (result.state === "banned")
+      return i.editReply({ embeds: [embed("Unable to join", `You cannot join **${clean(guild.name)}** while banned from that server.`, COLORS.danger)] });
+    if (result.state !== "invited")
+      throw new Error(`I could not create an invite for **${clean(guild.name)}**${result.detail ? `: ${clean(result.detail)}` : "."}`);
+    const sent = await i.user.send({
+      embeds: [
+        embed(
+          `Your invite to ${clean(guild.name, 200)}`,
+          `[Join **${clean(guild.name)}**](${result.invite.url})\n\nThis invite works once and expires in **10 minutes**. If it expires, return to the server panel and choose the server again.`,
+          COLORS.success,
+        ),
+      ],
+    }).then(() => true, () => false);
+    if (!sent) {
+      await result.invite.delete("Recipient could not receive community join DM").catch(() => {});
+      await audit(i.user.id, "network.join.panel", guild.id, { delivered: false });
+      return i.editReply({ embeds: [embed("Could not send your invite", "Please enable direct messages from server members, then select the server again.", COLORS.warning)] });
+    }
+    await audit(i.user.id, "network.join.panel", guild.id, { delivered: true });
+    return i.editReply({ embeds: [embed("Invite sent", `Check your DMs for a single-use invite to **${clean(guild.name)}**. It expires in 10 minutes.`, COLORS.success)] });
+  } catch (error) {
+    console.error("[FBRP bot] community join panel:", error);
+    return i.editReply({ embeds: [embed("Could not create invite", clean(error.message || error, 1000), COLORS.danger)] });
+  }
+}
+
 /** Sends every /staff add recipient their assignment and, when needed, a one-use staff invite. */
 async function sendStaffWelcome(user, rank, callsign) {
   const row = await db.one("SELECT guild_id FROM network_guilds WHERE kind='staff' ORDER BY added_at LIMIT 1");
@@ -4619,6 +4735,9 @@ client.once("clientReady", async () => {
   await ensureProtectedRoleBoard().catch((error) =>
     console.error("[FBRP bot] protected-role board:", error),
   );
+  await ensureCommunityJoinPanel()
+    .then((message) => console.log(`[FBRP bot] Community join panel ready in #${message.channel.name}.`))
+    .catch((error) => console.error("[FBRP bot] community join panel:", error));
   await reconcileGlobalCases().catch((error) => console.error("[FBRP global] startup reconcile:", error));
   await db.query("DELETE FROM discord_pending_role_restores WHERE expires_at<?", [Date.now()]).catch((error) =>
     console.error("[FBRP global] pending restore cleanup:", error),
@@ -4677,6 +4796,7 @@ client.on("interactionCreate", async (i) => {
     return;
   }
   if (i.isStringSelectMenu() && i.customId.startsWith("gsync:")) return globalSyncServersComponent(i);
+  if (i.isStringSelectMenu() && i.customId === "community_join:select") return communityJoinComponent(i);
   if (i.isAutocomplete()) {
     const complete = autocompleters[i.commandName];
     if (complete) await complete(i).catch((error) => console.error(`[FBRP bot] /${i.commandName} autocomplete:`, error));
