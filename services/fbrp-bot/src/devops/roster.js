@@ -27,7 +27,11 @@ export async function setRoles(member, { rank = undefined, add = [], remove = []
     for (const r of ladder) next.delete(r.role_id);
     if (rank) {
       next.add(rank.role_id);
-      if (cfg.roles.base) next.add(cfg.roles.base);
+      // Management is kept out of the Development Team role so it cannot see dev or ticket channels.
+      if (cfg.roles.base) {
+        if (rank.tier === "leadership") next.delete(cfg.roles.base);
+        else next.add(cfg.roles.base);
+      }
       if (cfg.roles.leadership) {
         if (rank.tier === "leadership") next.add(cfg.roles.leadership);
         else next.delete(cfg.roles.leadership);

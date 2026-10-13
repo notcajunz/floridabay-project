@@ -1,0 +1,11 @@
+services:
+  gang-manager:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - gang-data:/data
+
+volumes:
+  gang-data:
+

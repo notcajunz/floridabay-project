@@ -18,6 +18,7 @@ const SERVICES = [
   { unit: "iaa-bot", label: "IAA Systems", detail: "Internal Affairs bot" },
   { unit: "personals-bot", label: "Vehicle Manager", detail: "Personal vehicles bot" },
   { unit: "role-manager-bot", label: "Role Manager", detail: "Role management bot" },
+  { unit: "gangs-bot", label: "Gang Manager", detail: "Gangs economy and roles bot" },
   { unit: "devops-bot", label: "DevOps", detail: "This bot" },
 ];
 

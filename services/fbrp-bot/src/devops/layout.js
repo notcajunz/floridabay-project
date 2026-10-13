@@ -48,14 +48,20 @@ export const ROLES = [
 
 /**
  * Who sees and writes in a channel. Roles are referenced by blueprint key.
- *  public     everyone reads, nobody (but the bot) writes
- *  open       everyone reads and writes
- *  team       Development Team reads and writes
- *  teamRead   Development Team reads, the bot writes
- *  lead       Leadership reads and writes
- *  leadRead   Leadership reads, the bot writes
- *  voice      Development Team connects
- *  leadVoice  Leadership connects
+ *  public       everyone reads, nobody (but the bot) writes
+ *  open         everyone reads and writes
+ *  team         Development Team reads and writes
+ *  teamRead     Development Team reads, the bot writes
+ *  teamLeadRead Development Team and Leadership read, the bot writes
+ *  lead         Leadership reads and writes
+ *  leadRead     Leadership reads, the bot writes
+ *  voice        Development Team connects
+ *  leadVoice    Leadership connects
+ *  tickets:<k>  the ticket role `k` (support or purchase) reads and writes
+ *
+ * Management (the Leadership group) is deliberately absent from team, teamRead, voice and tickets.
+ * Management members also lose the Development Team role (see roster.js and ranksync.js), because a
+ * channel overwrite cannot hide a channel from one role when another role the member holds allows it.
  */
 export const CATEGORIES = [
   {
@@ -102,10 +108,10 @@ export const CATEGORIES = [
     key: "records",
     emoji: "📚",
     name: "TEAM RECORDS",
-    access: "teamRead",
+    access: "teamLeadRead",
     channels: [
-      { key: "movements", emoji: "📜", name: "movements", topic: "Every rank movement: hires, promotions, demotions and removals.", access: "teamRead" },
-      { key: "commendations", emoji: "🏅", name: "commendations", topic: "Commendations and Developer of the Month.", access: "teamRead" },
+      { key: "movements", emoji: "📜", name: "movements", topic: "Every rank movement: hires, promotions, demotions and removals.", access: "teamLeadRead" },
+      { key: "commendations", emoji: "🏅", name: "commendations", topic: "Commendations and Developer of the Month.", access: "teamLeadRead" },
       { key: "leaveRequests", emoji: "🌴", name: "loa-requests", topic: "Leave of absence requests. Leadership decides with the buttons.", access: "leadRead" },
       { key: "warnings", emoji: "⚠️", name: "warnings", topic: "Warnings and strikes on file.", access: "leadRead" },
     ],
@@ -178,8 +184,9 @@ export function overwritesFor(access, ids, { category = false } = {}) {
     out.push({ ...everyone, allow: [...READ, P.SendMessages, P.AddReactions] });
   } else if (kind === "team") {
     out.push(lockEveryone, allow(team, [...READ, ...WRITE]));
-    if (leadership) out.push(allow(leadership, [...READ, ...WRITE]));
   } else if (kind === "teamRead") {
+    out.push(lockEveryone, { id: team, allow: READ, deny: [...WRITE, ...THREADS] });
+  } else if (kind === "teamLeadRead") {
     out.push(lockEveryone, { id: team, allow: READ, deny: [...WRITE, ...THREADS] });
     if (leadership) out.push({ id: leadership, allow: READ, deny: [...WRITE, ...THREADS] });
   } else if (kind === "lead") {
@@ -190,13 +197,12 @@ export function overwritesFor(access, ids, { category = false } = {}) {
     if (leadership) out.push({ id: leadership, allow: READ, deny: [...WRITE, ...THREADS] });
   } else if (kind === "voice") {
     out.push(lockEveryone, allow(team, [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD]));
-    if (leadership) out.push(allow(leadership, [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD, P.MuteMembers, P.MoveMembers]));
   } else if (kind === "leadVoice") {
     out.push(lockEveryone);
     if (leadership) out.push(allow(leadership, [P.ViewChannel, P.Connect, P.Speak, P.Stream, P.UseVAD, P.MuteMembers, P.MoveMembers]));
   } else if (kind === "tickets") {
     out.push(lockEveryone);
-    for (const id of [ids[who], leadership]) if (id) out.push(allow(id, [...READ, ...WRITE]));
+    if (ids[who]) out.push(allow(ids[who], [...READ, ...WRITE]));
   }
   void category;
   return [...out.filter((o) => o.id), ...bot];

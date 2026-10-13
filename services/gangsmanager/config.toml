@@ -1,0 +1,342 @@
+# The Discord token stays in .env. IDs in this file must be unquoted integers.
+[bot]
+guild_id = 1558950044042797169
+owner_ids = [1090083387638812755,1099651002208104488]
+admin_role_id = 1559682494364647524
+database_path = "gang_manager.db"
+launch_channel_id = 1559683475148112043
+role_action_channel_id = 1559683682594455654
+role_conflict_channel_id = 1559683822600061051
+staff_bypass_channel_id = 1559683804963278988
+staff_bypass_reviewer_role_id = 1559682517659943033
+staff_bypass_grant_role_id = 1559683033576247326
+multi_gang_bypass_role_ids = [1559682626011402332]
+alliance_log_channel_id = 1559683835439095908
+punishment_channel_ids = [1559683791583191151, 1559683676328034356]
+suspension_role_id = 1559682552145379408
+suspension_log_channel_id = 1559683676328034356
+parole_days = 3
+role_management_admin_role_id = 1559682499251146772
+gang_role_blocker_role_id = 1559682547099631696
+gang_command_role_blocker_role_id = 1559682550044037120
+coord_chain_channel_id = 1559683447470166157
+gang_tier_channel_id = 1559683469041471508
+trade_channel_id = 1559683574670692553
+shop_channel_id = 1559683570438635550
+leaderboard_channel_id = 1559683565007020072
+market_log_channel_id = 1559683584246153276
+location_channel_id = 1559683615875407912
+server_log_channel_id = 1559683839851241573
+voice_log_channel_id = 1559683844670750730
+message_log_channel_id = 1559683848982503434
+join_leave_log_channel_id = 1559683853524795423
+member_log_channel_id = 1559683857844936877
+gang_member_role_id = 1559682966467117066
+gang_coord_team_role_id = 1559682517659943033
+gang_add_remove_role_id = 1559682499251146772
+# TODO: restricted (hand-out-locked) roles not provided yet.
+restricted_role_ids = []
+restricted_role_manager_role_ids = [1559682496549879808, 1559682494364647524]
+gang_manager_plus_role_ids = [1559682494364647524, 1559682496549879808, 1559682499251146772]
+voice_management_role_ids = [1559682506033209404, 1559682499251146772, 1559682496549879808, 1559682494364647524]
+
+[bot.coordinator_role_ids]
+"Gang Director" = 1559682494364647524
+"Assistant Gang Director" = 1559682496549879808
+"Gang Manager" = 1559682499251146772
+"Lead Gang Coordinator" = 1559682506033209404
+"Senior Gang Coordinator" = 1559682509233586266
+"Gang Coordinator" = 1559682511834189974
+"Trial Gang Coordinator" = 1559682514518544474
+
+[bot.category_coordinator_role_ids]
+"Cartel" = 1559682533405495336
+"Militia" = 1559682529915834382
+"Criminal Org" = 1559682522407768246
+"Street Gang" = 1559682525247439068
+"Motorcycle Club" = 1559682527638061106
+
+[bot.category_member_role_ids]
+"Cartel" = 1559683006413934733
+"Militia" = 1559683004010463294
+"Criminal Org" = 1559683002051723386
+"Street Gang" = 1559682999149264896
+"Motorcycle Club" = 1559683010075299880
+
+[bot.parole_role_ids]
+"Cartel" = 1559682576250179725
+"Militia" = 1559682579064553502
+"Criminal Org" = 1559682598349840414
+"Street Gang" = 1559682573247053989
+"Motorcycle Club" = 1559682594231291905
+
+[bot.coord_channel_ids]
+"Cartel" = 1559684037797355551
+"Militia" = 1559684005564260454
+"Criminal Org" = 1559684064708005928
+"Street Gang" = 1559684130336284692
+"Motorcycle Club" = 1559684092163915876
+
+[access]
+# When true, these two groups bypass command allowlists/denylists.
+administrators_bypass = true
+owners_bypass = true
+
+# Modes:
+#   inherit   = use the command's built-in manager/gang/role-manager checks
+#   allowlist = only the listed users/roles (plus configured bypasses)
+#   denylist  = everyone except the listed users/roles
+#
+# Permission categories below list every registered command exactly once.
+# Category rules are functional: changing a category to allowlist or denylist
+# applies that rule to every command in its commands array.
+#
+# Exact command rules override category rules. Add one when a command needs an
+# exception, for example:
+# [access.commands."bank give"]
+# mode = "allowlist"
+# users = [123456789012345678]
+# roles = [234567890123456789]
+
+[access.categories.administration]
+mode = "inherit"
+users = []
+roles = [1559682494364647524]
+commands = [
+  "admin avatar",
+  "admin gang rolecheck",
+  "admin info",
+  "admin nick",
+  "admin refreshgangtiers",
+  "admin reloadcog",
+  "admin username",
+]
+
+[access.categories.bank]
+mode = "inherit"
+users = []
+roles = [1559682499251146772]
+commands = [
+  "bank adjust",
+  "bank disperse",
+  "bank fee",
+  "bank give",
+  "bank income",
+  "bank info",
+  "bank market",
+  "bank rate",
+  "bank remove",
+]
+
+[access.categories.coordination]
+mode = "inherit"
+users = []
+roles = [1559682499251146772]
+commands = [
+  "coord activity",
+  "coord add",
+  "coord liaison",
+  "coord remove",
+  "coord update",
+]
+
+[access.categories.content]
+mode = "inherit"
+users = []
+roles = [1559682496549879808]
+commands = [
+  "dm send",
+  "embed edit",
+  "embed get",
+  "embed post",
+]
+
+[access.categories.gang_management]
+mode = "inherit"
+users = []
+roles = [1559682499251146772]
+commands = [
+  "creation",
+  "gang add",
+  "gang balance",
+  "gang info",
+  "gang remove",
+  "gang report",
+  "gang role",
+  "gang update",
+  "gang view",
+  "leaderboard",
+  "lineadd",
+]
+
+[access.categories.laundering]
+# The selected/source gang's command role is resolved dynamically from the database.
+# Every selected source/target gang must be a Criminal Org.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "launder rate",
+  "launder request",
+  "launder self",
+]
+
+[access.categories.market]
+# The selected gang's command role is resolved dynamically from the database.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "market sell",
+]
+
+[access.categories.locations]
+mode = "inherit"
+users = []
+roles = [1559682499251146772]
+commands = [
+  "location add",
+  "location audit",
+  "location refresh",
+  "location remove",
+  "location view",
+]
+
+[access.categories.operational_logs]
+# /log transfer additionally requires Gang Manager or a higher coordinator rank.
+mode = "inherit"
+users = []
+roles = [1559682499251146772]
+commands = [
+  "log purchase",
+  "log transfer",
+]
+
+[access.categories.member_discipline]
+mode = "inherit"
+users = []
+roles = [1559682517659943033]
+commands = [
+  "member deletepunishment",
+  "member editpunishment",
+  "member history",
+  "member logpunishment",
+]
+
+[access.categories.permission_management]
+mode = "inherit"
+users = []
+roles = [1559682496549879808]
+commands = [
+  "permissions set",
+  "permissions view",
+]
+
+[access.categories.quizzes]
+mode = "inherit"
+users = []
+roles = []
+commands = ["quiz"]
+
+[access.categories.relations]
+# The source gang's command role is resolved dynamically from the database.
+mode = "inherit"
+users = []
+roles = []
+commands = ["relations set"]
+
+[access.categories.rewards]
+mode = "inherit"
+users = []
+roles = [1559682499251146772]
+commands = [
+  "reward give",
+  "reward manage",
+  "reward refresh",
+  "reward remove",
+  "reward slots",
+]
+
+[access.categories.delegated_role_management]
+# Access is resolved from /useradd delegations for the role being managed.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "role add",
+  "role remove",
+  "rolewipe",
+]
+
+[access.categories.role_management_administration]
+# These commands also have a strict runtime check for this exact role ID.
+mode = "allowlist"
+users = []
+roles = [1559682499251146772]
+commands = [
+  "role protection",
+  "useradd",
+  "userdel",
+]
+
+[access.categories.shop]
+mode = "inherit"
+users = []
+roles = [1559682496549879808]
+commands = [
+  "shop add",
+  "shop modify",
+  "shop remove",
+  "shop sell",
+]
+
+[access.categories.tax]
+# The gang imposing/managing the tax supplies the dynamic command-role permission.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "tax force",
+  "tax offer",
+  "tax remove",
+  "tax view",
+]
+
+[access.categories.temporary_roles]
+mode = "inherit"
+users = []
+roles = [1559682517659943033]
+commands = [
+  "temprole delete",
+  "temprole extend",
+  "temprole list",
+]
+
+[access.categories.trade]
+# The source gang's command role is resolved dynamically from the database.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "trade give",
+  "trade history",
+  "trade offer",
+]
+
+[access.categories.turf_war]
+# Street Gangs only; gang-facing actions use the selected/my_gang command role.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "turfwar action",
+  "turfwar history",
+  "turfwar invest",
+  "turfwar stage",
+]
+
+[access.categories.public_help]
+mode = "inherit"
+users = []
+roles = []
+commands = ["help"]

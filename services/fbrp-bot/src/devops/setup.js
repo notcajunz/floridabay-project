@@ -143,18 +143,15 @@ export async function ensureServer(guild, { actorId = null, log = () => {} } = {
   await setConfig("channels", channelIds, actorId);
 
   // Ticket support roles. Existing configuration wins so manual /support role changes survive a repair.
-  if (!(cfg.ticketRoles || []).length) {
-    await setConfig(
-      "ticketRoles",
-      [
+  // Management is never ticket staff, so any leadership row is pruned here (and never seeded).
+  const ticketRoles = (cfg.ticketRoles || []).length
+    ? cfg.ticketRoles
+    : [
         { type: "general", roleId: ids.support, level: "support" },
-        { type: "general", roleId: ids.leadership, level: "manager" },
         { type: "purchase", roleId: ids.purchase, level: "support" },
-        { type: "purchase", roleId: ids.leadership, level: "manager" },
-      ],
-      actorId,
-    );
-  }
+      ];
+  const staff = ticketRoles.filter((r) => String(r.roleId) !== String(ids.leadership));
+  if (JSON.stringify(staff) !== JSON.stringify(cfg.ticketRoles || [])) await setConfig("ticketRoles", staff, actorId);
 
   /* ------------------------------------------------------------- server settings */
   await guild

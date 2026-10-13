@@ -114,11 +114,19 @@ const isAdmin = async (guild, userId) => {
   return member ? (await authority(member)).admin : false;
 };
 
-/** Roles that handle a ticket type: configured support roles plus leadership. */
+/**
+ * Configured ticket staff rows. Management is never ticket staff: it is kept out of ticket channels, so
+ * a stored leadership row (from older setups) is ignored here as well.
+ */
+function staffRows(cfg) {
+  const leadership = cfg.roles.leadership ? String(cfg.roles.leadership) : null;
+  return (cfg.ticketRoles || []).filter((r) => String(r.roleId) !== leadership);
+}
+
+/** Roles that handle a ticket type: the configured support roles. */
 async function supportRoleIds(guild, type) {
   const cfg = await config();
-  const ids = new Set((cfg.ticketRoles || []).filter((r) => r.type === type || r.type === "all").map((r) => String(r.roleId)));
-  if (cfg.roles.leadership) ids.add(cfg.roles.leadership);
+  const ids = new Set(staffRows(cfg).filter((r) => r.type === type || r.type === "all").map((r) => String(r.roleId)));
   return [...ids].filter((id) => guild.roles.cache.has(id));
 }
 
@@ -126,11 +134,8 @@ async function access(i, type = "all", managersOnly = false) {
   const member = await i.guild.members.fetch(i.user.id).catch(() => null);
   if (!member) return false;
   if ((await authority(member)).admin) return true;
-  const cfg = await config();
-  const rows = (cfg.ticketRoles || []).filter((r) => (type === "all" || r.type === type || r.type === "all") && (!managersOnly || r.level === "manager"));
-  if (rows.some((r) => member.roles.cache.has(String(r.roleId)))) return true;
-  // Leadership always manages tickets.
-  return Boolean(cfg.roles.leadership && member.roles.cache.has(cfg.roles.leadership));
+  const rows = staffRows(await config()).filter((r) => (type === "all" || r.type === type || r.type === "all") && (!managersOnly || r.level === "manager"));
+  return rows.some((r) => member.roles.cache.has(String(r.roleId)));
 }
 
 async function overwrites(guild, row, participantIds = []) {
