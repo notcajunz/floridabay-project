@@ -695,6 +695,15 @@ const staff = new SlashCommandBuilder()
       .addStringOption(reason),
   );
 
+const callsign = new SlashCommandBuilder()
+  .setName("callsign")
+  .setDescription("Manage staff callsign announcements")
+  .addSubcommand((s) =>
+    s
+      .setName("sync")
+      .setDescription("Republish every current staff member's callsign"),
+  );
+
 const protectrole = new SlashCommandBuilder()
   .setName("protectrole")
   .setDescription("Guard sensitive Discord roles")
@@ -1120,6 +1129,10 @@ const global = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s.setName("lookup").setDescription("See which Florida Bay servers a member is in and their network record")
       .addUserOption(globalUser),
+  )
+  .addSubcommand((s) =>
+    s.setName("nick").setDescription("Set your nickname in every Florida Bay network server")
+      .addStringOption((o) => o.setName("nickname").setDescription("Your new network nickname").setRequired(true).setMinLength(1).setMaxLength(32)),
   );
 
 const blacklist = new SlashCommandBuilder()
@@ -1466,6 +1479,35 @@ const personal = new SlashCommandBuilder()
       .addBooleanOption((o) => o.setName("all").setDescription("Management: show every personal vehicle")),
   );
 
+const cocMember = (option) => option.setName("member").setDescription("Chain member").setRequired(true);
+const cocProfileOptions = (subcommand, { member = true, title = true, color = true } = {}) => {
+  if (member) subcommand.addUserOption(cocMember);
+  if (title) subcommand.addStringOption((o) => o.setName("title").setDescription("Rank/title; use - to reset to the roster rank").setMaxLength(100));
+  subcommand
+    .addStringOption((o) => o.setName("positions").setDescription("Positions separated by |; use - to clear").setMaxLength(900))
+    .addStringOption((o) => o.setName("assistants").setDescription("Assistant mentions or Discord IDs; use - to clear").setMaxLength(500));
+  if (color) subcommand.addStringOption((o) => o.setName("color").setDescription("Card hex color, e.g. #43E8D8; use - to reset"));
+  return subcommand;
+};
+
+const coc = new SlashCommandBuilder()
+  .setName("coc")
+  .setDescription("Create and manage the live chain of command")
+  .addSubcommand((s) => s.setName("newchain").setDescription("Publish a new live chain from the staff roster")
+    .addChannelOption((o) => o.setName("channel").setDescription("Destination; defaults to the configured chain channel").addChannelTypes(ChannelType.GuildText))
+    .addStringOption((o) => o.setName("title").setDescription("Board title").setMaxLength(100)))
+  .addSubcommand((s) => s.setName("relocatecoc").setDescription("Move the live chain to another channel")
+    .addChannelOption((o) => o.setName("channel").setDescription("New chain-of-command channel").setRequired(true).addChannelTypes(ChannelType.GuildText)))
+  .addSubcommand((s) => cocProfileOptions(s.setName("adduser").setDescription("Add a member card to the chain")))
+  .addSubcommand((s) => cocProfileOptions(s.setName("updateuser").setDescription("Update a member's chain card")))
+  .addSubcommand((s) => cocProfileOptions(s.setName("updateself").setDescription("Update your own positions and assistants"), { member: false, title: false, color: false }))
+  .addSubcommand((s) => s.setName("removeuser").setDescription("Remove a member from the chain").addUserOption(cocMember))
+  .addSubcommand((s) => s.setName("reorder").setDescription("Move a member to a new chain position")
+    .addUserOption(cocMember)
+    .addIntegerOption((o) => o.setName("position").setDescription("New position (1 is highest)").setRequired(true).setMinValue(1).setMaxValue(250)))
+  .addSubcommand((s) => s.setName("getorder").setDescription("Show the current chain order"))
+  .addSubcommand((s) => s.setName("updatecoc").setDescription("Import new roster members and refresh the live board"));
+
 export const commands = [
   exam,
   orgbank,
@@ -1476,6 +1518,7 @@ export const commands = [
   ace,
   headtag,
   personal,
+  coc,
   organization,
   radio,
   network,
@@ -1483,6 +1526,7 @@ export const commands = [
   mod,
   server,
   staff,
+  callsign,
   protectrole,
   botguard,
   security,

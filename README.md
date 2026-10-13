@@ -41,12 +41,14 @@ One bot owns the Discord-facing control plane:
 - `/mod`: ban, unban, kick, timeout, warn, and purge with case/audit records.
 - `/server`: live status, AOP, peacetime, and in-game announcements.
 - `/staff`: `add` puts a member in a staff rank's ACE group, assigns their callsign, and DMs their assignment plus a one-use staff-server invite; `move` promotes or demotes existing staff to another rank (keeping their callsign when it fits, no welcome DM); `remove` takes access away (all three need `fbrp.staff.assign` and only work on ranks below your own). Also individual hours, leaderboard, and forced clock-out.
-- `/global`: Ascent-style network moderation (`warn`, `timeout`, `untimeout`, `kick`, `ban` with optional EasyAdmin game ban, `blacklist`, `unblacklist`, `unban`, `lookup`), gated by `fbrp.global.<action>` and the rank hierarchy.
+- `/global`: Ascent-style network moderation (`warn`, `timeout`, `untimeout`, `kick`, `ban` with optional EasyAdmin game ban, `blacklist`, `unblacklist`, `unban`, `lookup`), plus ACM+ self-service network nicknames with `/global nick`; moderation actions are gated by `fbrp.global.<action>` and the rank hierarchy.
 - `/protectrole`: protect sensitive roles and choose the users/roles allowed to manage them.
 - `/botguard`: two-key bot admission, trusted adders, security exemptions, policy inspection, and sweeps.
 - `/security exempt-add|exempt-remove|exempt-list`: owner-only automated-security bypasses. An exemption can apply across the network or only in the server where the command is run; it bypasses anti-nuke, raid/account-age, spam, Bot Guard, and protected-role automation without granting permissions or bypassing manual moderation.
 - `/ticket`: button/modal panel, private support-channel creation, claiming, queue listing, ticket-count tracking, and audited closure.
 - `/roster`: categorized callsign ranges, rank/role/ACE-group mappings, automatic callsigns (posted to the staff callsign channel as `@member --> 123`; the bot never changes nicknames), secondary jobs, weekly requirements, statuses, notes, history, warnings/strikes, discipline revocation, profiles, and role reconciliation. All configuration is available through subcommands.
+- `/callsign sync`: Community Director and above can republish every current staff member's callsign to the staff callsign channel, including callsigns that have not changed.
+- `/coc`: a live, multi-card chain-of-command board for Assistant Community Manager and above, backed by the staff roster. Management can publish or relocate it, add/update/remove people, set positions and assistants, and reorder the chain; listed members can update their own positions and assistants. The board edits in place and refreshes after roster changes.
 - `/userinfo`: linked game identities, ACE groups, organizations, hours, cases, and discipline in one investigation view.
 - `/office`: assign and clear managed staff/organization voice offices.
 - `/globalsync`: Ascent's ACE-backed global roles: add/edit/remove/list/push,

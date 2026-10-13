@@ -119,6 +119,7 @@ import { createStaffExams } from "./staff-exams.js";
 import { createEconomy } from "./economy.js";
 import { createPersonals } from "./personals.js";
 import { createStatusBoard } from "./status-board.js";
+import { createChainOfCommand } from "./chain-of-command.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
@@ -212,6 +213,7 @@ const staffExams = createStaffExams({ client, db, audit, log });
 const economy = createEconomy({ client, db, audit, log, hasPermission });
 const personals = createPersonals({ db, audit, hasPermission });
 const statusBoard = createStatusBoard({ client, db, callGame, publicBase, connectUrl });
+const chainOfCommand = createChainOfCommand({ client, db, audit, hasPermission });
 
 /** /exam: Head of Management and above open an exam for one member for 60 minutes. */
 async function examCommand(i, sub) {
@@ -371,6 +373,61 @@ async function announceCallsign(discordId, callsign) {
   await channel
     .send({ content: `${mention(discordId)} --> ${callsign}`, allowedMentions: { parse: [] } })
     .catch((error) => console.error("[FBRP bot] callsign announcement:", error));
+}
+
+/** Enforces a live staff-rank threshold using the roster rank's mapped ACE group. */
+async function requireMinimumStaffRank(i, rankName, action) {
+  const [level, threshold] = await Promise.all([
+    staffLevel(i.user.id),
+    db.one(
+      `SELECT g.rank_order
+         FROM staff_roster_ranks r JOIN ace_groups g ON g.name=r.ace_group
+        WHERE LOWER(r.name)=LOWER(?)
+        ORDER BY g.rank_order DESC LIMIT 1`,
+      [rankName],
+    ),
+  ]);
+  if (!threshold) throw new Error(`The ${rankName} staff rank is not configured.`);
+  if (level < Number(threshold.rank_order))
+    throw new Error(`Only ${rankName} and higher can ${action}.`);
+}
+
+/** Community Director and above: republish every current staff callsign, including unchanged ones. */
+async function callsignCommand(i, sub) {
+  if (sub !== "sync") throw new Error("Unknown callsign action.");
+  await requireMinimumStaffRank(i, "Community Director", "synchronize callsigns");
+
+  const channel = await client.channels.fetch(CALLSIGN_CHANNEL_ID).catch(() => null);
+  if (!channel?.isTextBased()) throw new Error("The staff callsigns channel is unavailable.");
+  const members = await db.query(
+    `SELECT m.discord_id,m.callsign,m.status
+       FROM staff_roster_members m
+       LEFT JOIN staff_roster_ranks r ON r.id=m.rank_id
+       LEFT JOIN staff_roster_categories c ON c.id=r.category_id
+      WHERE m.status<>'removed'
+      ORDER BY COALESCE(c.sort_order,9999),COALESCE(r.sort_order,9999),m.callsign,m.display_name`,
+  );
+  const assigned = members.filter((member) => member.callsign !== null && member.callsign !== undefined && member.callsign !== "");
+  const missing = members.filter((member) => !assigned.includes(member));
+  for (const member of assigned)
+    await channel.send({ content: `${mention(member.discord_id)} --> ${member.callsign}`, allowedMentions: { parse: [] } });
+
+  await audit(i.user.id, "callsign.sync", channel.id, { posted: assigned.length, missing: missing.map((member) => member.discord_id) });
+  await log(i.guild, {
+    title: "Staff callsigns synchronized",
+    color: COLORS.success,
+    actor: i.user.id,
+    fields: [
+      ["Callsigns posted", String(assigned.length)],
+      ["Destination", `<#${channel.id}>`],
+      ...(missing.length ? [["Missing callsigns", missing.map((member) => mention(member.discord_id)).join(" "), false]] : []),
+    ],
+  }, "staff_audit");
+  return card("Callsigns synchronized", {
+    color: COLORS.success,
+    description: `Republished **${assigned.length}** staff callsign${assigned.length === 1 ? "" : "s"} in ${channel}.`,
+    rows: missing.length ? [["Not posted", `${missing.length} staff member${missing.length === 1 ? " has" : "s have"} no assigned callsign.`]] : [],
+  });
 }
 
 const levelText = (level) =>
@@ -3359,7 +3416,36 @@ async function liftEasyAdminCase(caseId, actorId, rawReason = "") {
   return { banId: publicId, gameBanId: Number(c.game_ban_id), targetId: String(c.target_id), reason };
 }
 
+/** ACM and above may set only their own nickname across the registered network. */
+async function globalNickname(i) {
+  await requireMinimumStaffRank(i, "Assistant Community Manager", "set a network nickname");
+  const nickname = clean(i.options.getString("nickname", true), 100);
+  if (!nickname) throw new Error("Nickname cannot be empty.");
+  if ([...nickname].length > 32) throw new Error("Nickname cannot be longer than 32 characters.");
+  const { results, ok } = await acrossNetwork(async (guild) => {
+    const member = await guild.members.fetch(i.user.id).catch(() => null);
+    if (!member) return "• not a member";
+    if (member.nickname === nickname) return "• already set";
+    if (!member.manageable) return "✗ member is above the bot";
+    await member.setNickname(nickname, `/global nick by ${i.user.tag}`);
+    return "✓ updated";
+  });
+  await audit(i.user.id, "global.nick", i.user.id, { nickname, updated: ok, results });
+  await log(i.guild, {
+    title: "Network nickname changed",
+    color: COLORS.success,
+    actor: i.user.id,
+    fields: [["Nickname", nickname], ["Servers updated", String(ok)], ["Results", results.join("\n") || "No registered network servers", false]],
+  }, "staff_audit");
+  return card("Network nickname updated", {
+    color: results.some((line) => line.startsWith("✗") || line.startsWith("⚠️")) ? COLORS.warning : COLORS.success,
+    description: `Applied **${nickname}** for ${mention(i.user.id)} across the network; ${ok} server${ok === 1 ? " was" : "s were"} changed.`,
+    rows: [["Servers", results.join("\n") || "No registered network servers", false]],
+  });
+}
+
 async function globalCommand(i, sub) {
+  if (sub === "nick") return globalNickname(i);
   await requirePermission(i, GLOBAL_ACE[sub]);
   const reason = i.options.getString("reason");
   if (sub === "game-unban") {
@@ -3905,6 +3991,7 @@ const COMMAND_PERMISSIONS = {
   mod: "`fbrp.discord.mod`; ban/kick may use `fbrp.discord.mod.<action>`",
   server: "`/server status`: Everyone; other actions: `fbrp.ops`",
   staff: "`add`/`move`/`remove`: `fbrp.staff.assign` (ranks below yours only); others: `fbrp.staff.manage`",
+  callsign: "Community Director rank or higher",
   protectrole: `Only <@${PROTECTED_ROLE_MANAGER_IDS[0]}> and <@${PROTECTED_ROLE_MANAGER_IDS[1]}>`,
   botguard: "`fbrp.security.manage`",
   security: "`fbrp.security.manage`",
@@ -3924,7 +4011,10 @@ function commandPermission(command, sub = "") {
   }
   if (command === "server" && sub === "status") return "Everyone";
   if (command === "staff") return ["add", "move", "remove"].includes(sub) ? "`fbrp.staff.assign` (ranks below yours only)" : "`fbrp.staff.manage`";
-  if (command === "global") return `\`${GLOBAL_ACE[sub] || "fbrp.global"}\`${sub === "lookup" ? "" : "; target must rank below you"}`;
+  if (command === "global") {
+    if (sub === "nick") return "Assistant Community Manager rank or higher; changes only your own nickname";
+    return `\`${GLOBAL_ACE[sub] || "fbrp.global"}\`${sub === "lookup" ? "" : "; target must rank below you"}`;
+  }
   if (command === "roster") {
     if (["list", "profile"].includes(sub)) return "`fbrp.roster.view`";
     if (["discipline", "discipline-revoke"].includes(sub)) return "`fbrp.roster.discipline`";
@@ -4676,6 +4766,7 @@ const handlers = {
   mod: moderationCommand,
   server: serverCommand,
   staff: staffCommand,
+  callsign: callsignCommand,
   protectrole: protectRoleCommand,
   botguard: botguardCommand,
   security: securityCommand,
@@ -4691,6 +4782,7 @@ const handlers = {
   office: officeCommand,
   orgbank: orgbankCommand,
   exam: examCommand,
+  coc: chainOfCommand.command,
 };
 
 async function forwardGameAudit() {
@@ -4816,6 +4908,7 @@ client.once("clientReady", async () => {
     const guild = await client.guilds.fetch(guildId).catch(() => null);
     if (guild) await registerCommands(guild);
   }
+  await chainOfCommand.start().catch((error) => console.error("[FBRP CoC] startup:", error.message || error));
   await grandfatherVerifiedMembers().catch((error) => console.error("[FBRP verify] grandfather:", error));
   const verificationLobby = await client.channels.fetch(VERIFICATION_CHANNEL_ID).catch(() => null);
   if (verificationLobby?.guild)
@@ -4931,6 +5024,7 @@ client.on("interactionCreate", async (i) => {
       i,
       i.options.getSubcommand(false),
     );
+    if (["staff", "roster"].includes(i.commandName)) void chainOfCommand.scheduleRosterRefresh().catch(() => {});
     if (["protectrole", "network"].includes(i.commandName))
       await ensureProtectedRoleBoard().catch(() => {});
     if (i.commandName === "network" && i.options.getSubcommand(false) === "add")
@@ -5031,6 +5125,7 @@ async function enforceUnverifiedMemberRoles(member) {
   return true;
 }
 client.on("guildMemberUpdate", (oldMember, newMember) => {
+  chainOfCommand.scheduleRefresh(newMember.guild.id);
   void enforceProtectedRoles(oldMember, newMember, securityLog)
     .then(() => enforceBlacklistRoles(newMember))
     .then(() => enforceUnverifiedMemberRoles(newMember))

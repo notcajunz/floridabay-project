@@ -38,6 +38,7 @@ const FLORIDA_BAY = [
   ace("Florida Bay · Staff", "fbrp.roster.manage", "Manage roster members", "Add, remove and update roster members, callsigns, statuses, notes and jobs."),
   ace("Florida Bay · Staff", "fbrp.roster.discipline", "Roster discipline", "Issue and revoke staff warnings and strikes."),
   ace("Florida Bay · Staff", "fbrp.roster.config", "Configure staff roster", "Create and edit roster categories, ranks, rank ACE groups, jobs and role sync."),
+  ace("Florida Bay · Staff", "fbrp.coc.manage", "Chain of command management", "Create, relocate, add, update, remove and reorder the live chain of command (/coc)."),
   ace("Florida Bay · Staff", "fbrp.tickets", "All ticket access", "View every support ticket, including the open-ticket queue."),
   ace("Florida Bay · Staff", "fbrp.tickets.support", "Ticket support", "Claim, answer, transfer and close support tickets."),
   ace("Florida Bay · Staff", "fbrp.tickets.manage", "Ticket management", "Configure ticket categories, support roles, limits and the panel (/support)."),

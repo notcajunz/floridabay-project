@@ -166,6 +166,30 @@ Important behavior:
 - The same controls are on the website under **Community → Personal vehicles** (owners) and in the live configuration panel (Co-Owner and above).
 - Changes reach the game server immediately.
 
+## /coc
+
+Create and manage the live chain-of-command board for Assistant Community Manager and above
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/coc newchain [channel] [title]` | Publish the board and import active staff-roster members | `fbrp.coc.manage` |
+| `/coc relocatecoc <channel>` | Move the managed board messages to another text channel | `fbrp.coc.manage` |
+| `/coc adduser <member> [title] [positions] [assistants] [color]` | Add a member card | `fbrp.coc.manage` |
+| `/coc updateuser <member> [title] [positions] [assistants] [color]` | Update a member card | `fbrp.coc.manage` |
+| `/coc updateself [positions] [assistants]` | Update your own card; active roster members may add themselves | The member themself |
+| `/coc removeuser <member>` | Remove a member card | `fbrp.coc.manage` |
+| `/coc reorder <member> <position>` | Move a member to a new numbered position | `fbrp.coc.manage` |
+| `/coc getorder` | Show the current order | Everyone |
+| `/coc updatecoc` | Import new roster members and redraw the board immediately | `fbrp.coc.manage` |
+
+`positions` accepts entries separated by `|`. `assistants` accepts user mentions or Discord IDs. Use `-` to clear a field. Rendered mentions do not ping anyone.
+
+## /callsign
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/callsign sync` | Republish every current staff member's callsign in the staff callsigns channel, including unchanged callsigns | Community Director rank or higher |
+
 ## /organization
 
 Manage gangs, businesses, and departments
@@ -435,10 +459,11 @@ Manage a member across every Florida Bay Discord server
 | `/global invite <user>` | Invite a member to every Florida Bay network server<br><small>Arguments: `user` (required user) — Member.</small> | `fbrp.global.invite` |
 | `/global restore <user_id>` | Invite a former member back and restore their roles in each server<br><small>Arguments: `user_id` (required text) — Former member's Discord user ID.</small> | `fbrp.global.restore`; target must rank below you |
 | `/global lookup <user>` | See which Florida Bay servers a member is in and their network record<br><small>Arguments: `user` (required user) — Member.</small> | `fbrp.global.lookup` |
+| `/global nick <nickname>` | Set your own nickname in every Florida Bay network server where you are a member<br><small>Arguments: `nickname` (required text, 1–32 characters) — Your new network nickname.</small> | Assistant Community Manager rank or higher |
 
 Important behavior:
 
-- `warn`, `timeout`, `untimeout`, `kick`, `ban`, `blacklist`, and `restore` enforce rank hierarchy. `invite`, `lookup`, `unban`, and `unblacklist` do not call the rank comparison.
+- `warn`, `timeout`, `untimeout`, `kick`, `ban`, `blacklist`, and `restore` enforce rank hierarchy. `nick` is self-service for Assistant Community Manager and higher. `invite`, `lookup`, `unban`, and `unblacklist` do not call the target rank comparison.
 - Global bans affect current network servers and are inherited by servers added later. By default, `ban` also scans linked accounts; `alts:false` disables that scan.
 - A blacklist removes main-server roles, assigns the censored role there, and bans the member elsewhere. `unblacklist` does not restore roles; use `restore` afterward.
 
