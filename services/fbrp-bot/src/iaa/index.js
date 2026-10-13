@@ -8,6 +8,7 @@ import * as discipline from "./discipline.js";
 import * as investigations from "./investigations.js";
 import * as clocklog from "./clocklog.js";
 import * as quota from "./quota.js";
+import * as ranksync from "./ranksync.js";
 import * as leave from "./leave.js";
 import * as intel from "./intel.js";
 import * as awards from "./awards.js";
@@ -148,6 +149,7 @@ client.on(Events.GuildMemberRemove, (member) => {
   if (member.guild.id !== GUILD_ID || member.user?.bot) return;
   intel.onLeave(member).catch(() => null);
   refreshPanels(member.guild, "chain", "directory");
+  ranksync.queue(member.guild);
 });
 
 // Manual role edits (by people, not the bot) still keep the chain of command honest.
@@ -156,6 +158,7 @@ client.on(Events.GuildMemberUpdate, (before, after) => {
   if (before.roles.cache.size !== after.roles.cache.size || before.roles.cache.some((r) => !after.roles.cache.has(r.id))) {
     refreshPanels(after.guild, "chain", "directory");
     scheduleResequence(after.guild);
+    ranksync.queue(after.guild);
   }
 });
 
@@ -191,6 +194,7 @@ client.once(Events.ClientReady, async () => {
   }, 15_000);
   await clocklog.retireTerminal(g).catch((e) => console.warn(`[IAA] retire terminal: ${e.message}`));
   every(5_000, "clock log", clocklog.poll, 5_000);
+  every(300_000, "rank sync", ranksync.sync, 20_000);
   every(3_600_000, "stale cases", investigations.remindStale, 120_000);
   every(600_000, "panels", async (gg) => refreshPanels(gg, "leaderboard", "board"), 30_000);
   every(6 * 3_600_000, "sweep", intel.sweep, 600_000);
