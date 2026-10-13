@@ -175,6 +175,11 @@ const headtag = new SlashCommandBuilder()
           .setDescription("Hex color, e.g. #43E8D8")
           .setRequired(true),
       )
+      .addUserOption((o) =>
+        o
+          .setName("owner")
+          .setDescription("Give this member ownership of the tag immediately"),
+      )
       .addRoleOption((o) =>
         o
           .setName("role")

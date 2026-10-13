@@ -189,6 +189,27 @@ const announce = new SlashCommandBuilder()
 
 const standup = new SlashCommandBuilder().setName("standup").setDescription("Post your daily standup");
 
+const vehicle = new SlashCommandBuilder()
+  .setName("vehicle")
+  .setDescription("Look up an installed or personal vehicle")
+  .addSubcommand((s) =>
+    s
+      .setName("lookup")
+      .setDescription("Search by spawn code, hash, name, plate, personal ID or resource")
+      .addStringOption((o) => o.setName("query").setDescription("Vehicle spawn code, hash, name, plate, ID or resource").setRequired(true).setAutocomplete(true)),
+  );
+
+const personals = new SlashCommandBuilder()
+  .setName("personals")
+  .setDescription("Look up personal vehicles")
+  .addSubcommand((s) => s.setName("owned").setDescription("List a user's owned personal vehicles and their details").addUserOption((o) => o.setName("user").setDescription("Personal vehicle owner").setRequired(true)));
+
+const headtag = new SlashCommandBuilder()
+  .setName("headtag")
+  .setDescription("Look up headtags and their owners")
+  .addSubcommand((s) => s.setName("info").setDescription("Show a tag and its owners/holders").addStringOption((o) => o.setName("tag").setDescription("Headtag ID or name").setRequired(true).setAutocomplete(true)))
+  .addSubcommand((s) => s.setName("owned").setDescription("List all tags owned by a user").addUserOption((o) => o.setName("user").setDescription("Tag owner").setRequired(true)));
+
 const ticket = new SlashCommandBuilder()
   .setName("ticket")
   .setDescription("Open and manage support tickets")
@@ -282,4 +303,4 @@ const admin = new SlashCommandBuilder()
       .addStringOption((o) => o.setName("mode").setDescription("Add or remove").setRequired(true).addChoices({ name: "Add", value: "add" }, { name: "Remove", value: "remove" })),
   );
 
-export const definitions = [dev, discipline, loa, commend, task, incident, release, announce, standup, ticket, support, devops, admin].map((c) => c.toJSON());
+export const definitions = [dev, discipline, loa, commend, task, incident, release, announce, standup, vehicle, personals, headtag, ticket, support, devops, admin].map((c) => c.toJSON());

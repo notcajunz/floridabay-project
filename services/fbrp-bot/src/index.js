@@ -783,6 +783,7 @@ async function headtagCommand(i, sub) {
       kindLabel = kind === "both" ? "Headtag + gang tag" : kind === "head" ? "Headtag" : "Gang tag",
       label = clean(i.options.getString("label", true), 40),
       color = hexColor(i.options.getString("color", true)),
+      owner = i.options.getUser("owner"),
       chatTag = i.options.getBoolean("chat_tag") === true,
       orgSlug = clean(i.options.getString("organization") || "", 40).toLowerCase(),
       organization = orgSlug
@@ -799,20 +800,32 @@ async function headtagCommand(i, sub) {
       });
       created = true;
     }
-    const result = await db.query(
-      "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,chat_tag,created_by) VALUES(?,?,?,?,?,?,?,?,?)",
-      [
-        kind,
-        label,
-        color,
-        role.id,
-        i.guildId,
-        organization?.id || null,
-        i.options.getInteger("priority") || 0,
-        chatTag,
-        i.user.id,
-      ],
-    );
+    const result = await db.transaction(async (query) => {
+      const inserted = await query(
+        "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,chat_tag,created_by) VALUES(?,?,?,?,?,?,?,?,?)",
+        [
+          kind,
+          label,
+          color,
+          role.id,
+          i.guildId,
+          organization?.id || null,
+          i.options.getInteger("priority") || 0,
+          chatTag,
+          i.user.id,
+        ],
+      );
+      if (owner)
+        await query(
+          "INSERT INTO headtag_grants(discord_id,tag_id,origin,added_by,added_at) VALUES(?,?,'manual',?,?)",
+          [owner.id, inserted.insertId, i.user.id, Date.now()],
+        );
+      return inserted;
+    });
+    if (owner) {
+      const member = await i.guild.members.fetch(owner.id).catch(() => null);
+      if (member) await member.roles.add(role, "Headtag owner assigned at creation").catch(() => null);
+    }
     await audit(i.user.id, "headtag.create", result.insertId, {
       kind,
       label,
@@ -821,6 +834,7 @@ async function headtagCommand(i, sub) {
       orgId: organization?.id || null,
       chatTag,
       created,
+      ownerId: owner?.id || null,
     });
     await syncGuild(client, i.guild);
     await refreshGame();
@@ -829,7 +843,7 @@ async function headtagCommand(i, sub) {
       description: organization
         ? `Players with the role can select it in F6 only while on duty as **${clean(organization.name)}**. It replaces that organization's normal duty tag.`
         : `Players with the role can select it in F6 in ${kind === "both" ? "both the top headtag and bottom gang-tag slots" : kind === "head" ? "the top headtag slot" : "the bottom gang-tag slot"}.`,
-      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Chat tag", chatTag ? "Available" : "No"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
+      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Owner", owner ? who(owner.id) : "None"], ["Chat tag", chatTag ? "Available" : "No"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
     });
   }
   if (sub === "delete") {

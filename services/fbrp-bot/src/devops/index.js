@@ -14,6 +14,7 @@ import * as tickets from "./tickets.js";
 import * as admin from "./admin.js";
 import * as ranksync from "./ranksync.js";
 import * as status from "./status.js";
+import * as lookups from "./lookups.js";
 import { refreshPanels, renderPanel } from "./panels.js";
 
 /**
@@ -69,6 +70,7 @@ const HELP = [
   ["📣 Comms", "`/release post` · `/announce` · `/standup`"],
   ["🎫 Tickets · `/ticket` `/support`", "General Support and Purchase Support. Staff claim, prioritise, note and close from the buttons."],
   ["🟢 Status · `/devops status`", "Live game server, website, database and bot health."],
+  ["🔎 Public lookups", "`/vehicle lookup` · `/personals owned` · `/headtag info` · `/headtag owned`\nAvailable to everyone in this server."],
 ];
 
 async function slash(i, actor) {
@@ -100,6 +102,16 @@ async function slash(i, actor) {
       return comms.announceCommand(i, actor);
     case "standup":
       return comms.standupCommand(i, actor);
+    case "vehicle":
+      if (sub === "lookup") return lookups.vehicle(i);
+      break;
+    case "personals":
+      if (sub === "owned") return lookups.personals(i);
+      break;
+    case "headtag":
+      if (sub === "info") return lookups.headtagInfo(i);
+      if (sub === "owned") return lookups.headtagsOwned(i);
+      break;
     case "ticket": {
       // The intake form must be shown within three seconds, so it cannot wait behind a deferred reply.
       if (sub === "open") return i.showModal(tickets.intakeModal(i.options.getString("type", true)));
@@ -132,6 +144,7 @@ async function autocomplete(i, actor) {
   if (name === "incident" && focused === "id") return incidents.autocomplete(i);
   if ((name === "ticket" || name === "support") && ["type", "level"].includes(focused)) return tickets.autocomplete(i);
   if (name === "devops-admin" && focused === "rank") return roster.allRankAutocomplete(i);
+  if ((name === "vehicle" && focused === "query") || (name === "headtag" && focused === "tag")) return lookups.autocomplete(i);
   return i.respond([]);
 }
 
