@@ -441,15 +441,30 @@ end
 
 local function wardrobe(discord, kind, orgId)
     if not discord then return {} end
-    return MySQL.query.await([[
+    local dutyFilter = 'AND t.org_id IS NULL'
+    local params = { discord, kind }
+    if orgId then
+        dutyFilter = 'AND (t.org_id IS NULL OR t.org_id=?)'
+        params[#params + 1] = tonumber(orgId)
+    end
+    return MySQL.query.await(([=[
         SELECT DISTINCT t.id,t.kind,t.label,t.color,t.priority,t.org_id,o.name org_name
         FROM headtags t
         JOIN headtag_grants g ON g.tag_id=t.id
         LEFT JOIN organizations o ON o.id=t.org_id
         WHERE g.discord_id=? AND (t.kind=? OR t.kind='both') AND t.enabled=TRUE
-          AND (t.org_id IS NULL OR t.org_id=?)
+          %s
         ORDER BY t.priority DESC,t.label
-    ]], { discord, kind, orgId })
+    ]=]):format(dutyFilter), params)
+end
+
+local function tagWardrobePayload(s)
+    local orgId = s.org and s.org.id or nil
+    return {
+        head=wardrobe(s.discord,'head',orgId),
+        gang=wardrobe(s.discord,'gang',orgId),
+        selected={head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil}
+    }
 end
 
 local function canWear(discord, tagId, kind, orgId)
@@ -1137,8 +1152,7 @@ end,false)
 RegisterNetEvent('fbrp:tags:request', function()
     local src=source; local s=sessions[src]
     if not s then return end
-    local orgId=s.org and s.org.id or nil
-    TriggerClientEvent('fbrp:tags:data',src,{head=wardrobe(s.discord,'head',orgId),gang=wardrobe(s.discord,'gang',orgId),selected={head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil}})
+    TriggerClientEvent('fbrp:tags:data',src,tagWardrobePayload(s))
 end)
 
 RegisterNetEvent('fbrp:tags:equip', function(kind, rawId)

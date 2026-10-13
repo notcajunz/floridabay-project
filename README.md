@@ -1,6 +1,6 @@
 # Florida Bay Roleplay
 
-Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vMenu. It combines a custom roleplay resource, EasyAdmin, pma-voice, a single Discord control bot, and MariaDB. It does not require QBCore or ESX.
+Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vMenu. It combines a custom roleplay resource, EasyAdmin, pma-voice, Discord automation, and MariaDB. It does not require QBCore or ESX.
 
 ## Included systems
 
@@ -79,6 +79,27 @@ relevant Discord/FiveM reconciliation before returning.
 
 The bot also enforces protected roles, removes unapproved bots, detects rapid destructive Discord actions, mirrors ACE groups into every registered network server, re-syncs game permissions after Discord changes, and forwards game/staff/organization audit events into purpose-bound logging channels.
 
+## Delegated role-manager bot
+
+A separate bot process registers only `/addrole`, `/removerole`, `/wiperole`,
+`/useradd`, `/setowner`, `/userdel`, and `/mgrwipe`. Each Discord role has one
+persisted owner and any number of managers. Owners and managers can change that
+role's membership; only the owner can change its managers. Server owners,
+`ROLE_MANAGER_SUPERUSER_IDS`, and (as a fallback) `FBRP_SUPERUSER_IDS` can
+bootstrap or recover ownership.
+
+Set the dedicated application's reset token as `ROLE_MANAGER_BOT_TOKEN` in
+`services/fbrp-bot/.env`. Enable its **Server Members Intent**, invite it with
+the `bot` and `applications.commands` scopes, grant **Manage Roles**, and place
+its bot role above every role it should manage. Run it with:
+
+```bash
+npm --prefix services/fbrp-bot run role-manager
+```
+
+For production, install and enable `deploy/fbrp-role-manager.service` alongside
+the central bot service.
+
 ## First-time setup
 
 Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11.x server), and a Discord application with the Server Members intent enabled.
@@ -103,9 +124,9 @@ Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11
 
    `fbrp_core` also applies restart-safe migrations when FiveM starts, so either process can initialize an empty database.
 
-4. In the Discord Developer Portal, enable **Server Members Intent** and add the deployed portal callback (for example `https://your-domain.example/fbrp/auth/callback.html`) as an OAuth2 redirect. Invite the bot with `bot` and `applications.commands` scopes. Give it Manage Roles, Manage Channels, Create Instant Invite, Kick Members, Ban Members, Moderate Members, Manage Messages, and View Audit Log. Its role must sit above every role it manages.
+4. In the Discord Developer Portal, enable **Server Members Intent** and add the deployed portal callback (for example `https://your-domain.example/fbrp/auth/callback.html`) as an OAuth2 redirect. Invite the central bot with `bot` and `applications.commands` scopes. Give it Manage Roles, Manage Channels, Create Instant Invite, Kick Members, Ban Members, Moderate Members, Manage Messages, and View Audit Log. Invite the dedicated role-manager application with the same scopes and give it Manage Roles. Each bot's role must sit above every role it manages.
 
-5. Put the bot token, application ID, comma-separated guild IDs and superuser IDs, service token, and database credentials in `services/fbrp-bot/.env`. Set the main guild ID in `server-data/secrets.cfg`.
+5. Put the central bot token, the freshly reset role-manager token, application ID, comma-separated guild IDs and superuser IDs, service token, and database credentials in `services/fbrp-bot/.env`. Set the main guild ID in `server-data/secrets.cfg`.
 
 6. Replace `CHANGE_ME` for `sv_licenseKey` in `server-data/server.cfg`, then run:
 
@@ -164,6 +185,7 @@ The stock vMenu vehicle spawner is not granted. Players use the F7 garage; edit 
 
 - `server-data/resources/[fbrp]/fbrp_core`: gameplay framework, HUD, menus, migrations.
 - `services/fbrp-bot`: centralized Discord bot.
+- `services/fbrp-bot/src/role-manager-bot.js`: dedicated delegated-role bot.
 - `server-data/resources/[discord]`: Badger compatibility adapters.
 - `server-data/resources/[standalone]/s4_chat`: installed custom chat resource.
 - `server-data/resources/[fbrp]/fbrp_loading`: loading screen and primary logo.

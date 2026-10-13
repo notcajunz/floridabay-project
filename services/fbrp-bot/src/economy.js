@@ -139,7 +139,7 @@ const MAX_RANKS = 12;
 const dayStart = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.getTime(); };
 const flag = (value) => value === true || value === 1 || value === "1" || value === "on" || value === "true";
 
-export function createEconomy({ client, db, audit, log, hasPermission }) {
+export function createEconomy({ client, db, audit, log }) {
   async function seed() {
     for (const row of DEFAULT_SHOP)
       await db.query(
@@ -154,7 +154,7 @@ export function createEconomy({ client, db, audit, log, hasPermission }) {
     return level >= Number(coOwner?.rank_order ?? 950);
   }
   const canManage = async (discordId) =>
-    superuserIds().has(String(discordId)) || Boolean(await hasPermission(discordId, "fbrp.organizations.manage")) || (await coOwnerOrAbove(discordId));
+    superuserIds().has(String(discordId)) || (await coOwnerOrAbove(discordId));
 
   /**
    * What a viewer may do in one organization. Leaders and managers can do everything; ranked members follow

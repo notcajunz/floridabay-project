@@ -59,7 +59,7 @@ const transcriptLink = (id, label = "View hosted transcript") => new ActionRowBu
 );
 
 export function createTicketSystem(ctx) {
-  const { client, db, audit, hasPermission, clean, safeName, embed, card, colors, log } = ctx;
+  const { client, db, audit, hasPermission, requireMinimumStaffRank, clean, safeName, embed, card, colors, log } = ctx;
   const mention = (id) => `<@${id}>`;
   /** type key → {label, description, priority, enabled, fields:[[id,label,style,required,max]]} */
   const ticketTypes = async ({ includeDisabled = false } = {}) => {
@@ -589,6 +589,7 @@ export function createTicketSystem(ctx) {
   }
 
   async function supportCommand(i,sub){
+    await requireMinimumStaffRank(i,"Co-Owner","configure the ticket system");
     if(!(await ticketAccess(i,"all","fbrp.tickets.manage",true)))throw new Error("You need a ticket manager role or the `fbrp.tickets.manage` ACE permission.");
     if(sub==="panel"){const channel=i.options.getChannel("channel",true);if(!channel.isTextBased())throw new Error("Choose a text channel.");await db.query("INSERT INTO discord_channel_bindings(purpose,guild_id,channel_id,updated_by,updated_at) VALUES('ticket_panel',?,?,?,?) ON DUPLICATE KEY UPDATE guild_id=VALUES(guild_id),channel_id=VALUES(channel_id),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)",[i.guildId,channel.id,i.user.id,Date.now()]);await ensurePanel();return card("Ticket panel updated",{color:colors.success,description:`The ticket panel is live in ${channel}.`});}
     if(sub==="category"){const type=clean(i.options.getString("type",true),24),category=i.options.getChannel("category",true);if(type!=="all"&&!(await ticketTypes({includeDisabled:true}))[type])throw new Error("Type must be a configured ticket type or `all`.");if(category.type!==ChannelType.GuildCategory)throw new Error("Choose a Discord category.");await setSetting(i.guildId,`category_${type}`,category.id);return card("Ticket category updated",{color:colors.success,description:`**${type}** tickets will be created under **${category.name}**.`});}

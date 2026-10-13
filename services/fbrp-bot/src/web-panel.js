@@ -467,7 +467,7 @@ export const PANEL_RESOURCES = {
   "roster-members": {
     label: "Roster members",
     group: "Staff roster",
-    description: "Staff on the roster. Saving applies the rank role; new or changed callsigns are posted to the callsign channel. Use /staff add to also set ACE groups.",
+    description: "Staff on the roster. Callsigns are assigned automatically by rank order. Saving applies the rank role; use /staff add to also set ACE groups.",
     table: "staff_roster_members",
     pk: ["discord_id"],
     order: "status,callsign,display_name",
@@ -476,7 +476,7 @@ export const PANEL_RESOURCES = {
       field("discord_id", "Discord user ID", "snowflake", { required: true }),
       field("display_name", "Display name", "text", { required: true }),
       field("rank_id", "Rank", "relation", { source: "roster-ranks", value: "id", display: "name", required: true }),
-      field("callsign", "Callsign", "number"),
+      field("callsign", "Callsign (automatic)", "number", { readonly: true, auto: true }),
       field("status", "Status", "select", { options: ["active", "inactive", "loa", "removed"], default: "active" }),
       field("activity_note", "Activity note", "textarea", { default: "" }),
       field("tickets_handled", "Tickets handled", "number", { default: 0 }),
@@ -494,10 +494,8 @@ export const PANEL_RESOURCES = {
       );
       if (!rank) throw new Error("Choose a roster rank.");
       values.rank_name = rank.name;
-      if (values.callsign !== null && values.callsign !== undefined && (values.callsign < rank.callsign_start || values.callsign > rank.callsign_end))
-        throw new Error(`Callsigns for this rank's category run ${rank.callsign_start}–${rank.callsign_end}.`);
     },
-    afterSave: async ({ client, db, announceCallsign }, values, original) => {
+    afterSave: async ({ client, db, rebalanceStaffCallsigns }, values, original) => {
       const rank = await db.one(
         "SELECT discord_role_id,discord_guild_id FROM staff_roster_ranks WHERE id=?",
         [values.rank_id],
@@ -507,9 +505,9 @@ export const PANEL_RESOURCES = {
         await setRole(client, old?.discord_guild_id, old?.discord_role_id, values.discord_id, false, "FBRP staff roster rank (control panel)");
       }
       await setRole(client, rank?.discord_guild_id, rank?.discord_role_id, values.discord_id, values.status !== "removed", "FBRP staff roster rank (control panel)");
-      const changed = !original || original.status === "removed" || Number(original.callsign) !== Number(values.callsign);
-      if (values.callsign !== null && values.callsign !== undefined && values.status !== "removed" && changed)
-        await announceCallsign?.(values.discord_id, values.callsign);
+      if (values.status === "removed")
+        await db.query("UPDATE staff_roster_members SET callsign=NULL WHERE discord_id=?", [values.discord_id]);
+      await rebalanceStaffCallsigns?.("web-panel");
     },
   },
   "roster-member-jobs": {
@@ -934,7 +932,7 @@ export function startWebPanel(context) {
     client, db, audit, refreshGame, syncAll, saveGlobalSync, deleteGlobalSync,
     bindSyncRole, setGlobalSyncOrder, pushGlobalSyncs, ensureTicketPanel,
     createWebsiteTicket, websiteTicketAction, websiteTicketTypes,
-    websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard, announceCallsign,
+    websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard,
     hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, log,
   } = context;
 

@@ -81,16 +81,22 @@ import {
   guardJoin,
   guardMessage,
   handleAuditEntry,
+  enforceOffenders,
+  listOffenders,
+  loadOffenders,
   lockdown,
   lockdownStates,
+  pardonOffender,
   rememberChannel,
   rememberRole,
   securityEvents,
+  securityHealth,
   setSecuritySetting,
   settingChoices,
   settingText,
   sweepBots,
   unlock,
+  watchHealth,
 } from "./security.js";
 import {
   CATALOG_SOURCES,
@@ -100,6 +106,7 @@ import {
   catalogPages,
 } from "./permission-catalog.js";
 import { createTicketSystem } from "./ticket-system.js";
+import { rebalanceCallsigns } from "./callsigns.js";
 import {
   COLORS,
   card,
@@ -375,6 +382,14 @@ async function announceCallsign(discordId, callsign) {
     .catch((error) => console.error("[FBRP bot] callsign announcement:", error));
 }
 
+/** Apply rank-ordered callsigns and optionally publish each changed assignment. */
+async function rebalanceStaffCallsigns(actorId, { announce = true } = {}) {
+  const result = await rebalanceCallsigns(db, actorId);
+  if (announce)
+    for (const row of result.changes) await announceCallsign(row.discordId, row.callsign);
+  return result;
+}
+
 /** Enforces a live staff-rank threshold using the roster rank's mapped ACE group. */
 async function requireMinimumStaffRank(i, rankName, action) {
   const [level, threshold] = await Promise.all([
@@ -392,11 +407,18 @@ async function requireMinimumStaffRank(i, rankName, action) {
     throw new Error(`Only ${rankName} and higher can ${action}.`);
 }
 
+/** Core configuration is reserved for Co-Owners even if a lower rank is accidentally granted an ACE. */
+async function requireCoOwnerControl(i, permission, action) {
+  await requireMinimumStaffRank(i, "Co-Owner", action);
+  await requirePermission(i, permission);
+}
+
 /** Community Director and above: republish every current staff callsign, including unchanged ones. */
 async function callsignCommand(i, sub) {
   if (sub !== "sync") throw new Error("Unknown callsign action.");
   await requireMinimumStaffRank(i, "Community Director", "synchronize callsigns");
 
+  const rebalance = await rebalanceStaffCallsigns(i.user.id, { announce: false });
   const channel = await client.channels.fetch(CALLSIGN_CHANNEL_ID).catch(() => null);
   if (!channel?.isTextBased()) throw new Error("The staff callsigns channel is unavailable.");
   const members = await db.query(
@@ -412,20 +434,21 @@ async function callsignCommand(i, sub) {
   for (const member of assigned)
     await channel.send({ content: `${mention(member.discord_id)} --> ${member.callsign}`, allowedMentions: { parse: [] } });
 
-  await audit(i.user.id, "callsign.sync", channel.id, { posted: assigned.length, missing: missing.map((member) => member.discord_id) });
+  await audit(i.user.id, "callsign.sync", channel.id, { posted: assigned.length, changed: rebalance.changes.length, missing: missing.map((member) => member.discord_id) });
   await log(i.guild, {
     title: "Staff callsigns synchronized",
     color: COLORS.success,
     actor: i.user.id,
     fields: [
       ["Callsigns posted", String(assigned.length)],
+      ["Rank-order changes", String(rebalance.changes.length)],
       ["Destination", `<#${channel.id}>`],
       ...(missing.length ? [["Missing callsigns", missing.map((member) => mention(member.discord_id)).join(" "), false]] : []),
     ],
   }, "staff_audit");
   return card("Callsigns synchronized", {
     color: COLORS.success,
-    description: `Republished **${assigned.length}** staff callsign${assigned.length === 1 ? "" : "s"} in ${channel}.`,
+    description: `Rank-ordered and republished **${assigned.length}** staff callsign${assigned.length === 1 ? "" : "s"} in ${channel}.`,
     rows: missing.length ? [["Not posted", `${missing.length} staff member${missing.length === 1 ? " has" : "s have"} no assigned callsign.`]] : [],
   });
 }
@@ -744,7 +767,7 @@ async function aceCommand(i, sub) {
 }
 
 async function headtagCommand(i, sub) {
-  await requirePermission(i, "fbrp.headtags.manage");
+  await requireCoOwnerControl(i, "fbrp.headtags.manage", "manage headtags");
   if (sub === "create") {
     const kind = i.options.getString("kind", true),
       kindLabel = kind === "both" ? "Headtag + gang tag" : kind === "head" ? "Headtag" : "Gang tag",
@@ -960,7 +983,7 @@ async function personalAutocomplete(i) {
 }
 
 async function organizationCommand(i, sub) {
-  await requirePermission(i, "fbrp.organizations.manage");
+  await requireCoOwnerControl(i, "fbrp.organizations.manage", "manage organizations");
   if (sub === "create") {
     const slug = safeName(
         i.options.getString("slug", true),
@@ -1110,7 +1133,7 @@ async function organizationCommand(i, sub) {
 }
 
 async function radioCommand(i, sub) {
-  await requirePermission(i, "fbrp.radio.manage");
+  await requireCoOwnerControl(i, "fbrp.radio.manage", "manage radio frequencies");
   if (sub === "create") {
     const channel = i.options.getInteger("channel", true);
     const name = clean(i.options.getString("name", true), 80);
@@ -1147,7 +1170,7 @@ async function radioCommand(i, sub) {
 }
 
 async function networkCommand(i, sub) {
-  await requirePermission(i, "fbrp.network.manage");
+  await requireCoOwnerControl(i, "fbrp.network.manage", "manage network servers");
   if (sub === "add") {
     await db.query(
       "INSERT INTO network_guilds(guild_id,name,kind,added_by,added_at) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),kind=VALUES(kind)",
@@ -1251,8 +1274,11 @@ async function globalSyncServersComponent(i) {
   if (action !== "servers") return;
   if (i.user.id !== actor)
     return i.reply({ embeds: [embed("Not your menu", "Only the person who ran `/globalsync` can pick these servers.", COLORS.danger)], ephemeral: true });
-  if (!(await hasPermission(i.user.id, "fbrp.network.manage")))
-    return i.reply({ embeds: [embed("Permission required", "You need the `fbrp.network.manage` ACE permission.", COLORS.danger)], ephemeral: true });
+  try {
+    await requireCoOwnerControl(i, "fbrp.network.manage", "manage global role syncs");
+  } catch (error) {
+    return i.reply({ embeds: [embed("Permission required", clean(error.message || error, 1000), COLORS.danger)], ephemeral: true });
+  }
   await i.deferUpdate();
   try {
     const { sync, chosen, lines, swept } = await setGlobalSyncServers(client, i.user.id, syncId, i.values);
@@ -1313,7 +1339,7 @@ async function globalSyncAutocomplete(i) {
 }
 
 async function globalSyncCommand(i, sub) {
-  await requirePermission(i, "fbrp.network.manage");
+  await requireCoOwnerControl(i, "fbrp.network.manage", "manage global role syncs");
   const servers = await networkRows();
   if (sub === "list") {
     const [syncs, links] = await Promise.all([
@@ -1692,12 +1718,6 @@ async function staffAdd(i, move = false) {
   const reason = move ? clean(i.options.getString("reason") || "", 300) || null : null;
   if (move && !active) throw new Error("That member is not on the staff roster. Use /staff add instead.");
   if (move && Number(previous.rank_id) === Number(rank.id)) throw new Error(`That member is already ${rank.name}.`);
-  let callsign = i.options.getInteger("callsign");
-  if (callsign) await checkCallsign(callsign, rank, user.id);
-  else {
-    const keep = active && previous.callsign && Number(previous.callsign) >= Number(rank.callsign_start) && Number(previous.callsign) <= Number(rank.callsign_end);
-    callsign = keep ? Number(previous.callsign) : await nextCallsign(rank);
-  }
   const ladder = await staffLadder(rank);
   const groups = [...new Set(ladder.map((row) => String(row.ace_group)))];
   const marks = groups.map(() => "?").join(",");
@@ -1723,11 +1743,11 @@ async function staffAdd(i, move = false) {
          rank_changed_at=IF(rank_id<=>VALUES(rank_id) AND status<>'removed',rank_changed_at,VALUES(rank_changed_at)),
          joined_at=IF(status='removed',VALUES(joined_at),joined_at),rank_id=VALUES(rank_id),callsign=VALUES(callsign),status='active',
          updated_at=VALUES(updated_at),removed_at=NULL,removed_by=NULL,removal_reason=NULL`,
-      [user.id, user.globalName || user.username, user.username, rank.name, rank.id, callsign, stamp, stamp, stamp, i.user.id],
+      [user.id, user.globalName || user.username, user.username, rank.name, rank.id, null, stamp, stamp, stamp, i.user.id],
     );
     await q(
       "INSERT INTO staff_roster_history(discord_id,action,actor_id,details,created_at) VALUES(?,?,?,?,?)",
-      [user.id, move ? "staff_move" : "staff_add", i.user.id, JSON.stringify({ rank: rank.id, group: rank.ace_group, callsign, from: previous?.rank_id || null, ...(reason ? { reason } : {}) }), stamp],
+      [user.id, move ? "staff_move" : "staff_add", i.user.id, JSON.stringify({ rank: rank.id, group: rank.ace_group, callsign: "rank_ordered", from: previous?.rank_id || null, ...(reason ? { reason } : {}) }), stamp],
     );
     return old.map((row) => String(row.group_name));
   });
@@ -1736,7 +1756,9 @@ async function staffAdd(i, move = false) {
     if (!ladderIds.has(Number(row.id))) await dropRankRole(row, user.id);
   for (const row of ladder) await setRankRole(row, user.id, true);
   await setStaffTeamRole(user.id, true);
-  if (!active || Number(previous.callsign) !== Number(callsign)) await announceCallsign(user.id, callsign);
+  const rebalance = await rebalanceStaffCallsigns(i.user.id);
+  const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
+  if (!callsign) throw new Error("The staff rank was saved, but no callsign could be assigned.");
   await audit(i.user.id, move ? "staff.move" : "staff.add", user.id, { rank: rank.id, rankName: rank.name, from: previous?.rank_name || null, group: rank.ace_group, groups, callsign, removedGroups, reason });
   await refreshGame();
   await syncUserAcrossNetwork(client, user.id);
@@ -1795,6 +1817,7 @@ async function staffRemove(i) {
   });
   await setRankRole(roster, user.id, false);
   await setStaffTeamRole(user.id, false);
+  await rebalanceStaffCallsigns(i.user.id);
   await callGame("/forceout", { discord: user.id, actor: i.user.id, reason: "Removed from staff" }).catch(() => {});
   await audit(i.user.id, "staff.remove", user.id, { reason, groups, rank: roster?.rank_name || null, callsign: roster?.callsign ?? null });
   await refreshGame();
@@ -1870,7 +1893,9 @@ async function staffCommand(i, sub) {
 }
 
 async function protectRoleCommand(i, sub) {
+  await requireMinimumStaffRank(i, "Co-Owner", "manage protected roles");
   requireProtectedRoleManagerId(i.user.id);
+  if (sub !== "list") requireOwner(i, "add or remove protected roles");
   if (sub === "list") {
     const rows = await db.query(
       "SELECT * FROM protected_roles WHERE guild_id=?",
@@ -1926,7 +1951,9 @@ async function protectRoleCommand(i, sub) {
 }
 
 async function botguardCommand(i, sub) {
-  await requirePermission(i, "fbrp.security.manage");
+  await requireCoOwnerControl(i, "fbrp.security.manage", "manage Bot Guard");
+  // Security is configured by the owner alone; Co-Owners may only view the policy.
+  if (sub !== "list") requireOwner(i, "change Bot Guard");
   if (sub === "allow-bot" || sub === "deny-bot") {
     const id = clean(i.options.getString("bot_id", true), 24);
     if (!/^\d{15,24}$/.test(id))
@@ -2024,10 +2051,15 @@ async function botguardCommand(i, sub) {
 
 const securityLog = (guild, entry) => log(guild, entry, "security");
 
+/** Read-only /security views. Everything else changes security and is owner-only. */
+const SECURITY_VIEWS = new Set(["status", "events", "health", "offenders"]);
+/** Co-Owners (with fbrp.security.manage) may still start an emergency lockdown. */
+const SECURITY_COOWNER = new Set([...SECURITY_VIEWS, "lockdown"]);
+
 async function securityCommand(i, sub) {
-  await requirePermission(i, "fbrp.security.manage");
+  await requireCoOwnerControl(i, "fbrp.security.manage", "manage automated security");
+  if (!SECURITY_COOWNER.has(sub)) requireOwner(i, "change automated security");
   if (sub.startsWith("exempt-")) {
-    requireOwner(i, "manage security exemptions");
     if (sub === "exempt-list") {
       const rows = await db.query("SELECT * FROM discord_security_exemption_scopes ORDER BY guild_id='*' DESC,added_at DESC");
       return card("Automated-security exemptions", {
@@ -2113,6 +2145,42 @@ async function securityCommand(i, sub) {
       ],
     });
   }
+  if (sub === "health") {
+    const report = await securityHealth(client);
+    const icon = { ok: "🟢", warning: "🟡", critical: "🔴" };
+    const items = report.map((item) => {
+      const notes = [...item.problems.map((p) => `❌ ${p}`), ...item.warnings.map((w) => `⚠️ ${w}`)];
+      return `${icon[item.grade]} **${clean(item.guild.name, 60)}**${item.locked ? " · 🔒 locked" : ""}${item.rank ? ` · bot role #${item.rank.split("/")[0]} of ${item.rank.split("/")[1]}` : ""}\n${notes.join("\n") || "✅ Bot can stop any non-owner account"}`;
+    });
+    const critical = report.filter((item) => item.grade === "critical").length;
+    return card("Anti-nuke health · every network server", {
+      color: critical ? COLORS.danger : report.some((item) => item.grade === "warning") ? COLORS.warning : COLORS.success,
+      description: `${critical ? `**${critical} server(s) cannot be fully protected.** ` : ""}Anti-nuke can only stop accounts whose highest role is below the Florida Bay bot role. Members are checked from the bot's member cache.\n\n${chunkLines(items, 3500, "\n\n")[0] || "No network servers."}`,
+      footer: "Florida Bay Roleplay · Checked every 10 minutes; regressions are logged and DMed to owners",
+    });
+  }
+  if (sub === "offenders") {
+    const rows = await listOffenders(25);
+    return card("Anti-nuke offender list", {
+      description:
+        "These accounts tripped anti-nuke. They are contained in every network server, any action they take is undone instantly, and they are stopped if they join any network server.\n\n" +
+        (chunkLines(
+          rows.map((row) => `${mention(row.discord_id)} \`${row.discord_id}\` · ${row.punishment} · ${when(row.created_at)}\nFirst seen in ${clean(client.guilds.cache.get(String(row.origin_guild_id))?.name || row.origin_guild_id, 60)} · ${clean(row.reason, 120)}`),
+          3400,
+        )[0] || "Nobody is on the list."),
+      footer: "Florida Bay Roleplay · Lift with /security pardon",
+    });
+  }
+  if (sub === "pardon") {
+    requireOwner(i, "pardon an anti-nuke offender");
+    const user = i.options.getUser("member", true);
+    const lines = await pardonOffender(client, user.id, i.user.id, securityLog);
+    return card("Anti-nuke offender pardoned", {
+      color: COLORS.success,
+      description: `${mention(user.id)} is off the offender list. Anti-nuke bans were lifted, quarantine timeouts ended and stripped roles given back where possible.`,
+      rows: [["Servers", lines.join("\n").slice(0, 1024) || "Nothing to undo", false]],
+    });
+  }
   if (sub === "events") {
     const all = i.options.getBoolean("all_servers") ?? false;
     const rows = await securityEvents(all ? null : i.guildId, 20);
@@ -2138,7 +2206,7 @@ async function securityCommand(i, sub) {
   return card("Security status", {
     description: `These protections scan **every** account on every Florida Bay network server, staff and server owners included. Every human account under ${YOUNG_ACCOUNT_ALERT_DAYS} days old creates an alert, including exempt accounts. The bot and accounts with a \`/security exempt-add\` exemption are skipped only for automated enforcement. Server owners are detected and reported, but Discord does not let a bot act against them.`,
     rows: [
-      ["Anti-nuke", `${onOff(s.antinuke)}\n${s.nuke_limit} of a kind or ${s.nuke_total} danger points in ${s.nuke_window}s\nPunishment: ${s.nuke_punishment}${s.nuke_network_ban ? " (network-wide)" : ""}\nUndo damage: ${onOff(s.nuke_restore)} · Failsafe lockdown: ${onOff(s.nuke_failsafe_lockdown)}`],
+      ["Anti-nuke", `${onOff(s.antinuke)}\n${s.nuke_limit} of a kind or ${s.nuke_total} danger points in ${s.nuke_window}s, per server and${s.nuke_network_scale > 1 ? ` ×${s.nuke_network_scale}` : ""} shared across the network\nPunishment: ${s.nuke_punishment}${s.nuke_network_ban ? " (contained network-wide)" : ""}\nExempt accounts: ${s.nuke_exempt_ceiling ? `quarantined at ${s.nuke_exempt_ceiling}× the limits` : "never stopped"}\nUndo damage: ${onOff(s.nuke_restore)} · Failsafe lockdown: ${onOff(s.nuke_failsafe_lockdown)} · Health watch: ${onOff(s.health_watch)}\nOffender list: ${(await listOffenders(200)).length} account(s)`],
       ["Anti-raid", `${onOff(s.antiraid)}\n${s.raid_joins} joins in ${s.raid_window}s · ${s.raid_suspicious_joins} high-risk joins in ${Math.round(s.raid_suspicious_window / 60)} min · ${s.raid_message_accounts} new accounts posting the same message\n${s.raid_lockdown ? `Lockdown${s.lockdown_minutes ? ` for ${s.lockdown_minutes} min` : ""}` : "Alert only"} · raiders: ${s.raid_kick_new ? s.raid_action : "left alone"}`],
       ["Anti-spam", `${onOff(s.antispam)}\n${s.spam_messages} msgs in ${s.spam_window}s · ${s.spam_mentions} mentions · ${s.spam_duplicates} repeats · ${s.spam_channels} channels · ${s.spam_lines} lines\nTimeout: ${s.spam_timeout} min${s.spam_escalate ? ", doubling for repeat offenders" : ""}\nScam links: ${onOff(s.scam_filter)}`],
       ["Guards", `Permission guard: ${onOff(s.permission_guard)}\nAdmin grant guard: ${onOff(s.admin_grant_guard)}\nWebhook guard: ${onOff(s.webhook_guard)}\nInvite filter: ${onOff(s.invite_filter)}\nBot guard: On`],
@@ -2150,26 +2218,6 @@ async function securityCommand(i, sub) {
   });
 }
 
-/** Lowest free callsign in a rank's category range. */
-async function nextCallsign(rank) {
-  const rows = await db.query(
-    "SELECT callsign FROM staff_roster_members WHERE callsign BETWEEN ? AND ? ORDER BY callsign",
-    [rank.callsign_start, rank.callsign_end],
-  );
-  const used = new Set(rows.map((row) => Number(row.callsign)));
-  for (let value = Number(rank.callsign_start); value <= Number(rank.callsign_end); value++)
-    if (!used.has(value)) return value;
-  throw new Error(`No callsigns remain in ${rank.category_name || "that category"}.`);
-}
-
-/** Throws when a specific callsign is outside the rank's range or held by someone else. */
-async function checkCallsign(callsign, rank, discordId) {
-  if (callsign < Number(rank.callsign_start) || callsign > Number(rank.callsign_end))
-    throw new Error(`Callsign must be within ${rank.callsign_start}–${rank.callsign_end}.`);
-  const holder = await db.one("SELECT discord_id FROM staff_roster_members WHERE callsign=? AND discord_id<>?", [callsign, String(discordId)]);
-  if (holder) throw new Error(`Callsign ${callsign} already belongs to ${mention(holder.discord_id)}.`);
-}
-
 async function rosterCommand(i, sub) {
   const permission = ["list", "profile"].includes(sub)
     ? "fbrp.roster.view"
@@ -2178,7 +2226,9 @@ async function rosterCommand(i, sub) {
       : ["category-upsert", "category-delete", "rank-upsert", "rank-delete", "job-upsert", "job-delete", "sync"].includes(sub)
         ? "fbrp.roster.config"
         : "fbrp.roster.manage";
-  await requirePermission(i, permission);
+  if (permission === "fbrp.roster.config")
+    await requireCoOwnerControl(i, permission, "configure the staff roster");
+  else await requirePermission(i, permission);
   const history = (discordId, action, details) =>
     db.query(
       "INSERT INTO staff_roster_history(discord_id,action,actor_id,details,created_at) VALUES(?,?,?,?,?)",
@@ -2229,13 +2279,14 @@ async function rosterCommand(i, sub) {
     const order = i.options.getInteger("order") || 0;
     if (id) await db.query("UPDATE staff_roster_categories SET name=?,callsign_start=?,callsign_end=?,sort_order=? WHERE id=?", [name, start, end, order, id]);
     else await db.query("INSERT INTO staff_roster_categories(name,callsign_start,callsign_end,sort_order,created_at) VALUES(?,?,?,?,?)", [name, start, end, order, Date.now()]);
+    const rebalance = await rebalanceStaffCallsigns(i.user.id);
     await log(i.guild, {
       title: id ? "Roster category updated" : "Roster category created",
       color: COLORS.success,
       actor: i.user.id,
-      fields: [["Category", name], ["Callsigns", `${start} to ${end}`]],
+      fields: [["Category", name], ["Callsigns", `${start} to ${end}`], ["Callsign changes", String(rebalance.changes.length)]],
     }, "roster");
-    return card("Roster category saved", { color: COLORS.success, rows: [["Category", name], ["Callsigns", `${start} to ${end}`]] });
+    return card("Roster category saved", { color: COLORS.success, rows: [["Category", name], ["Callsigns", `${start} to ${end}`], ["Callsign changes", String(rebalance.changes.length)]] });
   }
   if (sub === "category-delete") {
     const id = i.options.getInteger("id", true);
@@ -2252,7 +2303,8 @@ async function rosterCommand(i, sub) {
     if (aceGroup && !(await db.one("SELECT name FROM ace_groups WHERE name=?", [aceGroup]))) throw new Error(`ACE group \`${aceGroup}\` does not exist.`);
     if (id) await db.query("UPDATE staff_roster_ranks SET category_id=?,name=?,discord_role_id=?,discord_guild_id=?,ace_group=?,sort_order=?,weekly_seconds=?,minimum_days=? WHERE id=?", [category, name, role?.id || null, role ? i.guildId : null, aceGroup, order, weekly, days, id]);
     else await db.query("INSERT INTO staff_roster_ranks(category_id,name,discord_role_id,discord_guild_id,ace_group,sort_order,weekly_seconds,minimum_days,created_at) VALUES(?,?,?,?,?,?,?,?,?)", [category, name, role?.id || null, role ? i.guildId : null, aceGroup, order, weekly, days, Date.now()]);
-    const rows = [["Rank", name], ["Role", role ? roleRef(role.id) : "Not mapped"], ["ACE group", aceGroup ? `\`${aceGroup}\`` : "Not mapped"], ["Weekly hours", `${weekly / 3600}h`]];
+    const rebalance = await rebalanceStaffCallsigns(i.user.id);
+    const rows = [["Rank", name], ["Role", role ? roleRef(role.id) : "Not mapped"], ["ACE group", aceGroup ? `\`${aceGroup}\`` : "Not mapped"], ["Weekly hours", `${weekly / 3600}h`], ["Callsign changes", String(rebalance.changes.length)]];
     await log(i.guild, {
       title: id ? "Roster rank updated" : "Roster rank created",
       color: COLORS.success,
@@ -2319,13 +2371,9 @@ async function rosterCommand(i, sub) {
       if (!role) continue;
       for (const member of role.members.values()) {
         if (member.user.bot) continue;
-        const detail = await rankById(rank.id);
-        const existing = await db.one("SELECT callsign FROM staff_roster_members WHERE discord_id=?", [member.id]);
-        const callsign = existing?.callsign || await nextCallsign(detail);
-        if (!existing?.callsign) await announceCallsign(member.id, callsign);
         await db.query(`INSERT INTO staff_roster_members(discord_id,display_name,username,rank_name,rank_id,callsign,status,joined_at,rank_changed_at,updated_at,added_by)
           VALUES(?,?,?,?,?,?,'active',?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),username=VALUES(username),rank_name=VALUES(rank_name),rank_id=VALUES(rank_id),status='active',updated_at=VALUES(updated_at)`,
-        [member.id, member.displayName, member.user.username, rank.name, rank.id, callsign, Date.now(), Date.now(), Date.now(), i.user.id]);
+        [member.id, member.displayName, member.user.username, rank.name, rank.id, null, Date.now(), Date.now(), Date.now(), i.user.id]);
         synced++;
       }
     }
@@ -2344,17 +2392,18 @@ async function rosterCommand(i, sub) {
           await db.query("DELETE FROM staff_roster_member_jobs WHERE discord_id=? AND job_id=?", [row.discord_id, job.id]);
       }
     }
+    const rebalance = await rebalanceStaffCallsigns(i.user.id);
     await syncStaffTeamRoles();
     await log(i.guild, {
       title: "Roster synchronized",
       color: COLORS.success,
       actor: i.user.id,
-      fields: [["Assignments", String(synced)]],
+      fields: [["Assignments", String(synced)], ["Callsign changes", String(rebalance.changes.length)]],
     }, "role_sync");
     return card("Roster synchronized", {
       color: COLORS.success,
       description: "Staff assignments were reconciled from Discord roles.",
-      rows: [["Assignments", String(synced)]],
+      rows: [["Assignments", String(synced)], ["Callsign changes", String(rebalance.changes.length)]],
     });
   }
   const user = i.options.getUser("member", true);
@@ -2405,23 +2454,20 @@ async function rosterCommand(i, sub) {
   }
   if (sub === "add") {
     const rank = await rankById(i.options.getInteger("rank", true));
-    let callsign = i.options.getInteger("callsign");
-    if (callsign) await checkCallsign(callsign, rank, user.id);
-    const previous = await db.one("SELECT callsign,status FROM staff_roster_members WHERE discord_id=?", [user.id]);
-    const keep = previous?.callsign && Number(previous.callsign) >= Number(rank.callsign_start) && Number(previous.callsign) <= Number(rank.callsign_end);
-    callsign ||= keep ? Number(previous.callsign) : await nextCallsign(rank);
     const displayName = user.globalName || user.username;
     await db.query(`INSERT INTO staff_roster_members(discord_id,display_name,username,rank_name,rank_id,callsign,status,joined_at,rank_changed_at,updated_at,added_by)
       VALUES(?,?,?,?,?,?,'active',?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),username=VALUES(username),rank_name=VALUES(rank_name),rank_id=VALUES(rank_id),callsign=VALUES(callsign),status='active',rank_changed_at=VALUES(rank_changed_at),updated_at=VALUES(updated_at),removed_at=NULL,removed_by=NULL,removal_reason=NULL`,
-    [user.id, displayName, user.username, rank.name, rank.id, callsign, Date.now(), Date.now(), Date.now(), i.user.id]);
-    await history(user.id, "add_or_update", { rank: rank.id, callsign });
+    [user.id, displayName, user.username, rank.name, rank.id, null, Date.now(), Date.now(), Date.now(), i.user.id]);
+    await history(user.id, "add_or_update", { rank: rank.id, callsign: "rank_ordered" });
     if (rank.discord_role_id && rank.discord_guild_id) {
       const guild = client.guilds.cache.get(String(rank.discord_guild_id));
       const member = await guild?.members.fetch(user.id).catch(() => null);
       if (member) await member.roles.add(String(rank.discord_role_id), "FBRP staff roster rank").catch(() => {});
     }
     await setStaffTeamRole(user.id, true);
-    if (previous?.status === "removed" || Number(previous?.callsign) !== Number(callsign)) await announceCallsign(user.id, callsign);
+    const rebalance = await rebalanceStaffCallsigns(i.user.id);
+    const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
+    if (!callsign) throw new Error("The roster member was saved, but no callsign could be assigned.");
     await log(i.guild, {
       title: "Roster member saved",
       color: COLORS.success,
@@ -2439,6 +2485,7 @@ async function rosterCommand(i, sub) {
     await db.query("UPDATE staff_roster_members SET status='removed',callsign=NULL,removed_at=?,removed_by=?,removal_reason=?,updated_at=? WHERE discord_id=?", [Date.now(), i.user.id, reason, Date.now(), user.id]);
     await history(user.id, "remove", { reason });
     await setStaffTeamRole(user.id, false);
+    await rebalanceStaffCallsigns(i.user.id);
     await log(i.guild, {
       title: "Roster member removed",
       color: COLORS.warning,
@@ -2456,23 +2503,12 @@ async function rosterCommand(i, sub) {
     return card("Roster status updated", { color: COLORS.success, rows: [["Member", who(user.id)], ["Status", humanize(status)]] });
   }
   if (sub === "callsign") {
-    const row = await db.one(`SELECT m.*,r.id rank_id,c.name category_name,c.callsign_start,c.callsign_end FROM staff_roster_members m JOIN staff_roster_ranks r ON r.id=m.rank_id JOIN staff_roster_categories c ON c.id=r.category_id WHERE m.discord_id=?`, [user.id]);
-    if (!row) throw new Error("That member is not on the roster.");
-    const callsign = i.options.getInteger("callsign") || await nextCallsign(row);
-    await checkCallsign(callsign, row, user.id);
-    await db.query("UPDATE staff_roster_members SET callsign=?,updated_at=? WHERE discord_id=?", [callsign, Date.now(), user.id]);
-    await history(user.id, "callsign", { from: row.callsign, to: callsign });
-    if (Number(row.callsign) !== Number(callsign)) await announceCallsign(user.id, callsign);
-    await log(i.guild, {
-      title: "Callsign changed",
-      color: COLORS.primary,
-      actor: i.user.id,
-      target: user.id,
-      fields: [["Previous", row.callsign ? String(row.callsign) : "None"], ["New", String(callsign)]],
-    }, "roster");
-    return card("Callsign updated", {
+    const rebalance = await rebalanceStaffCallsigns(i.user.id);
+    const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
+    if (!callsign) throw new Error("That member is not on the active roster.");
+    return card("Callsigns rank-ordered", {
       color: COLORS.success,
-      rows: [["Member", who(user.id)], ["Previous", row.callsign ? String(row.callsign) : "None"], ["New", String(callsign)]],
+      rows: [["Member", who(user.id)], ["Callsign", String(callsign)], ["Changed assignments", String(rebalance.changes.length)]],
     });
   }
   if (sub === "note") {
@@ -2627,7 +2663,7 @@ async function userinfoCommand(i) {
 }
 
 async function officeCommand(i, sub) {
-  await requirePermission(i, "fbrp.office.manage");
+  await requireCoOwnerControl(i, "fbrp.office.manage", "manage offices");
   if (sub === "list") {
     const rows = await db.query(
       "SELECT * FROM offices WHERE guild_id=? ORDER BY set_at",
@@ -3147,13 +3183,7 @@ async function memberServers(userId) {
 }
 
 async function blacklistedServerCommand(i, sub) {
-  const [explicitAccess, level, coOwner] = await Promise.all([
-    hasPermission(i.user.id, "fbrp.blacklistedservers.manage"),
-    staffLevel(i.user.id),
-    db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'"),
-  ]);
-  if (!explicitAccess && level < Number(coOwner?.rank_order ?? 950))
-    throw new Error("You need the Co-Owner rank or higher to manage blacklisted servers.");
+  await requireMinimumStaffRank(i, "Co-Owner", "manage blacklisted servers");
   if (sub === "list") {
     const rows = await db.query("SELECT guild_id,name,reason,updated_by,updated_at FROM blacklisted_servers ORDER BY name");
     return card("Blacklisted Discord servers", {
@@ -3977,28 +4007,28 @@ const COMMAND_PERMISSIONS = {
   acelist: "`fbrp.perms.manage`",
   global: "`fbrp.global.<action>` (warn, timeout, kick, ban, blacklist, unban, invite, restore, lookup); moderated/restored targets must rank below you",
   blacklist: "`fbrp.global.blacklist`; target must rank below you",
-  blacklistedserver: "Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access",
+  blacklistedserver: "Co-Owner rank or higher",
   ticket: "Everyone; staff actions require `fbrp.tickets.support`",
-  support: "`fbrp.tickets.manage`",
+  support: "Co-Owner rank or higher and `fbrp.tickets.manage`",
   ace: "`fbrp.perms.manage`",
   vmenu: "`fbrp.perms.manage`",
-  headtag: "`fbrp.headtags.manage`",
-  personal: "Owners manage their own vehicles; add, edit, transfer and remove need Co-Owner rank or higher (or `fbrp.personals.manage`)",
-  organization: "`fbrp.organizations.manage`",
-  radio: "`fbrp.radio.manage`",
-  network: "`fbrp.network.manage`",
-  globalsync: "`fbrp.network.manage`",
+  headtag: "Co-Owner rank or higher and `fbrp.headtags.manage`",
+  personal: "Owners manage their own vehicles; add, edit, transfer and remove need Co-Owner rank or higher",
+  organization: "Co-Owner rank or higher and `fbrp.organizations.manage`",
+  radio: "Co-Owner rank or higher and `fbrp.radio.manage`",
+  network: "Co-Owner rank or higher and `fbrp.network.manage`",
+  globalsync: "Co-Owner rank or higher and `fbrp.network.manage`",
   mod: "`fbrp.discord.mod`; ban/kick may use `fbrp.discord.mod.<action>`",
   server: "`/server status`: Everyone; other actions: `fbrp.ops`",
   staff: "`add`/`move`/`remove`: `fbrp.staff.assign` (ranks below yours only); others: `fbrp.staff.manage`",
   callsign: "Community Director rank or higher",
-  protectrole: `Only <@${PROTECTED_ROLE_MANAGER_IDS[0]}> and <@${PROTECTED_ROLE_MANAGER_IDS[1]}>`,
-  botguard: "`fbrp.security.manage`",
-  security: "`fbrp.security.manage`",
+  protectrole: `List: Co-Owner rank or higher and an authorized account (<@${PROTECTED_ROLE_MANAGER_IDS[0]}> or <@${PROTECTED_ROLE_MANAGER_IDS[1]}>). Add/remove: bot owner only (Discord ID 1090083387638812755)`,
+  botguard: "View: Co-Owner rank or higher and `fbrp.security.manage`. Changes: bot owner only (Discord ID 1090083387638812755)",
+  security: "View and lockdown: Co-Owner rank or higher and `fbrp.security.manage`. Other changes: bot owner only (Discord ID 1090083387638812755)",
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
   userinfo: "`fbrp.investigate`; linked alt accounts also need `fbrp.global.alts`",
-  office: "`fbrp.office.manage`",
-  orgbank: "`balance`/`ledger`/`roster`: organization members; `transfer`: members whose rank can spend; `adjust`/`leader`: `fbrp.organizations.manage`",
+  office: "Co-Owner rank or higher and `fbrp.office.manage`",
+  orgbank: "`balance`/`ledger`/`roster`: organization members; `transfer`: members whose rank can spend; `adjust`/`leader`: Co-Owner rank or higher",
   exam: "Head of Management and above",
 };
 
@@ -4018,7 +4048,7 @@ function commandPermission(command, sub = "") {
   if (command === "roster") {
     if (["list", "profile"].includes(sub)) return "`fbrp.roster.view`";
     if (["discipline", "discipline-revoke"].includes(sub)) return "`fbrp.roster.discipline`";
-    if (["category-upsert", "category-delete", "rank-upsert", "rank-delete", "job-upsert", "job-delete", "sync"].includes(sub)) return "`fbrp.roster.config`";
+    if (["category-upsert", "category-delete", "rank-upsert", "rank-delete", "job-upsert", "job-delete", "sync"].includes(sub)) return "Co-Owner rank or higher and `fbrp.roster.config`";
     return "`fbrp.roster.manage`";
   }
   return COMMAND_PERMISSIONS[command] || "See command response";
@@ -4069,10 +4099,17 @@ function helpPayload(page = 0, filter = "") {
 
 /** Builds the board as one header embed plus one embed per network server (Discord allows 10 embeds and 6000 characters per message). */
 async function protectedRoleBoardEmbeds() {
-  const [servers, roles] = await Promise.all([
+  const [servers, roles, coOwner] = await Promise.all([
     db.query("SELECT guild_id,name FROM network_guilds ORDER BY name"),
     db.query("SELECT guild_id,role_id FROM protected_roles ORDER BY guild_id,role_id"),
+    db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'"),
   ]);
+  const managerLevels = await Promise.all(
+    PROTECTED_ROLE_MANAGER_IDS.map(async (id) => ({ id, level: await staffLevel(id) })),
+  );
+  const eligibleManagers = managerLevels
+    .filter((manager) => manager.level >= Number(coOwner?.rank_order ?? 950))
+    .map((manager) => manager.id);
   const sections = [];
   for (const row of servers) {
     const guild = client.guilds.cache.get(String(row.guild_id));
@@ -4091,11 +4128,11 @@ async function protectedRoleBoardEmbeds() {
   const totalRoles = sections.reduce((n, section) => n + section.roles.length, 0);
   const header = card("Protected roles", {
     description:
-      "These roles are locked across the Florida Bay network. Only the two authorized accounts below and the bot can grant or remove them. Any other change is reverted automatically and logged to the security channel.",
+      "These roles are locked across the Florida Bay network. Only authorized accounts holding Co-Owner or Owner and the bot can grant or remove them. Any other change is reverted automatically and logged to the security channel.",
     rows: [
       ["Protected roles", String(totalRoles)],
       ["Servers", String(sections.length)],
-      ["Authorized managers", PROTECTED_ROLE_MANAGER_IDS.map(mention).join(" ")],
+      ["Authorized Co-Owner+ managers", eligibleManagers.map(mention).join(" ") || "None"],
     ],
     footer: "Florida Bay Roleplay \u00b7 Updates automatically",
   });
@@ -4152,7 +4189,7 @@ async function ensureProtectedRoleBoard() {
   await db.query("INSERT INTO bot_config(`key`,value,updated_by,updated_at) VALUES('protected_role_board',?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)", [JSON.stringify({ channel_id: channel.id, message_id: message.id }), client.user.id, Date.now()]);
 }
 
-const ticketSystem = createTicketSystem({ client, db, audit, hasPermission, clean, safeName, embed, card, colors: COLORS, log });
+const ticketSystem = createTicketSystem({ client, db, audit, hasPermission, requireMinimumStaffRank, clean, safeName, embed, card, colors: COLORS, log });
 let webPanelServer = null;
 
 /** ACE group autocomplete for /ace unbind-role and /roster rank-upsert ace_group. */
@@ -4848,6 +4885,7 @@ async function registerCommands(guild) {
 
 client.on("guildCreate", (guild) => {
   void registerCommands(guild);
+  void enforceOffenders(client, securityLog, guild).catch(securityError("offender enforcement"));
   void log(guild, { title: "Bot added to a server", color: COLORS.primary, fields: [["Server", `**${clean(guild.name, 100)}**\n\`${guild.id}\``], ["Members", String(guild.memberCount)], ["Owner", who(guild.ownerId)]] }, "security").catch(() => {});
 });
 
@@ -4887,7 +4925,7 @@ client.once("clientReady", async () => {
     websiteTicketPriorities: ticketSystem.priorities,
     websiteTicketTranscript: ticketSystem.websiteTranscript,
     ensureProtectedRoleBoard,
-    announceCallsign,
+    rebalanceStaffCallsigns,
     ownerDiscordId: OWNER_DISCORD_ID,
     hasPermission,
     liftAppealedCase,
@@ -4951,6 +4989,12 @@ client.once("clientReady", async () => {
   setInterval(() => void forwardGameAudit().catch((error) => console.error("[FBRP bot] audit forwarder:", error)), 5000).unref();
   setInterval(() => void ensureProtectedRoleBoard().catch((error) => console.error("[FBRP bot] protected-role board:", error)), 300000).unref();
   setInterval(() => void expireLockdowns(client, securityLog).catch((error) => console.error("[FBRP security] lockdown expiry:", error)), 30000).unref();
+  // Anti-nuke offenders are kept out of every network server across restarts.
+  await loadOffenders()
+    .then(() => enforceOffenders(client, securityLog))
+    .catch((error) => console.error("[FBRP security] offender list:", error.message || error));
+  setTimeout(() => void watchHealth(client, securityLog).catch(securityError("health watch")), 60000).unref();
+  setInterval(() => void watchHealth(client, securityLog).catch(securityError("health watch")), 600000).unref();
   setInterval(() => void enforceAllChannelAccess(client).catch((error) => console.error("[FBRP bot] global channel access:", error)), 600000).unref();
   // Catches gated roles granted while the bot was offline or disconnected.
   setInterval(() => void serial(() => sweep(client, "sweep")).catch((error) => console.error("[FBRP bot] role sweep:", error)), 600000).unref();

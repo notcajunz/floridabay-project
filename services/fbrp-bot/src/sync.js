@@ -536,6 +536,15 @@ export function invalidateBlacklistCache() {
   blacklistCache = { at: 0, ids: new Set() };
 }
 
+let offenderCache = { at: 0, ids: new Set() };
+/** Accounts on the anti-nuke offender list: quarantined network-wide, so role sync never hands roles back. */
+async function nukeOffenderIds() {
+  if (Date.now() - offenderCache.at < 15000) return offenderCache.ids;
+  const rows = await db.query("SELECT discord_id FROM network_nuke_offenders WHERE active=TRUE").catch(() => []);
+  offenderCache = { at: Date.now(), ids: new Set(rows.map((row) => String(row.discord_id))) };
+  return offenderCache.ids;
+}
+
 export async function syncMemberRoles(client, member, { alert = "none" } = {}) {
   if (!member || member.user.bot) return { added: 0, removed: 0 };
   // Reconcile role-sourced ACE access before enforcing gates. This prevents a
@@ -544,13 +553,15 @@ export async function syncMemberRoles(client, member, { alert = "none" } = {}) {
   // Bootstrap memberships are reserved for in-game/bot authorization and are
   // intentionally excluded by directMemberships. They must never assign a
   // visible Discord role; only an explicit membership can do that.
-  const [gates, memberships, blacklisted] = await Promise.all([
+  const [gates, memberships, blacklisted, offenders] = await Promise.all([
     gatesForGuild(member.guild.id),
     directMemberships(member.id),
     blacklistedIds(),
+    nukeOffenderIds(),
   ]);
   // A blacklisted member keeps only the isolation role; gated roles are never granted back.
-  if (blacklisted.has(member.id)) memberships.clear();
+  // Anti-nuke offenders are treated the same way until /security pardon.
+  if (blacklisted.has(member.id) || offenders.has(member.id)) memberships.clear();
   const result = { added: 0, removed: 0 };
   for (const [roleId, groups] of gates) {
     const role = member.guild.roles.cache.get(roleId);

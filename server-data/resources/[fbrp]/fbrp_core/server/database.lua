@@ -26,7 +26,11 @@ local migrationFiles = {
     'migrations/031_org_management.sql',
     'migrations/035_org_locked_headtags.sql',
     'migrations/036_dual_slot_headtags.sql',
-    'migrations/037_personal_vehicles.sql'
+    'migrations/037_personal_vehicles.sql',
+    'migrations/039_role_manager.sql',
+    'migrations/040_co_owner_control_plane.sql',
+    'migrations/041_owner_only_easyadmin_privacy.sql',
+    'migrations/042_co_owner_protected_roles.sql'
 }
 
 local function splitSql(contents)

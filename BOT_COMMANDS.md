@@ -1,6 +1,6 @@
 # Florida Bay bot command reference
 
-This file documents every command registered by the Discord bot: **32 top-level slash commands**, **166 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-12.
+This file documents every command registered by the Florida Bay Discord bots: **41 top-level slash commands**, **184 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-13.
 
 ## How permissions work
 
@@ -9,11 +9,33 @@ This file documents every command registered by the Discord bot: **32 top-level 
 - “Hard-coded owner” means Discord ID `1090083387638812755`, as defined in `src/access-control.js`. `/welcome` and `/verification` also accept configured superusers; `/invite`, `/github`, `/backup`, ACE mutations, vMenu mutations, and security-exemption mutations use the stricter hard-coded-owner check.
 - Configured ticket support/manager roles are an alternative permission path only where explicitly shown.
 - Discord-side prerequisites still apply: the bot's role must be high enough and the bot must have the relevant Discord permissions (for example Manage Roles, Ban Members, Kick Members, Moderate Members, Manage Messages, Manage Channels, or Create Invite). These are operational requirements for the bot, not extra caller permissions.
+- The dedicated role-manager bot stores one owner and zero or more managers per Discord role. The owner and managers can change role membership; only the owner can change the manager list. Server owners and configured role-manager superusers can administer these mappings.
 - Syntax uses `<required>` and `[optional]`. Discord's UI supplies the options; the angle/square brackets are documentation only.
 
 ## Command index
 
-[`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/personal`](#personal) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
+[`/addrole`](#role-manager) · [`/removerole`](#role-manager) · [`/wiperole`](#role-manager) · [`/useradd`](#role-manager) · [`/setowner`](#role-manager) · [`/userdel`](#role-manager) · [`/mgrwipe`](#role-manager) · [`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/personal`](#personal) · [`/coc`](#coc) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/callsign`](#callsign) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
+
+## Role manager
+
+Delegated role membership management, provided by the dedicated role-manager bot.
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/addrole <member> <role>` | Give a member a managed role | Owner or manager of the selected role; the server owner and configured role-manager superusers also qualify |
+| `/removerole <member> <role>` | Remove a managed role from a member | Owner or manager of the selected role; the server owner and configured role-manager superusers also qualify |
+| `/wiperole <role>` | Remove a managed role from every member | Owner or manager of the selected role; the server owner and configured role-manager superusers also qualify |
+| `/useradd <member> <role>` | Add a manager to a role | Owner of the selected role; the server owner and configured role-manager superusers also qualify |
+| `/setowner <member> <role>` | Set or transfer a role's owner | Current role owner; the first owner may be assigned by the server owner or a configured role-manager superuser |
+| `/userdel <member> <role>` | Remove a manager from a role | Owner of the selected role; the server owner and configured role-manager superusers also qualify |
+| `/mgrwipe <role>` | Remove every manager while keeping the owner | Owner of the selected role; the server owner and configured role-manager superusers also qualify |
+
+Important behavior:
+
+- The bot refuses `@everyone`, integration-managed roles, and roles at or above its highest role.
+- `/wiperole` fetches the complete server member list before removing the role and reports any failed removals.
+- Ownership and manager assignments are stored in MariaDB and are deleted automatically when the Discord role is deleted.
+- The role-manager application needs the **Server Members Intent** and the bot needs **Manage Roles**. Its bot role must be above every role it will manage.
 
 ## /exam
 
@@ -38,8 +60,8 @@ Organization wallets: balances, ledger and management
 |---|---|---|
 | `/orgbank balance [organization]` | Show an organization's wallet<br><small>Arguments: `organization` (optional text) — Organization slug (defaults to yours).</small> | Membership in the selected organization, or `fbrp.organizations.manage` |
 | `/orgbank ledger [organization]` | Recent wallet transactions<br><small>Arguments: `organization` (optional text) — Organization slug (defaults to yours).</small> | Membership in the selected organization, or `fbrp.organizations.manage` |
-| `/orgbank adjust <organization> <amount> <reason>` | Add or remove money from a wallet<br><small>Arguments: `organization` (required text) — Organization slug. `amount` (required integer) — Positive to add, negative to remove. `reason` (required text) — Reason recorded in the ledger.</small> | `fbrp.organizations.manage` |
-| `/orgbank leader <organization> <member> <leader>` | Grant or remove spending (leader) access<br><small>Arguments: `organization` (required text) — Organization slug. `member` (required user) — Discord member. `leader` (required true/false) — true to grant, false to remove.</small> | `fbrp.organizations.manage` |
+| `/orgbank adjust <organization> <amount> <reason>` | Add or remove money from a wallet<br><small>Arguments: `organization` (required text) — Organization slug. `amount` (required integer) — Positive to add, negative to remove. `reason` (required text) — Reason recorded in the ledger.</small> | Co-Owner rank or higher and `fbrp.organizations.manage` |
+| `/orgbank leader <organization> <member> <leader>` | Grant or remove spending (leader) access<br><small>Arguments: `organization` (required text) — Organization slug. `member` (required user) — Discord member. `leader` (required true/false) — true to grant, false to remove.</small> | Co-Owner rank or higher and `fbrp.organizations.manage` |
 | `/orgbank transfer <to> <amount> <memo> [organization]` | Send money from your organization's wallet to another organization<br><small>Arguments: `to` (required text) — Receiving organization slug. `amount` (required integer) — Amount in dollars. `memo` (required text) — What the money is for (shown in both ledgers). `organization` (optional text) — Sending organization slug (defaults to yours).</small> | Leader of the sending organization, a rank with spending access (within its daily limit), or `fbrp.organizations.manage` |
 | `/orgbank roster [organization]` | Members, ranks and duty hours this week<br><small>Arguments: `organization` (optional text) — Organization slug (defaults to yours).</small> | Membership in the selected organization, or `fbrp.organizations.manage` |
 
@@ -130,11 +152,11 @@ Create and manage overhead tags
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/headtag create <kind> <label> <color> [role] [priority] [organization]` | Create a Discord-gated headtag, gang tag, or dual-slot tag<br><small>Arguments: `kind` (required text) — Tag slot. Choices: `Headtag (top)`, `Gang tag (bottom)`, `Headtag + gang tag (both)`. `label` (required text) — Text shown in game. `color` (required text) — Hex color, e.g. #43E8D8. `role` (optional role) — Existing role; leave blank to create one. `priority` (optional integer) — Wardrobe order. `organization` (optional text) — Only wearable while on duty as this organization.</small> | `fbrp.headtags.manage` |
-| `/headtag delete <id> [delete_role]` | Delete a tag definition<br><small>Arguments: `id` (required integer) — Tag ID. `delete_role` (optional true/false) — Also delete the bot-created role.</small> | `fbrp.headtags.manage` |
-| `/headtag grant <id> <member>` | Grant a tag directly<br><small>Arguments: `id` (required integer) — Tag ID. `member` (required user) — Discord member.</small> | `fbrp.headtags.manage` |
-| `/headtag revoke <id> <member>` | Revoke direct tag access<br><small>Arguments: `id` (required integer) — Tag ID. `member` (required user) — Discord member.</small> | `fbrp.headtags.manage` |
-| `/headtag list` | List all headtags and gang tags | `fbrp.headtags.manage` |
+| `/headtag create <kind> <label> <color> [role] [priority] [organization]` | Create a Discord-gated headtag, gang tag, or dual-slot tag<br><small>Arguments: `kind` (required text) — Tag slot. Choices: `Headtag (top)`, `Gang tag (bottom)`, `Headtag + gang tag (both)`. `label` (required text) — Text shown in game. `color` (required text) — Hex color, e.g. #43E8D8. `role` (optional role) — Existing role; leave blank to create one. `priority` (optional integer) — Wardrobe order. `organization` (optional text) — Only wearable while on duty as this organization.</small> | Co-Owner rank or higher and `fbrp.headtags.manage` |
+| `/headtag delete <id> [delete_role]` | Delete a tag definition<br><small>Arguments: `id` (required integer) — Tag ID. `delete_role` (optional true/false) — Also delete the bot-created role.</small> | Co-Owner rank or higher and `fbrp.headtags.manage` |
+| `/headtag grant <id> <member>` | Grant a tag directly<br><small>Arguments: `id` (required integer) — Tag ID. `member` (required user) — Discord member.</small> | Co-Owner rank or higher and `fbrp.headtags.manage` |
+| `/headtag revoke <id> <member>` | Revoke direct tag access<br><small>Arguments: `id` (required integer) — Tag ID. `member` (required user) — Discord member.</small> | Co-Owner rank or higher and `fbrp.headtags.manage` |
+| `/headtag list` | List all headtags and gang tags | Co-Owner rank or higher and `fbrp.headtags.manage` |
 
 Important behavior:
 
@@ -146,14 +168,14 @@ Personal vehicles: cars only their owner and trusted people can spawn from F7 an
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/personal add <model> <owner> [label] [plate]` | Management: make a vehicle model someone's personal<br><small>Arguments: `model` (required text) — Spawn name of the vehicle, e.g. sultanrs. `owner` (required user) — Who owns it. `label` (optional text) — Name shown in the F7 garage. `plate` (optional text) — Custom plate, up to 8 characters.</small> | Co-Owner rank or higher; `fbrp.personals.manage` also grants access |
-| `/personal edit <vehicle> [label] [model] [plate] [enabled]` | Management: change a personal's name, model, plate or availability<br><small>Arguments: `vehicle` (required text) — Personal vehicle (autocomplete). `plate` — `-` resets to the automatic plate. `enabled` (optional true/false) — Turn the vehicle on or off.</small> | Co-Owner rank or higher; `fbrp.personals.manage` also grants access |
-| `/personal owner <vehicle> <member>` | Management: transfer a personal to someone else<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — New owner.</small> | Co-Owner rank or higher; `fbrp.personals.manage` also grants access |
-| `/personal remove <vehicle>` | Management: delete a personal vehicle<br><small>Arguments: `vehicle` (required text) — Personal vehicle.</small> | Co-Owner rank or higher; `fbrp.personals.manage` also grants access |
-| `/personal trust <vehicle> <member>` | Let someone spawn and drive a personal (up to 3 people)<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to trust.</small> | Vehicle owner; Co-Owner rank or higher (or `fbrp.personals.manage`) for any vehicle |
-| `/personal untrust <vehicle> <member>` | Remove someone from a personal's trust list<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to remove.</small> | Vehicle owner; Co-Owner rank or higher (or `fbrp.personals.manage`) for any vehicle |
-| `/personal locktag <vehicle> <tag>` | Lock a personal to a tag so everyone holding the tag can use it<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `tag` (required text) — Headtag or gang tag (autocomplete). Owners can only pick tags they hold.</small> | Vehicle owner; Co-Owner rank or higher (or `fbrp.personals.manage`) for any vehicle |
-| `/personal unlocktag <vehicle> <tag>` | Remove a tag lock from a personal<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `tag` (required text) — Tag to remove.</small> | Vehicle owner; Co-Owner rank or higher (or `fbrp.personals.manage`) for any vehicle |
+| `/personal add <model> <owner> [label] [plate]` | Management: make a vehicle model someone's personal<br><small>Arguments: `model` (required text) — Spawn name of the vehicle, e.g. sultanrs. `owner` (required user) — Who owns it. `label` (optional text) — Name shown in the F7 garage. `plate` (optional text) — Custom plate, up to 8 characters.</small> | Co-Owner rank or higher |
+| `/personal edit <vehicle> [label] [model] [plate] [enabled]` | Management: change a personal's name, model, plate or availability<br><small>Arguments: `vehicle` (required text) — Personal vehicle (autocomplete). `plate` — `-` resets to the automatic plate. `enabled` (optional true/false) — Turn the vehicle on or off.</small> | Co-Owner rank or higher |
+| `/personal owner <vehicle> <member>` | Management: transfer a personal to someone else<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — New owner.</small> | Co-Owner rank or higher |
+| `/personal remove <vehicle>` | Management: delete a personal vehicle<br><small>Arguments: `vehicle` (required text) — Personal vehicle.</small> | Co-Owner rank or higher |
+| `/personal trust <vehicle> <member>` | Let someone spawn and drive a personal (up to 3 people)<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to trust.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
+| `/personal untrust <vehicle> <member>` | Remove someone from a personal's trust list<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to remove.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
+| `/personal locktag <vehicle> <tag>` | Lock a personal to a tag so everyone holding the tag can use it<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `tag` (required text) — Headtag or gang tag (autocomplete). Owners can only pick tags they hold.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
+| `/personal unlocktag <vehicle> <tag>` | Remove a tag lock from a personal<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `tag` (required text) — Tag to remove.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
 | `/personal info <vehicle>` | Show one personal vehicle<br><small>Arguments: `vehicle` (required text) — Personal vehicle.</small> | Owner, trusted people and tag holders; management can view any |
 | `/personal list [member] [all]` | List your personal vehicles<br><small>Arguments: `member` (optional user) — Management: whose vehicles to show. `all` (optional true/false) — Management: show every personal vehicle.</small> | Everyone for their own; management for others |
 
@@ -188,7 +210,9 @@ Create and manage the live chain-of-command board for Assistant Community Manage
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/callsign sync` | Republish every current staff member's callsign in the staff callsigns channel, including unchanged callsigns | Community Director rank or higher |
+| `/callsign sync` | Reassign callsigns by rank order, then republish every current assignment in the staff callsigns channel | Community Director rank or higher |
+
+Callsigns are automatic within each configured category range. Higher ACE rank orders receive lower callsign numbers; existing order is preserved among members of the same rank.
 
 ## /organization
 
@@ -196,10 +220,10 @@ Manage gangs, businesses, and departments
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/organization create <slug> <name> <type> <color> [tag] [access_role] [network_role_id] [network_guild_id]` | Create an organization, its in-game tag, and ACE group<br><small>Arguments: `slug` (required text) — Short command name. `name` (required text) — Display name. `type` (required text) — Organization type. Choices: `Gang`, `Business`, `Law enforcement`, `Fire & rescue`, `Government`, `Other`. `color` (required text) — Hex color. `tag` (optional text) — Text of the in-game tag (defaults to the display name). `access_role` (optional role) — Role in this server required to clock in. `network_role_id` (optional text) — Required role ID from another network server. `network_guild_id` (optional text) — Server ID that owns network_role_id.</small> | `fbrp.organizations.manage` |
-| `/organization delete <slug>` | Deactivate an organization<br><small>Arguments: `slug` (required text) — Organization slug.</small> | `fbrp.organizations.manage` |
-| `/organization hours <slug> [member]` | Show organization duty hours<br><small>Arguments: `slug` (required text) — Organization slug. `member` (optional user) — Optional member filter.</small> | `fbrp.organizations.manage` |
-| `/organization list` | List organizations | `fbrp.organizations.manage` |
+| `/organization create <slug> <name> <type> <color> [tag] [access_role] [network_role_id] [network_guild_id]` | Create an organization, its in-game tag, and ACE group<br><small>Arguments: `slug` (required text) — Short command name. `name` (required text) — Display name. `type` (required text) — Organization type. Choices: `Gang`, `Business`, `Law enforcement`, `Fire & rescue`, `Government`, `Other`. `color` (required text) — Hex color. `tag` (optional text) — Text of the in-game tag (defaults to the display name). `access_role` (optional role) — Role in this server required to clock in. `network_role_id` (optional text) — Required role ID from another network server. `network_guild_id` (optional text) — Server ID that owns network_role_id.</small> | Co-Owner rank or higher and `fbrp.organizations.manage` |
+| `/organization delete <slug>` | Deactivate an organization<br><small>Arguments: `slug` (required text) — Organization slug.</small> | Co-Owner rank or higher and `fbrp.organizations.manage` |
+| `/organization hours <slug> [member]` | Show organization duty hours<br><small>Arguments: `slug` (required text) — Organization slug. `member` (optional user) — Optional member filter.</small> | Co-Owner rank or higher and `fbrp.organizations.manage` |
+| `/organization list` | List organizations | Co-Owner rank or higher and `fbrp.organizations.manage` |
 
 Important behavior:
 
@@ -211,9 +235,9 @@ Configure in-game radio channels
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/radio create <channel> <name> [organization] [description] [color]` | Create or update a managed frequency<br><small>Arguments: `channel` (required integer) — Frequency number. `name` (required text) — Channel display name. `organization` (optional text) — Organization slug; omit for a public channel. `description` (optional text) — Short channel description. `color` (optional text) — Six-digit hex color.</small> | `fbrp.radio.manage` |
-| `/radio delete <channel>` | Delete a managed frequency<br><small>Arguments: `channel` (required integer) — Frequency number.</small> | `fbrp.radio.manage` |
-| `/radio list` | List managed radio frequencies | `fbrp.radio.manage` |
+| `/radio create <channel> <name> [organization] [description] [color]` | Create or update a managed frequency<br><small>Arguments: `channel` (required integer) — Frequency number. `name` (required text) — Channel display name. `organization` (optional text) — Organization slug; omit for a public channel. `description` (optional text) — Short channel description. `color` (optional text) — Six-digit hex color.</small> | Co-Owner rank or higher and `fbrp.radio.manage` |
+| `/radio delete <channel>` | Delete a managed frequency<br><small>Arguments: `channel` (required integer) — Frequency number.</small> | Co-Owner rank or higher and `fbrp.radio.manage` |
+| `/radio list` | List managed radio frequencies | Co-Owner rank or higher and `fbrp.radio.manage` |
 
 ## /network
 
@@ -221,9 +245,9 @@ Manage the Florida Bay Discord network (global roles live in /globalsync)
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/network add <kind>` | Add this Discord server to the network<br><small>Arguments: `kind` (required text) — Server type. Choices: `Main`, `Staff`, `Gang`, `Department`, `Community`, `Business`, `Partner`, `Other`.</small> | `fbrp.network.manage` |
-| `/network remove` | Remove this Discord server from the network | `fbrp.network.manage` |
-| `/network list` | List network servers and synced roles | `fbrp.network.manage` |
+| `/network add <kind>` | Add this Discord server to the network<br><small>Arguments: `kind` (required text) — Server type. Choices: `Main`, `Staff`, `Gang`, `Department`, `Community`, `Business`, `Partner`, `Other`.</small> | Co-Owner rank or higher and `fbrp.network.manage` |
+| `/network remove` | Remove this Discord server from the network | Co-Owner rank or higher and `fbrp.network.manage` |
+| `/network list` | List network servers and synced roles | Co-Owner rank or higher and `fbrp.network.manage` |
 
 ## /globalsync
 
@@ -231,15 +255,15 @@ Sync an ACE group's Discord role across every Florida Bay server
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/globalsync add <group> [name] [scope] [permissions] [all_channels] [color] [hoist] [mentionable] [existing_role] [existing_roles]` | Create a synced role: group members get it in every matching server<br><small>Arguments: `group` (required text) — ACE group whose members wear the role. Autocomplete is provided. `name` (optional text) — Role name (defaults to the group name). `scope` (optional text) — Which servers get the role: a server type, or pick individual servers. Choices: `All servers`, `Every server except main`, `Main server`, `Staff servers`, `Gang servers`, `Department servers`, `Community servers`, `Business servers`, `Partner servers`, `Other servers`, `Pick individual servers`. `permissions` (optional text) — Discord permissions integer; 0 grants no base permissions. `all_channels` (optional true/false) — See/chat in every text channel and see/join every voice channel. `color` (optional text) — Hex color, e.g. #43E8D8. `hoist` (optional true/false) — Show separately in the member list. `mentionable` (optional true/false) — Allow members to mention the role. `existing_role` (optional role) — Optional: use this existing role in this server instead of creating one. `existing_roles` (optional text) — Optional: existing role IDs to use in other servers (comma separated).</small> | `fbrp.network.manage`; configured bot owner/superuser additionally required for the `owner` group, dangerous permission bits, or an existing role with dangerous permissions |
-| `/globalsync edit <group> [name] [scope] [permissions] [all_channels] [color] [hoist] [mentionable] [existing_role] [existing_roles]` | Edit an existing global role sync and apply the changes everywhere<br><small>Arguments: `group` (required text) — Synced group to edit. Autocomplete is provided. `name` (optional text) — New role name. `scope` (optional text) — Which servers get the role: a server type, or pick individual servers. Choices: `All servers`, `Every server except main`, `Main server`, `Staff servers`, `Gang servers`, `Department servers`, `Community servers`, `Business servers`, `Partner servers`, `Other servers`, `Pick individual servers`. `permissions` (optional text) — Discord permissions integer; 0 grants no base permissions. `all_channels` (optional true/false) — See/chat in every text channel and see/join every voice channel. `color` (optional text) — Hex color, e.g. #43E8D8. `hoist` (optional true/false) — Show separately in the member list. `mentionable` (optional true/false) — Allow members to mention the role. `existing_role` (optional role) — Optional: use this existing role in this server instead of creating one. `existing_roles` (optional text) — Optional: existing role IDs to use in other servers (comma separated).</small> | `fbrp.network.manage`; configured bot owner/superuser additionally required for the `owner` group, dangerous permission bits, or an existing role with dangerous permissions |
-| `/globalsync remove <group> [delete_roles]` | Stop syncing a group's role<br><small>Arguments: `group` (required text) — Synced group. Autocomplete is provided. `delete_roles` (optional true/false) — Delete roles created by the bot (default: yes).</small> | `fbrp.network.manage` |
-| `/globalsync list` | List every synced role and where it lives | `fbrp.network.manage` |
-| `/globalsync push` | Re-create missing synced roles everywhere and re-sync every member | `fbrp.network.manage` |
-| `/globalsync servers <group>` | Pick exactly which network servers a synced role lives in<br><small>Arguments: `group` (required text) — Synced group. Autocomplete is provided.</small> | `fbrp.network.manage` |
-| `/globalsync order [groups]` | Show or set which synced roles sit above others in every server<br><small>Arguments: `groups` (optional text) — Comma-separated ACE groups from top to bottom.</small> | `fbrp.network.manage` |
-| `/globalsync move <group> <position>` | Move one synced role to a spot in the network order (1 = top)<br><small>Arguments: `group` (required text) — Synced group. Autocomplete is provided. `position` (required integer) — 1 is highest.</small> | `fbrp.network.manage` |
-| `/globalsync bind <group> <role>` | Bind an ACE group to an existing role here (creates the global sync if needed)<br><small>Arguments: `group` (required text) — ACE group whose members wear the role. Autocomplete is provided. `role` (required role) — Existing role in this server.</small> | `fbrp.network.manage`; configured bot owner/superuser additionally required for the `owner` group or a role with dangerous permissions |
+| `/globalsync add <group> [name] [scope] [permissions] [all_channels] [color] [hoist] [mentionable] [existing_role] [existing_roles]` | Create a synced role: group members get it in every matching server<br><small>Arguments: `group` (required text) — ACE group whose members wear the role. Autocomplete is provided. `name` (optional text) — Role name (defaults to the group name). `scope` (optional text) — Which servers get the role: a server type, or pick individual servers. Choices: `All servers`, `Every server except main`, `Main server`, `Staff servers`, `Gang servers`, `Department servers`, `Community servers`, `Business servers`, `Partner servers`, `Other servers`, `Pick individual servers`. `permissions` (optional text) — Discord permissions integer; 0 grants no base permissions. `all_channels` (optional true/false) — See/chat in every text channel and see/join every voice channel. `color` (optional text) — Hex color, e.g. #43E8D8. `hoist` (optional true/false) — Show separately in the member list. `mentionable` (optional true/false) — Allow members to mention the role. `existing_role` (optional role) — Optional: use this existing role in this server instead of creating one. `existing_roles` (optional text) — Optional: existing role IDs to use in other servers (comma separated).</small> | Co-Owner rank or higher and `fbrp.network.manage`; configured bot owner/superuser additionally required for the `owner` group, dangerous permission bits, or an existing role with dangerous permissions |
+| `/globalsync edit <group> [name] [scope] [permissions] [all_channels] [color] [hoist] [mentionable] [existing_role] [existing_roles]` | Edit an existing global role sync and apply the changes everywhere<br><small>Arguments: `group` (required text) — Synced group to edit. Autocomplete is provided. `name` (optional text) — New role name. `scope` (optional text) — Which servers get the role: a server type, or pick individual servers. Choices: `All servers`, `Every server except main`, `Main server`, `Staff servers`, `Gang servers`, `Department servers`, `Community servers`, `Business servers`, `Partner servers`, `Other servers`, `Pick individual servers`. `permissions` (optional text) — Discord permissions integer; 0 grants no base permissions. `all_channels` (optional true/false) — See/chat in every text channel and see/join every voice channel. `color` (optional text) — Hex color, e.g. #43E8D8. `hoist` (optional true/false) — Show separately in the member list. `mentionable` (optional true/false) — Allow members to mention the role. `existing_role` (optional role) — Optional: use this existing role in this server instead of creating one. `existing_roles` (optional text) — Optional: existing role IDs to use in other servers (comma separated).</small> | Co-Owner rank or higher and `fbrp.network.manage`; configured bot owner/superuser additionally required for the `owner` group, dangerous permission bits, or an existing role with dangerous permissions |
+| `/globalsync remove <group> [delete_roles]` | Stop syncing a group's role<br><small>Arguments: `group` (required text) — Synced group. Autocomplete is provided. `delete_roles` (optional true/false) — Delete roles created by the bot (default: yes).</small> | Co-Owner rank or higher and `fbrp.network.manage` |
+| `/globalsync list` | List every synced role and where it lives | Co-Owner rank or higher and `fbrp.network.manage` |
+| `/globalsync push` | Re-create missing synced roles everywhere and re-sync every member | Co-Owner rank or higher and `fbrp.network.manage` |
+| `/globalsync servers <group>` | Pick exactly which network servers a synced role lives in<br><small>Arguments: `group` (required text) — Synced group. Autocomplete is provided.</small> | Co-Owner rank or higher and `fbrp.network.manage` |
+| `/globalsync order [groups]` | Show or set which synced roles sit above others in every server<br><small>Arguments: `groups` (optional text) — Comma-separated ACE groups from top to bottom.</small> | Co-Owner rank or higher and `fbrp.network.manage` |
+| `/globalsync move <group> <position>` | Move one synced role to a spot in the network order (1 = top)<br><small>Arguments: `group` (required text) — Synced group. Autocomplete is provided. `position` (required integer) — 1 is highest.</small> | Co-Owner rank or higher and `fbrp.network.manage` |
+| `/globalsync bind <group> <role>` | Bind an ACE group to an existing role here (creates the global sync if needed)<br><small>Arguments: `group` (required text) — ACE group whose members wear the role. Autocomplete is provided. `role` (required role) — Existing role in this server.</small> | Co-Owner rank or higher and `fbrp.network.manage`; configured bot owner/superuser additionally required for the `owner` group or a role with dangerous permissions |
 
 Important behavior:
 
@@ -282,8 +306,8 @@ Staff ranks and duty tracking
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/staff add <member> <rank> [callsign]` | Put a member in a staff rank's ACE group and give them a callsign<br><small>Arguments: `member` (required user) — Discord member. `rank` (required text) — Staff rank (only ranks below your own are allowed). Autocomplete is provided. `callsign` (optional integer) — Specific callsign; blank keeps theirs or picks the next free one.</small> | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
-| `/staff move <member> <rank> [callsign] [reason]` | Move an existing staff member to another rank (promote or demote)<br><small>Arguments: `member` (required user) — Discord member. `rank` (required text) — New staff rank (only ranks below your own are allowed). Autocomplete is provided. `callsign` (optional integer) — Specific callsign; blank keeps theirs if it fits the new rank. `reason` (optional text) — Reason for the move.</small> | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
+| `/staff add <member> <rank>` | Put a member in a staff rank's ACE group and assign their rank-ordered callsign<br><small>Arguments: `member` (required user) — Discord member. `rank` (required text) — Staff rank (only ranks below your own are allowed). Autocomplete is provided.</small> | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
+| `/staff move <member> <rank> [reason]` | Move an existing staff member to another rank and rebalance callsigns<br><small>Arguments: `member` (required user) — Discord member. `rank` (required text) — New staff rank (only ranks below your own are allowed). Autocomplete is provided. `reason` (optional text) — Reason for the move.</small> | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
 | `/staff remove <member> <reason>` | Remove a member's staff rank, ACE group, and callsign<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.staff.assign`; target must be below your highest ACE rank |
 | `/staff hours <member>` | Show a member’s staff hours<br><small>Arguments: `member` (required user) — Discord member.</small> | `fbrp.staff.manage` |
 | `/staff leaderboard [days]` | Show staff hours leaderboard<br><small>Arguments: `days` (optional integer) — Window in days.</small> | `fbrp.staff.manage` |
@@ -299,9 +323,9 @@ Guard sensitive Discord roles
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/protectrole add <role>` | Protect a role<br><small>Arguments: `role` (required role) — Protected role.</small> | Discord IDs `1090083387638812755` or `1099651002208104488` only |
-| `/protectrole remove <role>` | Stop protecting a role<br><small>Arguments: `role` (required role) — Protected role.</small> | Discord IDs `1090083387638812755` or `1099651002208104488` only |
-| `/protectrole list` | List protected roles | Discord IDs `1090083387638812755` or `1099651002208104488` only |
+| `/protectrole add <role>` | Protect a role<br><small>Arguments: `role` (required role) — Protected role.</small> | Co-Owner rank or higher, an authorized protected-role account, and the hard-coded owner account |
+| `/protectrole remove <role>` | Stop protecting a role<br><small>Arguments: `role` (required role) — Protected role.</small> | Co-Owner rank or higher, an authorized protected-role account, and the hard-coded owner account |
+| `/protectrole list` | List protected roles | Co-Owner rank or higher and authorized Discord ID `1090083387638812755` or `1099651002208104488` |
 
 Only those two accounts (plus the bot itself for automated enforcement) can grant or remove a protected role. Security exemptions, Discord server ownership, ACE permissions, and other Discord roles do not bypass this policy.
 
@@ -311,16 +335,16 @@ Network bot admission and anti-nuke controls
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/botguard allow-bot <bot_id> [label]` | Allow a bot application network-wide<br><small>Arguments: `bot_id` (required text) — Bot user ID. `label` (optional text) — Friendly name.</small> | `fbrp.security.manage` |
-| `/botguard deny-bot <bot_id>` | Remove an allowed bot<br><small>Arguments: `bot_id` (required text) — Bot user ID.</small> | `fbrp.security.manage` |
-| `/botguard trust-user <member>` | Allow a user to add approved bots<br><small>Arguments: `member` (required user) — Discord member.</small> | `fbrp.security.manage` |
-| `/botguard trust-role <role>` | Allow a role to add approved bots<br><small>Arguments: `role` (required role) — Trusted role.</small> | `fbrp.security.manage` |
-| `/botguard untrust-user <member>` | Remove a trusted bot adder<br><small>Arguments: `member` (required user) — Discord member.</small> | `fbrp.security.manage` |
-| `/botguard untrust-role <role>` | Remove a trusted bot-adder role<br><small>Arguments: `role` (required role) — Trusted role.</small> | `fbrp.security.manage` |
-| `/botguard exempt-add <member> <reason>` | Exempt an account from automated security<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.security.manage` and the hard-coded owner account |
-| `/botguard exempt-remove <member>` | Remove a security exemption<br><small>Arguments: `member` (required user) — Discord member.</small> | `fbrp.security.manage` and the hard-coded owner account |
-| `/botguard sweep` | Remove unapproved bots from this server | `fbrp.security.manage` |
-| `/botguard list` | Show Bot Guard policy | `fbrp.security.manage` |
+| `/botguard allow-bot <bot_id> [label]` | Allow a bot application network-wide<br><small>Arguments: `bot_id` (required text) — Bot user ID. `label` (optional text) — Friendly name.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard deny-bot <bot_id>` | Remove an allowed bot<br><small>Arguments: `bot_id` (required text) — Bot user ID.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard trust-user <member>` | Allow a user to add approved bots<br><small>Arguments: `member` (required user) — Discord member.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard trust-role <role>` | Allow a role to add approved bots<br><small>Arguments: `role` (required role) — Trusted role.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard untrust-user <member>` | Remove a trusted bot adder<br><small>Arguments: `member` (required user) — Discord member.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard untrust-role <role>` | Remove a trusted bot-adder role<br><small>Arguments: `role` (required role) — Trusted role.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard exempt-add <member> <reason>` | Exempt an account from automated security<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard exempt-remove <member>` | Remove a security exemption<br><small>Arguments: `member` (required user) — Discord member.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard sweep` | Remove unapproved bots from this server | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard list` | Show Bot Guard policy | Co-Owner rank or higher and `fbrp.security.manage` |
 
 Important behavior:
 
@@ -332,18 +356,25 @@ Anti-nuke, anti-raid, anti-spam and lockdown controls
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/security status` | Show protections, lockdowns and the last 24 hours of events | `fbrp.security.manage` |
-| `/security exempt-add <member> <scope> <reason>` | Owner-only: bypass automated security globally or in this server<br><small>Arguments: `member` (required user) — Trusted account. `scope` (required text) — Where the bypass applies. Choices: `Every network server`, `This server only`. `reason` (required text) — Why this account is trusted.</small> | `fbrp.security.manage` and the hard-coded owner account |
-| `/security exempt-remove <member> <scope>` | Owner-only: remove an automated-security bypass<br><small>Arguments: `member` (required user) — Account to remove. `scope` (required text) — Bypass to remove. Choices: `Every network server`, `This server only`.</small> | `fbrp.security.manage` and the hard-coded owner account |
-| `/security exempt-list` | Owner-only: list global and server-specific bypasses | `fbrp.security.manage` and the hard-coded owner account |
-| `/security config <setting> [value]` | Change a network-wide security setting<br><small>Arguments: `setting` (required text) — Setting to change. Autocomplete is provided. `value` (optional text) — on/off, a number, or an option; leave blank to see the current value.</small> | `fbrp.security.manage` |
-| `/security lockdown <reason> [minutes] [network]` | Lock this server (or the whole network) down<br><small>Arguments: `reason` (required text) — Reason recorded in the audit log. `minutes` (optional integer) — Auto-unlock after this many minutes (0 = manual). `network` (optional true/false) — Lock every network server down.</small> | `fbrp.security.manage` |
-| `/security unlock [reason] [network]` | Lift a lockdown<br><small>Arguments: `reason` (optional text) — Reason recorded in the audit log. `network` (optional true/false) — Unlock every network server.</small> | `fbrp.security.manage` |
-| `/security events [all_servers]` | Recent security events<br><small>Arguments: `all_servers` (optional true/false) — Include every network server.</small> | `fbrp.security.manage` |
+| `/security status` | Show protections, lockdowns and the last 24 hours of events | Co-Owner rank or higher and `fbrp.security.manage` |
+| `/security exempt-add <member> <scope> <reason>` | Owner-only: bypass automated security globally or in this server<br><small>Arguments: `member` (required user) — Trusted account. `scope` (required text) — Where the bypass applies. Choices: `Every network server`, `This server only`. `reason` (required text) — Why this account is trusted.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/security exempt-remove <member> <scope>` | Owner-only: remove an automated-security bypass<br><small>Arguments: `member` (required user) — Account to remove. `scope` (required text) — Bypass to remove. Choices: `Every network server`, `This server only`.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/security exempt-list` | Owner-only: list global and server-specific bypasses | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/security config <setting> [value]` | Change a network-wide security setting<br><small>Arguments: `setting` (required text) — Setting to change. Autocomplete is provided. `value` (optional text) — on/off, a number, or an option; leave blank to see the current value.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/security lockdown <reason> [minutes] [network]` | Lock this server (or the whole network) down<br><small>Arguments: `reason` (required text) — Reason recorded in the audit log. `minutes` (optional integer) — Auto-unlock after this many minutes (0 = manual). `network` (optional true/false) — Lock every network server down.</small> | Co-Owner rank or higher and `fbrp.security.manage` |
+| `/security unlock [reason] [network]` | Lift a lockdown<br><small>Arguments: `reason` (optional text) — Reason recorded in the audit log. `network` (optional true/false) — Unlock every network server.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/security events [all_servers]` | Recent security events<br><small>Arguments: `all_servers` (optional true/false) — Include every network server.</small> | Co-Owner rank or higher and `fbrp.security.manage` |
+| `/security health` | Check whether the bot can stop a nuke in every network server (missing permissions, dangerous roles above the bot, accounts it cannot stop, 2FA, @everyone) | Co-Owner rank or higher and `fbrp.security.manage` |
+| `/security offenders` | Accounts on the network-wide anti-nuke offender list | Co-Owner rank or higher and `fbrp.security.manage` |
+| `/security pardon <member>` | Owner-only: lift an anti-nuke offender (unban anti-nuke bans, end quarantine timeouts, restore stripped roles)<br><small>Arguments: `member` (required user) — Offender to pardon.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
 
 Important behavior:
 
-- Exemptions bypass anti-nuke, raid/account-age, spam, Bot Guard, and protected-role automation. Lockdown can target the current server or every network server.
+- Exemptions bypass raid/account-age, spam, Bot Guard, and protected-role automation. For anti-nuke they raise the limits rather than remove them: an exempt account that crosses `nuke_exempt_ceiling` × the limits (default 3×) is quarantined network-wide (roles stripped, 7-day timeout), not banned. The hard-coded owner account is never scanned. Lockdown can target the current server or every network server.
+- Anti-nuke shares one danger budget across the whole network (`nuke_network_scale`), so damage spread over several servers trips it too. Acting on the same target in several servers counts once.
+- When anti-nuke trips, the account is role-stripped (every role the bot can reach, plus a 7-day timeout) in every network server at once instead of being banned (`nuke_punishment`, default `strip`), the damage is undone everywhere it acted (deleted roles/channels rebuilt; created ones removed; role, channel, permission, server-setting and AutoMod edits reverted; bans, unbans, timeouts and role removals reversed; its webhooks and invites deleted), and it goes on the offender list. Offenders are stopped on their first action or join anywhere in the network, survive restarts, and are never given roles back by role sync until `/security pardon`.
+- Server owners cannot be acted against in their own server; if one trips anti-nuke they are quarantined in every other network server.
+- Health watch checks every network server every 10 minutes and logs (and DMs owners) when the bot loses the power to stop a nuke.
 
 ## /ticket
 
@@ -379,11 +410,11 @@ Configure the ticket system
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/support panel <channel>` | Post or move the ticket panel<br><small>Arguments: `channel` (required channel) — Panel channel.</small> | `fbrp.tickets.manage`, or a configured manager-level all-ticket support role |
-| `/support config` | Show ticket configuration | `fbrp.tickets.manage`, or a configured manager-level all-ticket support role |
-| `/support category <type> <category>` | Set a Discord category for a ticket type<br><small>Arguments: `type` (required text) — Ticket type or all. Autocomplete is provided. `category` (required channel) — Discord category.</small> | `fbrp.tickets.manage`, or a configured manager-level all-ticket support role |
-| `/support role <type> <role> <level> <mode>` | Add or remove a support role<br><small>Arguments: `type` (required text) — Ticket type or all. Autocomplete is provided. `role` (required role) — Support role. `level` (required text) — Access level. Choices: `Support`, `Manager`. `mode` (required text) — Add or remove. Choices: `Add`, `Remove`.</small> | `fbrp.tickets.manage`, or a configured manager-level all-ticket support role |
-| `/support limit <max_open> <cooldown_seconds>` | Set ticket limits<br><small>Arguments: `max_open` (required integer) — Maximum open tickets per user. `cooldown_seconds` (required integer) — Seconds between new tickets.</small> | `fbrp.tickets.manage`, or a configured manager-level all-ticket support role |
+| `/support panel <channel>` | Post or move the ticket panel<br><small>Arguments: `channel` (required channel) — Panel channel.</small> | Co-Owner rank or higher and `fbrp.tickets.manage` |
+| `/support config` | Show ticket configuration | Co-Owner rank or higher and `fbrp.tickets.manage` |
+| `/support category <type> <category>` | Set a Discord category for a ticket type<br><small>Arguments: `type` (required text) — Ticket type or all. Autocomplete is provided. `category` (required channel) — Discord category.</small> | Co-Owner rank or higher and `fbrp.tickets.manage` |
+| `/support role <type> <role> <level> <mode>` | Add or remove a support role<br><small>Arguments: `type` (required text) — Ticket type or all. Autocomplete is provided. `role` (required role) — Support role. `level` (required text) — Access level. Choices: `Support`, `Manager`. `mode` (required text) — Add or remove. Choices: `Add`, `Remove`.</small> | Co-Owner rank or higher and `fbrp.tickets.manage` |
+| `/support limit <max_open> <cooldown_seconds>` | Set ticket limits<br><small>Arguments: `max_open` (required integer) — Maximum open tickets per user. `cooldown_seconds` (required integer) — Seconds between new tickets.</small> | Co-Owner rank or higher and `fbrp.tickets.manage` |
 
 Important behavior:
 
@@ -418,23 +449,22 @@ Manage the staff roster and discipline
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/roster add <member> <rank> [callsign]` | Add or update a roster member<br><small>Arguments: `member` (required user) — Discord member. `rank` (required integer) — Rank ID from /roster list. `callsign` (optional integer) — Unique staff callsign.</small> | `fbrp.roster.manage` |
+| `/roster add <member> <rank>` | Add or update a roster member and assign their rank-ordered callsign<br><small>Arguments: `member` (required user) — Discord member. `rank` (required integer) — Rank ID from /roster list.</small> | `fbrp.roster.manage` |
 | `/roster remove <member> <reason>` | Remove a roster member<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.roster.manage` |
 | `/roster status <member> <status>` | Change roster status<br><small>Arguments: `member` (required user) — Discord member. `status` (required text) — Roster status. Choices: `Active`, `Inactive`, `LOA`.</small> | `fbrp.roster.manage` |
 | `/roster discipline <member> <kind> <reason>` | Issue a warning or strike<br><small>Arguments: `member` (required user) — Discord member. `kind` (required text) — Discipline type. Choices: `Warning`, `Strike`. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.roster.discipline` |
 | `/roster profile <member>` | Show one member's complete roster record<br><small>Arguments: `member` (required user) — Discord member.</small> | `fbrp.roster.view` |
-| `/roster callsign <member> [callsign]` | Set or automatically allocate a callsign<br><small>Arguments: `member` (required user) — Discord member. `callsign` (optional integer) — Leave blank for next available.</small> | `fbrp.roster.manage` |
 | `/roster note <member> <note>` | Set a private roster activity note<br><small>Arguments: `member` (required user) — Discord member. `note` (required text) — Activity note.</small> | `fbrp.roster.manage` |
 | `/roster discipline-revoke <id> <reason>` | Revoke a warning or strike<br><small>Arguments: `id` (required integer) — Discipline record ID. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.roster.discipline` |
-| `/roster category-upsert <name> <start> <end> [id] [order]` | Create or update a callsign category<br><small>Arguments: `name` (required text) — Category name. `start` (required integer) — First callsign. `end` (required integer) — Last callsign. `id` (optional integer) — Existing category ID; blank creates. `order` (optional integer) — Display order.</small> | `fbrp.roster.config` |
-| `/roster category-delete <id>` | Delete an unused roster category<br><small>Arguments: `id` (required integer) — Category ID.</small> | `fbrp.roster.config` |
-| `/roster rank-upsert <category> <name> [id] [role] [ace_group] [weekly_hours] [minimum_days] [order]` | Create or update a staff rank and role mapping<br><small>Arguments: `category` (required integer) — Category ID. `name` (required text) — Rank name. `id` (optional integer) — Existing rank ID; blank creates. `role` (optional role) — Rank role in this server. `ace_group` (optional text) — ACE group /staff add puts this rank in. Autocomplete is provided. `weekly_hours` (optional integer) — Weekly activity requirement. `minimum_days` (optional integer) — Minimum days before promotion. `order` (optional integer) — Display order.</small> | `fbrp.roster.config` |
-| `/roster rank-delete <id>` | Delete an unused staff rank<br><small>Arguments: `id` (required integer) — Rank ID.</small> | `fbrp.roster.config` |
-| `/roster job-upsert <name> [id] [description] [role] [order]` | Create or update a staff secondary job<br><small>Arguments: `name` (required text) — Job name. `id` (optional integer) — Existing job ID; blank creates. `description` (optional text) — Job description. `role` (optional role) — Job role in this server. `order` (optional integer) — Display order.</small> | `fbrp.roster.config` |
-| `/roster job-delete <id>` | Delete a staff secondary job<br><small>Arguments: `id` (required integer) — Job ID.</small> | `fbrp.roster.config` |
+| `/roster category-upsert <name> <start> <end> [id] [order]` | Create or update a callsign category<br><small>Arguments: `name` (required text) — Category name. `start` (required integer) — First callsign. `end` (required integer) — Last callsign. `id` (optional integer) — Existing category ID; blank creates. `order` (optional integer) — Display order.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
+| `/roster category-delete <id>` | Delete an unused roster category<br><small>Arguments: `id` (required integer) — Category ID.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
+| `/roster rank-upsert <category> <name> [id] [role] [ace_group] [weekly_hours] [minimum_days] [order]` | Create or update a staff rank and role mapping<br><small>Arguments: `category` (required integer) — Category ID. `name` (required text) — Rank name. `id` (optional integer) — Existing rank ID; blank creates. `role` (optional role) — Rank role in this server. `ace_group` (optional text) — ACE group /staff add puts this rank in. Autocomplete is provided. `weekly_hours` (optional integer) — Weekly activity requirement. `minimum_days` (optional integer) — Minimum days before promotion. `order` (optional integer) — Display order.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
+| `/roster rank-delete <id>` | Delete an unused staff rank<br><small>Arguments: `id` (required integer) — Rank ID.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
+| `/roster job-upsert <name> [id] [description] [role] [order]` | Create or update a staff secondary job<br><small>Arguments: `name` (required text) — Job name. `id` (optional integer) — Existing job ID; blank creates. `description` (optional text) — Job description. `role` (optional role) — Job role in this server. `order` (optional integer) — Display order.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
+| `/roster job-delete <id>` | Delete a staff secondary job<br><small>Arguments: `id` (required integer) — Job ID.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
 | `/roster job-assign <member> <job>` | Assign a secondary job to a roster member<br><small>Arguments: `member` (required user) — Discord member. `job` (required integer) — Job ID.</small> | `fbrp.roster.manage` |
 | `/roster job-remove <member> <job>` | Remove a secondary job from a roster member<br><small>Arguments: `member` (required user) — Discord member. `job` (required integer) — Job ID.</small> | `fbrp.roster.manage` |
-| `/roster sync` | Sync roster ranks from Discord roles | `fbrp.roster.config` |
+| `/roster sync` | Sync roster ranks from Discord roles | Co-Owner rank or higher and `fbrp.roster.config` |
 | `/roster list` | List the staff roster | `fbrp.roster.view` |
 
 Important behavior:
@@ -485,10 +515,10 @@ Manage Discord servers that should be flagged during member investigations
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/blacklistedserver add <server_id> <name> <reason>` | Add a Discord server to the investigation blacklist | Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access |
-| `/blacklistedserver edit <server_id> [name] [reason]` | Change a blacklisted server's display name or reason | Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access |
-| `/blacklistedserver remove <server_id>` | Remove a Discord server from the investigation blacklist | Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access |
-| `/blacklistedserver list` | List all blacklisted Discord servers | Co-Owner rank or higher; `fbrp.blacklistedservers.manage` also grants access |
+| `/blacklistedserver add <server_id> <name> <reason>` | Add a Discord server to the investigation blacklist | Co-Owner rank or higher |
+| `/blacklistedserver edit <server_id> [name] [reason]` | Change a blacklisted server's display name or reason | Co-Owner rank or higher |
+| `/blacklistedserver remove <server_id>` | Remove a Discord server from the investigation blacklist | Co-Owner rank or higher |
+| `/blacklistedserver list` | List all blacklisted Discord servers | Co-Owner rank or higher |
 
 Important behavior:
 
@@ -518,9 +548,9 @@ Assign organization or staff office voice channels
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/office set <channel> <member>` | Assign an office owner<br><small>Arguments: `channel` (required channel) — Office voice channel. `member` (required user) — Office owner.</small> | `fbrp.office.manage` |
-| `/office clear <channel>` | Remove an office assignment<br><small>Arguments: `channel` (required channel) — Office voice channel.</small> | `fbrp.office.manage` |
-| `/office list` | List office assignments | `fbrp.office.manage` |
+| `/office set <channel> <member>` | Assign an office owner<br><small>Arguments: `channel` (required channel) — Office voice channel. `member` (required user) — Office owner.</small> | Co-Owner rank or higher and `fbrp.office.manage` |
+| `/office clear <channel>` | Remove an office assignment<br><small>Arguments: `channel` (required channel) — Office voice channel.</small> | Co-Owner rank or higher and `fbrp.office.manage` |
+| `/office list` | List office assignments | Co-Owner rank or higher and `fbrp.office.manage` |
 
 ## /join
 

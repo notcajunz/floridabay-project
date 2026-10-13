@@ -1855,6 +1855,10 @@ window.addEventListener("message", ({ data }) => {
     currentPayload.selected = data.data || {};
     if (currentView === "tags") renderMenu();
   }
+  if (data.type === "tagsData" && currentView === "tags") {
+    currentPayload = data.data || {};
+    renderMenu();
+  }
   if (data.type === "blindfold") $("#blindfold").classList.toggle("hidden", !data.active);
   if (data.type === "restraint") showRestraint(data.active, data.kind);
   if (data.type === "carControls") $("#car-controls").classList.toggle("hidden", !data.open);

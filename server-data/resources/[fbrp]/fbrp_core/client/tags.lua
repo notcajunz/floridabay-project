@@ -4,8 +4,9 @@
 -- Match the reference tag treatment: GTA's clean proportional Chalet face
 -- with equal-size rank/ID and gang lines. Font 4 is the condensed Chalet face
 -- and reads much narrower/heavier than the reference.
-local HEAD_FONT, SUB_FONT = 0, 0
-local HEAD_SCALE, ID_SCALE, SUB_SCALE = 0.60, 0.52, 0.60
+local TAG_FONT, TAG_SCALE = 0, 0.60
+local HEAD_FONT, SUB_FONT = TAG_FONT, TAG_FONT
+local HEAD_SCALE, ID_SCALE, SUB_SCALE = TAG_SCALE, 0.52, TAG_SCALE
 local HEAD_BONE = 31086
 
 local function hexColor(hex)
@@ -201,7 +202,11 @@ end)
 RegisterNetEvent('fbrp:tags:data', function(data)
     data = data or {}
     data.serverId = GetPlayerServerId(PlayerId())
-    FBRP.OpenMenu('tags',data)
+    if FBRP.MenuView() == 'tags' then
+        SendNUIMessage({type='tagsData',data=data})
+    else
+        FBRP.OpenMenu('tags',data)
+    end
 end)
 
 RegisterNetEvent('fbrp:tags:selected', function(selected)
@@ -211,4 +216,11 @@ end)
 RegisterNUICallback('equipTag', function(data,cb)
     TriggerServerEvent('fbrp:tags:equip',tostring(data.kind),tonumber(data.id))
     cb({ok=true})
+end)
+
+AddStateBagChangeHandler('fbrp:organization', nil, function(bagName)
+    if bagName ~= ('player:%s'):format(GetPlayerServerId(PlayerId())) or FBRP.MenuView() ~= 'tags' then return end
+    SetTimeout(100, function()
+        if FBRP.MenuView() == 'tags' then TriggerServerEvent('fbrp:tags:request') end
+    end)
 end)

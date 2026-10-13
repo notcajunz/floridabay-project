@@ -24,7 +24,7 @@ export function discordIdOf(value) {
   return id;
 }
 
-export function createPersonals({ db, audit, hasPermission }) {
+export function createPersonals({ db, audit }) {
   /** Co-Owner and above manage every personal, with or without the ACE permission. */
   async function coOwnerOrAbove(discordId) {
     const [level, coOwner] = await Promise.all([staffLevel(discordId), db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'")]);
@@ -32,7 +32,6 @@ export function createPersonals({ db, audit, hasPermission }) {
   }
   const canManage = async (discordId) =>
     superuserIds().has(String(discordId)) ||
-    Boolean(await hasPermission(discordId, "fbrp.personals.manage")) ||
     (await coOwnerOrAbove(discordId));
 
   const notifyGame = () => callGame("/personals/refresh", {}).catch(() => null);
@@ -135,7 +134,7 @@ export function createPersonals({ db, audit, hasPermission }) {
   }
 
   async function assertManager(discordId) {
-    if (!(await canManage(discordId))) throw new Error("Co-Owner rank or higher (or fbrp.personals.manage) is required.");
+    if (!(await canManage(discordId))) throw new Error("Co-Owner rank or higher is required.");
   }
 
   function modelOf(value) {

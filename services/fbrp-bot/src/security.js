@@ -1,5 +1,5 @@
 import { AuditLogEvent, ChannelType, GuildVerificationLevel, PermissionFlagsBits, PermissionsBitField } from "discord.js";
-import { db, audit } from "./database.js";
+import { db, audit, staffLevel } from "./database.js";
 import { isProtectedRoleManagerId } from "./access-control.js";
 import { COLORS, card, clip, roleRef, serverRef, when, who } from "./ui.js";
 
@@ -13,13 +13,17 @@ export const SECURITY_SETTINGS = {
   nuke_limit: { type: "int", label: "Anti-nuke: actions of one kind", default: 3, min: 1, max: 50 },
   nuke_total: { type: "int", label: "Anti-nuke: danger points of any kind", default: 6, min: 2, max: 100 },
   nuke_window: { type: "int", label: "Anti-nuke: window (seconds)", default: 20, min: 5, max: 300 },
-  nuke_punishment: { type: "enum", label: "Anti-nuke: punishment", default: "ban", values: ["ban", "kick", "strip"] },
+  // Strip (all roles removed plus a 7-day timeout) in every network server, instead of a network-wide ban.
+  nuke_punishment: { type: "enum", label: "Anti-nuke: punishment", default: "strip", values: ["strip", "kick", "ban"] },
   nuke_restore: { type: "bool", label: "Anti-nuke: undo the damage (restore deleted, remove created)", default: true },
-  nuke_network_ban: { type: "bool", label: "Anti-nuke: ban the attacker in every network server", default: true },
+  nuke_network_ban: { type: "bool", label: "Anti-nuke: contain the attacker in every network server", default: true },
+  nuke_network_scale: { type: "int", label: "Anti-nuke: network budget (× per-server limits, shared by all servers)", default: 1, min: 1, max: 10 },
+  nuke_exempt_ceiling: { type: "int", label: "Anti-nuke: still quarantine exempt accounts at this many × the limits (0 = never)", default: 3, min: 0, max: 20 },
   nuke_failsafe_lockdown: { type: "bool", label: "Anti-nuke: lock the server down if the attacker cannot be stopped", default: true },
   permission_guard: { type: "bool", label: "Permission guard (dangerous role permissions)", default: true },
   admin_grant_guard: { type: "bool", label: "Admin grant guard (dangerous roles given out)", default: true },
   webhook_guard: { type: "bool", label: "Webhook guard (lockdown and webhook spam)", default: true },
+  health_watch: { type: "bool", label: "Health watch: alert when the bot loses the power to stop a nuke", default: true },
   antiraid: { type: "bool", label: "Anti-raid", default: true },
   raid_joins: { type: "int", label: "Anti-raid: joins", default: 10, min: 3, max: 100 },
   raid_window: { type: "int", label: "Anti-raid: window (seconds)", default: 30, min: 5, max: 600 },
@@ -189,9 +193,12 @@ async function auditEntry(guild, type, targetId = null, maxAge = 15000, delay = 
   );
 }
 
-/** DMs the server owner and the bot owner. Used only for anti-nuke and raid alerts. */
-async function alertOwners(guild, e) {
-  const ids = new Set([String(guild.ownerId), String(process.env.FBRP_OWNER_DISCORD_ID || "")].filter(Boolean));
+/** DMs the owners of the given server(s) and the bot owner. Used only for anti-nuke, raid and health alerts. */
+async function alertOwners(guilds, e) {
+  const list = Array.isArray(guilds) ? guilds : [guilds];
+  const ids = new Set([...list.map((guild) => String(guild.ownerId)), String(process.env.FBRP_OWNER_DISCORD_ID || "")].filter(Boolean));
+  const guild = list[0];
+  if (!guild) return;
   for (const id of ids) {
     const user = await guild.client.users.fetch(id).catch(() => null);
     await user?.send({ embeds: [e] }).catch(() => {});
@@ -308,7 +315,12 @@ export async function sweepBots(guild) {
 async function protectedAccess(guild, actorId, roleId) {
   if (!actorId) return false;
   if (String(actorId) === String(guild.client.user.id)) return true;
-  return isProtectedRoleManagerId(actorId);
+  if (!isProtectedRoleManagerId(actorId)) return false;
+  const [level, coOwner] = await Promise.all([
+    staffLevel(actorId),
+    db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'"),
+  ]);
+  return level >= Number(coOwner?.rank_order ?? 950);
 }
 
 export async function enforceProtectedRoles(oldMember, newMember, log) {
@@ -347,9 +359,11 @@ export async function enforceProtectedRoles(oldMember, newMember, log) {
 
 /* ------------------------------------------------------------------------------------------------
  * Anti-nuke. Every audit-log entry in a network server is scored against the account that made
- * it (only the bot and exempt accounts are skipped). Each kind of action has its own limit and a
- * weight toward a shared danger budget; crossing either strips the account, bans it, undoes the
- * damage and, if the account cannot be stopped, locks the server down.
+ * it. Each kind of action has its own limit and a weight toward a shared danger budget, and the
+ * budget is shared by the whole network: an attacker who spreads the damage over several servers
+ * is caught just like one who hits a single server. Crossing a limit stops the account in every
+ * network server at once, undoes the damage everywhere it acted, and puts the account on the
+ * offender list: from then on any action it makes, and any server it joins, is handled instantly.
  * ---------------------------------------------------------------------------------------------- */
 
 /** scale multiplies nuke_limit for that kind; weight counts toward nuke_total; log records each one below the limit. */
@@ -385,121 +399,381 @@ const NUKE_RULES = {
   bot_add: { label: "Unapproved bot added", scale: 1, weight: 3 },
 };
 const ACTION_LABEL = Object.fromEntries(Object.entries(NUKE_RULES).map(([key, rule]) => [key, rule.label]));
+const NUKE_REASON = "Florida Bay anti-nuke";
+const QUARANTINE_MS = 7 * 86400000;
 
+/** `${guildId}:${actorId}` → actions inside the window. */
 const destructive = new Map();
+/** actorId → { at, punishment }: mirror of the active rows in network_nuke_offenders. */
+const offenders = new Map();
+/** `${guildId}:${actorId}` → { at, promise } so concurrent entries never act on the same account twice. */
+const containing = new Map();
+/** `${guildId}:${actorId}` → queued zero-tolerance log lines, flushed as one entry. */
+const zeroLogs = new Map();
+
+export const isNukeOffender = (id) => offenders.has(String(id));
+
+export async function loadOffenders() {
+  const rows = await db.query("SELECT discord_id,punishment,created_at FROM network_nuke_offenders WHERE active=TRUE");
+  offenders.clear();
+  for (const row of rows) offenders.set(String(row.discord_id), { at: Number(row.created_at), punishment: row.punishment });
+  return offenders.size;
+}
+
+async function networkGuilds(client) {
+  const rows = await db.query("SELECT guild_id FROM network_guilds").catch(() => []);
+  return rows.map((row) => client.guilds.cache.get(String(row.guild_id))).filter(Boolean);
+}
+
+/** Every server's window for one account, oldest entries dropped. */
+function actorWindows(actorId, windowMs) {
+  const groups = new Map();
+  for (const [key, list] of destructive) {
+    if (!key.endsWith(`:${actorId}`)) continue;
+    const live = list.filter((item) => Date.now() - item.at < windowMs);
+    if (live.length) groups.set(key.slice(0, key.indexOf(":")), live);
+  }
+  return groups;
+}
 
 async function nukeAction(guild, type, actorId, targetId, log, detail = {}) {
   const s = await getSecuritySettings();
   if (!s.antinuke) return null;
+  actorId = String(actorId);
   const rule = NUKE_RULES[type] || { scale: 1, weight: 1 };
-  const key = `${guild.id}:${actorId}`;
+  const item = {
+    type,
+    at: Date.now(),
+    guild: guild.id,
+    target: targetId ? String(targetId) : null,
+    label: detail.label || null,
+    weight: detail.weight ?? rule.weight,
+    changes: detail.changes || null,
+    extra: detail.extra || null,
+  };
+  // A known attacker gets no second window: contain and undo on the first action, in any server.
+  if (offenders.has(actorId)) return zeroTolerance(guild, actorId, item, log);
+  // Exempt accounts are trusted, not unlimited: a compromised staff account is the most common nuke.
+  const scale = detail.exempt ? s.nuke_exempt_ceiling : 1;
+  if (!scale) return null;
   const windowMs = s.nuke_window * 1000;
-  const recent = (destructive.get(key) || []).filter((item) => Date.now() - item.at < windowMs);
-  const weight = detail.weight ?? rule.weight;
-  recent.push({ type, at: Date.now(), target: targetId ? String(targetId) : null, label: detail.label || null, weight });
+  const key = `${guild.id}:${actorId}`;
+  const recent = (destructive.get(key) || []).filter((entry) => Date.now() - entry.at < windowMs);
+  recent.push(item);
   destructive.set(key, recent);
-  const count = recent.filter((item) => item.type === type).length;
-  const limit = Math.max(1, Math.round(s.nuke_limit * rule.scale));
-  const points = recent.reduce((sum, item) => sum + item.weight, 0);
-  const tripped = count >= limit || points >= s.nuke_total;
-  await securityEvent(guild.id, type, actorId, targetId, tripped ? "threshold" : "observed", { count, points, label: detail.label || null });
+  const count = recent.filter((entry) => entry.type === type).length;
+  const limit = Math.max(1, Math.round(s.nuke_limit * rule.scale * scale));
+  const total = s.nuke_total * scale;
+  const points = recent.reduce((sum, entry) => sum + entry.weight, 0);
+  // Network view: one budget for every server the account touched. Acting on the same target in
+  // several servers (banning one troll everywhere) counts once.
+  const groups = actorWindows(actorId, windowMs);
+  const seen = new Set();
+  const spread = [...groups.values()].flat().filter((entry) => {
+    const id = `${entry.type}:${entry.target || entry.label || entry.at}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  const netCount = spread.filter((entry) => entry.type === type).length;
+  const netPoints = spread.reduce((sum, entry) => sum + entry.weight, 0);
+  const netLimit = Math.max(1, Math.round(limit * s.nuke_network_scale));
+  const netTotal = total * s.nuke_network_scale;
+  const local = count >= limit || points >= total;
+  const network = groups.size > 1 && (netCount >= netLimit || netPoints >= netTotal);
+  const tripped = local || network;
+  if (!detail.exempt)
+    void securityEvent(guild.id, type, actorId, targetId, tripped ? "threshold" : "observed", { count, points, netPoints, servers: groups.size, label: detail.label || null });
   if (!tripped) {
-    if (rule.log)
+    if (rule.log && !detail.exempt)
       await log(guild, {
         title: rule.label || type,
         color: COLORS.muted,
         fields: [
           ["By", who(actorId)],
           ["Target", detail.label ? clip(detail.label, 200) : targetId ? `\`${targetId}\`` : "Unknown"],
-          ["Anti-nuke", `${count}/${limit} of this kind · ${Math.round(points * 10) / 10}/${s.nuke_total} points · ${s.nuke_window}s window`],
+          [
+            "Anti-nuke",
+            `${count}/${limit} of this kind · ${Math.round(points * 10) / 10}/${Math.round(total * 10) / 10} points · ${s.nuke_window}s window` +
+              (groups.size > 1 ? `\nNetwork: ${Math.round(netPoints * 10) / 10}/${Math.round(netTotal * 10) / 10} points across ${groups.size} servers` : ""),
+          ],
         ],
       });
     return { count, limit, punished: false };
   }
-  destructive.delete(key);
-  await punish(guild, actorId, recent, log);
+  // Mark the account before anything is awaited so every entry still in flight meets zero tolerance.
+  const ownsAttacked = [...groups.keys()].some((id) => isOwner(guild.client.guilds.cache.get(id) || guild, actorId));
+  const mode = detail.exempt || ownsAttacked ? "strip" : s.nuke_punishment;
+  offenders.set(actorId, { at: Date.now(), punishment: mode });
+  for (const id of groups.keys()) destructive.delete(`${id}:${actorId}`);
+  await punish(guild, actorId, groups, { mode, exempt: Boolean(detail.exempt), network: network && !local }, log);
   return { count, limit, punished: true };
 }
 
-async function punish(guild, actorId, recent, log) {
+/** Stops one account in one server: ban/kick per policy, falling back to stripping roles and a timeout. */
+async function contain(guild, actorId, mode, reason) {
+  if (isOwner(guild, actorId)) return { result: "Server owner · Discord does not let bots act against the owner", stopped: false, owner: true, stripped: [] };
+  const member = guild.members.cache.get(actorId) || (await guild.members.fetch(actorId).catch(() => null));
+  // Banning first is one API call and ends every permission at once; stripping is the fallback.
+  if (mode === "ban" && (await guild.members.ban(actorId, { reason, deleteMessageSeconds: 3600 }).then(() => true, () => false)))
+    return { result: member ? "Banned" : "Banned pre-emptively", stopped: true, acted: true, present: Boolean(member), stripped: [] };
+  if (!member) return { result: mode === "ban" ? "Ban failed · not a member" : "Not a member", stopped: true, acted: false, present: false, stripped: [] };
+  if (mode === "kick" && (await member.kick(reason).then(() => true, () => false)))
+    return { result: "Kicked", stopped: true, acted: true, present: true, stripped: [] };
+  const strippable = member.roles.cache.filter((role) => role.id !== guild.id && !role.managed && role.editable);
+  const updated = strippable.size ? await member.roles.remove([...strippable.keys()], reason).catch(() => null) : member;
+  const stripped = updated && strippable.size ? [...strippable.keys()] : [];
+  const current = updated || member;
+  // A timeout removes every permission except reading, which also covers roles the bot cannot reach.
+  const timedOut = current.moderatable ? await current.timeout(QUARANTINE_MS, reason).then(() => true, () => false) : false;
+  const stillDangerous = DANGEROUS.some((flag) => current.permissions.has(flag));
+  const parts = [];
+  if (mode !== "strip") parts.push(`${mode === "ban" ? "Ban" : "Kick"} failed`);
+  parts.push(stripped.length ? `${stripped.length} role(s) stripped` : "No roles stripped");
+  if (timedOut) parts.push("timed out 7 days");
+  if (stillDangerous && !timedOut) parts.push("**still holds dangerous permissions**");
+  return { result: parts.join(" · "), stopped: timedOut || !stillDangerous, acted: Boolean(stripped.length || timedOut), present: true, stripped, timedOut };
+}
+
+function containOnce(guild, actorId, mode, reason) {
+  const key = `${guild.id}:${actorId}`;
+  const hit = containing.get(key);
+  if (hit && Date.now() - hit.at < 60000) return hit.promise;
+  const promise = contain(guild, actorId, mode, reason).catch((error) => ({ result: `Failed · ${clip(error.message || error, 80)}`, stopped: false, stripped: [] }));
+  containing.set(key, { at: Date.now(), promise });
+  return promise;
+}
+
+async function punish(origin, actorId, groups, ctx, log) {
   const s = await getSecuritySettings();
-  const reason = `Florida Bay anti-nuke: ${recent.length} destructive actions in ${s.nuke_window}s`;
-  const owner = isOwner(guild, actorId);
-  const member = owner ? null : await guild.members.fetch(actorId).catch(() => null);
-  // Quarantine first: removing the roles stops the damage even when a ban is not possible.
-  const strippable = member ? member.roles.cache.filter((role) => role.id !== guild.id && !role.managed && role.editable) : null;
-  const stripped = strippable?.size
-    ? await member.roles.remove([...strippable.keys()], reason).then(() => [...strippable.values()], () => [])
-    : [];
-  const unstrippable = member ? member.roles.cache.filter((role) => role.id !== guild.id && !strippable.has(role.id)).size : 0;
-  let result = stripped.length ? "Roles stripped" : "Nothing stripped";
-  if (owner) result = "Server owner · Discord does not let bots act against the owner";
-  else if (s.nuke_punishment === "ban")
-    result = (await guild.members.ban(actorId, { reason, deleteMessageSeconds: 3600 }).then(() => true, () => false)) ? "Banned" : `Ban failed · ${result.toLowerCase()}`;
-  else if (s.nuke_punishment === "kick" && member)
-    result = (await member.kick(reason).then(() => true, () => false)) ? "Kicked" : `Kick failed · ${result.toLowerCase()}`;
-  const success = !owner && (/^(Banned|Kicked)$/.test(result) || (s.nuke_punishment === "strip" && stripped.length > 0 && !unstrippable));
+  const client = origin.client;
+  const total = [...groups.values()].reduce((n, list) => n + list.length, 0);
+  const across = groups.size > 1 ? ` across ${groups.size} servers` : "";
+  const reason = `${NUKE_REASON}: ${total} destructive actions in ${s.nuke_window}s${across}`;
+  const attacked = [...groups.keys()].map((id) => client.guilds.cache.get(id)).filter(Boolean);
+  const others = s.nuke_network_ban ? (await networkGuilds(client)).filter((g) => !groups.has(g.id)) : [];
 
-  // Undo the damage: webhooks always go, everything else follows the restore setting.
-  const recovery = await recover(guild, recent, reason, s.nuke_restore && !owner);
+  // 1. Stop the account everywhere at the same moment: the servers it attacked and every other network server.
+  const outcomes = new Map();
+  await Promise.all([
+    ...attacked.map(async (g) => outcomes.set(g.id, await containOnce(g, actorId, ctx.mode, reason))),
+    ...others.map(async (g) => {
+      if (!ctx.exempt && (await exempt(g.id, actorId))) return outcomes.set(g.id, { result: "Exempt in this server", stopped: false, skipped: true, stripped: [] });
+      outcomes.set(g.id, await containOnce(g, actorId, ctx.mode, `${reason} (network containment)`));
+    }),
+  ]);
 
-  // One attack is enough: keep the account out of every other network server as well.
-  let networkBans = 0;
-  if (!owner && s.nuke_network_ban && s.nuke_punishment === "ban" && success)
-    networkBans = await networkBan(guild, actorId, `Florida Bay anti-nuke: attacked ${guild.name}`);
+  // 2. Undo the damage in every server it touched.
+  const recoveries = new Map();
+  await Promise.all(
+    attacked.map(async (g) => {
+      const owner = isOwner(g, actorId);
+      const recovery = await recover(g, groups.get(g.id), reason, s.nuke_restore && !owner);
+      if (!owner) {
+        const left = await purgeLeftovers(g, actorId, `${reason} · recovery`);
+        if (left.webhooks) recovery.lines.push(`✅ Deleted ${left.webhooks} other webhook(s) the attacker owned`);
+        if (left.invites) recovery.lines.push(`✅ Revoked ${left.invites} invite(s) the attacker created`);
+      }
+      recoveries.set(g.id, recovery);
+    }),
+  );
 
-  let locked = null;
-  if (!success && !owner && s.nuke_failsafe_lockdown && !(await lockdownStates())[guild.id])
-    locked = await lockdown(guild, { reason: `Anti-nuke could not stop <@${actorId}>`, actorId: guild.client.user.id, minutes: 0, log }).catch(() => null);
+  // 3. Failsafe: lock down any attacked server where the account could not be stopped. Sequential: one shared state row.
+  const locked = new Set();
+  for (const g of attacked) {
+    const out = outcomes.get(g.id);
+    if (out.stopped || out.owner || !s.nuke_failsafe_lockdown || (await lockdownStates())[g.id]) continue;
+    if (await lockdown(g, { reason: `Anti-nuke could not stop <@${actorId}>`, actorId: client.user.id, minutes: 0, log }).then(() => true, () => false)) locked.add(g.id);
+  }
 
+  // 4. Remember the account network-wide (survives restarts; lifted with /security pardon).
+  const stripped = Object.fromEntries([...outcomes].filter(([, o]) => o.stripped?.length).map(([id, o]) => [id, o.stripped]));
+  const timedOut = [...outcomes].filter(([, o]) => o.timedOut).map(([id]) => id);
   const counts = {};
-  for (const item of recent) counts[item.type] = (counts[item.type] || 0) + 1;
-  const summary = Object.entries(counts).map(([type, n]) => `${n}× ${ACTION_LABEL[type] || type}`).join("\n");
-  await securityEvent(guild.id, "antinuke_punish", actorId, null, success ? "punished" : owner ? "owner" : "failed", {
-    result,
-    counts,
-    stripped: stripped.map((r) => r.id),
-    recovery,
-    networkBans,
-  });
-  const entry = {
-    title: success ? "Anti-nuke triggered" : owner ? "Anti-nuke triggered · server owner" : "Anti-nuke triggered · action failed",
-    color: COLORS.danger,
-    description: success
-      ? `<@${actorId}> was stopped after ${recent.length} destructive actions in ${s.nuke_window} seconds.`
-      : owner
-        ? `The server owner <@${actorId}> made ${recent.length} destructive actions in ${s.nuke_window} seconds. If this was not them, **their account is compromised**: reset its password and 2FA now.`
-        : `<@${actorId}> made ${recent.length} destructive actions in ${s.nuke_window} seconds and the bot could not fully stop them.\n**Check the role hierarchy immediately:** the Florida Bay bot role must sit above every staff role.`,
-    fields: [
-      ["Account", who(actorId)],
-      ["Result", result],
-      ["Roles stripped", stripped.length ? stripped.map((role) => roleRef(role.id)).join(" ").slice(0, 1000) : "None"],
-      ["What happened", summary, false],
-      ...(recovery.lines.length ? [["Damage undone", recovery.lines.join("\n"), false]] : []),
-      ...(networkBans ? [["Network ban", `Banned in ${networkBans} other server(s)`]] : []),
-      ...(locked ? [["Failsafe", "Server locked down until `/security unlock`"]] : []),
-    ],
-  };
-  await log(guild, entry);
-  await alertOwners(
-    guild,
-    card(`Anti-nuke triggered in ${guild.name}`, {
+  for (const item of [...groups.values()].flat()) counts[item.type] = (counts[item.type] || 0) + 1;
+  await db
+    .query(
+      `INSERT INTO network_nuke_offenders(discord_id,origin_guild_id,reason,punishment,details,active,created_at,cleared_by,cleared_at)
+       VALUES(?,?,?,?,?,TRUE,?,NULL,NULL)
+       ON DUPLICATE KEY UPDATE origin_guild_id=VALUES(origin_guild_id),reason=VALUES(reason),punishment=VALUES(punishment),details=VALUES(details),active=TRUE,created_at=VALUES(created_at),cleared_by=NULL,cleared_at=NULL`,
+      [actorId, origin.id, clip(reason, 300), ctx.mode, JSON.stringify({ counts, servers: [...groups.keys()], stripped, timedOut, exempt: ctx.exempt }), Date.now()],
+    )
+    .catch((error) => console.error("[FBRP security] offender record:", error.message || error));
+
+  // 5. Report: a full entry in every attacked server, a short one wherever the account was contained.
+  const elsewhere = others.map((g) => [g, outcomes.get(g.id)]).filter(([, o]) => o && !o.skipped);
+  const elsewhereActed = elsewhere.filter(([, o]) => o.acted).length;
+  const elsewhereFailed = elsewhere.filter(([, o]) => o.present && !o.stopped);
+  const networkLine = others.length
+    ? `Contained in ${elsewhereActed}/${others.length} other server(s)${elsewhereFailed.length ? `\n❌ Could not stop them in: ${elsewhereFailed.map(([g]) => clip(g.name, 40)).join(", ")}` : ""}`
+    : s.nuke_network_ban ? "No other network servers" : "Off";
+  const serverLines = [];
+  for (const g of attacked) {
+    const out = outcomes.get(g.id);
+    const owner = Boolean(out.owner);
+    const items = groups.get(g.id);
+    const local = {};
+    for (const item of items) local[item.type] = (local[item.type] || 0) + 1;
+    const recovery = recoveries.get(g.id);
+    serverLines.push(`**${clip(g.name, 60)}** · ${items.length} action(s) · ${out.result}`);
+    await securityEvent(g.id, "antinuke_punish", actorId, null, out.stopped && !owner ? "punished" : owner ? "owner" : "failed", {
+      result: out.result,
+      counts: local,
+      stripped: out.stripped,
+      recovery: { ...recovery, lines: undefined },
+      network: ctx.network,
+      servers: groups.size,
+      contained: elsewhereActed,
+    });
+    await log(g, {
+      title: out.stopped && !owner ? "Anti-nuke triggered" : owner ? "Anti-nuke triggered · server owner" : "Anti-nuke triggered · action failed",
       color: COLORS.danger,
-      description: entry.description,
-      rows: [["Server", serverRef(guild)], ...entry.fields],
+      description: owner
+        ? `The server owner <@${actorId}> made ${items.length} destructive actions here${across ? ` (${total}${across})` : ""}. If this was not them, **their account is compromised**: reset its password and 2FA now. They have been quarantined in every other network server.`
+        : out.stopped
+          ? `<@${actorId}> was stopped after ${total} destructive actions in ${s.nuke_window} seconds${across}.${ctx.network ? " No single server crossed its limit: the **network-wide** budget caught them." : ""}${ctx.exempt ? " This account has a security exemption, but crossed the exempt ceiling, so it was quarantined rather than banned." : ""}`
+          : `<@${actorId}> made ${items.length} destructive actions here and the bot could not fully stop them.\n**Check the role hierarchy immediately:** the Florida Bay bot role must sit above every staff role. Run \`/security health\`.`,
+      fields: [
+        ["Account", who(actorId)],
+        ["Result here", out.result],
+        ["Roles stripped", out.stripped?.length ? out.stripped.map((id) => roleRef(id)).join(" ").slice(0, 1000) : "None"],
+        ["What happened here", Object.entries(local).map(([type, n]) => `${n}× ${ACTION_LABEL[type] || type}`).join("\n"), false],
+        ...(recovery.lines.length ? [["Damage undone", recovery.lines.join("\n").slice(0, 1024), false]] : []),
+        ...(groups.size > 1 ? [["Also attacked", attacked.filter((x) => x.id !== g.id).map((x) => clip(x.name, 60)).join("\n") || "Unknown", false]] : []),
+        ["Network", networkLine, false],
+        ...(locked.has(g.id) ? [["Failsafe", "Server locked down until `/security unlock`"]] : []),
+        ["Offender list", "Any further action or join anywhere in the network is stopped instantly. Lift with `/security pardon`."],
+      ],
+    });
+  }
+  for (const [g, out] of elsewhere)
+    if (out.present || out.acted)
+      await log(g, {
+        title: "Anti-nuke network containment",
+        color: out.stopped ? COLORS.warning : COLORS.danger,
+        description: `<@${actorId}> attacked ${attacked.map((x) => `**${clip(x.name, 60)}**`).join(", ")}. They were contained here before they could do the same.`,
+        fields: [["Account", who(actorId)], ["Result here", out.result], ...(out.stripped?.length ? [["Roles stripped", out.stripped.map((id) => roleRef(id)).join(" ").slice(0, 1000)]] : [])],
+      });
+  const summary = Object.entries(counts).map(([type, n]) => `${n}× ${ACTION_LABEL[type] || type}`).join("\n");
+  await alertOwners(
+    attacked,
+    card(`Anti-nuke triggered${across ? across : ` in ${origin.name}`}`, {
+      color: COLORS.danger,
+      description: `<@${actorId}> made ${total} destructive actions in ${s.nuke_window} seconds${across}.${ctx.network ? " Caught by the network-wide budget." : ""}`,
+      rows: [
+        ["Account", who(actorId)],
+        ["Punishment", ctx.mode],
+        ["Servers attacked", serverLines.join("\n").slice(0, 1024), false],
+        ["What happened", summary.slice(0, 1024), false],
+        ["Network", networkLine, false],
+        ...(locked.size ? [["Failsafe lockdown", attacked.filter((g) => locked.has(g.id)).map((g) => clip(g.name, 60)).join("\n")]] : []),
+      ],
     }),
   );
 }
 
-async function networkBan(guild, actorId, reason) {
-  const rows = await db.query("SELECT guild_id FROM network_guilds").catch(() => []);
-  let banned = 0;
-  for (const row of rows) {
-    const other = guild.client.guilds.cache.get(String(row.guild_id));
-    if (!other || other.id === guild.id || isOwner(other, actorId) || (await exempt(other.id, actorId))) continue;
-    if (await other.members.ban(actorId, { reason, deleteMessageSeconds: 3600 }).then(() => true, () => false)) banned++;
+/** A known attacker acted again: contain them in this server and undo the action straight away. */
+async function zeroTolerance(guild, actorId, item, log) {
+  // The owner of this server cannot be acted against here; they are quarantined everywhere else.
+  if (isOwner(guild, actorId)) return { punished: false };
+  const s = await getSecuritySettings();
+  const reason = `${NUKE_REASON}: known attacker`;
+  const offender = offenders.get(actorId);
+  const [outcome, recovery] = await Promise.all([
+    containOnce(guild, actorId, offender?.punishment || s.nuke_punishment, reason),
+    recover(guild, [item], reason, s.nuke_restore),
+  ]);
+  void securityEvent(guild.id, item.type, actorId, item.target, "zero_tolerance", { label: item.label, result: outcome.result });
+  queueZeroLog(guild, actorId, `${ACTION_LABEL[item.type] || item.type}${item.label ? ` · ${clip(item.label, 60)}` : ""}${recovery.lines.length ? ` · ${recovery.lines.map((line) => line.replace(/^\S+\s/, "")).join("; ")}` : ""}`, outcome, log);
+  return { punished: true };
+}
+
+function queueZeroLog(guild, actorId, line, outcome, log) {
+  const key = `${guild.id}:${actorId}`;
+  const queued = zeroLogs.get(key);
+  if (queued) {
+    queued.lines.push(line);
+    queued.outcome = outcome;
+    return;
   }
-  return banned;
+  const entry = { lines: [line], outcome };
+  zeroLogs.set(key, entry);
+  setTimeout(() => {
+    zeroLogs.delete(key);
+    void log(guild, {
+      title: "Known attacker stopped",
+      color: COLORS.danger,
+      description: `<@${actorId}> is on the anti-nuke offender list, so their actions here were handled instantly without waiting for a limit.`,
+      fields: [["Account", who(actorId)], ["Result", entry.outcome.result], ["Actions", entry.lines.slice(0, 15).join("\n").slice(0, 1024), false]],
+    }).catch(() => {});
+  }, 4000).unref?.();
+}
+
+/** Deletes every webhook the attacker owns and every invite they created, not just those in the window. */
+async function purgeLeftovers(guild, actorId, why) {
+  const out = { webhooks: 0, invites: 0 };
+  const hooks = await guild.fetchWebhooks().catch(() => null);
+  for (const hook of hooks?.values() || [])
+    if (String(hook.owner?.id) === actorId && (await hook.delete(why).then(() => true, () => false))) out.webhooks++;
+  const invites = await guild.invites.fetch().catch(() => null);
+  for (const invite of invites?.values() || [])
+    if (String(invite.inviterId) === actorId && (await invite.delete(why).then(() => true, () => false))) out.invites++;
+  return out;
+}
+
+/** Re-applies the offender list in one server (or all): a join, a restart, or a server joining the network. */
+export async function enforceOffenders(client, log, onlyGuild = null) {
+  if (!offenders.size) return 0;
+  let acted = 0;
+  const guilds = onlyGuild ? [onlyGuild] : await networkGuilds(client);
+  for (const guild of guilds) {
+    if (!(await registered(guild.id))) continue;
+    for (const [id, offender] of offenders) {
+      if (isOwner(guild, id) || (await exempt(guild.id, id))) continue;
+      if (offender.punishment === "ban") {
+        if (await guild.bans.fetch(id).catch(() => null)) continue;
+      } else if (!guild.members.cache.has(id)) continue;
+      const out = await containOnce(guild, id, offender.punishment, `${NUKE_REASON}: offender list`);
+      if (out.acted) {
+        acted++;
+        await log(guild, { title: "Anti-nuke offender contained", color: COLORS.warning, fields: [["Account", who(id)], ["Result", out.result]] });
+      }
+    }
+  }
+  return acted;
+}
+
+export async function listOffenders(limit = 25) {
+  return db.query(`SELECT * FROM network_nuke_offenders WHERE active=TRUE ORDER BY created_at DESC LIMIT ${Number(limit) | 0}`);
+}
+
+/** Lifts an offender: unbans anti-nuke bans, ends quarantine timeouts and gives stripped roles back. */
+export async function pardonOffender(client, userId, actorId, log) {
+  const id = String(userId);
+  const row = await db.one("SELECT * FROM network_nuke_offenders WHERE discord_id=? AND active=TRUE", [id]);
+  if (!row) throw new Error("That account is not on the anti-nuke offender list.");
+  let details = row.details || {};
+  if (typeof details === "string") try { details = JSON.parse(details); } catch { details = {}; }
+  offenders.delete(id);
+  for (const key of [...containing.keys()]) if (key.endsWith(`:${id}`)) containing.delete(key);
+  await db.query("UPDATE network_nuke_offenders SET active=FALSE,cleared_by=?,cleared_at=? WHERE discord_id=?", [actorId, Date.now(), id]);
+  const why = `${NUKE_REASON}: pardoned by ${actorId}`;
+  const lines = [];
+  for (const guild of await networkGuilds(client)) {
+    const steps = [];
+    const ban = await guild.bans.fetch(id).catch(() => null);
+    if (ban?.reason?.startsWith(NUKE_REASON) && (await guild.members.unban(id, why).then(() => true, () => false))) steps.push("unbanned");
+    const member = guild.members.cache.get(id) || (await guild.members.fetch(id).catch(() => null));
+    if (member?.isCommunicationDisabled() && (await member.timeout(null, why).then(() => true, () => false))) steps.push("timeout lifted");
+    const roles = (details.stripped?.[guild.id] || []).filter((roleId) => guild.roles.cache.get(roleId)?.editable);
+    if (member && roles.length && (await member.roles.add(roles, why).then(() => true, () => false))) steps.push(`${roles.length} role(s) restored`);
+    if (steps.length) {
+      lines.push(`**${clip(guild.name, 60)}** · ${steps.join(", ")}`);
+      await log(guild, { title: "Anti-nuke offender pardoned", color: COLORS.success, fields: [["Account", who(id)], ["Pardoned by", who(actorId)], ["Here", steps.join(", ")]] });
+    }
+  }
+  await audit(actorId, "security.nuke.pardon", id, { lines });
+  return lines;
 }
 
 /* Snapshots of deleted channels and roles, kept for a few minutes so anti-nuke can rebuild them. */
@@ -546,20 +820,149 @@ export function rememberRole(role) {
   });
 }
 
-/** Rebuilds deleted roles and channels, removes what the attacker created and lifts their bans. */
+const old = (item, key) => item.changes?.find((c) => c.key === key)?.old;
+const hasOld = (item, key) => item.changes?.some((c) => c.key === key && c.old !== undefined);
+/** Overwrite options that reproduce an exact allow/deny pair (null = inherit). */
+const overwriteOptions = (allow, deny) =>
+  Object.fromEntries(Object.entries(PermissionFlagsBits).map(([name, flag]) => [name, (bits(allow) & flag) === flag ? true : (bits(deny) & flag) === flag ? false : null]));
+const ids = (list) => (Array.isArray(list) ? list.map((x) => String(x?.id ?? x)) : undefined);
+const autoModMeta = (m) =>
+  m && {
+    keywordFilter: m.keyword_filter,
+    regexPatterns: m.regex_patterns,
+    presets: m.presets,
+    allowList: m.allow_list,
+    mentionTotalLimit: m.mention_total_limit,
+    mentionRaidProtectionEnabled: m.mention_raid_protection_enabled,
+  };
+const autoModActions = (list) =>
+  Array.isArray(list)
+    ? list.map((a) => ({ type: a.type, metadata: { channel: a.metadata?.channel_id, durationSeconds: a.metadata?.duration_seconds, customMessage: a.metadata?.custom_message } }))
+    : undefined;
+const undefinedless = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+
+/** Puts back what one edit changed. Returns true when something was reverted. */
+async function revertEdit(guild, item, why) {
+  const ok = (p) => p.then(() => true, () => false);
+  switch (item.type) {
+    case "member_roles": {
+      const roles = (item.changes?.find((c) => c.key === "$remove")?.new || []).map((r) => String(r.id)).filter((id) => guild.roles.cache.get(id)?.editable);
+      const member = roles.length ? await guild.members.fetch(item.target).catch(() => null) : null;
+      return member ? ok(member.roles.add(roles, why)) : false;
+    }
+    case "member_timeout": {
+      const member = await guild.members.fetch(item.target).catch(() => null);
+      return member?.isCommunicationDisabled() ? ok(member.timeout(null, why)) : false;
+    }
+    case "member_unban":
+      return ok(guild.members.ban(item.target, { reason: `${why} · unbanned by the attacker` }));
+    case "role_update":
+    case "permission_escalation": {
+      const role = guild.roles.cache.get(item.target);
+      if (!role?.editable || !item.changes) return false;
+      const edit = undefinedless({
+        name: hasOld(item, "name") ? old(item, "name") : undefined,
+        permissions: hasOld(item, "permissions") ? bits(old(item, "permissions")) : undefined,
+        colors: hasOld(item, "color") ? { primaryColor: Number(old(item, "color")) || 0 } : undefined,
+        hoist: hasOld(item, "hoist") ? old(item, "hoist") : undefined,
+        mentionable: hasOld(item, "mentionable") ? old(item, "mentionable") : undefined,
+      });
+      return Object.keys(edit).length ? ok(role.edit({ ...edit, reason: why })) : false;
+    }
+    case "channel_update": {
+      const channel = guild.channels.cache.get(item.target);
+      if (!channel || !item.changes) return false;
+      const edit = undefinedless({
+        name: hasOld(item, "name") ? old(item, "name") : undefined,
+        topic: hasOld(item, "topic") ? old(item, "topic") : undefined,
+        nsfw: hasOld(item, "nsfw") ? old(item, "nsfw") : undefined,
+        rateLimitPerUser: hasOld(item, "rate_limit_per_user") ? old(item, "rate_limit_per_user") : undefined,
+        bitrate: hasOld(item, "bitrate") ? old(item, "bitrate") : undefined,
+        userLimit: hasOld(item, "user_limit") ? old(item, "user_limit") : undefined,
+        parent: hasOld(item, "parent_id") ? old(item, "parent_id") : undefined,
+      });
+      return Object.keys(edit).length ? ok(channel.edit({ ...edit, reason: why })) : false;
+    }
+    case "channel_permissions": {
+      const channel = guild.channels.cache.get(item.target);
+      const id = item.extra?.id;
+      if (!channel?.permissionOverwrites || !id) return false;
+      if (item.extra.action === AuditLogEvent.ChannelOverwriteCreate) return ok(channel.permissionOverwrites.delete(id, why));
+      const type = item.extra.type ?? (guild.roles.cache.has(id) ? 0 : 1);
+      const allow = hasOld(item, "allow") ? old(item, "allow") : channel.permissionOverwrites.cache.get(id)?.allow.bitfield;
+      const deny = hasOld(item, "deny") ? old(item, "deny") : channel.permissionOverwrites.cache.get(id)?.deny.bitfield;
+      return ok(channel.permissionOverwrites.create(id, overwriteOptions(allow, deny), { reason: why, type }));
+    }
+    case "guild_update": {
+      const edit = undefinedless({
+        name: hasOld(item, "name") ? old(item, "name") : undefined,
+        verificationLevel: hasOld(item, "verification_level") ? old(item, "verification_level") : undefined,
+        explicitContentFilter: hasOld(item, "explicit_content_filter") ? old(item, "explicit_content_filter") : undefined,
+        defaultMessageNotifications: hasOld(item, "default_message_notifications") ? old(item, "default_message_notifications") : undefined,
+      });
+      return Object.keys(edit).length ? ok(guild.edit({ ...edit, reason: why })) : false;
+    }
+    case "invite_create":
+      return item.extra?.code ? ok(guild.invites.delete(item.extra.code, why)) : false;
+    case "automod_change": {
+      if (!item.changes) return false;
+      const rules = guild.autoModerationRules;
+      if (item.extra?.action === AuditLogEvent.AutoModerationRuleUpdate) {
+        const edit = undefinedless({
+          name: hasOld(item, "name") ? old(item, "name") : undefined,
+          enabled: hasOld(item, "enabled") ? old(item, "enabled") : undefined,
+          eventType: hasOld(item, "event_type") ? old(item, "event_type") : undefined,
+          triggerMetadata: hasOld(item, "trigger_metadata") ? autoModMeta(old(item, "trigger_metadata")) : undefined,
+          actions: hasOld(item, "actions") ? autoModActions(old(item, "actions")) : undefined,
+          exemptRoles: hasOld(item, "exempt_roles") ? ids(old(item, "exempt_roles")) : undefined,
+          exemptChannels: hasOld(item, "exempt_channels") ? ids(old(item, "exempt_channels")) : undefined,
+        });
+        return Object.keys(edit).length ? ok(rules.edit(item.target, { ...edit, reason: why })) : false;
+      }
+      if (!hasOld(item, "trigger_type")) return false;
+      return ok(
+        rules.create(
+          undefinedless({
+            name: old(item, "name") || "Restored rule",
+            eventType: old(item, "event_type") ?? 1,
+            triggerType: old(item, "trigger_type"),
+            triggerMetadata: autoModMeta(old(item, "trigger_metadata")),
+            actions: autoModActions(old(item, "actions")) || [{ type: 1 }],
+            enabled: old(item, "enabled") ?? true,
+            exemptRoles: ids(old(item, "exempt_roles"))?.filter((id) => guild.roles.cache.has(id)),
+            exemptChannels: ids(old(item, "exempt_channels"))?.filter((id) => guild.channels.cache.has(id)),
+            reason: why,
+          }),
+        ),
+      );
+    }
+    default:
+      return false;
+  }
+}
+
+/** Rebuilds deleted roles and channels, removes what the attacker created, reverts their edits and lifts their bans. */
 async function recover(guild, recent, reason, restore) {
   const why = `${reason} · recovery`;
   const lines = [];
-  const done = { webhooks: 0, roles: 0, channels: 0, removed: 0, unbanned: 0, failed: 0 };
+  const done = { webhooks: 0, roles: 0, channels: 0, removed: 0, unbanned: 0, reverted: 0, failed: 0 };
   for (const item of recent.filter((entry) => entry.type === "webhook_create" && entry.target)) {
     const hook = await guild.client.fetchWebhook(item.target).catch(() => null);
     if (hook && (await hook.delete(why).then(() => true, () => false))) done.webhooks++;
   }
   if (restore) {
+    // The delete event and its audit entry race; give a missing snapshot a moment to arrive.
+    const missing = recent.some(
+      (entry) =>
+        (entry.type === "role_delete" && !deletedRoles.has(`${guild.id}:${entry.target}`)) ||
+        (entry.type === "channel_delete" && !deletedChannels.has(`${guild.id}:${entry.target}`)),
+    );
+    if (missing) await sleep(1500);
     const roleMap = new Map();
     for (const item of recent.filter((entry) => entry.type === "role_delete" && entry.target).slice(0, 25)) {
       const snap = deletedRoles.get(`${guild.id}:${item.target}`);
       if (!snap) continue;
+      deletedRoles.delete(`${guild.id}:${item.target}`);
       const role = await guild.roles
         .create({ name: snap.name, colors: { primaryColor: snap.color }, hoist: snap.hoist, mentionable: snap.mentionable, permissions: snap.permissions, unicodeEmoji: snap.unicodeEmoji, reason: why })
         .catch(() => null);
@@ -584,6 +987,7 @@ async function recover(guild, recent, reason, restore) {
       .sort((a, b) => (a.type === ChannelType.GuildCategory ? 0 : 1) - (b.type === ChannelType.GuildCategory ? 0 : 1));
     const channelMap = new Map();
     for (const snap of channels) {
+      deletedChannels.delete(`${guild.id}:${snap.id}`);
       const overwrites = snap.overwrites
         .map((o) => ({ ...o, id: roleMap.get(o.id) || o.id }))
         .filter((o) => guild.roles.cache.has(o.id) || guild.members.cache.has(o.id));
@@ -614,11 +1018,15 @@ async function recover(guild, recent, reason, restore) {
     }
     for (const item of recent.filter((entry) => entry.type === "member_ban" && entry.target))
       if (await guild.members.unban(item.target, why).then(() => true, () => false)) done.unbanned++;
+    // Newest edit last, so several edits to the same thing end on its original state.
+    for (const item of [...recent].reverse().filter((entry) => entry.target || entry.extra))
+      if (await revertEdit(guild, item, why).catch(() => false)) done.reverted++;
   }
   if (done.roles) lines.push(`✅ Rebuilt ${done.roles} deleted role(s) and gave them back to their members`);
   if (done.channels) lines.push(`✅ Rebuilt ${done.channels} deleted channel(s)`);
   if (done.removed) lines.push(`✅ Removed ${done.removed} channel(s)/role(s) the attacker created`);
   if (done.unbanned) lines.push(`✅ Unbanned ${done.unbanned} member(s) the attacker banned`);
+  if (done.reverted) lines.push(`✅ Reverted ${done.reverted} edit(s): roles, channels, permissions, settings, AutoMod, unbans, timeouts`);
   if (done.webhooks) lines.push(`✅ Deleted ${done.webhooks} webhook(s) the attacker created`);
   if (done.failed) lines.push(`❌ ${done.failed} item(s) could not be rebuilt`);
   return { ...done, lines };
@@ -641,7 +1049,11 @@ function classify(entry) {
     case A.ChannelUpdate: return { type: "channel_update", target, label: name && `#${name}` };
     case A.ChannelOverwriteCreate:
     case A.ChannelOverwriteUpdate:
-    case A.ChannelOverwriteDelete: return { type: "channel_permissions", target, label: name && `#${name}` };
+    case A.ChannelOverwriteDelete: {
+      const id = entry.extra?.id ?? change(entry, "id")?.old ?? change(entry, "id")?.new ?? null;
+      const type = entry.extra?.type ?? change(entry, "type")?.old ?? change(entry, "type")?.new;
+      return { type: "channel_permissions", target, label: name && `#${name}`, extra: id && { id: String(id), type: type === undefined ? undefined : Number(type), action: entry.action } };
+    }
     case A.RoleCreate: return { type: "role_create", target, label: name };
     case A.RoleDelete: return { type: "role_delete", target, label: name && `@${name}` };
     case A.RoleUpdate: return { type: "role_update", target, label: name };
@@ -669,21 +1081,33 @@ function classify(entry) {
     case A.WebhookDelete: return { type: "webhook_delete", target, label: name };
     case A.IntegrationCreate: return { type: "integration_create", target, label: name };
     case A.IntegrationDelete: return { type: "integration_delete", target, label: name };
-    case A.InviteCreate: return { type: "invite_create", target, label: change(entry, "code")?.new };
+    case A.InviteCreate: {
+      const code = change(entry, "code")?.new ?? entry.target?.code ?? null;
+      return { type: "invite_create", target: target ?? code, label: code, extra: code && { code } };
+    }
     case A.AutoModerationRuleDelete:
-    case A.AutoModerationRuleUpdate: return { type: "automod_change", target, label: name };
+    case A.AutoModerationRuleUpdate: return { type: "automod_change", target, label: name, extra: { action: entry.action } };
     case A.GuildUpdate: return { type: "guild_update", target, label: (entry.changes || []).map((c) => c.key).join(", ") };
     default: return null;
   }
 }
 
+const isBotOwner = (id) => String(id) === String(process.env.FBRP_OWNER_DISCORD_ID || "");
+
 /** Entry point for the guildAuditLogEntryCreate event. */
 export async function handleAuditEntry(entry, guild, log) {
   const actor = entry.executorId;
-  if (!guild || !actor || actor === guild.client.user.id) return;
+  if (!guild || !actor || actor === guild.client.user.id || isBotOwner(actor)) return;
   const kind = classify(entry);
   if (!kind || !(await registered(guild.id))) return;
-  if (await trusted(guild, actor)) return;
+  const detail = { label: kind.label, weight: kind.weight, changes: entry.changes || null, extra: kind.extra || null };
+  // Known attackers skip every check: their first action anywhere is undone.
+  if (offenders.has(String(actor))) return nukeAction(guild, kind.type, actor, kind.target, log, detail);
+  if (await trusted(guild, actor)) {
+    // Exempt accounts are not reverted or logged, only counted against the (much higher) exempt ceiling.
+    if (entry.action === AuditLogEvent.MemberRoleUpdate && kind.unscored) return;
+    return nukeAction(guild, kind.type, actor, kind.target, log, { ...detail, exempt: true });
+  }
   const owner = isOwner(guild, actor);
   const s = await getSecuritySettings();
 
@@ -694,7 +1118,7 @@ export async function handleAuditEntry(entry, guild, log) {
     if (added.length) {
       if (owner) await reportOwnerChange(guild, actor, "Dangerous permissions added to a role", kind.label, perms(added).join("\n"), log);
       else if (s.permission_guard) await revertRolePermissions(guild, kind.target, added, actor, log);
-      return nukeAction(guild, "permission_escalation", actor, kind.target, log, { label: kind.label });
+      return nukeAction(guild, "permission_escalation", actor, kind.target, log, detail);
     }
   }
   if (entry.action === AuditLogEvent.MemberRoleUpdate) {
@@ -717,7 +1141,7 @@ export async function handleAuditEntry(entry, guild, log) {
       fields: [["Created by", who(actor)], ["Webhook", clip(kind.label || kind.target, 200)], ["Result", deleted ? "Deleted" : "Could not delete"]],
     });
   }
-  await nukeAction(guild, kind.type, actor, kind.target, log, { label: kind.label, weight: kind.weight });
+  await nukeAction(guild, kind.type, actor, kind.target, log, detail);
 }
 
 async function reportOwnerChange(guild, actor, title, subject, detail, log) {
@@ -973,6 +1397,19 @@ export async function guardJoin(member, log) {
   if (!(await registered(guild.id))) {
     if (shouldAlert) await alertYoungAccount(member, log, { age });
     return false;
+  }
+  // Anti-nuke offenders are stopped on arrival in every network server and never re-synced.
+  const offender = offenders.get(String(member.id));
+  if (offender && !isOwner(guild, member.id)) {
+    const out = await containOnce(guild, String(member.id), offender.punishment, `${NUKE_REASON}: known attacker joined`);
+    void securityEvent(guild.id, "offender_join", null, member.id, out.stopped ? "contained" : "failed", { result: out.result });
+    await log(guild, {
+      title: "Anti-nuke offender joined",
+      color: COLORS.danger,
+      description: "This account is on the anti-nuke offender list. Lift it with `/security pardon` if this is a mistake.",
+      fields: [["Member", who(member.id)], ["Result", out.result]],
+    });
+    return true;
   }
   if (await trusted(guild, member.id)) {
     if (shouldAlert) await alertYoungAccount(member, log, { age, exempted: true });
@@ -1242,6 +1679,7 @@ setInterval(() => {
   for (const [key, list] of offenses) if (!list.some((at) => now - at < 86400000)) offenses.delete(key);
   for (const [key, list] of joins) if (!list.some((item) => now - item.at < 3600000)) joins.delete(key);
   for (const [key, list] of destructive) if (!list.some((item) => now - item.at < 300000)) destructive.delete(key);
+  for (const [key, hit] of containing) if (now - hit.at > 120000) containing.delete(key);
   for (const [key, list] of webhookFlood) if (!list.some((item) => now - item.at < 60000)) webhookFlood.delete(key);
   for (const [key, list] of newcomerPosts) if (!list.some((item) => now - item.at < 60000)) newcomerPosts.delete(key);
   for (const [key, snap] of deletedChannels) if (now - snap.at > 600000) deletedChannels.delete(key);
@@ -1250,12 +1688,101 @@ setInterval(() => {
 }, 60000).unref();
 
 /* ------------------------------------------------------------------------------------------------
+ * Health: whether the bot can actually stop a nuke in each network server. Anti-nuke is only as
+ * strong as the bot's role position and permissions, so this is checked on demand and watched.
+ * ---------------------------------------------------------------------------------------------- */
+
+const NEEDED = [
+  ["Ban Members", PermissionFlagsBits.BanMembers],
+  ["Kick Members", PermissionFlagsBits.KickMembers],
+  ["Manage Roles", PermissionFlagsBits.ManageRoles],
+  ["Manage Channels", PermissionFlagsBits.ManageChannels],
+  ["Manage Webhooks", PermissionFlagsBits.ManageWebhooks],
+  ["Manage Server", PermissionFlagsBits.ManageGuild],
+  ["View Audit Log", PermissionFlagsBits.ViewAuditLog],
+  ["Moderate Members", PermissionFlagsBits.ModerateMembers],
+];
+
+export async function securityHealth(client) {
+  const report = [];
+  const locks = await lockdownStates();
+  for (const guild of await networkGuilds(client)) {
+    const me = guild.members.me || (await guild.members.fetchMe().catch(() => null));
+    if (!me) {
+      report.push({ guild, grade: "critical", problems: ["The bot is not a member"], warnings: [] });
+      continue;
+    }
+    const problems = [];
+    const warnings = [];
+    const missing = NEEDED.filter(([, flag]) => !me.permissions.has(flag)).map(([name]) => name);
+    if (missing.length) problems.push(`Bot is missing: ${missing.join(", ")}`);
+    const top = me.roles.highest;
+    const above = [...guild.roles.cache.values()]
+      .filter((role) => role.id !== guild.id && role.comparePositionTo(top) > 0 && DANGEROUS.some((flag) => role.permissions.has(flag)))
+      .sort((a, b) => b.position - a.position);
+    if (above.length) problems.push(`${above.length} dangerous role(s) above the bot: ${above.slice(0, 6).map((role) => roleRef(role.id)).join(" ")}`);
+    const unstoppable = [];
+    for (const member of guild.members.cache.values()) {
+      if (member.id === me.id || isOwner(guild, member.id) || member.manageable) continue;
+      if (!DANGEROUS.some((flag) => member.permissions.has(flag))) continue;
+      if (isBotOwner(member.id) || (await exempt(guild.id, member.id))) continue;
+      unstoppable.push(member.id);
+    }
+    if (unstoppable.length) problems.push(`${unstoppable.length} account(s) with dangerous permissions the bot cannot stop: ${unstoppable.slice(0, 8).map((id) => `<@${id}>`).join(" ")}`);
+    const everyone = DANGEROUS.filter((flag) => guild.roles.everyone.permissions.has(flag));
+    if (everyone.length) problems.push(`@everyone has dangerous permissions: ${perms(everyone).join(", ")}`);
+    if (guild.mfaLevel === 0) warnings.push("2FA is not required for moderators (Server Settings → Safety Setup)");
+    if (guild.verificationLevel < GuildVerificationLevel.Medium) warnings.push(`Verification level is ${GuildVerificationLevel[guild.verificationLevel]}`);
+    const adminBots = guild.members.cache.filter((m) => m.user.bot && m.id !== me.id && m.permissions.has(PermissionFlagsBits.Administrator)).size;
+    if (adminBots) warnings.push(`${adminBots} other bot(s) have Administrator`);
+    report.push({
+      guild,
+      grade: problems.length ? "critical" : warnings.length ? "warning" : "ok",
+      problems,
+      warnings,
+      admins: guild.members.cache.filter((m) => !m.user.bot && m.permissions.has(PermissionFlagsBits.Administrator)).size,
+      rank: `${guild.roles.cache.size - top.position}/${guild.roles.cache.size}`,
+      locked: Boolean(locks[guild.id]),
+    });
+  }
+  return report;
+}
+
+const healthState = new Map();
+/** Runs on an interval from index.js: logs (and DMs owners) when a server's protection gets worse. */
+export async function watchHealth(client, log) {
+  if (!(await getSecuritySettings()).health_watch) return;
+  for (const item of await securityHealth(client)) {
+    const key = item.problems.join("|");
+    const before = healthState.get(item.guild.id);
+    healthState.set(item.guild.id, key);
+    if (before === key || (before === undefined && !key)) continue;
+    if (!key) {
+      await log(item.guild, { title: "Security health restored", color: COLORS.success, description: "The bot can stop a nuke in this server again." });
+      continue;
+    }
+    void securityEvent(item.guild.id, "health", null, null, "degraded", { problems: item.problems });
+    const e = {
+      title: "⚠️ Anti-nuke cannot fully protect this server",
+      color: COLORS.danger,
+      description: "Anti-nuke can only stop accounts below the Florida Bay bot role. Fix these, then run `/security health`.",
+      fields: [["Problems", item.problems.join("\n").slice(0, 1024), false], ...(item.warnings.length ? [["Also", item.warnings.join("\n").slice(0, 1024), false]] : [])],
+    };
+    await log(item.guild, e);
+    // The first check after a restart only logs; later regressions also reach the owners.
+    if (before !== undefined) await alertOwners(item.guild, card(`Anti-nuke weakened in ${item.guild.name}`, { color: COLORS.danger, description: e.description, rows: [["Server", serverRef(item.guild)], ...e.fields] }));
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------
  * Reporting
  * ---------------------------------------------------------------------------------------------- */
 
 export const EVENT_LABEL = {
   ...ACTION_LABEL,
   antinuke_punish: "Anti-nuke punishment",
+  offender_join: "Anti-nuke offender joined",
+  health: "Security health",
   protected_role: "Protected role change",
   lockdown: "Lockdown",
   raid: "Raid",

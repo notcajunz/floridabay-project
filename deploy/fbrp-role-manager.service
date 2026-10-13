@@ -1,0 +1,28 @@
+[Unit]
+Description=Florida Bay delegated Discord role manager
+After=network-online.target mariadb.service docker.service fbrp-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/fbrp/services/fbrp-bot
+EnvironmentFile=/home/ubuntu/fbrp/services/fbrp-bot/.env
+ExecStartPre=/home/ubuntu/.local/bin/node /home/ubuntu/fbrp/services/fbrp-bot/src/migrate.js
+ExecStart=/home/ubuntu/.local/bin/node /home/ubuntu/fbrp/services/fbrp-bot/src/role-manager-bot.js
+Restart=on-failure
+RestartSec=5
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=512
+LimitNOFILE=32768
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/fbrp
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

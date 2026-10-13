@@ -632,13 +632,6 @@ const staff = new SlashCommandBuilder()
           .setDescription("Staff rank (only ranks below your own are allowed)")
           .setRequired(true)
           .setAutocomplete(true),
-      )
-      .addIntegerOption((o) =>
-        o
-          .setName("callsign")
-          .setDescription("Specific callsign; blank keeps theirs or picks the next free one")
-          .setMinValue(1)
-          .setMaxValue(9999),
       ),
   )
   .addSubcommand((s) =>
@@ -652,13 +645,6 @@ const staff = new SlashCommandBuilder()
           .setDescription("New staff rank (only ranks below your own are allowed)")
           .setRequired(true)
           .setAutocomplete(true),
-      )
-      .addIntegerOption((o) =>
-        o
-          .setName("callsign")
-          .setDescription("Specific callsign; blank keeps theirs if it fits the new rank")
-          .setMinValue(1)
-          .setMaxValue(9999),
       )
       .addStringOption((o) => o.setName("reason").setDescription("Reason for the move").setMaxLength(300)),
   )
@@ -697,11 +683,11 @@ const staff = new SlashCommandBuilder()
 
 const callsign = new SlashCommandBuilder()
   .setName("callsign")
-  .setDescription("Manage staff callsign announcements")
+  .setDescription("Rank-order and publish staff callsigns")
   .addSubcommand((s) =>
     s
       .setName("sync")
-      .setDescription("Republish every current staff member's callsign"),
+      .setDescription("Rebalance by rank and republish every callsign"),
   );
 
 const protectrole = new SlashCommandBuilder()
@@ -912,13 +898,6 @@ const roster = new SlashCommandBuilder()
           .setDescription("Rank ID from /roster list")
           .setRequired(true)
           .setMinValue(1),
-      )
-      .addIntegerOption((o) =>
-        o
-          .setName("callsign")
-          .setDescription("Unique staff callsign")
-          .setMinValue(1)
-          .setMaxValue(9999),
       ),
   )
   .addSubcommand((s) =>
@@ -967,15 +946,6 @@ const roster = new SlashCommandBuilder()
       .setName("profile")
       .setDescription("Show one member's complete roster record")
       .addUserOption(user),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("callsign")
-      .setDescription("Set or automatically allocate a callsign")
-      .addUserOption(user)
-      .addIntegerOption((o) =>
-        o.setName("callsign").setDescription("Leave blank for next available").setMinValue(1).setMaxValue(9999),
-      ),
   )
   .addSubcommand((s) =>
     s
@@ -1288,6 +1258,14 @@ const security = new SlashCommandBuilder()
       .setName("events")
       .setDescription("Recent security events")
       .addBooleanOption((o) => o.setName("all_servers").setDescription("Include every network server")),
+  )
+  .addSubcommand((s) => s.setName("health").setDescription("Check whether the bot can stop a nuke in every network server"))
+  .addSubcommand((s) => s.setName("offenders").setDescription("Accounts on the network-wide anti-nuke offender list"))
+  .addSubcommand((s) =>
+    s
+      .setName("pardon")
+      .setDescription("Owner-only: lift an anti-nuke offender (unban, end quarantine, restore roles)")
+      .addUserOption((o) => o.setName("member").setDescription("Offender to pardon").setRequired(true)),
   );
 
 const backup = new SlashCommandBuilder()
