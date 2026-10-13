@@ -20,6 +20,7 @@ const RP_HINT =
 export const TYPES = {
   dual_clanning: { label: "Dual Clanning", icon: "🎭" },
   blacklisted_server: { label: "Blacklisted Server", icon: "🚫" },
+  transfer: { label: "Transfer", icon: "🔄" },
   other: { label: "Other", icon: "📁" },
 };
 
