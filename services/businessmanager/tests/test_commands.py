@@ -1,5 +1,9 @@
 from pathlib import Path
+from types import SimpleNamespace
 import tomllib
+from unittest.mock import MagicMock
+
+import discord
 
 from businessbot.bot import BusinessManagerBot
 from businessbot.cogs.core import CoreCog
@@ -100,3 +104,27 @@ def test_all_coordinator_channels_and_roles_are_id_configurable(tmp_path):
     assert set(config.coord_channel_ids) == set(BUSINESS_CATEGORIES)
     assert set(config.category_coordinator_role_ids) == set(BUSINESS_CATEGORIES)
     assert set(config.coordinator_role_ids) == set(COORDINATOR_RANKS)
+
+
+def test_business_coordination_team_manages_all_business_voice_channels(tmp_path):
+    config = Config("unused", tmp_path / "voice.db", None, frozenset(), 1)
+    configured_roles = {
+        role_id: MagicMock(spec=discord.Role)
+        for role_id in (*config.voice_management_role_ids, config.business_coord_team_role_id)
+    }
+    default_role = MagicMock(spec=discord.Role)
+    guild = SimpleNamespace(
+        default_role=default_role,
+        get_role=configured_roles.get,
+    )
+    cog = BusinessesCog(SimpleNamespace(config=config, db=MagicMock()))
+
+    overwrites = cog._voice_overwrites(guild)
+
+    coordination_permissions = overwrites[configured_roles[config.business_coord_team_role_id]]
+    assert coordination_permissions.view_channel is True
+    assert coordination_permissions.connect is True
+    assert coordination_permissions.speak is True
+    assert coordination_permissions.move_members is True
+    assert coordination_permissions.mute_members is True
+    assert coordination_permissions.deafen_members is True

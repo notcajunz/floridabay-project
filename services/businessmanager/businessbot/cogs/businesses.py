@@ -222,7 +222,11 @@ class BusinessesCog(BusinessCog):
     ) -> dict[discord.Role, discord.PermissionOverwrite]:
         staff_roles: list[discord.Role] = []
         missing: list[int] = []
-        for role_id in self.bot.config.voice_management_role_ids:
+        management_role_ids = dict.fromkeys((
+            *self.bot.config.voice_management_role_ids,
+            self.bot.config.business_coord_team_role_id,
+        ))
+        for role_id in management_role_ids:
             role = guild.get_role(role_id)
             if role is None:
                 missing.append(role_id)
