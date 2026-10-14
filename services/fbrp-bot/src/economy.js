@@ -139,6 +139,23 @@ const MAX_RANKS = 12;
 const dayStart = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.getTime(); };
 const flag = (value) => value === true || value === 1 || value === "1" || value === "on" || value === "true";
 
+/** Discord roles that may fully manage every portal organization of the matching type. */
+export const ORG_TYPE_MANAGER_ROLE_IDS = Object.freeze({
+  gang: Object.freeze(["1559682499251146772", "1559682496549879808", "1559682494364647524"]),
+  leo: Object.freeze(["1558483162944901210", "1558483161447538760"]),
+  business: Object.freeze(["1559701149475536947", "1559701141053513798", "1559701134686556190", "1559701131905728532"]),
+});
+const ORG_TYPE_MANAGER_ROLE_ID_SET = new Set(Object.values(ORG_TYPE_MANAGER_ROLE_IDS).flat());
+
+export function managedOrgTypesForRoleIds(roleIds) {
+  const held = new Set(Array.from(roleIds || [], String));
+  return new Set(
+    Object.entries(ORG_TYPE_MANAGER_ROLE_IDS)
+      .filter(([, allowed]) => allowed.some((roleId) => held.has(roleId)))
+      .map(([type]) => type),
+  );
+}
+
 export function createEconomy({ client, db, audit, log }) {
   async function seed() {
     for (const row of DEFAULT_SHOP)
@@ -153,8 +170,37 @@ export function createEconomy({ client, db, audit, log }) {
     const [level, coOwner] = await Promise.all([staffLevel(discordId), db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'")]);
     return level >= Number(coOwner?.rank_order ?? 950);
   }
-  const canManage = async (discordId) =>
-    superuserIds().has(String(discordId)) || (await coOwnerOrAbove(discordId));
+
+  /** Global managers see every org; configured Discord roles manage only their assigned org type. */
+  async function managementAccess(discordId) {
+    if (superuserIds().has(String(discordId)) || (await coOwnerOrAbove(discordId)))
+      return { all: true, types: new Set(Object.keys(ORG_TYPE_MANAGER_ROLE_IDS)) };
+    const roleIds = new Set();
+    // Read the relevant management servers live so a newly granted role works immediately. The
+    // database cache remains a fallback for a temporarily unavailable Discord server.
+    for (const guild of client.guilds.cache.values()) {
+      if (![...ORG_TYPE_MANAGER_ROLE_ID_SET].some((roleId) => guild.roles.cache.has(roleId))) continue;
+      const member = guild.members.cache.get(String(discordId)) || await guild.members.fetch(String(discordId)).catch(() => null);
+      if (member)
+        for (const roleId of member.roles.cache.keys())
+          if (ORG_TYPE_MANAGER_ROLE_ID_SET.has(String(roleId))) roleIds.add(String(roleId));
+    }
+    const rows = await db.query("SELECT roles FROM discord_member_cache WHERE discord_id=?", [String(discordId)]);
+    for (const row of rows) {
+      let roles = row.roles || [];
+      if (typeof roles === "string") try { roles = JSON.parse(roles); } catch { roles = []; }
+      if (Array.isArray(roles))
+        for (const roleId of roles)
+          if (ORG_TYPE_MANAGER_ROLE_ID_SET.has(String(roleId))) roleIds.add(String(roleId));
+    }
+    return { all: false, types: managedOrgTypesForRoleIds(roleIds) };
+  }
+
+  const managesType = (access, orgType) => access.all || access.types.has(String(orgType));
+  const canManage = async (discordId, orgType = null) => {
+    const access = await managementAccess(discordId);
+    return orgType == null ? access.all : managesType(access, orgType);
+  };
 
   /**
    * What a viewer may do in one organization. Leaders and managers can do everything; ranked members follow
@@ -212,9 +258,10 @@ export function createEconomy({ client, db, audit, log }) {
   }
 
   async function accessTo(discordId, orgRef) {
-    const manage = await canManage(discordId);
     const org = await findOrg(orgRef);
-    const mine = (await memberships(discordId)).find((row) => Number(row.id) === Number(org.id));
+    const [access, memberOrgs] = await Promise.all([managementAccess(discordId), memberships(discordId)]);
+    const manage = managesType(access, org.type);
+    const mine = memberOrgs.find((row) => Number(row.id) === Number(org.id));
     if (!mine && !manage) throw new Error("You are not a member of that organization.");
     const perms = permsFrom(mine || {}, manage);
     return { org, member: Boolean(mine), leader: perms.leader || manage, manage, perms };
@@ -397,14 +444,24 @@ export function createEconomy({ client, db, audit, log }) {
   }
 
   async function portalData(discordId) {
-    const manage = await canManage(discordId);
-    const mine = await memberships(discordId);
-    const orgRows = manage ? await db.query("SELECT id,slug,name,type,color,motd FROM organizations WHERE active=TRUE ORDER BY name") : mine;
+    const [access, mine] = await Promise.all([managementAccess(discordId), memberships(discordId)]);
+    let managed = [];
+    if (access.all) managed = await db.query("SELECT id,slug,name,type,color,motd FROM organizations WHERE active=TRUE ORDER BY name");
+    else if (access.types.size) {
+      const types = [...access.types];
+      managed = await db.query(
+        `SELECT id,slug,name,type,color,motd FROM organizations WHERE active=TRUE AND type IN (${types.map(() => "?").join(",")}) ORDER BY name`,
+        types,
+      );
+    }
+    const byId = new Map([...mine, ...managed].map((org) => [Number(org.id), org]));
+    const orgRows = [...byId.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const manage = access.all || access.types.size > 0;
     if (!orgRows.length) return { organizations: [], shop: [], owners: {}, ownedCount: {}, manage };
     const organizations = [];
     for (const org of orgRows) {
       const membership = mine.find((row) => Number(row.id) === Number(org.id));
-      organizations.push(await orgDetail(org, permsFrom(membership || {}, manage)));
+      organizations.push(await orgDetail(org, permsFrom(membership || {}, managesType(access, org.type))));
     }
     const owners = Object.fromEntries(
       (await db.query("SELECT p.item_key,o.name FROM org_properties p JOIN organizations o ON o.id=p.org_id")).map((row) => [row.item_key, row.name]),
@@ -537,8 +594,8 @@ export function createEconomy({ client, db, audit, log }) {
   }
 
   async function adjust(actorId, input) {
-    if (!(await canManage(actorId))) throw new Error("You need fbrp.organizations.manage to adjust wallets.");
     const org = await findOrg(input.orgId);
+    if (!(await canManage(actorId, org.type))) throw new Error(`You do not manage ${org.type} organization wallets.`);
     const amount = Math.round(Number(input.amount));
     if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100000000) throw new Error("Enter a non-zero amount up to 100,000,000.");
     const reason = text(input.reason, 160);
@@ -562,8 +619,8 @@ export function createEconomy({ client, db, audit, log }) {
   }
 
   async function setLeader(actorId, input) {
-    if (!(await canManage(actorId))) throw new Error("You need fbrp.organizations.manage to change leaders.");
     const org = await findOrg(input.orgId);
+    if (!(await canManage(actorId, org.type))) throw new Error(`You do not manage ${org.type} organization leaders.`);
     const target = String(input.discordId || "").trim();
     if (!/^\d{15,24}$/.test(target)) throw new Error("Enter a Discord user ID.");
     // The role sync deletes roster rows of anyone without the access role, so a leader must hold it.
@@ -669,19 +726,19 @@ export function createEconomy({ client, db, audit, log }) {
 
   /** Discord: one organization's wallet summary. */
   async function summary(actorId, orgRef) {
-    const manage = await canManage(actorId);
+    const access = await managementAccess(actorId);
     const mine = await memberships(actorId);
     let org = null;
     if (orgRef) {
       org = await db.one("SELECT id,slug,name,type,color,motd FROM organizations WHERE active=TRUE AND (slug=? OR name=?)", [String(orgRef).toLowerCase(), String(orgRef)]);
       if (!org) throw new Error("Organization not found.");
-      if (!manage && !mine.some((row) => Number(row.id) === Number(org.id))) throw new Error("You are not a member of that organization.");
+      if (!managesType(access, org.type) && !mine.some((row) => Number(row.id) === Number(org.id))) throw new Error("You are not a member of that organization.");
     } else {
       if (!mine.length) throw new Error("You are not a member of any organization. Pass `organization:` if you manage them.");
       org = mine[0];
     }
     const membership = mine.find((row) => Number(row.id) === Number(org.id));
-    return { org, ...(await orgDetail(org, permsFrom(membership || {}, manage))) };
+    return { org, ...(await orgDetail(org, permsFrom(membership || {}, managesType(access, org.type)))) };
   }
 
   return {
