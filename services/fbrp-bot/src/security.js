@@ -145,6 +145,22 @@ async function registered(guildId) {
 }
 
 const exemptCache = new Map();
+
+/**
+ * First-party companion bots are equivalent to this bot's own process, but only inside the server
+ * they are configured to manage. They must not consume an anti-nuke budget for expected automation
+ * such as creating ticket channels. Keeping the guild check here prevents the identity from gaining
+ * a network-wide bypass if it is ever invited elsewhere.
+ */
+function isInternalAutomation(guild, userId) {
+  const id = String(userId || "");
+  return Boolean(
+    id &&
+      String(guild?.id || "") === String(process.env.DEVOPS_GUILD_ID || "") &&
+      id === String(process.env.DEVOPS_BOT_ID || ""),
+  );
+}
+
 /** Global ('*') exemptions apply everywhere; a guild ID applies only there. Cached briefly because the audit stream asks often. */
 async function exempt(guildId, discordId) {
   if (String(discordId) === String(process.env.FBRP_OWNER_DISCORD_ID || "")) return true;
@@ -159,8 +175,9 @@ async function exempt(guildId, discordId) {
 }
 
 /**
- * Everyone is scanned. Only the bot itself and accounts with a /security exemption are skipped.
- * Server owners and bot superusers are scanned too: grant them an exemption if they need one.
+ * Everyone is scanned. Only this bot, scoped first-party automation and accounts with a /security
+ * exemption are trusted. Server owners and bot superusers are scanned too: grant them an exemption
+ * if they need one.
  */
 async function trusted(guild, userId) {
   if (!userId) return false;
@@ -417,7 +434,21 @@ export const isNukeOffender = (id) => offenders.has(String(id));
 export async function loadOffenders() {
   const rows = await db.query("SELECT discord_id,punishment,created_at FROM network_nuke_offenders WHERE active=TRUE");
   offenders.clear();
-  for (const row of rows) offenders.set(String(row.discord_id), { at: Number(row.created_at), punishment: row.punishment });
+  const internalIds = new Set(
+    [process.env.DEVOPS_BOT_ID]
+      .map((id) => String(id || "").trim())
+      .filter(Boolean),
+  );
+  const staleInternal = rows.filter((row) => internalIds.has(String(row.discord_id))).map((row) => String(row.discord_id));
+  if (staleInternal.length) {
+    const placeholders = staleInternal.map(() => "?").join(",");
+    await db.query(
+      `UPDATE network_nuke_offenders SET active=FALSE,cleared_by='internal-automation',cleared_at=? WHERE active=TRUE AND discord_id IN (${placeholders})`,
+      [Date.now(), ...staleInternal],
+    );
+  }
+  for (const row of rows)
+    if (!internalIds.has(String(row.discord_id))) offenders.set(String(row.discord_id), { at: Number(row.created_at), punishment: row.punishment });
   return offenders.size;
 }
 
@@ -1099,6 +1130,7 @@ const isBotOwner = (id) => String(id) === String(process.env.FBRP_OWNER_DISCORD_
 export async function handleAuditEntry(entry, guild, log) {
   const actor = entry.executorId;
   if (!guild || !actor || actor === guild.client.user.id || isBotOwner(actor)) return;
+  if (isInternalAutomation(guild, actor)) return;
   const kind = classify(entry);
   if (!kind || !(await registered(guild.id))) return;
   const detail = { label: kind.label, weight: kind.weight, changes: entry.changes || null, extra: kind.extra || null };

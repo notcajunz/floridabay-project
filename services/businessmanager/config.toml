@@ -1,0 +1,162 @@
+# FBRP | Businesses. Secrets stay in .env; Discord IDs remain numeric.
+[bot]
+guild_id = 1559682840411635813
+owner_ids = [1090083387638812755, 1099651002208104488]
+admin_role_id = 1559701131905728532
+database_path = "business_manager.db"
+
+# Existing server channels.
+launch_channel_id = 1559701699013120164
+role_action_channel_id = 1559701774150139914
+role_conflict_channel_id = 1559701944308604990
+staff_bypass_channel_id = 1559701991213764720
+staff_bypass_reviewer_role_id = 1559701134686556190
+staff_bypass_grant_role_id = 1559701222846500885
+alliance_log_channel_id = 1559701903422783618
+punishment_channel_ids = [1559701778323349524, 1559701903422783618]
+suspension_log_channel_id = 1559701778323349524
+coord_chain_channel_id = 1559701676443566151
+business_tier_channel_id = 1559701694315499671
+hours_channel_id = 1559701689299378217
+shop_channel_id = 1559701712338686012
+leaderboard_channel_id = 1559701967125876797
+location_channel_id = 1559701911895277669
+market_log_channel_id = 1559702019017805886
+server_log_channel_id = 1559702123879342160
+voice_log_channel_id = 1559702128669229076
+message_log_channel_id = 1559702119228112976
+join_leave_log_channel_id = 1559702114979151922
+member_log_channel_id = 1559702106800394311
+
+# Existing server roles.
+suspension_role_id = 1559701191791747132
+parole_days = 3
+role_management_admin_role_id = 1559701149475536947
+business_role_blocker_role_id = 1559701186439815239
+business_command_role_blocker_role_id = 1559701188881023076
+business_member_role_id = 1559701354262302810
+business_coord_team_role_id = 1559701166261141534
+business_add_remove_role_id = 1559701149475536947
+multi_business_bypass_role_ids = [1559701222846500885]
+restricted_role_ids = [1559701222846500885]
+restricted_role_manager_role_ids = [1559701131905728532, 1559701134686556190]
+business_manager_plus_role_ids = [1559701131905728532, 1559701134686556190, 1559701141053513798, 1559701149475536947]
+voice_management_role_ids = [1559701168542847077, 1559701149475536947, 1559701141053513798, 1559701134686556190, 1559701131905728532]
+
+[bot.coordinator_role_ids]
+"Head of Businesses" = 1559701131905728532
+"Business Director" = 1559701134686556190
+"Assistant Business Director" = 1559701141053513798
+"Business Manager" = 1559701149475536947
+"Assistant Business Manager" = 1559701151723692174
+"Lead Business Coordinator" = 1559701155603423242
+"Senior Business Coordinator" = 1559701157994307676
+"Business Coordinator" = 1559701161248821318
+"Trial Business Coordinator" = 1559701163459354735
+
+[bot.category_coordinator_role_ids]
+"Car Clubs & Automotive" = 1559701172909252711
+"Security & Protection" = 1559701174955933786
+"Trucking & Contracting" = 1559701177732698212
+"Miscellaneous" = 1559701179783708752
+
+[bot.category_member_role_ids]
+"Car Clubs & Automotive" = 1559701356468510790
+"Security & Protection" = 1559701358536433756
+"Trucking & Contracting" = 1559701360931512480
+"Miscellaneous" = 1559701363867254865
+
+[bot.parole_role_ids]
+"Car Clubs & Automotive" = 1559701211719139348
+"Security & Protection" = 1559701214504026194
+"Trucking & Contracting" = 1559701217842823208
+"Miscellaneous" = 1559701219780333629
+
+[bot.coord_channel_ids]
+"Car Clubs & Automotive" = 1559701799500521472
+"Security & Protection" = 1559701830647160832
+"Trucking & Contracting" = 1559701855590817813
+"Miscellaneous" = 1559701885676552303
+
+[access]
+administrators_bypass = true
+owners_bypass = true
+
+[access.categories.administration]
+mode = "inherit"
+users = []
+roles = [1559701131905728532]
+commands = [
+  "admin avatar", "admin business rolecheck", "admin info", "admin nick",
+  "admin refreshbusinesstiers", "admin reloadcog", "admin username",
+]
+
+[access.categories.business_management]
+mode = "inherit"
+users = []
+roles = [1559701149475536947]
+commands = [
+  "creation", "business add", "business balance", "business hours",
+  "business info", "business remove", "business report", "business role",
+  "business update", "business view", "leaderboard", "lineadd",
+]
+
+[access.categories.coordination]
+mode = "inherit"
+users = []
+roles = [1559701149475536947]
+commands = ["coord activity", "coord add", "coord liaison", "coord remove", "coord update"]
+
+[access.categories.locations]
+mode = "inherit"
+users = []
+roles = [1559701149475536947]
+commands = ["location add", "location audit", "location refresh", "location remove", "location view"]
+
+[access.categories.member_discipline]
+mode = "inherit"
+users = []
+roles = [1559701161248821318]
+commands = ["member deletepunishment", "member editpunishment", "member history", "member logpunishment"]
+
+[access.categories.content]
+mode = "inherit"
+users = []
+roles = [1559701141053513798]
+commands = ["dm send", "embed edit", "embed get", "embed post"]
+
+[access.categories.permission_management]
+mode = "inherit"
+users = []
+roles = [1559701141053513798]
+commands = ["permissions set", "permissions view"]
+
+[access.categories.rewards]
+mode = "inherit"
+users = []
+roles = [1559701149475536947]
+commands = ["reward give", "reward manage", "reward refresh", "reward remove", "reward slots"]
+
+[access.categories.delegated_role_management]
+mode = "inherit"
+users = []
+roles = []
+commands = ["role add", "role remove", "rolewipe"]
+
+[access.categories.role_management_administration]
+mode = "allowlist"
+users = []
+roles = [1559701149475536947]
+commands = ["role protection", "useradd", "userdel"]
+
+[access.categories.quizzes]
+mode = "inherit"
+users = []
+roles = [1559701161248821318]
+commands = ["quiz"]
+
+[access.categories.public_help]
+mode = "inherit"
+users = []
+roles = []
+commands = ["help"]

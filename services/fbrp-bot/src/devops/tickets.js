@@ -258,7 +258,25 @@ export async function create(guild, user, type, form) {
   const ticket = { id: insert.insertId, guild_id: guild.id, type };
   const perms = await overwrites(guild, { author_id: user.id, type }, [user.id]);
   try {
-    const parent = cfg.categories?.[type] || cfg.categories?.all || undefined;
+    // Categories are frequently replaced while the server layout is being
+    // rebuilt. Never send a stale ID to Discord: it rejects the entire create
+    // request with the unhelpful "Unknown Channel" error. Prefer the configured
+    // ticket category, then the live category containing the ticket panel, and
+    // finally allow Discord to create the ticket at the guild root.
+    const configuredParent = cfg.categories?.[type] || cfg.categories?.all;
+    const configuredCategory = configuredParent
+      ? await guild.channels.fetch(String(configuredParent)).catch(() => null)
+      : null;
+    const panelId = cfg.channels?.tickets;
+    const panel = panelId ? await guild.channels.fetch(String(panelId)).catch(() => null) : null;
+    const panelCategory = panel?.parentId
+      ? await guild.channels.fetch(String(panel.parentId)).catch(() => null)
+      : null;
+    const parent = configuredCategory?.type === ChannelType.GuildCategory
+      ? configuredCategory.id
+      : panelCategory?.type === ChannelType.GuildCategory
+        ? panelCategory.id
+        : undefined;
     const slug = String(user.username).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 16) || "user";
     const channel = await guild.channels.create({
       name: `${type}-${insert.insertId}-${slug}`,

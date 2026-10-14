@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fivem-business-manager"
+version = "0.1.0"
+description = "Discord slash-command business manager for FiveM communities"
+requires-python = ">=3.11"
+dependencies = [
+  "discord.py>=2.5,<3",
+  "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "pytest-asyncio>=0.24,<1"]
+
+[project.scripts]
+business-manager = "businessbot.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["businessbot*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+

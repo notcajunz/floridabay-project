@@ -147,6 +147,12 @@ const COMMUNITY_JOIN_SERVERS = Object.freeze([
     emoji: "🔫",
   },
   {
+    id: "1559682840411635813",
+    label: "Businesses Hub",
+    description: "Join the community hub for Florida Bay businesses",
+    emoji: "🏢",
+  },
+  {
     id: "1559333794597576754",
     label: "Tags Hub",
     description: "Join the community for custom tags and tag requests",

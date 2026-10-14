@@ -19,6 +19,7 @@ const SERVICES = [
   { unit: "personals-bot", label: "Vehicle Manager", detail: "Personal vehicles bot" },
   { unit: "role-manager-bot", label: "Role Manager", detail: "Role management bot" },
   { unit: "gangs-bot", label: "Gang Manager", detail: "Gangs economy and roles bot" },
+  { unit: "businesses-bot", label: "Business Manager", detail: "Businesses, coordination and hours bot" },
   { unit: "devops-bot", label: "DevOps", detail: "This bot" },
 ];
 

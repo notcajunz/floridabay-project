@@ -34,7 +34,8 @@ local migrationFiles = {
     'migrations/044_personal_bulletproof.sql',
     'migrations/047_pastimes.sql',
     'migrations/048_easyadmin_logs.sql',
-    'migrations/049_chat_headtags.sql'
+    'migrations/049_chat_headtags.sql',
+    'migrations/051_ownership_callsign_capacity.sql'
 }
 
 local function splitSql(contents)
