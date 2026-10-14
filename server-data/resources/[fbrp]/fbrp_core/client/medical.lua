@@ -70,6 +70,16 @@ local function downedAnim(ped)
     end
 end
 
+-- A GTA ped must be resurrected once so the player can remain in the custom downed state instead
+-- of entering the stock death/respawn flow. Protect that low-health ped afterward: without this,
+-- continued gunfire kills it again and the downed loop visibly resurrects it every few moments.
+local function setDownedProtection(active)
+    local ped = PlayerPedId()
+    if not ped or ped == 0 then return end
+    SetEntityInvincible(ped, active == true)
+    SetEntityCanBeDamaged(ped, active ~= true)
+end
+
 -- Brings a dead ped back where it fell, keeping its vehicle seat.
 local function resurrectInPlace(settleMs)
     local ped = PlayerPedId()
@@ -84,6 +94,7 @@ local function resurrectInPlace(settleMs)
     local coords, heading = GetEntityCoords(ped), GetEntityHeading(ped)
     NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, heading, true, false)
     ped = PlayerPedId()
+    setDownedProtection(true)
     SetEntityHealth(ped, M.downedHealth)
     ClearPedTasksImmediately(ped)
     if seat and DoesEntityExist(vehicle) then SetPedIntoVehicle(ped, vehicle, seat) end
@@ -93,6 +104,7 @@ end
 local function leaveDowned()
     downed = nil
     holdStart = nil
+    setDownedProtection(false)
     ui({ type='downed', active=false })
 end
 
@@ -103,6 +115,7 @@ local function downedLoop()
         local lastUi = 0
         while downed do
             local ped = PlayerPedId()
+            setDownedProtection(true)
             DisableAllControlActions(0)
             for _, control in ipairs(KEEP) do EnableControlAction(0, control, true) end
             if IsEntityDead(ped) then
@@ -152,6 +165,10 @@ local function goDown()
 end
 
 AddEventHandler('fbrp:characterSpawned', function() spawned = true end)
+
+AddEventHandler('onClientResourceStop', function(resource)
+    if resource == GetCurrentResourceName() then setDownedProtection(false) end
+end)
 
 CreateThread(function()
     while true do

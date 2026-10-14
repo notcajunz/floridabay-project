@@ -174,7 +174,7 @@ Personal vehicles: cars only their owner and trusted people can spawn from F7 an
 | `/personal edit <vehicle> [label] [model] [plate] [enabled] [bulletproof]` | Management: change a personal's name, model, plate or availability<br><small>Arguments: `vehicle` (required text) — Personal vehicle (autocomplete). `plate` — `-` resets to the automatic plate. `enabled` (optional true/false) — Turn the vehicle on or off. `bulletproof` (optional true/false) — Bulletproof glass and occupants, no shooting out.</small> | Co-Owner rank or higher |
 | `/personal owner <vehicle> <member>` | Management: transfer a personal to someone else<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — New owner.</small> | Co-Owner rank or higher |
 | `/personal remove <vehicle>` | Management: delete a personal vehicle<br><small>Arguments: `vehicle` (required text) — Personal vehicle.</small> | Co-Owner rank or higher |
-| `/personal trust <vehicle> <member>` | Let someone spawn and drive a personal (up to 3 people)<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to trust.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
+| `/personal trust <vehicle> <member>` | Let someone spawn and drive a personal (up to 3 people, or 2 while tag-locked)<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to trust.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
 | `/personal untrust <vehicle> <member>` | Remove someone from a personal's trust list<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `member` (required user) — Who to remove.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
 | `/personal locktag <vehicle> <tag>` | Lock a personal to a tag so everyone holding the tag can use it<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `tag` (required text) — Headtag or gang tag (autocomplete). Owners can only pick tags they hold.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
 | `/personal unlocktag <vehicle> <tag>` | Remove a tag lock from a personal<br><small>Arguments: `vehicle` (required text) — Personal vehicle. `tag` (required text) — Tag to remove.</small> | Vehicle owner; Co-Owner rank or higher for any vehicle |
@@ -184,8 +184,9 @@ Personal vehicles: cars only their owner and trusted people can spawn from F7 an
 Important behavior:
 
 - A personal is a vehicle **model** reserved for one owner. It is spawned from the **F7** garage under **Personal**; nobody else sees it there. The model must already be installed on the game server.
-- The owner can trust up to **3** people. Trusted people and tag holders can spawn and drive it but are never registered as its owner.
-- A tag lock gives access to everyone holding that tag (Discord role or direct grant). Owners can only lock to tags they hold; management can lock to any tag.
+- The owner can trust up to **3** people, reduced to **2** while the personal has a tag lock. Trusted people and tag holders can spawn and drive it but are never registered as its owner.
+- A personal can be locked to **one tag total**. The lock gives access to everyone holding that tag (Discord role or direct grant). Owners can only lock to tags they hold; management can lock to any tag.
+- Edit, transfer, and delete actions are restricted to members of the **Owner ACE group**. Deleting a personal also stops and removes its `fbrp_pv_<model>` server resource files when that model is not shared by another personal.
 - Only the driver seat is restricted: anyone can ride along, but only the owner, trusted people and tag holders can drive. `fbrp.personals.bypass` lets staff drive any personal vehicle.
 - The same controls are on the website under **Community → Personal vehicles** (owners) and in the live configuration panel (Co-Owner and above).
 - Changes reach the game server immediately.

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<CWeaponComponentInfoBlob>
+  <Data>
+  </Data>
+  <Infos>
+    <Item type="CWeaponComponentScopeInfo">
+      <Name>COMPONENT_CARBINE_SIGHT_01</Name>
+      <Model>w_at_tacticalcarbine_sight</Model>
+      <LocName>WCT_IRON_SIGHT</LocName>
+      <LocDesc>WCD_IRON_SIGHT</LocDesc>
+      <AttachBone>AAPScop</AttachBone>
+	  <ApplyWeaponTint value="true" />
+      <AccuracyModifier type="NULL" />
+      <DamageModifier type="NULL" />
+      <bShownOnWheel value="false" />
+      <CreateObject value="true" />
+      <HudDamage value="0" />
+      <HudSpeed value="0" />
+      <HudCapacity value="0" />
+      <HudAccuracy value="0" />
+      <HudRange value="0" />
+      <CameraHash />
+      <RecoilShakeAmplitude value="0.333000" />
+      <ExtraZoomFactorForAccurateMode value="0.000000" />
+      <Reticule value="0" />
+      <ReticuleHash />
+    </Item>
+  </Infos>
+  <InfoBlobName>DLC - Addons</InfoBlobName>
+</CWeaponComponentInfoBlob>

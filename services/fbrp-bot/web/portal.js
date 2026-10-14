@@ -969,9 +969,10 @@ const personalById = (id) => [...(state.data.personals?.all || []), ...(state.da
 
 function personalCardHtml(p, d) {
   const edit = p.viewer === "owner" || d.manage;
+  const trustLimit = p.tags.length ? d.taggedLimit : d.limit;
   const [viaLabel, viaTone] = PERSONAL_VIA[p.viewer] || PERSONAL_VIA.manage;
   const locked = new Set(p.tags.map((t) => t.id));
-  const canLock = edit && (d.tags || []).some((t) => !locked.has(Number(t.id)));
+  const canLock = edit && !p.tags.length && p.trusted.length <= d.taggedLimit && (d.tags || []).some((t) => !locked.has(Number(t.id)));
   const trusted = p.trusted.length
     ? `<div class="feed">${p.trusted.map((t) => `<div class="feed-row">${person(t.discord_id)}<div class="row-end">${edit ? `<button class="btn btn-ghost btn-sm" type="button" data-personal-untrust="${p.id}:${esc(t.discord_id)}">Remove</button>` : ""}</div></div>`).join("")}</div>`
     : `<p class="personal-none">Nobody yet.</p>`;
@@ -983,12 +984,12 @@ function personalCardHtml(p, d) {
     <div class="personal-main">
       <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.model)}</span> · plate <span class="mono">${esc(p.plate)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill${viaTone ? ` pill-${viaTone}` : ""}">${viaLabel}</span>${p.bulletproof ? `<span class="pill" title="Bullets cannot break the glass or hit anyone inside. Nobody inside can shoot out.">${icon("shield")} Bulletproof</span>` : ""}${p.enabled ? "" : '<span class="pill pill-bad">Disabled</span>'}</div></div>
       <div class="personal-section"><small>Owner</small>${person(p.owner_id)}</div>
-      <div class="personal-section"><small>Trusted drivers · ${p.trusted.length} of ${d.limit}</small>${trusted}</div>
-      <div class="personal-section"><small>Locked to tags <span>(everyone holding the tag can use it)</span></small>${tags}</div>
-      ${edit || d.manage ? `<div class="personal-actions">
-        ${edit && p.trusted.length < d.limit ? `<button class="btn btn-sun btn-sm" type="button" data-personal-trust="${p.id}">${icon("plus")} Trust someone</button>` : ""}
+      <div class="personal-section"><small>Trusted drivers · ${p.trusted.length} of ${trustLimit}</small>${trusted}</div>
+      <div class="personal-section"><small>Locked to tag <span>(everyone holding the tag can use it)</span></small>${tags}</div>
+      ${edit || d.owner ? `<div class="personal-actions">
+        ${edit && p.trusted.length < trustLimit ? `<button class="btn btn-sun btn-sm" type="button" data-personal-trust="${p.id}">${icon("plus")} Trust someone</button>` : ""}
         ${canLock ? `<button class="btn btn-glass btn-sm" type="button" data-personal-tag="${p.id}">${icon("badge")} Lock to a tag</button>` : ""}
-        ${d.manage ? `<button class="btn btn-ghost btn-sm" type="button" data-personal-edit="${p.id}">Edit</button><button class="btn btn-ghost btn-sm" type="button" data-personal-owner="${p.id}">Transfer</button><button class="btn btn-ghost btn-sm" type="button" data-personal-delete="${p.id}">Delete</button>` : ""}
+        ${d.owner ? `<button class="btn btn-ghost btn-sm" type="button" data-personal-edit="${p.id}">Edit</button><button class="btn btn-ghost btn-sm" type="button" data-personal-owner="${p.id}">Transfer</button><button class="btn btn-ghost btn-sm" type="button" data-personal-delete="${p.id}">Delete</button>` : ""}
       </div>` : ""}
     </div>
   </article>`;
@@ -1061,7 +1062,7 @@ function personalsView() {
   const rows = source.filter((p) => matches(query, p.label, p.model, p.plate, p.id, name(p.owner_id), p.owner_id, ...p.trusted.map((t) => name(t.discord_id)), ...p.tags.map((t) => t.label)));
   $("#portal-content").innerHTML = `
     <div class="toolbar">${searchBox("personal-q", "Search vehicles, owners or plates")}${d.manage ? seg("personal-scope", [["all", "Every vehicle", (d.all || []).length], ["mine", "Mine", d.mine.length]], scope) : ""}<span style="flex:1"></span>${d.manage ? `<button class="btn btn-sun" type="button" data-personal-new>${icon("plus")} Add personal vehicle</button>` : ""}</div>
-    <div class="callout">${icon("car")}<div>Spawn personals from the <kbd>F7</kbd> garage under <b>Personal</b>. Only the owner, the people they trust (up to ${d.limit}) and holders of a locked tag can drive them. Changes apply in game within seconds.</div></div>
+    <div class="callout">${icon("car")}<div>Spawn personals from the <kbd>F7</kbd> garage under <b>Personal</b>. A personal can use one tag lock and trust up to ${d.limit} people, reduced to ${d.taggedLimit} while tag-locked. Changes apply in game within seconds.</div></div>
     ${d.manage ? personalInstallGuide() : ""}
     ${rows.length ? `<div class="personal-grid">${rows.map((p) => personalCardHtml(p, d)).join("")}</div>` : `<section class="card">${empty(query ? "No vehicles match" : "No personal vehicles", d.manage ? "Add one to get started." : "Ask management to make a vehicle your personal.", "car")}</section>`}`;
 }
@@ -1072,7 +1073,7 @@ const levelSelect = (name) => `<select name="${name}">${HANDLING_LEVELS.map(([v,
 function personalCreateDialog() {
   openDialog({ kicker: "Management", title: "Add a personal vehicle", submit: "Add vehicle", action: "personal-create",
     body: `<details class="personal-import">
-        <summary>${icon("sparkle")}<span><b>Import a vehicle with AI</b><small>Optional · upload a vehicle .zip, the AI makes it a ready personal with your handling and installs it live</small></span></summary>
+        <summary>${icon("sparkle")}<span><b>Import a vehicle with AI</b><small>Optional · upload a vehicle .zip, run a backdoor/security check, apply your handling, and install it live</small></span></summary>
         <div class="personal-import-body">
           <div class="field">Vehicle pack
             <label class="personal-drop">${icon("plus")}<span id="personal-drop-text">Choose a .zip or drop it here<small>Up to 600 MB · the whole vehicle pack</small></span><input name="importFile" type="file" accept=".zip,application/zip,application/x-zip-compressed"></label>
@@ -1142,7 +1143,7 @@ async function personalConvert(button) {
       const id = await uploadPersonalZip(file, (done) => { button.innerHTML = `<span class="spinner"></span> Uploading ${Math.round(done * 100)}%`; });
       personalUpload = { file, id };
     }
-    button.innerHTML = `<span class="spinner"></span> AI is converting… this can take a minute`;
+    button.innerHTML = `<span class="spinner"></span> AI security scan & conversion… this can take a minute`;
     const { result } = await api("portal/personal/import", { method: "POST", body: JSON.stringify({
       uploadId: personalUpload.id,
       uploadName: file.name,
@@ -1155,7 +1156,7 @@ async function personalConvert(button) {
     form.querySelector('[name="model"]').value = result.model;
     const name = form.querySelector('[name="label"]');
     if (!name.value.trim()) name.value = result.label;
-    out.innerHTML = `<div class="callout">${icon("check")}<div><b>Installed as <code>${esc(result.resource)}</code>.</b> ${esc(result.summary || "")}
+    out.innerHTML = `<div class="callout">${icon("check")}<div><b>Security check passed.</b> Installed as <code>${esc(result.resource)}</code>. ${esc(result.summary || "")}
       ${result.started ? (result.restarted ? " It was reloaded live with the new files. Players already online should reconnect to get the new handling." : " It is live now. Players already online should reconnect to see it.") : ""}
       ${result.changes.length ? `<ul class="personal-import-list">${result.changes.map((c) => `<li><code>${esc(c.field)}</code> ${esc(c.from)} → <b>${esc(c.to)}</b>${c.reason ? ` <small>${esc(c.reason)}</small>` : ""}</li>`).join("")}</ul>` : "<p>No handling changes.</p>"}
       ${result.notes.length ? `<ul class="personal-import-list notes">${result.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
@@ -1192,9 +1193,10 @@ function personalOwnerDialog(id) {
 function personalTrustDialog(id) {
   const p = personalById(id);
   if (!p) return;
+  const limit = p.tags.length ? state.data.personals.taggedLimit : state.data.personals.limit;
   openDialog({ kicker: p.label, title: "Trust someone", submit: "Trust", action: "personal-trust", data: { id: p.id },
     body: `<label class="field">Discord user ID<input name="discordId" inputmode="numeric" required placeholder="123456789012345678"></label>
-      <div class="callout">${icon("info")}<div>They can spawn this vehicle from F7 and drive it. You can trust up to ${state.data.personals.limit} people (${p.trusted.length} used).</div></div>` });
+      <div class="callout">${icon("info")}<div>They can spawn this vehicle from F7 and drive it. You can trust up to ${limit} people${p.tags.length ? " while it is tag-locked" : ""} (${p.trusted.length} used).</div></div>` });
 }
 
 function personalTagDialog(id) {
@@ -1204,14 +1206,14 @@ function personalTagDialog(id) {
   const options = (state.data.personals.tags || []).filter((t) => !locked.has(Number(t.id)));
   openDialog({ kicker: p.label, title: "Lock to a tag", submit: "Lock", action: "personal-tag", data: { id: p.id },
     body: `<label class="field">Tag<select name="tagId" required>${options.map((t) => `<option value="${t.id}">${esc(t.label)}</option>`).join("")}</select></label>
-      <div class="callout">${icon("info")}<div>Everyone who holds this tag can spawn and drive the vehicle.${state.data.personals.manage ? "" : " You can only pick tags you hold."}</div></div>` });
+      <div class="callout">${icon("info")}<div>Everyone who holds this tag can spawn and drive the vehicle. Only one tag can be attached, and the trusted-driver limit becomes ${state.data.personals.taggedLimit}.${state.data.personals.manage ? "" : " You can only pick tags you hold."}</div></div>` });
 }
 
 function personalDeleteDialog(id) {
   const p = personalById(id);
   if (!p) return;
   openDialog({ kicker: p.label, title: "Delete this personal vehicle?", submit: "Delete", tone: "btn-danger", action: "personal-delete", data: { id: p.id },
-    body: `<div class="callout warn">${icon("alert")}<div>The vehicle, its trust list and tag locks are removed. Anyone who has it spawned keeps driving it until it despawns.</div></div>` });
+    body: `<div class="callout warn">${icon("alert")}<div>The vehicle, its server resource files, trust list and tag lock are permanently removed. A currently spawned copy may remain until it despawns.</div></div>` });
 }
 
 const inlineMarkdown = (value) => {

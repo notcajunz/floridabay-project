@@ -16,6 +16,7 @@ export const ROLE_AUTHORITATIVE_GROUPS = new Set([
   "fire_rescue",
   "verified",
   "ban_blacklist_moderator",
+  "custom_weapons",
 ]);
 const ROLE_AUTHORITATIVE_GROUP_SQL = [...ROLE_AUTHORITATIVE_GROUPS]
   .map(() => "?")
@@ -508,6 +509,11 @@ async function grantedBy(guild, userId, roleId) {
 
 async function reportViolation(member, role, groups, mode, removed) {
   if (!gateReporter) return;
+  // One alert per member and role a minute: a repeating grant is already visible in the first one.
+  const key = `${member.guild.id}:${member.id}:${role.id}`;
+  if (Date.now() - (reportedAt.get(key) || 0) < 60000) return;
+  reportedAt.set(key, Date.now());
+  if (reportedAt.size > 2000) for (const [k, at] of reportedAt) if (Date.now() - at > 60000) reportedAt.delete(k);
   // The audit-log entry can land a moment after the member update.
   const by =
     mode === "live"
@@ -545,8 +551,47 @@ async function nukeOffenderIds() {
   return offenderCache.ids;
 }
 
-export async function syncMemberRoles(client, member, { alert = "none" } = {}) {
-  if (!member || member.user.bot) return { added: 0, removed: 0 };
+/** `${guildId}:${memberId}` → { promise, again, alert }: one reconcile per member at a time. */
+const reconciling = new Map();
+/** `${guildId}:${memberId}:${roleId}` → last alert time, so a role fight can never flood the channel. */
+const reportedAt = new Map();
+const MAX_RECONCILE_PASSES = 3;
+
+/**
+ * Brings one member's gated roles in line with ACE membership. Calls for the same member never overlap:
+ * a burst of guildMemberUpdate events (a pardon or restore changing dozens of roles at once) collapses
+ * into the run in flight plus at most a few follow-up passes, so no pass acts on a half-applied view.
+ */
+export function syncMemberRoles(client, member, { alert = "none" } = {}) {
+  if (!member || member.user.bot) return Promise.resolve({ added: 0, removed: 0 });
+  const key = `${member.guild.id}:${member.id}`;
+  const running = reconciling.get(key);
+  if (running) {
+    running.again = true;
+    if (running.alert === "none") running.alert = alert;
+    return running.promise;
+  }
+  const state = { again: false, alert };
+  state.promise = (async () => {
+    try {
+      const total = await reconcileMemberRoles(client, member, { alert });
+      for (let pass = 1; state.again && pass < MAX_RECONCILE_PASSES; pass++) {
+        state.again = false;
+        const live = member.guild.members.cache.get(member.id) || member;
+        const next = await reconcileMemberRoles(client, live, { alert: state.alert });
+        total.added += next.added;
+        total.removed += next.removed;
+      }
+      return total;
+    } finally {
+      reconciling.delete(key);
+    }
+  })();
+  reconciling.set(key, state);
+  return state.promise;
+}
+
+async function reconcileMemberRoles(client, member, { alert = "none" } = {}) {
   // Reconcile role-sourced ACE access before enforcing gates. This prevents a
   // newly granted LEO/fire/verified role from being mistaken for an unauthorized grant.
   await syncRoleAuthoritativeMemberships(member, client.user.id);
@@ -561,12 +606,28 @@ export async function syncMemberRoles(client, member, { alert = "none" } = {}) {
   ]);
   // A blacklisted member keeps only the isolation role; gated roles are never granted back.
   // Anti-nuke offenders are treated the same way until /security pardon.
-  if (blacklisted.has(member.id) || offenders.has(member.id)) memberships.clear();
+  let quarantined = blacklisted.has(member.id) || offenders.has(member.id);
+  if (quarantined) memberships.clear();
+  const wantedRole = (groups) => [...groups].some((name) => memberships.has(name));
+  // Before taking a role away, confirm against fresh data. The member cache can lag a burst of role
+  // changes, and the blacklist/offender caches can outlive a pardon; acting on either strips roles
+  // the member is entitled to, and the resulting update event starts the next round of the fight.
+  const removals = [...gates].filter(([roleId, groups]) => member.roles.cache.has(roleId) && !wantedRole(groups));
+  if (removals.length) {
+    await member.fetch(true).catch(() => null);
+    if (quarantined) {
+      invalidateBlacklistCache();
+      offenderCache = { at: 0, ids: new Set() };
+      const [freshBlacklist, freshOffenders] = await Promise.all([blacklistedIds(), nukeOffenderIds()]);
+      quarantined = freshBlacklist.has(member.id) || freshOffenders.has(member.id);
+      if (!quarantined) for (const name of await directMemberships(member.id)) memberships.add(name);
+    }
+  }
   const result = { added: 0, removed: 0 };
   for (const [roleId, groups] of gates) {
     const role = member.guild.roles.cache.get(roleId);
     if (!role) continue;
-    const wanted = [...groups].some((name) => memberships.has(name));
+    const wanted = wantedRole(groups);
     const held = member.roles.cache.has(roleId);
     const groupList = [...groups].join("/");
     if (held && !wanted) {

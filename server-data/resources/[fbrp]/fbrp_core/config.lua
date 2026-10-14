@@ -4,7 +4,7 @@ FBRP.Config = {
     serverName = 'Florida Bay Roleplay',
     discordInvite = GetConvar('fbrp_discordInvite', ''),
     serviceToken = GetConvar('fbrp_serviceToken', ''),
-    tagDistance = 35.0,
+    tagDistance = 30.0,
     -- vMenu's "Show Player Names" draws a native "Name [id]" gamer tag over every player in
     -- range, including staff in noclip. fbrp tags replace it, so those gamer tags are removed.
     hideVmenuGamerTags = true,

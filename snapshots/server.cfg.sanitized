@@ -62,6 +62,9 @@ add_ace resource.fbrp_core command.refresh allow
 ensure fbrp_core
 ensure Badger_Discord_API
 ensure DiscordAcePerms
+ensure fbrp_guns
+ensure fbrp_guns2
+ensure fbrp_longguns
 ensure vMenu
 ensure EasyAdmin
 ensure postal_map

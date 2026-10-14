@@ -14,7 +14,7 @@ export const setClient = (client) => {
 
 const SERVICES = [
   { unit: "fbrp-server", label: "Game server", detail: "FXServer + txAdmin" },
-  { unit: "fbrp-bot-live", label: "Main bot & website", detail: "Discord bot, portal and API" },
+  { unit: "fbrp-bot", manager: "system", label: "Main bot & website", detail: "Discord bot, portal and API" },
   { unit: "iaa-bot", label: "IAA Systems", detail: "Internal Affairs bot" },
   { unit: "personals-bot", label: "Vehicle Manager", detail: "Personal vehicles bot" },
   { unit: "role-manager-bot", label: "Role Manager", detail: "Role management bot" },
@@ -23,22 +23,22 @@ const SERVICES = [
   { unit: "devops-bot", label: "DevOps", detail: "This bot" },
 ];
 
-const systemctl = (...args) =>
+const systemctl = (manager, ...args) =>
   new Promise((resolve) => {
     execFile(
       "systemctl",
-      ["--user", ...args],
+      [...(manager === "system" ? [] : ["--user"]), ...args],
       { timeout: 4000, env: { ...process.env, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 1000}` } },
       (error, stdout) => resolve(error && !stdout ? "" : String(stdout).trim()),
     );
   });
 
-async function unitState(unit) {
-  const state = await systemctl("is-active", `${unit}.service`);
+async function unitState(service) {
+  const state = await systemctl(service.manager, "is-active", `${service.unit}.service`);
   if (!state) return { state: "unknown", since: null };
   let since = null;
   if (state === "active") {
-    const stamp = await systemctl("show", `${unit}.service`, "-p", "ActiveEnterTimestamp", "--value");
+    const stamp = await systemctl(service.manager, "show", `${service.unit}.service`, "-p", "ActiveEnterTimestamp", "--value");
     const parsed = Date.parse(stamp);
     since = Number.isFinite(parsed) ? parsed : null;
   }
@@ -66,7 +66,7 @@ export async function collect() {
   const panelHost = process.env.FBRP_PANEL_HOST || "127.0.0.1";
   const panelPort = process.env.FBRP_PANEL_PORT || "8080";
   const [units, game, web, database] = await Promise.all([
-    Promise.all(SERVICES.map(async (s) => ({ ...s, ...(await unitState(s.unit)) }))),
+    Promise.all(SERVICES.map(async (s) => ({ ...s, ...(await unitState(s)) }))),
     timed(() => fetchJson(`${origin}/health`)),
     timed(async () => {
       const r = await fetch(`http://${panelHost}:${panelPort}/`, { signal: AbortSignal.timeout(3500), redirect: "manual" });

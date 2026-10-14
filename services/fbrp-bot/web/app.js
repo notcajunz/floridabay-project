@@ -275,6 +275,7 @@ function renderResource(id) {
   const rows = records(id);
   setTitle(spec.group, spec.label);
   const fields = spec.fields.filter((item) => !item.advanced && item.type !== "textarea").slice(0, 6);
+  const editExisting = spec.editExisting !== false;
   $("#content").innerHTML = `
     <section class="page-head">
       <p class="lede">${esc(spec.description)}</p>
@@ -286,7 +287,7 @@ function renderResource(id) {
     ${id === "ace-entries" ? bundleCard() : ""}
     <div class="table-card">
       <div class="table-scroll"><table><thead><tr>${fields.map((item) => `<th>${esc(item.label)}</th>`).join("")}<th></th></tr></thead><tbody id="resource-rows">${resourceRows(id, rows, fields)}</tbody></table></div>
-      <div class="table-foot"><span id="resource-count">${fmt(rows.length)} record${rows.length === 1 ? "" : "s"}</span><span>Click a row to edit</span></div>
+      <div class="table-foot"><span id="resource-count">${fmt(rows.length)} record${rows.length === 1 ? "" : "s"}</span><span>${editExisting ? "Click a row to edit" : "Existing records are Owner-group only"}</span></div>
     </div>`;
   $("#resource-search").addEventListener("input", (event) => {
     const needle = event.target.value.toLowerCase().trim();
@@ -311,9 +312,13 @@ function bundleCard() {
 function resourceRows(id, rows, fields) {
   if (!rows.length) return `<tr><td colspan="${fields.length + 1}"><div class="empty"><strong>Nothing here yet</strong>Use Add to create the first record.</div></td></tr>`;
   const all = records(id);
+  const editExisting = resource(id)?.editExisting !== false;
   return rows.map((row) => {
     const index = all.indexOf(row);
-    return `<tr data-edit="${esc(id)}" data-index="${index}" tabindex="0">${fields.map((meta) => `<td>${displayValue(meta, row[meta.name])}</td>`).join("")}<td class="actions"><span class="row-actions"><button type="button" class="btn ghost sm icon" data-edit="${esc(id)}" data-index="${index}" title="Edit">${icon("edit")}</button><button type="button" class="btn ghost sm icon" data-delete="${esc(id)}" data-index="${index}" title="Delete" style="color:var(--danger)">${icon("trash")}</button></span></td></tr>`;
+    const actions = editExisting
+      ? `<span class="row-actions"><button type="button" class="btn ghost sm icon" data-edit="${esc(id)}" data-index="${index}" title="Edit">${icon("edit")}</button><button type="button" class="btn ghost sm icon" data-delete="${esc(id)}" data-index="${index}" title="Delete" style="color:var(--danger)">${icon("trash")}</button></span>`
+      : "";
+    return `<tr${editExisting ? ` data-edit="${esc(id)}" data-index="${index}" tabindex="0"` : ""}>${fields.map((meta) => `<td>${displayValue(meta, row[meta.name])}</td>`).join("")}<td class="actions">${actions}</td></tr>`;
   }).join("");
 }
 

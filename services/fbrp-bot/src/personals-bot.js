@@ -23,6 +23,7 @@ const clean = (value, max = 1000) =>
 
 /** One personal vehicle as an embed. */
 function personalCard(title, row, { color = COLORS.success, description } = {}) {
+  const trustLimit = row.tags.length ? personals.MAX_TRUSTED_WITH_TAG : personals.MAX_TRUSTED;
   return card(title, {
     color,
     description,
@@ -31,7 +32,7 @@ function personalCard(title, row, { color = COLORS.success, description } = {}) 
       ["ID · plate", `#${row.id} · \`${row.plate}\``],
       ["Owner", who(row.owner_id)],
       ["Status", `${row.enabled ? "Enabled" : "Disabled"}${row.bulletproof ? " · Bulletproof" : ""}`],
-      [`Trusted (${row.trusted.length}/${personals.MAX_TRUSTED})`, row.trusted.length ? row.trusted.map((item) => `<@${item.discord_id}>`).join("\n") : "Nobody", false],
+      [`Trusted (${row.trusted.length}/${trustLimit})`, row.trusted.length ? row.trusted.map((item) => `<@${item.discord_id}>`).join("\n") : "Nobody", false],
       ["Tag locks", row.tags.length ? row.tags.map((tag) => clean(tag.label)).join(", ") : "None", false],
     ],
   });
@@ -97,7 +98,7 @@ async function personalCommand(i, sub) {
   const all = Boolean(i.options.getBoolean("all"));
   const { manage, rows } = await personals.listFor(actor, { memberId: member?.id || null, all });
   const lines = rows.map(
-    (row) => `\`${row.id}\` · **${clean(row.label)}** (\`${row.model}\` · \`${row.plate}\`)${row.enabled ? "" : " · disabled"} · <@${row.owner_id}> · ${row.trusted.length}/${personals.MAX_TRUSTED} trusted${row.tags.length ? ` · tags: ${row.tags.map((tag) => clean(tag.label)).join(", ")}` : ""}`,
+    (row) => `\`${row.id}\` · **${clean(row.label)}** (\`${row.model}\` · \`${row.plate}\`)${row.enabled ? "" : " · disabled"} · <@${row.owner_id}> · ${row.trusted.length}/${row.tags.length ? personals.MAX_TRUSTED_WITH_TAG : personals.MAX_TRUSTED} trusted${row.tags.length ? ` · tag: ${clean(row.tags[0].label)}` : ""}`,
   );
   return card(all ? "All personal vehicles" : member ? `Personal vehicles · ${clean(member.globalName || member.username)}` : "Your personal vehicles", {
     description: chunkLines(lines, 3900)[0] || "No personal vehicles.",

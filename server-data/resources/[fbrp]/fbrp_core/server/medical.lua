@@ -9,6 +9,10 @@ local now, clean, notify, chat, hasPermission = S.now, S.clean, S.notify, S.chat
 local downed = {}       -- source -> { since, cause, lastDistress }
 local reviving = {}     -- medic source -> target
 
+local function authorizeDownedProtection(source)
+    pcall(function() exports.corevia_ac:recordProtectionGrant(source, 3) end)
+end
+
 local function setDowned(source, value)
     local player = Player(source)
     if player then player.state:set('fbrp:downed', value, true) end
@@ -35,8 +39,18 @@ RegisterNetEvent('fbrp:medical:downed', function(info)
     local cause = type(info) == 'table' and clean(info.cause, 60) or 'Unknown injuries'
     downed[src] = { since=now(), cause=cause ~= '' and cause or 'Unknown injuries', lastDistress=0 }
     setDowned(src, { since=os.time(), cause=downed[src].cause })
+    authorizeDownedProtection(src)
     local s = sessions[src]
     FBRP.DB.audit(s and s.discord or src, 'medical.downed', nil, { cause=downed[src].cause })
+end)
+
+-- Downed players are intentionally protected from follow-up damage while they wait for EMS.
+-- Renew the short anticheat authorization for exactly as long as the server tracks them as downed.
+CreateThread(function()
+    while true do
+        Wait(1000)
+        for src in pairs(downed) do authorizeDownedProtection(src) end
+    end
 end)
 
 RegisterNetEvent('fbrp:medical:distress', function()

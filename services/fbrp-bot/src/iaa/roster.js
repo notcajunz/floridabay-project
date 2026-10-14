@@ -1,4 +1,4 @@
-import { agencyRoleIds, config, db, demand, demandOutranks, dm, history, post, rankById, rankOf, ranks, tierLabel } from "./store.js";
+import { agencyRoleIds, config, db, demand, demandOutranks, dm, history, post, rankById, rankOf, ranks, tierLabel, tierRoleIdsUpTo } from "./store.js";
 import { quotaSeconds, totals, weekSeconds } from "./quota.js";
 import { C, EPHEMERAL, UserError, card, clip, hours, mention, meter, rel, respond, roleMention, shortRole, ts, pages } from "./util.js";
 import { refreshPanels } from "./panels.js";
@@ -31,7 +31,8 @@ export async function setRoles(member, { rank = undefined, add = [], remove = []
     for (const t of cfg.tiers) if (t.roleId) next.delete(t.roleId);
     if (rank) {
       next.add(rank.role_id);
-      if (rank.tier_role_id) next.add(rank.tier_role_id);
+      // Command tiers stack: High Command also holds Trial High Command, Low Command and Supervisor.
+      for (const id of tierRoleIdsUpTo(cfg, rank)) next.add(id);
       if (cfg.roles.base) next.add(cfg.roles.base);
     }
   }

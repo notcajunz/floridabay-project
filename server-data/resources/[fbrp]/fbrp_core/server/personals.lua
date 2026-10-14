@@ -18,6 +18,7 @@ local active = {}         -- personal id -> network id
 local lastEject = {}      -- source -> game timer of the last notice
 local synced = {}         -- source -> true once the client has its first list
 local armored = {}        -- source -> true while they sit in a bulletproof personal
+local pushedBypass = {}   -- source -> the bypass flag the client last received
 
 local BYPASS = 'fbrp.personals.bypass'
 
@@ -198,8 +199,10 @@ local function push(source)
             if personals[pid].bulletproof then bulletproofModels[#bulletproofModels + 1] = personals[pid].model break end
         end
     end
+    local bypass = bypasses(source)
+    pushedBypass[source] = bypass
     TriggerClientEvent('fbrp:personals:sync', source, {
-        denied = denied, models = names, bypass = bypasses(source),
+        denied = denied, models = names, bypass = bypass,
         bulletproof = bulletproof, bulletproofModels = bulletproofModels,
     })
 end
@@ -309,6 +312,10 @@ CreateThread(function()
                 if not synced[src] then
                     synced[src] = true
                     push(src)
+                elseif pushedBypass[src] ~= bypasses(src) then
+                    -- Staff groups only count while clocked in, so the flag changes mid-session
+                    -- (clock in or out, group edits). The client blocks the seat on its own copy.
+                    push(src)
                 end
                 local ped = GetPlayerPed(src)
                 if ped and ped ~= 0 then
@@ -332,6 +339,7 @@ AddEventHandler('playerDropped', function()
     lastEject[source] = nil
     synced[source] = nil
     armored[source] = nil
+    pushedBypass[source] = nil
 end)
 
 AddEventHandler('fbrp:personals:reload', reload)
@@ -355,6 +363,15 @@ function FBRP.Personals.install(resource, model)
     end
     StartResource(resource)
     return { ok = GetResourceState(resource) == 'started', state = GetResourceState(resource) == 'started' and 'started' or state }
+end
+
+-- Stop an imported personal resource before the website removes its files from disk.
+function FBRP.Personals.uninstall(resource)
+    resource = tostring(resource or '')
+    if not resource:match('^fbrp_pv_[a-z0-9_]+$') then return { ok = false, error = 'bad resource' } end
+    local state = GetResourceState(resource)
+    if state == 'started' or state == 'starting' then StopResource(resource) end
+    return { ok = true, state = GetResourceState(resource) }
 end
 
 -- Re-read periodically as a fallback; the bot also triggers a reload on every change.

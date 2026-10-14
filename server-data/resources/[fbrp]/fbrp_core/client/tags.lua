@@ -4,7 +4,7 @@
 -- Match the reference tag treatment: GTA's clean proportional Chalet face
 -- with equal-size rank/ID and gang lines. Font 4 is the condensed Chalet face
 -- and reads much narrower/heavier than the reference.
-local TAG_FONT, TAG_SCALE = 0, 0.60
+local TAG_FONT, TAG_SCALE = 0, 0.54
 local HEAD_FONT, SUB_FONT = TAG_FONT, TAG_FONT
 local HEAD_SCALE, ID_SCALE, SUB_SCALE = TAG_SCALE, 0.52, TAG_SCALE
 local HEAD_BONE = 31086

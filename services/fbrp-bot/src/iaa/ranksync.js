@@ -1,5 +1,5 @@
 import { ORG } from "./quota.js";
-import { allMembers, db, ranks } from "./store.js";
+import { allMembers, config, db, ranks, tierRoleIdsUpTo } from "./store.js";
 
 /**
  * Keeps each IAA agent's in-game organization rank (org_ranks, the spend/roster/armory permissions)
@@ -21,7 +21,30 @@ async function refreshGame() {
   }).catch(() => null);
 }
 
+/**
+ * Command tiers stack: every member holds the tier role of their rank and of every tier below it
+ * (High Command carries Trial High Command, Low Command and Supervisor). Only ever adds roles, so a
+ * manual edit never fights the bot; /iaa promote and /iaa demote rebuild the set from scratch.
+ */
+export async function cascadeTiers(guild) {
+  const cfg = await config();
+  const ladder = await ranks();
+  let granted = 0;
+  for (const member of (await allMembers(guild)).values()) {
+    if (member.user.bot) continue;
+    if (cfg.roles.suspended && member.roles.cache.has(cfg.roles.suspended)) continue;
+    const rank = ladder.find((r) => member.roles.cache.has(r.role_id));
+    if (!rank) continue;
+    const missing = tierRoleIdsUpTo(cfg, rank).filter((id) => !member.roles.cache.has(id) && guild.roles.cache.get(id)?.editable);
+    if (!missing.length) continue;
+    const ok = await member.roles.add(missing, "IAA tier cascade: command tiers include every tier below").then(() => true, () => false);
+    if (ok) granted += missing.length;
+  }
+  return granted;
+}
+
 export async function sync(guild) {
+  await cascadeTiers(guild).catch((e) => console.warn(`[IAA] tier cascade: ${e.message}`));
   const orgs = await db.query(`SELECT o.id FROM organizations o WHERE o.active=TRUE AND ${ORG}`, [guild.id, guild.id]);
   if (!orgs.length) return 0;
   const ladder = await ranks();

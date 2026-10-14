@@ -1,5 +1,6 @@
 import { staffLevel, superuserIds } from "./database.js";
 import { callGame } from "./sync.js";
+import { deletePersonalResource } from "./personal-resources.js";
 
 /**
  * Personal vehicles (website + Discord side).
@@ -10,6 +11,7 @@ import { callGame } from "./sync.js";
  */
 
 export const MAX_TRUSTED = 3;
+export const MAX_TRUSTED_WITH_TAG = 2;
 
 const MODEL = /^[a-z0-9_]{2,40}$/;
 const PLATE = /^[A-Z0-9 ]{1,8}$/;
@@ -33,6 +35,15 @@ export function createPersonals({ db, audit }) {
   const canManage = async (discordId) =>
     superuserIds().has(String(discordId)) ||
     (await coOwnerOrAbove(discordId));
+
+  /** Editing, transferring and deleting a personal is limited strictly to the Owner ACE group. */
+  async function isOwnerGroup(discordId) {
+    const row = await db.one("SELECT 1 ok FROM ace_memberships WHERE discord_id=? AND group_name='owner' LIMIT 1", [String(discordId)]);
+    return Boolean(row);
+  }
+  async function assertOwnerGroup(discordId) {
+    if (!(await isOwnerGroup(discordId))) throw new Error("Only the Owner group can edit, transfer or delete personal vehicles.");
+  }
 
   const notifyGame = () => callGame("/personals/refresh", {}).catch(() => null);
 
@@ -105,7 +116,7 @@ export function createPersonals({ db, audit }) {
   /** Everything the website needs for one member. */
   async function portalData(discordId) {
     const id = String(discordId);
-    const manage = await canManage(id);
+    const [manage, owner] = await Promise.all([canManage(id), isOwnerGroup(id)]);
     const [all, tags] = await Promise.all([
       db.query("SELECT * FROM personal_vehicles ORDER BY label,id"),
       lockableTags(id, manage),
@@ -121,7 +132,9 @@ export function createPersonals({ db, audit }) {
     }
     return {
       manage,
+      owner,
       limit: MAX_TRUSTED,
+      taggedLimit: MAX_TRUSTED_WITH_TAG,
       mine,
       all: manage ? hydrated.map((personal) => ({ ...personal, viewer: mine.find((row) => row.id === personal.id)?.viewer || "manage" })) : undefined,
       tags,
@@ -172,7 +185,7 @@ export function createPersonals({ db, audit }) {
   }
 
   async function update(actorId, input) {
-    await assertManager(actorId);
+    await assertOwnerGroup(actorId);
     const current = await find(input.id);
     const model = input.model !== undefined ? modelOf(input.model) : current.model;
     const label = input.label !== undefined ? text(input.label, 60) || current.label : current.label;
@@ -186,16 +199,18 @@ export function createPersonals({ db, audit }) {
   }
 
   async function remove(actorId, input) {
-    await assertManager(actorId);
+    await assertOwnerGroup(actorId);
     const current = await find(input.id);
+    const other = await db.one("SELECT id FROM personal_vehicles WHERE model=? AND id<>? LIMIT 1", [current.model, current.id]);
+    const files = other ? { resource: null, deleted: false, shared: true } : await deletePersonalResource(current.model);
     await db.query("DELETE FROM personal_vehicles WHERE id=?", [current.id]);
-    await audit(actorId, "personal.delete", current.id, { model: current.model, label: current.label, ownerId: current.owner_id });
+    await audit(actorId, "personal.delete", current.id, { model: current.model, label: current.label, ownerId: current.owner_id, files });
     await notifyGame();
     return current;
   }
 
   async function setOwner(actorId, input) {
-    await assertManager(actorId);
+    await assertOwnerGroup(actorId);
     const current = await find(input.id);
     const ownerId = discordIdOf(input.ownerId);
     // The new owner should not also sit on the trust list.
@@ -214,9 +229,20 @@ export function createPersonals({ db, audit }) {
     const discordId = discordIdOf(input.discordId);
     if (discordId === current.owner_id) throw new Error("The owner already has access.");
     if (current.trusted.some((item) => item.discord_id === discordId)) throw new Error("That person is already trusted.");
-    if (current.trusted.length >= MAX_TRUSTED)
-      throw new Error(`A personal vehicle can trust up to ${MAX_TRUSTED} people. Remove someone first.`);
-    await db.query("INSERT INTO personal_vehicle_trust(personal_id,discord_id,added_by,added_at) VALUES(?,?,?,?)", [current.id, discordId, String(actorId), Date.now()]);
+    const limit = current.tags.length ? MAX_TRUSTED_WITH_TAG : MAX_TRUSTED;
+    if (current.trusted.length >= limit)
+      throw new Error(`This personal vehicle can trust up to ${limit} people${current.tags.length ? " while locked to a tag" : ""}. Remove someone first.`);
+    await db.transaction(async (query) => {
+      await query("SELECT id FROM personal_vehicles WHERE id=? FOR UPDATE", [current.id]);
+      const [count, tag] = await Promise.all([
+        query("SELECT COUNT(*) n FROM personal_vehicle_trust WHERE personal_id=?", [current.id]),
+        query("SELECT 1 ok FROM personal_vehicle_tags WHERE personal_id=? LIMIT 1", [current.id]),
+      ]);
+      const lockedLimit = tag.length ? MAX_TRUSTED_WITH_TAG : MAX_TRUSTED;
+      if (Number(count[0]?.n || 0) >= lockedLimit)
+        throw new Error(`This personal vehicle can trust up to ${lockedLimit} people${tag.length ? " while locked to a tag" : ""}. Remove someone first.`);
+      await query("INSERT INTO personal_vehicle_trust(personal_id,discord_id,added_by,added_at) VALUES(?,?,?,?)", [current.id, discordId, String(actorId), Date.now()]);
+    });
     await audit(actorId, "personal.trust", current.id, { discordId });
     await notifyGame();
     return find(current.id);
@@ -240,8 +266,20 @@ export function createPersonals({ db, audit }) {
     const tag = await db.one("SELECT id,label FROM headtags WHERE id=? AND enabled=TRUE", [tagId]);
     if (!tag) throw new Error("Tag not found.");
     if (!manage && !(await heldTagIds(actorId)).has(tagId)) throw new Error("You can only lock a vehicle to a tag you hold.");
-    if (current.tags.some((item) => item.id === tagId)) throw new Error("This vehicle is already locked to that tag.");
-    await db.query("INSERT INTO personal_vehicle_tags(personal_id,tag_id,added_by,added_at) VALUES(?,?,?,?)", [current.id, tagId, String(actorId), Date.now()]);
+    if (current.tags.length) throw new Error("A personal vehicle can only be locked to one tag. Remove its current tag first.");
+    if (current.trusted.length > MAX_TRUSTED_WITH_TAG)
+      throw new Error(`A tag-locked personal can only trust ${MAX_TRUSTED_WITH_TAG} people. Remove someone first.`);
+    await db.transaction(async (query) => {
+      await query("SELECT id FROM personal_vehicles WHERE id=? FOR UPDATE", [current.id]);
+      const [tags, trust] = await Promise.all([
+        query("SELECT COUNT(*) n FROM personal_vehicle_tags WHERE personal_id=?", [current.id]),
+        query("SELECT COUNT(*) n FROM personal_vehicle_trust WHERE personal_id=?", [current.id]),
+      ]);
+      if (Number(tags[0]?.n || 0) > 0) throw new Error("A personal vehicle can only be locked to one tag. Remove its current tag first.");
+      if (Number(trust[0]?.n || 0) > MAX_TRUSTED_WITH_TAG)
+        throw new Error(`A tag-locked personal can only trust ${MAX_TRUSTED_WITH_TAG} people. Remove someone first.`);
+      await query("INSERT INTO personal_vehicle_tags(personal_id,tag_id,added_by,added_at) VALUES(?,?,?,?)", [current.id, tagId, String(actorId), Date.now()]);
+    });
     await audit(actorId, "personal.tag", current.id, { tagId, label: tag.label });
     await notifyGame();
     return find(current.id);
@@ -287,7 +325,8 @@ export function createPersonals({ db, audit }) {
 
   return {
     MAX_TRUSTED,
-    assertManager, modelOf,
+    MAX_TRUSTED_WITH_TAG,
+    assertManager, isOwnerGroup, modelOf,
     canManage, portalData, find, relation, create, update, remove, setOwner, trust, untrust, lockTag, unlockTag, listFor, choices, lockableTags,
   };
 }

@@ -44,7 +44,7 @@ export const personal = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("trust")
-      .setDescription("Let someone spawn and drive a personal (up to 3 people)")
+      .setDescription("Trust a driver (up to 3, or 2 while the personal is tag-locked)")
       .addStringOption(personalVehicle)
       .addUserOption((o) => o.setName("member").setDescription("Who to trust").setRequired(true)),
   )

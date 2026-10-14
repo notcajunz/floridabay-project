@@ -102,6 +102,14 @@ export async function rankOf(member) {
   return (await ranks()).find((r) => member.roles.cache.has(r.role_id)) || null;
 }
 
+/** Tier roles a rank holder carries: its own tier's role plus every lower tier's (High Command includes Low Command). */
+export function tierRoleIdsUpTo(cfg, rank) {
+  const own = cfg.tiers.find((t) => t.key === rank?.tier);
+  const ids = cfg.tiers.filter((t) => t.roleId && own && t.index <= own.index).map((t) => t.roleId);
+  if (rank?.tier_role_id) ids.push(rank.tier_role_id);
+  return [...new Set(ids)];
+}
+
 export async function tierIndex(key) {
   const tiers = (await config()).tiers;
   const found = tiers.find((t) => t.key === key);

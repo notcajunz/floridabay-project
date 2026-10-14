@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<CWeaponModelInfo__InitDataList>
+	<InitDatas>
+		
+		<Item>
+			<modelName>w_ar_tacticalcarbine</modelName>
+			<txdName>w_ar_tacticalcarbine</txdName>
+			<ptfxAssetName>null</ptfxAssetName>
+			<lodDist value="50"/>
+		</Item>
+		<Item>
+			<modelName>w_at_tacticalcarbine_sight</modelName>
+			<txdName>w_ar_tacticalcarbine</txdName>
+			<ptfxAssetName>null</ptfxAssetName>
+			<lodDist value="50"/>
+		</Item>
+		
+	</InitDatas>
+</CWeaponModelInfo__InitDataList>

@@ -13,7 +13,7 @@ import { OWNER_DISCORD_ID } from "./access-control.js";
 import { staffLevel } from "./database.js";
 import { findLinkedAccounts } from "./alts.js";
 import { organizationActivity } from "./investigation.js";
-import { MAX_TRUSTED } from "./personals.js";
+import { MAX_TRUSTED, MAX_TRUSTED_WITH_TAG } from "./personals.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -311,7 +311,7 @@ export const PANEL_RESOURCES = {
   "personal-trust": {
     label: "Personal vehicle trust",
     group: "Community",
-    description: `People a vehicle's owner trusts to spawn and drive it (up to ${MAX_TRUSTED} per vehicle).`,
+    description: `People a vehicle's owner trusts to spawn and drive it (up to ${MAX_TRUSTED}, or ${MAX_TRUSTED_WITH_TAG} while tag-locked).`,
     table: "personal_vehicle_trust",
     pk: ["personal_id", "discord_id"],
     order: "personal_id,added_at",
@@ -326,14 +326,18 @@ export const PANEL_RESOURCES = {
       const owner = await db.one("SELECT owner_id FROM personal_vehicles WHERE id=?", [values.personal_id]);
       if (!owner) throw new Error("That personal vehicle no longer exists.");
       if (String(owner.owner_id) === String(values.discord_id)) throw new Error("The owner already has access.");
-      const row = await db.one("SELECT COUNT(*) n FROM personal_vehicle_trust WHERE personal_id=? AND discord_id<>?", [values.personal_id, values.discord_id]);
-      if (Number(row?.n || 0) >= MAX_TRUSTED) throw new Error(`A personal vehicle can trust up to ${MAX_TRUSTED} people.`);
+      const [row, tag] = await Promise.all([
+        db.one("SELECT COUNT(*) n FROM personal_vehicle_trust WHERE personal_id=? AND discord_id<>?", [values.personal_id, values.discord_id]),
+        db.one("SELECT 1 ok FROM personal_vehicle_tags WHERE personal_id=? LIMIT 1", [values.personal_id]),
+      ]);
+      const limit = tag ? MAX_TRUSTED_WITH_TAG : MAX_TRUSTED;
+      if (Number(row?.n || 0) >= limit) throw new Error(`This personal vehicle can trust up to ${limit} people${tag ? " while tag-locked" : ""}.`);
     },
   },
   "personal-tags": {
     label: "Personal vehicle tag locks",
     group: "Community",
-    description: "Tags a personal vehicle is locked to. Everyone holding the tag can spawn and drive it.",
+    description: `One tag a personal vehicle is locked to. Tag-locked personals may trust up to ${MAX_TRUSTED_WITH_TAG} people.`,
     table: "personal_vehicle_tags",
     pk: ["personal_id", "tag_id"],
     order: "personal_id,tag_id",
@@ -344,6 +348,15 @@ export const PANEL_RESOURCES = {
       field("added_by", "Added by", "text", { default: ACTOR, advanced: true }),
       field("added_at", "Added at", "timestamp", { default: "now", advanced: true }),
     ],
+    validate: async (values, { db }) => {
+      const [existing, trust] = await Promise.all([
+        db.one("SELECT tag_id FROM personal_vehicle_tags WHERE personal_id=? AND tag_id<>? LIMIT 1", [values.personal_id, values.tag_id]),
+        db.one("SELECT COUNT(*) n FROM personal_vehicle_trust WHERE personal_id=?", [values.personal_id]),
+      ]);
+      if (existing) throw new Error("A personal vehicle can only be locked to one tag. Remove its current tag first.");
+      if (Number(trust?.n || 0) > MAX_TRUSTED_WITH_TAG)
+        throw new Error(`A tag-locked personal can only trust ${MAX_TRUSTED_WITH_TAG} people. Remove someone first.`);
+    },
   },
   organizations: {
     label: "Organizations",
@@ -740,12 +753,13 @@ export const PANEL_RESOURCES = {
   },
 };
 
-const publicDefinition = ([id, resource], suggestions) => ({
+const publicDefinition = ([id, resource], suggestions, personalOwner = false) => ({
   id,
   label: resource.label,
   group: resource.group,
   description: resource.description,
   pk: resource.pk,
+  editExisting: id !== "personals" || personalOwner,
   fields: resource.fields.map(({ suggest, ...meta }) =>
     suggest ? { ...meta, suggestions: suggestions[suggest] || [] } : meta,
   ),
@@ -1107,7 +1121,7 @@ export function startWebPanel(context) {
     }
   }
 
-  async function bootstrap(scope = "full") {
+  async function bootstrap(scope = "full", personalOwner = false) {
     const scoped = scope !== "full";
     const allowed = ([id]) => !scoped || ORG_ADMIN_RESOURCES.has(id);
     const records = {};
@@ -1159,7 +1173,7 @@ export function startWebPanel(context) {
       online: client.isReady(),
       bot: client.user ? { id: client.user.id, tag: client.user.tag } : null,
       generatedAt: now(),
-      resources: Object.entries(PANEL_RESOURCES).filter(allowed).map((entry) => publicDefinition(entry, suggestions)),
+      resources: Object.entries(PANEL_RESOURCES).filter(allowed).map((entry) => publicDefinition(entry, suggestions, personalOwner)),
       catalog: scoped ? [] : EDITOR_CATALOG,
       bundles: scoped ? [] : [
         ...Object.entries(PERMISSION_BUNDLES).map(([name, objects]) => ({ name, objects })),
@@ -1900,17 +1914,24 @@ export function startWebPanel(context) {
       // The complete live configuration plane is owner-only; Co-Owners and above get the organization sections.
       const scope = await panelScope(session.id);
       if (!scope) return sendJson(response, 403, { error: "Live configuration needs the Co-Owner rank or higher." });
+      const personalOwner = await personals.isOwnerGroup(session.id);
       if (request.method === "GET" && url.pathname === "/api/bootstrap")
-        return sendJson(response, 200, await bootstrap(scope));
+        return sendJson(response, 200, await bootstrap(scope, personalOwner));
       if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
       const input = await bodyJson(request);
       if (scope !== "full" && !(["/api/record/save", "/api/record/delete"].includes(url.pathname) && ORG_ADMIN_RESOURCES.has(String(input.resource))))
         return sendJson(response, 403, { error: "Co-Owners can only change the organization sections of live configuration." });
+      // Editing or deleting a personal vehicle is Owner-group only, here as well as on the portal.
+      if (String(input.resource) === "personals"
+        && (url.pathname === "/api/record/delete" || (url.pathname === "/api/record/save" && input.original))
+        && !personalOwner)
+        return sendJson(response, 403, { error: "Only the Owner group can edit or delete personal vehicles." });
       let result = null;
       if (url.pathname === "/api/record/save") {
         await saveRecord(input.resource, input.record || {}, input.original || null, session.id);
       } else if (url.pathname === "/api/record/delete") {
-        await deleteRecord(input.resource, input.key || {}, session.id);
+        if (String(input.resource) === "personals") result = await personals.remove(session.id, { id: input.key?.id });
+        else await deleteRecord(input.resource, input.key || {}, session.id);
       } else if (url.pathname === "/api/globalsync/save") {
         const saved = await saveGlobalSync(client, ACTOR, input.group, input);
         result = { lines: saved.lines, swept: saved.swept };
@@ -1947,7 +1968,7 @@ export function startWebPanel(context) {
         await syncAll(client);
         await refreshGame();
       } else throw new Error("Unknown panel action.");
-      return sendJson(response, 200, { ok: true, result, data: await bootstrap(scope) });
+      return sendJson(response, 200, { ok: true, result, data: await bootstrap(scope, personalOwner) });
     } catch (error) {
       console.error("[FBRP panel]", error);
       return sendJson(response, 400, { error: error.message || String(error) });

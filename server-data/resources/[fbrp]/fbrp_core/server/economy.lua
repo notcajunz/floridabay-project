@@ -714,6 +714,10 @@ RegisterNetEvent('fbrp:economy:armory', function(key)
     if (armoryUsed[cooldownKey] or 0) + E.armoryCooldownSeconds * 1000 > stamp then return notify(src, 'You already drew that loadout. Come back later.', 'error') end
     armoryUsed[cooldownKey] = stamp
     local ped = GetPlayerPed(src)
+    -- Armory loadouts are a legitimate long gun source (see fbrp_longguns).
+    local issued = {}
+    for _, weapon in ipairs(package.weapons) do issued[#issued + 1] = tostring(weapon.name):upper() end
+    TriggerClientEvent('fbrp_longguns:issued', src, issued)
     for _, weapon in ipairs(package.weapons) do
         GiveWeaponToPed(ped, joaat(tostring(weapon.name)), math.max(1, math.min(500, tonumber(weapon.ammo) or 60)), false, false)
     end

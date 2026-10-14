@@ -7,23 +7,28 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main id="chat" class="chat-shell idle" aria-label="Florida Bay chat">
+  <main id="chat" class="chat-shell" aria-label="Florida Bay chat">
     <header class="chat-header">
-      <div class="brand-mark">FB</div>
-      <div class="brand-copy"><strong>FLORIDA BAY</strong><span>ROLEPLAY CHAT</span></div>
-      <div class="range"><i></i> NEARBY · 20M</div>
+      <div class="brand"><span class="brand-mark">FB</span><span class="brand-name">Florida Bay</span></div>
+      <nav id="filters" class="filters" aria-label="Channel filters">
+        <button type="button" data-filter="all" class="active">All</button>
+        <button type="button" data-filter="ooc">OOC</button>
+        <button type="button" data-filter="me">Me</button>
+        <button type="button" data-filter="do">Do</button>
+        <button type="button" data-filter="system">System</button>
+      </nav>
+      <span class="range"><i></i>20m</span>
     </header>
     <section id="messages" class="transcript" aria-live="polite"></section>
     <section id="suggestions" class="suggestions" aria-label="Command suggestions"></section>
     <form id="composer" class="composer" autocomplete="off">
-      <div class="prompt">›</div>
-      <input id="input" maxlength="300" placeholder="Speak nearby or type / for commands…" aria-label="Chat message">
-      <span id="counter" class="counter">0 / 300</span>
-      <button type="submit">SEND</button>
+      <span id="mode" class="mode" data-mode="say">SAY</span>
+      <input id="input" maxlength="300" placeholder="Say something nearby, or type / for commands" aria-label="Chat message">
+      <span id="counter" class="counter"></span>
+      <button type="submit" aria-label="Send">&#10148;</button>
     </form>
-    <footer class="chat-footer"><span><kbd>↑</kbd><kbd>↓</kbd> history</span><span><kbd>TAB</kbd> complete</span><span><kbd>ESC</kbd> close</span></footer>
+    <footer class="chat-footer"><span><kbd>&uarr;</kbd><kbd>&darr;</kbd> history</span><span><kbd>Tab</kbd> complete</span><span><kbd>Esc</kbd> close</span></footer>
   </main>
   <script src="app.js"></script>
 </body>
 </html>
-
