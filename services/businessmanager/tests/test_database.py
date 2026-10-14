@@ -6,11 +6,32 @@ from businessbot.database import Database
 from businessbot.services import BusinessService, InsufficientFunds, deduct_fee, parse_color
 
 
+class FakeWalletApi:
+    configured = False
+
+    def __init__(self, **balances):
+        self.balances = balances
+        self.batches = []
+
+    async def wallet(self, org_ref):
+        return {"balance": self.balances[str(org_ref)]}
+
+    async def wallet_batch(self, entries, actor_id, source="business-manager", request_id=None):
+        self.batches.append((entries, actor_id, request_id))
+        for entry in entries:
+            key = str(entry["orgId"])
+            after = self.balances[key] + entry["amount"]
+            if after < 0:
+                raise AssertionError("test overdraft")
+            self.balances[key] = after
+        return {"results": [{"balance": self.balances[str(entry["orgId"])]} for entry in entries]}
+
+
 @pytest.fixture
 async def service(tmp_path: Path):
     db = Database(tmp_path / "test.db")
     await db.connect()
-    yield BusinessService(db)
+    yield BusinessService(db, api=FakeWalletApi(), allow_local_cash=True)
     await db.close()
 
 
@@ -42,6 +63,23 @@ async def test_transfer_fee_reduces_received_asset(service: BusinessService):
     await service.transfer(1, "A", "B", "cash", 400, "deal", 99, fee_rate=0.10)
     assert (await service.business(1, "A"))["cash"] == 600
     assert (await service.business(1, "B"))["cash"] == 360
+
+
+async def test_linked_business_cash_uses_live_org_wallet(tmp_path: Path):
+    db = Database(tmp_path / "linked.db")
+    await db.connect()
+    api = FakeWalletApi(alpha=8_000, beta=250)
+    service = BusinessService(db, api=api)
+    try:
+        await service.create(1, "Alpha", "restaurant", fbrp_org_id="alpha")
+        await service.create(1, "Beta", "mechanic", fbrp_org_id="beta")
+        assert (await service.business(1, "Alpha"))["cash"] == 8_000
+        await service.transfer(1, "Alpha", "Beta", "cash", 1_000, "invoice", 99, fee_rate=0.10)
+        assert (await service.business(1, "Alpha"))["cash"] == 7_000
+        assert (await service.business(1, "Beta"))["cash"] == 1_150
+        assert [row["delta"] for row in await db.fetch_all("SELECT delta FROM ledger ORDER BY id")] == [-1_000, 900]
+    finally:
+        await db.close()
 
 
 def test_parse_color():

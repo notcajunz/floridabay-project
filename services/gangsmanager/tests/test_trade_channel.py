@@ -44,6 +44,8 @@ async def setup(tmp_path: Path, channel: Channel):
     bot = GangManagerBot(config)
     await bot.db.connect()
     cog = EconomyCog(bot)
+    cog.service.api = SimpleNamespace(configured=False)
+    cog.service.allow_local_cash = True
     guild = SimpleNamespace(id=1, get_channel=lambda cid: channel if cid == config.trade_channel_id else None)
     await cog.service.create(1, "Alpha", "Street Gang", command_role_id=555)
     await cog.service.create(1, "Bravo", "Street Gang", command_role_id=666)

@@ -14,6 +14,7 @@ from ..common import (
     gang_autocomplete,
     guild_id,
     manager_only,
+    refresh_panels,
     reply,
     require_gang_access,
     require_gang_type,
@@ -273,12 +274,30 @@ class OperationsCog(GangCog):
             raise ValueError("No active turf war exists between those gangs.")
         if mine[asset_type.value] < amount:
             raise ValueError(f"{mine['name']} does not have enough {asset_type.value}.")
-        await self.db.transaction([
-            (f"UPDATE gangs SET {asset_type.value}={asset_type.value}-?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (amount, mine["id"])),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), mine["id"], asset_type.value, -amount, f"turf war #{war['id']} investment", actor_id(interaction))),
+        reason = f"turf war #{war['id']} investment"
+        records = [
             ("INSERT INTO turf_investments(guild_id,war_id,gang_id,asset,amount,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), war["id"], mine["id"], asset_type.value, amount, actor_id(interaction))),
             ("INSERT INTO activity_log(guild_id,category,action,actor_id,subject,details) VALUES(?,?,?,?,?,?)", (guild_id(interaction), "turfwar", "invest", actor_id(interaction), str(war["id"]), f"gang={mine['name']} {asset_type.value}={amount}")),
-        ])
+        ]
+        if asset_type.value == "cash":
+            await self.service.change_balance(
+                guild_id(interaction), mine["name"], "cash", -amount, reason, actor_id(interaction)
+            )
+            try:
+                await self.db.transaction(records)
+            except Exception:
+                await self.service.change_balance(
+                    guild_id(interaction), mine["name"], "cash", amount,
+                    f"rollback failed {reason}", actor_id(interaction),
+                )
+                raise
+            await refresh_panels(self.bot, interaction.guild, "leaderboard")
+        else:
+            await self.db.transaction([
+                (f"UPDATE gangs SET {asset_type.value}={asset_type.value}-?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (amount, mine["id"])),
+                ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), mine["id"], asset_type.value, -amount, reason, actor_id(interaction))),
+                *records,
+            ])
         await reply(interaction, f"Invested {amount:,} {asset_type.value} from **{mine['name']}** into turf war `#{war['id']}`.")
 
     @turfwar.command(name="stage", description="Create or update a turf-war stage")

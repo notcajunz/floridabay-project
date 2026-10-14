@@ -70,6 +70,7 @@ const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[name
 
 /* ---------- state ---------- */
 const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, investigation: null, investigationLoading: false, filters: {}, commandReference: null };
+let economySyncing = false;
 const filter = (key, fallback = "") => state.filters[key] ?? fallback;
 
 async function api(path, options = {}) {
@@ -1389,6 +1390,22 @@ async function load({ quiet = false } = {}) {
   }
   render();
 }
+
+// Organization wallets can also change in FiveM and in the gang/business manager bots. Keep the
+// open economy screen current without making members manually refresh the whole portal.
+setInterval(async () => {
+  if (!state.data || state.view !== "organizations" || document.hidden || economySyncing) return;
+  economySyncing = true;
+  try {
+    const result = await api("portal/org/live");
+    state.data.economy = result.economy;
+    if (state.view === "organizations") render();
+  } catch {
+    // A transient service failure is retried on the next tick; keep the last rendered screen.
+  } finally {
+    economySyncing = false;
+  }
+}, 10_000);
 
 async function investigate(discordId) {
   state.investigationLoading = true;

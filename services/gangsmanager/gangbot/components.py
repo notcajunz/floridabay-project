@@ -6,7 +6,8 @@ import discord
 from discord import app_commands
 
 from .role_policy import require_restricted_role_manager
-from .services import bank_fee_rate, deduct_fee
+from .common import refresh_panels
+from .services import GangService, bank_fee_rate, deduct_fee
 
 
 def action_view(kind: str, item_id: int) -> discord.ui.View:
@@ -123,22 +124,57 @@ async def _handle_trade(
     fee_rate = await bank_fee_rate(db, interaction.guild_id)
     offer_received, offer_fee = deduct_fee(trade["offer_amount"], fee_rate)
     request_received, request_fee = deduct_fee(trade["request_amount"], fee_rate)
-    try:
-        await db.transaction([
-            (f"UPDATE gangs SET {trade['offer_asset']}={trade['offer_asset']}-? WHERE id=?", (trade["offer_amount"], trade["gang_id"])),
-            (f"UPDATE gangs SET {trade['offer_asset']}={trade['offer_asset']}+? WHERE id=?", (offer_received, trade["target_gang_id"])),
-            (f"UPDATE gangs SET {trade['request_asset']}={trade['request_asset']}-? WHERE id=?", (trade["request_amount"], trade["target_gang_id"])),
-            (f"UPDATE gangs SET {trade['request_asset']}={trade['request_asset']}+? WHERE id=?", (request_received, trade["gang_id"])),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, trade["gang_id"], trade["offer_asset"], -trade["offer_amount"], f"trade #{trade_id}", interaction.user.id)),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, trade["target_gang_id"], trade["offer_asset"], offer_received, f"trade #{trade_id} (fee {offer_fee})", interaction.user.id)),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, trade["target_gang_id"], trade["request_asset"], -trade["request_amount"], f"trade #{trade_id}", interaction.user.id)),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, trade["gang_id"], trade["request_asset"], request_received, f"trade #{trade_id} (fee {request_fee})", interaction.user.id)),
-            ("UPDATE trades SET status='completed' WHERE id=?", (trade_id,)),
+    source = await db.fetch_one("SELECT * FROM gangs WHERE id=?", (trade["gang_id"],))
+    target = await db.fetch_one("SELECT * FROM gangs WHERE id=?", (trade["target_gang_id"],))
+    legs = [
+        (source, target, trade["offer_asset"], trade["offer_amount"], offer_received, offer_fee),
+        (target, source, trade["request_asset"], trade["request_amount"], request_received, request_fee),
+    ]
+    local_statements = []
+    reverse_statements = []
+    cash_entries = []
+    for sender, receiver, asset, sent, received, fee in legs:
+        if asset == "cash":
+            cash_entries.extend([
+                (sender, -sent, f"trade #{trade_id}"),
+                (receiver, received, f"trade #{trade_id} (fee {fee})"),
+            ])
+            continue
+        local_statements.extend([
+            (f"UPDATE gangs SET {asset}={asset}-? WHERE id=?", (sent, sender["id"])),
+            (f"UPDATE gangs SET {asset}={asset}+? WHERE id=?", (received, receiver["id"])),
+            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, sender["id"], asset, -sent, f"trade #{trade_id}", interaction.user.id)),
+            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, receiver["id"], asset, received, f"trade #{trade_id} (fee {fee})", interaction.user.id)),
         ])
+        reverse_statements.extend([
+            (f"UPDATE gangs SET {asset}={asset}+? WHERE id=?", (sent, sender["id"])),
+            (f"UPDATE gangs SET {asset}={asset}-? WHERE id=?", (received, receiver["id"])),
+            ("DELETE FROM ledger WHERE guild_id=? AND gang_id=? AND asset=? AND reason=? AND actor_id=?", (interaction.guild_id, sender["id"], asset, f"trade #{trade_id}", interaction.user.id)),
+            ("DELETE FROM ledger WHERE guild_id=? AND gang_id=? AND asset=? AND reason=? AND actor_id=?", (interaction.guild_id, receiver["id"], asset, f"trade #{trade_id} (fee {fee})", interaction.user.id)),
+        ])
+    local_applied = False
+    try:
+        if local_statements:
+            await db.transaction(local_statements)
+            local_applied = True
+        if cash_entries:
+            await GangService(db).change_cash_batch(
+                cash_entries, interaction.user.id,
+                request_id=f"trade-{interaction.guild_id}-{trade_id}",
+            )
+        await db.execute("UPDATE trades SET status='completed' WHERE id=?", (trade_id,))
     except sqlite3.IntegrityError as exc:
+        if local_applied:
+            await db.transaction(reverse_statements)
         await db.execute("UPDATE trades SET status='pending' WHERE id=?", (trade_id,))
         raise ValueError("A gang no longer has enough assets to complete that trade.") from exc
+    except Exception:
+        if local_applied:
+            await db.transaction(reverse_statements)
+        await db.execute("UPDATE trades SET status='pending' WHERE id=?", (trade_id,))
+        raise
     await _finish_message(interaction, f"Accepted by {interaction.user.mention}")
+    await refresh_panels(interaction.client, interaction.guild, "leaderboard")
 
 
 async def _handle_tax(interaction: discord.Interaction, tax_id: int, action: str) -> None:
@@ -201,23 +237,32 @@ async def _handle_launder(
     fee_rate = await bank_fee_rate(db, interaction.guild_id)
     payout_received, payout_bank_fee = deduct_fee(payout, fee_rate)
     processor_received, processor_bank_fee = deduct_fee(fee, fee_rate)
+    changed = await db.execute_count(
+        "UPDATE gangs SET dirty_money=dirty_money-?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND dirty_money>=?",
+        (request["amount"], request["gang_id"], request["amount"]),
+    )
+    if not changed:
+        await db.execute("UPDATE launder_requests SET status='pending' WHERE id=?", (request_id,))
+        raise ValueError(f"{request['source_name']} no longer has enough dirty money.")
     try:
+        source = await db.fetch_one("SELECT * FROM gangs WHERE id=?", (request["gang_id"],))
+        target = await db.fetch_one("SELECT * FROM gangs WHERE id=?", (request["target_gang_id"],))
+        await GangService(db).change_cash_batch([
+            (source, payout_received, f"launder request #{request_id} payout (fee {payout_bank_fee})"),
+            (target, processor_received, f"launder request #{request_id} fee income (fee {processor_bank_fee})"),
+        ], interaction.user.id, request_id=f"launder-{interaction.guild_id}-{request_id}")
         await db.transaction([
-            ("UPDATE gangs SET dirty_money=dirty_money-?,cash=cash+?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (request["amount"], payout_received, request["gang_id"])),
-            ("UPDATE gangs SET cash=cash+?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (processor_received, request["target_gang_id"])),
             ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, request["gang_id"], "dirty_money", -request["amount"], f"launder request #{request_id}", interaction.user.id)),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, request["gang_id"], "cash", payout_received, f"launder request #{request_id} payout (fee {payout_bank_fee})", interaction.user.id)),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (interaction.guild_id, request["target_gang_id"], "cash", processor_received, f"launder request #{request_id} fee income (fee {processor_bank_fee})", interaction.user.id)),
             ("UPDATE launder_requests SET status='completed' WHERE id=?", (request_id,)),
         ])
-    except sqlite3.IntegrityError as exc:
+    except Exception:
+        await db.execute("UPDATE gangs SET dirty_money=dirty_money+? WHERE id=?", (request["amount"], request["gang_id"]))
         await db.execute(
             "UPDATE launder_requests SET status='pending' WHERE id=?", (request_id,)
         )
-        raise ValueError(
-            f"{request['source_name']} no longer has enough dirty money."
-        ) from exc
+        raise
     await _finish_message(interaction, f"Accepted by {interaction.user.mention}")
+    await refresh_panels(interaction.client, interaction.guild, "leaderboard")
 
 
 async def _finish_message(interaction: discord.Interaction, result: str) -> None:

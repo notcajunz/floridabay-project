@@ -88,11 +88,13 @@ class GangsCog(GangCog):
         role_color: str,
         emoji: str,
         subtype: str | None = None,
+        fbrp_org_id: str | None = None,
     ) -> None:
         guild = interaction.guild
         if guild is None:
             raise ValueError("This command can only be used in a server.")
         await interaction.response.defer(ephemeral=True)
+        fbrp_org_id = await self.service.validate_org_link(fbrp_org_id)
         color = discord.Color(parse_color(role_color))
         name = clean_text(gang_name, 50)
         subtype = validate_gang_type(gang_type.value, subtype)
@@ -113,6 +115,7 @@ class GangsCog(GangCog):
                 emoji=clean_text(emoji, 30),
                 base_role_id=base_role.id,
                 command_role_id=command_role.id,
+                fbrp_org_id=fbrp_org_id,
             )
         except Exception:
             await base_role.delete(reason="Rolling back failed gang creation")
@@ -149,6 +152,7 @@ class GangsCog(GangCog):
             raise ValueError("The voice category must belong to this server.")
         gid = guild.id
         await interaction.response.defer(ephemeral=True)
+        fbrp_org_id = await self.service.validate_org_link(fbrp_org_id)
         gang_name = clean_text(name, 50)
         gang_emoji = clean_text(emoji, 30) if emoji is not None else None
         voice_name = f"{gang_emoji}・{gang_name}" if gang_emoji else gang_name
@@ -273,6 +277,8 @@ class GangsCog(GangCog):
     @app_commands.autocomplete(gang=gang_autocomplete)
     async def gang_balance(self, interaction: discord.Interaction, gang: str) -> None:
         row = await self.service.gang(guild_id(interaction), gang)
+        if not self.service.allow_local_cash and not row["fbrp_org_id"]:
+            raise ValueError("This gang has no FBRP organization linked, so it has no cash wallet.")
         embed = discord.Embed(title=f"{row['name']} Balance", color=row["role_color"])
         for asset in ("cash", "dirty_money", "drugs", "weapons"):
             embed.add_field(name=asset.replace("_", " ").title(), value=f"{row[asset]:,}")
@@ -408,6 +414,8 @@ class GangsCog(GangCog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         row = await self.service.gang(guild_id(interaction), gang)
+        if fbrp_org_id is not None:
+            fbrp_org_id = await self.service.validate_org_link(fbrp_org_id)
         values = {
             "name": new_name,
             "gang_type": new_type.value if new_type else None,
@@ -517,10 +525,14 @@ class GangsCog(GangCog):
     @app_commands.command(name="leaderboard", description="Rank gangs by total assets")
     async def leaderboard(self, interaction: discord.Interaction) -> None:
         rows = await self.db.fetch_all(
-            "SELECT name,tier,cash,drugs,weapons,(cash+drugs+weapons) total FROM gangs "
-            "WHERE guild_id=? AND hide_leaderboard=0 ORDER BY total DESC LIMIT 20",
+            "SELECT * FROM gangs WHERE guild_id=? AND hide_leaderboard=0",
             (guild_id(interaction),),
         )
+        rows = await self.service.live_cash_rows(rows)
+        for row in rows:
+            row["total"] = row["cash"] + row["drugs"] + row["weapons"]
+        rows.sort(key=lambda row: (-row["total"], row["name"].lower()))
+        rows = rows[:20]
         embed = discord.Embed(title="Gang Leaderboard", color=discord.Color.gold())
         embed.description = "\n".join(
             f"**{i}. {row['name']}** · T{row['tier']} · {row['total']:,} assets"
@@ -1258,11 +1270,14 @@ class GangsCog(GangCog):
         received, fee = deduct_fee(
             amount, await bank_fee_rate(self.db, guild_id(interaction))
         )
-        await self.db.transaction([
-            ("INSERT INTO rewards(guild_id,gang_id,user_id,cash_amount) VALUES(?,?,?,?)", (guild_id(interaction), row["id"], user.id, received)),
-            ("UPDATE gangs SET cash=cash+?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (received, row["id"])),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), row["id"], "cash", received, f"reward for {user.id} (fee {fee})", actor_id(interaction))),
-        ])
+        await self.service.change_balance(
+            guild_id(interaction), row["name"], "cash", received,
+            f"reward for {user.id} (fee {fee})", actor_id(interaction),
+        )
+        await self.db.execute(
+            "INSERT INTO rewards(guild_id,gang_id,user_id,cash_amount) VALUES(?,?,?,?)",
+            (guild_id(interaction), row["id"], user.id, received),
+        )
         await reply(interaction, f"Rewarded **{row['name']}** {received:,} cash for {user.mention} after a {fee:,} fee.")
 
     @reward.command(name="remove", description="Remove a user's gang reward")

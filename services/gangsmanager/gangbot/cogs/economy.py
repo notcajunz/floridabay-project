@@ -82,6 +82,7 @@ class EconomyCog(GangCog):
                     applied = deduct_fee(delta, await bank_fee_rate(self.db, gid))[0] if delta > 0 else delta
                     await self.service.change_balance(gid, row["name"], asset, applied, "bank category adjustment", actor_id(interaction))
             changed += 1
+        await refresh_panels(self.bot, interaction.guild, "leaderboard")
         await reply(interaction, f"Adjusted {changed} gang(s) in **{category}**, tier {tier}.")
 
     @bank.command(name="disperse", description="Give an equal cash bonus to all visible gangs")
@@ -94,6 +95,7 @@ class EconomyCog(GangCog):
         received, fee = deduct_fee(bonus, await bank_fee_rate(self.db, gid))
         for row in rows:
             await self.service.change_balance(gid, row["name"], "cash", received, f"bank bonus (fee {fee})", actor_id(interaction))
+        await refresh_panels(self.bot, interaction.guild, "leaderboard")
         await reply(interaction, f"Dispersed {money(received)} net to {len(rows)} gang(s); {money(fee)} fee per gang.")
 
     @bank.command(name="fee", description="Set the global bank transaction fee")
@@ -112,6 +114,7 @@ class EconomyCog(GangCog):
             raise ValueError("Amount must be greater than zero.")
         received, fee = deduct_fee(amount, await bank_fee_rate(self.db, guild_id(interaction)))
         balance = await self.service.change_balance(guild_id(interaction), gang, asset.value, received, f"bank give (fee {fee})", actor_id(interaction))
+        await refresh_panels(self.bot, interaction.guild, "leaderboard")
         await reply(interaction, f"Gave **{gang}** {received:,} {asset.value} after a {fee:,} fee. New balance: {balance:,}.")
 
     @bank.command(name="remove", description="Remove an asset from a gang")
@@ -122,6 +125,7 @@ class EconomyCog(GangCog):
         if amount <= 0:
             raise ValueError("Amount must be greater than zero.")
         balance = await self.service.change_balance(guild_id(interaction), gang, asset.value, -amount, "bank remove", actor_id(interaction))
+        await refresh_panels(self.bot, interaction.guild, "leaderboard")
         await reply(interaction, f"Removed {amount:,} {asset.value} from **{gang}**. New balance: {balance:,}.")
 
     @bank.command(name="income", description="Log income for a gang")
@@ -133,10 +137,9 @@ class EconomyCog(GangCog):
             raise ValueError("Value must be greater than zero.")
         if asset.value == "cash":
             row = await self.service.gang(guild_id(interaction), gang)
-            statements, net, tax_total, fee_total = await self._cash_income_statements(
+            net, tax_total, fee_total = await self._cash_income(
                 interaction, row, value, "income"
             )
-            await self.db.transaction(statements)
             await reply(
                 interaction,
                 f"Logged {money(value)} gross income for **{gang}**; {money(fee_total)} fees, {money(tax_total)} tax, {money(net)} net.",
@@ -145,6 +148,7 @@ class EconomyCog(GangCog):
             received, fee = deduct_fee(value, await bank_fee_rate(self.db, guild_id(interaction)))
             balance = await self.service.change_balance(guild_id(interaction), gang, asset.value, received, f"income (fee {fee})", actor_id(interaction))
             await reply(interaction, f"Logged {received:,} net {asset.value} income for **{gang}** after a {fee:,} fee (balance {balance:,}).")
+        await refresh_panels(self.bot, interaction.guild, "leaderboard")
 
     @bank.command(name="info", description="Show bank rates and market configuration")
     async def bank_info(self, interaction: discord.Interaction) -> None:
@@ -230,11 +234,28 @@ class EconomyCog(GangCog):
         payout, bank_fee = deduct_fee(
             gross_payout, await bank_fee_rate(self.db, guild_id(interaction))
         )
-        await self.db.transaction([
-            ("UPDATE gangs SET dirty_money=dirty_money-?,cash=cash+?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (amount, payout, row["id"])),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), row["id"], "dirty_money", -amount, "self laundering", actor_id(interaction))),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), row["id"], "cash", payout, f"self laundering payout (bank fee {bank_fee})", actor_id(interaction))),
-        ])
+        changed = await self.db.execute_count(
+            "UPDATE gangs SET dirty_money=dirty_money-?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND dirty_money>=?",
+            (amount, row["id"], amount),
+        )
+        if not changed:
+            raise ValueError(f"{row['name']} no longer has enough dirty money.")
+        try:
+            await self.service.change_balance(
+                guild_id(interaction), row["name"], "cash", payout,
+                f"self laundering payout (bank fee {bank_fee})", actor_id(interaction),
+            )
+        except Exception:
+            await self.db.execute(
+                "UPDATE gangs SET dirty_money=dirty_money+?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (amount, row["id"]),
+            )
+            raise
+        await self.db.execute(
+            "INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)",
+            (guild_id(interaction), row["id"], "dirty_money", -amount, "self laundering", actor_id(interaction)),
+        )
+        await refresh_panels(self.bot, interaction.guild, "leaderboard")
         await reply(interaction, f"Laundered {money(amount)} for **{row['name']}**. Net payout: **{money(payout)}** after {money(bank_fee)} bank fee.")
 
     @launder.command(name="request", description="Request laundering from another gang")
@@ -279,14 +300,26 @@ class EconomyCog(GangCog):
         if row["drugs"] < amount:
             raise ValueError(f"{row['name']} only has {row['drugs']:,} drugs.")
         proceeds = amount * price
-        income_statements, net, tax_total, fee_total = await self._cash_income_statements(
-            interaction, row, proceeds, "market sale"
+        changed = await self.db.execute_count(
+            "UPDATE gangs SET drugs=drugs-?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND drugs>=?",
+            (amount, row["id"], amount),
         )
-        await self.db.transaction([
-            ("UPDATE gangs SET drugs=drugs-?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (amount, row["id"])),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), row["id"], "drugs", -amount, "market sale", actor_id(interaction))),
-            *income_statements,
-        ])
+        if not changed:
+            raise ValueError(f"{row['name']} no longer has enough drugs.")
+        try:
+            net, tax_total, fee_total = await self._cash_income(
+                interaction, row, proceeds, "market sale"
+            )
+        except Exception:
+            await self.db.execute(
+                "UPDATE gangs SET drugs=drugs+?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (amount, row["id"]),
+            )
+            raise
+        await self.db.execute(
+            "INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)",
+            (guild_id(interaction), row["id"], "drugs", -amount, "market sale", actor_id(interaction)),
+        )
         embed = discord.Embed(title="Market sale", color=discord.Color.green())
         embed.add_field(name="Gang", value=row["name"])
         embed.add_field(name="Sold by", value=interaction.user.mention)
@@ -296,12 +329,13 @@ class EconomyCog(GangCog):
         embed.add_field(name="Tax", value=money(tax_total))
         embed.add_field(name="Net to gang", value=money(net))
         await send_market_log(self.bot, interaction.guild, embed)
+        await refresh_panels(self.bot, interaction.guild, "leaderboard")
         await reply(interaction, f"Sold {amount:,} drugs for {money(proceeds)} gross; {money(fee_total)} fees, {money(tax_total)} tax, **{money(net)} net**.")
 
-    async def _cash_income_statements(self, interaction, gang, gross: int, reason: str):
+    async def _cash_income(self, interaction, gang, gross: int, reason: str):
         now = datetime.now(UTC).isoformat()
         taxes = await self.db.fetch_all(
-            "SELECT t.id,t.rate,t.gang_id,g.name FROM taxes t JOIN gangs g ON g.id=t.gang_id "
+            "SELECT t.id tax_id,t.rate,g.* FROM taxes t JOIN gangs g ON g.id=t.gang_id "
             "WHERE t.guild_id=? AND t.target_gang_id=? AND t.status='active' AND t.expires_at>?",
             (guild_id(interaction), gang["id"], now),
         )
@@ -314,10 +348,7 @@ class EconomyCog(GangCog):
             raise ValueError("Active tax rates exceed 100%; adjust or remove a tax first.")
         net = after_fee - total
         fee_total = income_fee
-        statements = [
-            ("UPDATE gangs SET cash=cash+?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (net, gang["id"])),
-            ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), gang["id"], "cash", net, reason, actor_id(interaction))),
-        ]
+        entries = [(gang, net, reason)]
         for tax, amount in payments:
             if amount <= 0:
                 continue
@@ -325,11 +356,9 @@ class EconomyCog(GangCog):
                 amount, await bank_fee_rate(self.db, guild_id(interaction))
             )
             fee_total += tax_fee
-            statements.extend([
-                ("UPDATE gangs SET cash=cash+?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (received, tax["gang_id"])),
-                ("INSERT INTO ledger(guild_id,gang_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), tax["gang_id"], "cash", received, f"tax #{tax['id']} from {gang['name']} {reason} (fee {tax_fee})", actor_id(interaction))),
-            ])
-        return statements, net, total, fee_total
+            entries.append((tax, received, f"tax #{tax['tax_id']} from {gang['name']} {reason} (fee {tax_fee})"))
+        await self.service.change_cash_batch(entries, actor_id(interaction))
+        return net, total, fee_total
 
     @shop.command(name="add", description="Add an item to the server shop")
     @manager_only
@@ -436,6 +465,7 @@ class EconomyCog(GangCog):
         fee_rate = await bank_fee_rate(self.db, guild_id(interaction))
         received, fee = deduct_fee(amount, fee_rate)
         await self.service.transfer(guild_id(interaction), gang, target_gang, asset.value, amount, f"trade gift: {notes}", actor_id(interaction), fee_rate)
+        await refresh_panels(self.bot, interaction.guild, "leaderboard")
         source = await self.service.gang(guild_id(interaction), gang)
         target = await self.service.gang(guild_id(interaction), target_gang)
         trade_id = await self.db.execute("INSERT INTO trades(guild_id,gang_id,target_gang_id,offer_asset,offer_amount,notes,status) VALUES(?,?,?,?,?,?,?)", (guild_id(interaction), source["id"], target["id"], asset.value, amount, notes, "completed"))

@@ -78,6 +78,7 @@ class BusinessesCog(BusinessCog):
         if guild is None:
             raise ValueError("This command can only be used in a server.")
         await interaction.response.defer(ephemeral=True)
+        fbrp_org_id = await self.service.validate_org_link(fbrp_org_id)
         color = discord.Color(parse_color(role_color))
         name = clean_text(business_name, 50)
         subtype = validate_business_type(business_type.value, specialty)
@@ -135,6 +136,7 @@ class BusinessesCog(BusinessCog):
             raise ValueError("The voice category must belong to this server.")
         gid = guild.id
         await interaction.response.defer(ephemeral=True)
+        fbrp_org_id = await self.service.validate_org_link(fbrp_org_id)
         business_name = clean_text(name, 50)
         business_emoji = clean_text(emoji, 30) if emoji is not None else None
         voice_name = f"{business_emoji}・{business_name}" if business_emoji else business_name
@@ -263,6 +265,8 @@ class BusinessesCog(BusinessCog):
     @app_commands.autocomplete(business=business_autocomplete)
     async def business_balance(self, interaction: discord.Interaction, business: str) -> None:
         row = await self.service.business(guild_id(interaction), business)
+        if not self.service.allow_local_cash and not row["fbrp_org_id"]:
+            raise ValueError("This business has no FBRP organization linked, so it has no cash wallet.")
         embed = discord.Embed(title=f"{row['name']} Balance", color=row["role_color"])
         embed.add_field(name="Cash", value=f"${row['cash']:,}")
         await reply(interaction, embed=embed)
@@ -397,6 +401,8 @@ class BusinessesCog(BusinessCog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         row = await self.service.business(guild_id(interaction), business)
+        if fbrp_org_id is not None:
+            fbrp_org_id = await self.service.validate_org_link(fbrp_org_id)
         values = {
             "name": new_name,
             "business_type": new_type.value if new_type else None,
@@ -498,10 +504,10 @@ class BusinessesCog(BusinessCog):
     @app_commands.command(name="leaderboard", description="Rank businesses by tracked cash")
     async def leaderboard(self, interaction: discord.Interaction) -> None:
         rows = await self.db.fetch_all(
-            "SELECT name,tier,cash FROM businesses "
-            "WHERE guild_id=? AND hide_leaderboard=0 ORDER BY cash DESC,name LIMIT 20",
+            "SELECT * FROM businesses WHERE guild_id=? AND hide_leaderboard=0",
             (guild_id(interaction),),
         )
+        rows = sorted(await self.service.live_cash_rows(rows), key=lambda row: (-row["cash"], row["name"].lower()))[:20]
         embed = discord.Embed(title="Business Leaderboard", color=discord.Color.gold())
         embed.description = "\n".join(
             f"**{i}. {row['name']}** · T{row['tier']} · ${row['cash']:,}"
@@ -1218,11 +1224,14 @@ class BusinessesCog(BusinessCog):
         received, fee = deduct_fee(
             amount, await bank_fee_rate(self.db, guild_id(interaction))
         )
-        await self.db.transaction([
-            ("INSERT INTO rewards(guild_id,business_id,user_id,cash_amount) VALUES(?,?,?,?)", (guild_id(interaction), row["id"], user.id, received)),
-            ("UPDATE businesses SET cash=cash+?,updated_at=CURRENT_TIMESTAMP WHERE id=?", (received, row["id"])),
-            ("INSERT INTO ledger(guild_id,business_id,asset,delta,reason,actor_id) VALUES(?,?,?,?,?,?)", (guild_id(interaction), row["id"], "cash", received, f"reward for {user.id} (fee {fee})", actor_id(interaction))),
-        ])
+        await self.service.change_balance(
+            guild_id(interaction), row["name"], "cash", received,
+            f"reward for {user.id} (fee {fee})", actor_id(interaction),
+        )
+        await self.db.execute(
+            "INSERT INTO rewards(guild_id,business_id,user_id,cash_amount) VALUES(?,?,?,?)",
+            (guild_id(interaction), row["id"], user.id, received),
+        )
         await reply(interaction, f"Rewarded **{row['name']}** {received:,} cash for {user.mention} after a {fee:,} fee.")
 
     @reward.command(name="remove", description="Remove a user's business reward")

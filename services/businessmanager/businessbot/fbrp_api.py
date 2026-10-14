@@ -6,6 +6,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from typing import Any
 
 
@@ -14,7 +15,7 @@ class FbrpApiError(RuntimeError):
 
 
 class FbrpApi:
-    """Read-only client for the portal's shared organization-hours endpoints."""
+    """Client for the portal's shared organization and authoritative wallet API."""
 
     def __init__(self, base_url: str | None = None, token: str | None = None):
         self.base_url = (base_url or os.getenv("FBRP_API_URL", "")).strip().rstrip("/")
@@ -25,16 +26,40 @@ class FbrpApi:
         return bool(self.base_url and self.token)
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._request("GET", path, params=params)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not self.configured:
             raise FbrpApiError("FBRP_API_URL and FBRP_API_TOKEN are not set.")
         query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
+        body = json.dumps(payload).encode() if payload is not None else None
         request = urllib.request.Request(
             f"{self.base_url}{path}{'?' + query if query else ''}",
-            headers={"Authorization": f"Bearer {self.token}", "Accept": "application/json"},
+            data=body,
+            method=method,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
         )
         try:
-            with urllib.request.urlopen(request, timeout=10) as response:
-                return json.load(response)
+            for attempt in range(2):
+                try:
+                    with urllib.request.urlopen(request, timeout=10) as response:
+                        return json.load(response)
+                except urllib.error.HTTPError:
+                    raise
+                except (urllib.error.URLError, TimeoutError):
+                    if method != "POST" or attempt:
+                        raise
         except urllib.error.HTTPError as error:
             try:
                 detail = json.load(error).get("error", "")
@@ -47,6 +72,29 @@ class FbrpApi:
     async def org(self, org_ref: str) -> dict[str, Any]:
         quoted = urllib.parse.quote(str(org_ref), safe="")
         return (await asyncio.to_thread(self._get, f"/api/gangs/org/{quoted}"))["org"]
+
+    async def wallet(self, org_ref: str) -> dict[str, Any]:
+        quoted = urllib.parse.quote(str(org_ref), safe="")
+        return (await asyncio.to_thread(self._get, f"/api/gangs/org/{quoted}/economy"))["wallet"]
+
+    async def wallet_batch(
+        self,
+        entries: list[dict[str, Any]],
+        actor_id: int | str,
+        source: str = "business-manager",
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._request,
+            "POST",
+            "/api/gangs/economy/batch",
+            payload={
+                "entries": entries,
+                "actorId": str(actor_id),
+                "source": source,
+                "requestId": request_id or uuid.uuid4().hex,
+            },
+        )
 
     async def hours(
         self,

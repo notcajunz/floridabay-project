@@ -225,6 +225,97 @@ export function createEconomy({ client, db, audit, log }) {
       { balance: 0, lifetime_earned: 0, lifetime_spent: 0, updated_at: 0 };
   }
 
+  /**
+   * Trusted service bridge used by the gang/business manager bots.  Linked managers never own a
+   * second cash balance: every adjustment lands in the same wallet and ledger used by FiveM and
+   * the member portal. Wallet rows are locked in a stable order so multi-organization payouts are
+   * atomic, and requestId makes a retry after a lost HTTP response safe.
+   */
+  async function serviceBatch(input) {
+    const raw = Array.isArray(input?.entries) ? input.entries : [];
+    if (!raw.length || raw.length > 100) throw new Error("Supply between 1 and 100 wallet entries.");
+    const actorId = text(input.actorId || "manager-service", 32) || "manager-service";
+    const source = text(input.source || "organization manager", 40) || "organization manager";
+    const requestId = text(input.requestId, 48);
+    if (!requestId) throw new Error("requestId is required.");
+
+    const entries = [];
+    for (let index = 0; index < raw.length; index += 1) {
+      const row = raw[index] || {};
+      const org = await findOrg(row.orgId);
+      const amount = Math.round(Number(row.amount));
+      if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100000000)
+        throw new Error("Every wallet amount must be non-zero and at most $100,000,000.");
+      const reason = text(row.reason, 140);
+      if (reason.length < 3) throw new Error("Every wallet entry needs a reason.");
+      entries.push({ org, amount, reason, ref: `${requestId}:${index}` });
+    }
+
+    const stamp = Date.now();
+    const result = await db.transaction(async (query) => {
+      const ids = [...new Set(entries.map((entry) => Number(entry.org.id)))].sort((a, b) => a - b);
+      for (const id of ids)
+        await query("INSERT IGNORE INTO org_wallets(org_id,balance,updated_at) VALUES(?,0,?)", [id, stamp]);
+      const placeholders = ids.map(() => "?").join(",");
+      const locked = await query(`SELECT org_id,balance FROM org_wallets WHERE org_id IN (${placeholders}) ORDER BY org_id FOR UPDATE`, ids);
+
+      // The wallet locks serialize retries. Seeing the first reference means the whole original
+      // transaction committed, because all entries are inserted in this MariaDB transaction.
+      const [duplicate] = await query(
+        "SELECT 1 ok FROM org_transactions WHERE org_id=? AND kind='manager_adjust' AND ref=? LIMIT 1",
+        [entries[0].org.id, entries[0].ref],
+      );
+      if (duplicate) {
+        return {
+          duplicate: true,
+          balances: Object.fromEntries(locked.map((row) => [String(row.org_id), Number(row.balance)])),
+        };
+      }
+
+      const balances = new Map(locked.map((row) => [Number(row.org_id), Number(row.balance)]));
+      for (const entry of entries) {
+        const id = Number(entry.org.id);
+        const next = Number(balances.get(id) || 0) + entry.amount;
+        if (next < 0) throw new Error(`${entry.org.name} only has ${money(balances.get(id) || 0)}.`);
+        balances.set(id, next);
+      }
+      for (const [id, balance] of balances) {
+        const earned = entries.filter((entry) => Number(entry.org.id) === id && entry.amount > 0).reduce((sum, entry) => sum + entry.amount, 0);
+        const spent = entries.filter((entry) => Number(entry.org.id) === id && entry.amount < 0).reduce((sum, entry) => sum - entry.amount, 0);
+        await query(
+          "UPDATE org_wallets SET balance=?,lifetime_earned=lifetime_earned+?,lifetime_spent=lifetime_spent+?,updated_at=? WHERE org_id=?",
+          [balance, earned, spent, stamp, id],
+        );
+      }
+      const running = new Map(locked.map((row) => [Number(row.org_id), Number(row.balance)]));
+      for (const entry of entries) {
+        const id = Number(entry.org.id);
+        const after = Number(running.get(id) || 0) + entry.amount;
+        running.set(id, after);
+        await query(
+          "INSERT INTO org_transactions(org_id,amount,balance_after,kind,description,actor_id,ref,created_at) VALUES(?,?,?,'manager_adjust',?,?,?,?)",
+          [id, entry.amount, after, `${source}: ${entry.reason}`, actorId, entry.ref, stamp],
+        );
+      }
+      return { duplicate: false, balances: Object.fromEntries([...balances].map(([id, balance]) => [String(id), balance])) };
+    });
+
+    if (!result.duplicate) {
+      await audit(actorId, "economy.manager_batch", requestId, {
+        source,
+        entries: entries.map((entry) => ({ org: entry.org.id, amount: entry.amount, reason: entry.reason })),
+      });
+      await notifyGame();
+    }
+    return {
+      ...result,
+      results: entries.map((entry) => ({
+        orgId: Number(entry.org.id),
+        balance: Number(result.balances[String(entry.org.id)] || 0),
+      })),
+    };
+  }
+
   async function shop() {
     return (await db.query("SELECT * FROM org_shop_items WHERE enabled=TRUE ORDER BY FIELD(kind,'property','vehicle','weapon','outfit','perk'),sort_order,label")).map((row) => ({
       ...row,
@@ -595,6 +686,6 @@ export function createEconomy({ client, db, audit, log }) {
 
   return {
     seed, portalData, purchase, sellItem, sellProperty: sellItem, transfer, adjust, setLeader,
-    saveRank, deleteRank, setMemberRank, setMotd, summary, memberships, canManage, money, KIND_LABEL,
+    saveRank, deleteRank, setMemberRank, setMotd, summary, memberships, canManage, wallet, serviceBatch, money, KIND_LABEL,
   };
 }

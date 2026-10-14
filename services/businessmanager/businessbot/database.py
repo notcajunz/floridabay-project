@@ -174,6 +174,11 @@ class Database:
                 self._conn.execute,
                 "ALTER TABLE businesses RENAME COLUMN sal_org_id TO fbrp_org_id",
             )
+        await asyncio.to_thread(
+            self._conn.execute,
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_businesses_fbrp_org ON businesses(fbrp_org_id) "
+            "WHERE fbrp_org_id IS NOT NULL AND fbrp_org_id <> ''",
+        )
         reward_columns = await asyncio.to_thread(
             lambda: {row[1] for row in self._conn.execute("PRAGMA table_info(rewards)").fetchall()}
         )

@@ -144,7 +144,9 @@ Channel IDs live in [config.toml](config.toml) (`trade_channel_id`, `shop_channe
 
 ## Important behavior choices
 
-- Assets are `cash`, `dirty_money`, `drugs`, and `weapons`.
+- Assets are `cash`, `dirty_money`, `drugs`, and `weapons`. For a gang linked
+  to an FBRP organization, `cash` is its live organization wallet shared with
+  FiveM and the member portal; only the three non-cash assets stay in SQLite.
 - `dirty_money` is a separate balance that cannot be traded, invested, or used
   for shop purchases. Laundering debits it and credits spendable `cash`.
 - `/bank disperse bonus` gives the flat cash bonus to every registered gang.

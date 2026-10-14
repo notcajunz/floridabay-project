@@ -180,10 +180,14 @@ class PanelsCog(GangCog):
     async def _leaderboard_embeds(self, guild: discord.Guild) -> list[discord.Embed]:
         # Same ranking as /leaderboard: spendable cash plus drug and weapon stock.
         rows = await self.db.fetch_all(
-            "SELECT name,tier,cash,drugs,weapons,(cash+drugs+weapons) total FROM gangs "
-            "WHERE guild_id=? AND hide_leaderboard=0 ORDER BY total DESC,name LIMIT 25",
+            "SELECT * FROM gangs WHERE guild_id=? AND hide_leaderboard=0",
             (guild.id,),
         )
+        rows = await self.service.live_cash_rows(rows)
+        for row in rows:
+            row["total"] = row["cash"] + row["drugs"] + row["weapons"]
+        rows.sort(key=lambda row: (-row["total"], row["name"].lower()))
+        rows = rows[:25]
         lines = []
         for rank, row in enumerate(rows, 1):
             lines.append(

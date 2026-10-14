@@ -7,9 +7,10 @@ Gang Manager architecture but keeps only business-relevant workflows.
 
 - Create or register businesses with tier, category, owner, base role, command
   role, optional voice room, locations, specialty, and external Discord ID.
-- Link each business to its FBRP organization ID. `/business hours` reads
-  member shifts from the portal API, and the weekly hours panel refreshes in
-  `⏰・business-hours` every minute.
+- Link each business to its FBRP organization ID. Its cash is then the live
+  organization wallet shared with FiveM and the member portal; no second bot
+  balance is used. `/business hours` reads member shifts from the same API, and
+  the weekly hours panel refreshes every minute.
 - Maintain the business tier directory, four category coordinator panels, and
   the global Business Coordination chain of command.
 - Enforce one business per category, category resignation cooldowns, blacklist

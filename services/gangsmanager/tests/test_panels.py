@@ -53,6 +53,8 @@ async def make_cog(tmp_path: Path):
     bot = GangManagerBot(Config("unused", tmp_path / "panels.db", None, frozenset(), 0))
     await bot.db.connect()
     cog = PanelsCog(bot)
+    cog.service.api = SimpleNamespace(configured=False)
+    cog.service.allow_local_cash = True
     channels = {
         bot.config.shop_channel_id: FakeChannel(),
         bot.config.leaderboard_channel_id: FakeChannel(),

@@ -1597,7 +1597,8 @@ export function startWebPanel(context) {
       if (request.method === "POST" && !sameOrigin(request))
         return sendJson(response, 403, { error: "Cross-site request blocked." });
 
-      // Read-only org and duty-hours lookups for the Gang Manager bot. Authenticated by a shared bearer token.
+      // Organization-manager bridge. A shared service token exposes org metadata/hours plus the
+      // authoritative wallet API used by both the Gang and Business Manager bots.
       if (url.pathname.startsWith("/api/gangs/")) {
         const expected = String(process.env.GANGS_API_TOKEN || "");
         if (expected.length < 24) return sendJson(response, 503, { error: "Gangs API is not configured." });
@@ -1606,9 +1607,13 @@ export function startWebPanel(context) {
         const same = createHash("sha256").update(given).digest();
         if (!timingSafeEqual(same, createHash("sha256").update(expected).digest()))
           return sendJson(response, 401, { error: "Invalid token." });
-        if (request.method !== "GET") return sendJson(response, 405, { error: "Method not allowed." });
-        const match = /^\/api\/gangs\/org\/([^/]{1,80})(?:\/(hours))?$/.exec(url.pathname);
+        if (url.pathname === "/api/gangs/economy/batch") {
+          if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
+          return sendJson(response, 200, await economy.serviceBatch(await bodyJson(request)));
+        }
+        const match = /^\/api\/gangs\/org\/([^/]{1,80})(?:\/(hours|economy))?$/.exec(url.pathname);
         if (!match) return sendJson(response, 404, { error: "Not found." });
+        if (request.method !== "GET") return sendJson(response, 405, { error: "Method not allowed." });
         const ref = decodeURIComponent(match[1]);
         const org = await db.one(
           `SELECT id,slug,name,type,color,active,guild_id FROM organizations WHERE ${/^\d+$/.test(ref) ? "id=?" : "slug=?"}`,
@@ -1618,6 +1623,18 @@ export function startWebPanel(context) {
         if (!match[2]) {
           const members = await db.one("SELECT COUNT(*) count FROM organization_members WHERE org_id=?", [org.id]);
           return sendJson(response, 200, { org: { ...org, active: Boolean(org.active), members: Number(members.count) } });
+        }
+        if (match[2] === "economy") {
+          const wallet = await economy.wallet(org.id);
+          return sendJson(response, 200, {
+            org: { id: Number(org.id), slug: org.slug, name: org.name, type: org.type },
+            wallet: {
+              balance: Number(wallet.balance || 0),
+              lifetimeEarned: Number(wallet.lifetime_earned || 0),
+              lifetimeSpent: Number(wallet.lifetime_spent || 0),
+              updatedAt: Number(wallet.updated_at || 0),
+            },
+          });
         }
         const now = Date.now();
         const until = Number(url.searchParams.get("until")) || now;
@@ -1755,6 +1772,8 @@ export function startWebPanel(context) {
 
       if (request.method === "GET" && url.pathname === "/api/portal/bootstrap")
         return sendJson(response, 200, await portalBootstrap(session));
+      if (request.method === "GET" && url.pathname === "/api/portal/org/live")
+        return sendJson(response, 200, { economy: await economy.portalData(session.id), generatedAt: Date.now() });
       if (request.method === "GET" && url.pathname === "/api/portal/command-reference") {
         const access = await accessFor(session.id);
         if (!access.commandReference)
