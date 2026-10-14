@@ -21,6 +21,8 @@ local armored = {}        -- source -> true while they sit in a bulletproof pers
 local pushedBypass = {}   -- source -> the bypass flag the client last received
 
 local BYPASS = 'fbrp.personals.bypass'
+local LOCK_MESSAGE = 'This personal vehicle was locked by the DevOps team.'
+local lastLockNotice = {} -- source -> game timer of the last lock notice
 
 local function hash(model) return GetHashKey(model) end
 
@@ -44,8 +46,14 @@ end
 
 local function load()
     local okRows, rows = pcall(function()
-        return MySQL.query.await('SELECT id,model,label,plate,owner_id,bulletproof FROM personal_vehicles WHERE enabled=TRUE')
+        return MySQL.query.await('SELECT id,model,label,plate,owner_id,bulletproof,locked FROM personal_vehicles WHERE enabled=TRUE')
     end)
+    if not okRows then
+        -- The lock column arrives with migration 054; keep personals working until it is applied.
+        okRows, rows = pcall(function()
+            return MySQL.query.await('SELECT id,model,label,plate,owner_id,bulletproof FROM personal_vehicles WHERE enabled=TRUE')
+        end)
+    end
     if not okRows then return end -- migration not applied yet
     local nextPersonals, ids = {}, {}
     for _, row in ipairs(rows or {}) do
@@ -55,6 +63,7 @@ local function load()
             id = id, model = model, hash = hash(model), label = row.label, plate = row.plate and row.plate ~= '' and row.plate or defaultPlate(id),
             owner = tostring(row.owner_id), ownerName = nil, trust = {}, tags = {}, tagLabels = {},
             bulletproof = row.bulletproof == true or tonumber(row.bulletproof) == 1,
+            locked = row.locked == true or tonumber(row.locked) == 1,
         }
         ids[#ids + 1] = id
     end
@@ -171,6 +180,39 @@ local function mayDrive(source, vehicle)
     return bypasses(source)
 end
 
+-- A locked personal, or a vehicle of a personal-only model whose personal is locked.
+local function isLocked(vehicle)
+    local id = personalIdOf(vehicle)
+    if id then return personals[id] ~= nil and personals[id].locked == true end
+    for _, pid in ipairs(restricted[GetEntityModel(vehicle)] or {}) do
+        if personals[pid] and personals[pid].locked then return true end
+    end
+    return false
+end
+
+-- Despawns a locked vehicle and tells everyone inside (or the person who touched it) that it is locked.
+local function despawnLocked(source, vehicle)
+    local stamp = GetGameTimer()
+    local told = {}
+    for src in pairs(sessions) do
+        local ped = GetPlayerPed(src)
+        if ped and ped ~= 0 and GetVehiclePedIsIn(ped, false) == vehicle then told[src] = true end
+    end
+    if source then told[source] = true end
+    local netId = NetworkGetNetworkIdFromEntity(vehicle)
+    registry[netId] = nil
+    for pid, nid in pairs(active) do
+        if nid == netId then active[pid] = nil end
+    end
+    if DoesEntityExist(vehicle) then DeleteEntity(vehicle) end
+    for src in pairs(told) do
+        if not lastLockNotice[src] or stamp - lastLockNotice[src] > 3000 then
+            lastLockNotice[src] = stamp
+            notify(src, LOCK_MESSAGE, 'error')
+        end
+    end
+end
+
 -- What the client needs to stop a player before the server has to eject them.
 local function push(source)
     local discord = discordOf(source)
@@ -199,11 +241,21 @@ local function push(source)
             if personals[pid].bulletproof then bulletproofModels[#bulletproofModels + 1] = personals[pid].model break end
         end
     end
+    local locked, lockedModels = {}, {}
+    for id, p in pairs(personals) do
+        if p.locked then locked[#locked + 1] = id end
+    end
+    for _, ids in pairs(restricted) do
+        for _, pid in ipairs(ids) do
+            if personals[pid].locked then lockedModels[#lockedModels + 1] = personals[pid].model break end
+        end
+    end
     local bypass = bypasses(source)
     pushedBypass[source] = bypass
     TriggerClientEvent('fbrp:personals:sync', source, {
         denied = denied, models = names, bypass = bypass,
         bulletproof = bulletproof, bulletproofModels = bulletproofModels,
+        locked = locked, lockedModels = lockedModels,
     })
 end
 
@@ -227,6 +279,7 @@ function FBRP.Personals.category(source)
             local note = level == 'owner' and ('Yours · ' .. p.plate)
                 or level == 'trusted' and ('Trusted by ' .. (p.ownerName or 'the owner'))
                 or ('Tag access · ' .. table.concat(p.tagLabels, ', '))
+            if p.locked then note = 'Locked by the DevOps team' end
             list[#list + 1] = { model = p.model, label = p.label, key = 'p' .. p.id, note = note, sort = level == 'owner' and 0 or 1 }
         end
     end
@@ -244,6 +297,17 @@ function FBRP.Personals.spawn(source, key)
     local discord = discordOf(source)
     local level = accessOf(discord, p)
     if not p or not level then return notify(source, 'That personal vehicle is not available to you.', 'error') end
+    if p.locked then
+        -- Anything of theirs that is still out is removed too.
+        local netId = active[id]
+        if netId then
+            local entity = NetworkGetEntityFromNetworkId(netId)
+            if entity and entity ~= 0 and DoesEntityExist(entity) then DeleteEntity(entity) end
+            registry[netId] = nil
+            active[id] = nil
+        end
+        return notify(source, LOCK_MESSAGE, 'error')
+    end
 
     local netId = active[id]
     if netId then
@@ -320,6 +384,10 @@ CreateThread(function()
                 local ped = GetPlayerPed(src)
                 if ped and ped ~= 0 then
                     local vehicle = GetVehiclePedIsIn(ped, false)
+                    if vehicle ~= 0 and isLocked(vehicle) then
+                        despawnLocked(src, vehicle)
+                        vehicle = 0
+                    end
                     armor(src, vehicle ~= 0 and isBulletproof(vehicle))
                     if vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped and not mayDrive(src, vehicle) then
                         TriggerClientEvent('fbrp:personals:eject', src)
@@ -335,7 +403,18 @@ CreateThread(function()
     end
 end)
 
+-- A client that tried to get into a locked vehicle reports it, so it despawns before they sit down.
+RegisterNetEvent('fbrp:personals:lockedTouch', function(netId)
+    local src = source
+    netId = tonumber(netId)
+    if not netId or not sessions[src] then return end
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not entity or entity == 0 or not DoesEntityExist(entity) then return end
+    if isLocked(entity) then despawnLocked(src, entity) end
+end)
+
 AddEventHandler('playerDropped', function()
+    lastLockNotice[source] = nil
     lastEject[source] = nil
     synced[source] = nil
     armored[source] = nil

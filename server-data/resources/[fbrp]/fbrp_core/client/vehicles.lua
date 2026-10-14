@@ -117,9 +117,27 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     local hash=joaat(model)
     if not IsModelInCdimage(hash) or not IsModelAVehicle(hash) then return TriggerEvent('fbrp:notify','Vehicle model is not installed.','error') end
     RequestModel(hash)
-    local timeout=GetGameTimer()+8000
-    while not HasModelLoaded(hash) and GetGameTimer()<timeout do Wait(25) end
-    if not HasModelLoaded(hash) then return TriggerEvent('fbrp:notify','Vehicle model timed out.','error') end
+    -- Big add-on vehicles can need a while to stream in the first time, so wait longer than for stock cars.
+    local startedAt=GetGameTimer()
+    local timeout=startedAt+30000
+    local told=false
+    while not HasModelLoaded(hash) and GetGameTimer()<timeout do
+        if not told and GetGameTimer()-startedAt>4000 then
+            told=true
+            TriggerEvent('fbrp:notify','Loading '..(label or model)..'... large vehicles can take a few seconds.','info')
+        end
+        Wait(25)
+    end
+    if not HasModelLoaded(hash) then
+        -- Tell a broken texture dictionary apart from a broken model: try the vehicle's own dictionary alone.
+        RequestStreamedTextureDict(model,false)
+        local txdTimeout=GetGameTimer()+8000
+        while not HasStreamedTextureDictLoaded(model) and GetGameTimer()<txdTimeout do Wait(50) end
+        local txdLoaded=HasStreamedTextureDictLoaded(model)
+        SetStreamedTextureDictAsNoLongerNeeded(model)
+        print(('[FBRP] vehicle model %s (%d) did not load: inCdimage=%s isVehicle=%s isValid=%s hasLoaded=%s textureDictAlone=%s'):format(model,hash,tostring(IsModelInCdimage(hash)),tostring(IsModelAVehicle(hash)),tostring(IsModelValid(hash)),tostring(HasModelLoaded(hash)),tostring(txdLoaded)))
+        return TriggerEvent('fbrp:notify','Vehicle model timed out. Send the F8 console line starting with [FBRP] vehicle model to the DevOps team.','error')
+    end
     local ped=PlayerPedId(); local coords=GetOffsetFromEntityInWorldCoords(ped,0.0,4.5,0.2); local heading=GetEntityHeading(ped)
     local vehicle=CreateVehicle(hash,coords.x,coords.y,coords.z,heading,true,false)
     SetVehicleOnGroundProperly(vehicle)

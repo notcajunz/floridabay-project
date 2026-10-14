@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFile, cp, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, open, readFile, readdir, realpath, rename as rename_, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { callGame } from "./sync.js";
-import { PERSONAL_VEHICLES_DIR, personalResourceName } from "./personal-resources.js";
+import { shrinkYtd } from "./ytd-shrink.js";
+import { PERSONAL_VEHICLES_DIR, deletePersonalResource, personalResourceName } from "./personal-resources.js";
 
 /**
  * Personal vehicle importer (website "Convert with AI").
@@ -62,6 +63,22 @@ const HANDLING_SCALARS = new Set(`fMass fInitialDragCoeff fDownforceModifier fPe
   fAntiRollBarBiasFront fRollCentreHeightFront fRollCentreHeightRear fCollisionDamageMult fWeaponDamageMult fDeformationDamageMult
   fEngineDamageMult fPetrolTankVolume fOilVolume nMonetaryValue`.split(/\s+/));
 const text = (value, max) => String(value ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
+
+const MODEL_TAGS = "modelName|txdName|handlingId|gameName|handlingName";
+
+/** Points every tag that names the old model (model, texture dictionary, handling) at the new one. */
+export function renameMetaText(xml, from, to) {
+  const escaped = from.replace(/[^a-z0-9_]/gi, "");
+  return xml.replace(new RegExp(`(<(${MODEL_TAGS})>\\s*)${escaped}(\\s*</\\2>)`, "gi"), `$1${to}$3`);
+}
+
+/** The new file name for a stream file of the old model (model.yft, model_hi.yft, model+hi.ytd, ...), or null. */
+export function renamedStreamName(fileName, from, to) {
+  const lower = fileName.toLowerCase();
+  if (!lower.startsWith(from)) return null;
+  const rest = fileName.slice(from.length);
+  return /^[._+]/.test(rest) ? `${to}${rest}` : null;
+}
 
 const AI_SCHEMA = {
   type: "object",
@@ -485,7 +502,51 @@ async function sweepUploads() {
   }
 }
 
-export function createPersonalImporter({ personals, audit }) {
+/** Validates and applies the AI's edits plus the menu's exact ones to the vehicle and handling blocks. */
+function applyAiEdits(blocks, ai, fixed, customAudio, notes) {
+  const changes = [];
+  const locked = new Set(fixed.map((edit) => edit.field));
+  const edits = [
+    ...(ai.edits || []).slice(0, 60)
+      .filter((edit) => !(edit.file === "handling" && locked.has(edit.field)))
+      .filter((edit) => customAudio || edit.field !== "audioNameHash"),
+    ...fixed,
+  ];
+  for (const edit of edits) {
+    if (!blocks[edit.file]) { notes.push(`Skipped ${edit.field}: no ${edit.file}.meta entry.`); continue; }
+    try {
+      const result = applyEdit(blocks[edit.file], edit.file, edit.field, edit.value);
+      blocks[edit.file] = result.block;
+      const prior = changes.findIndex((c) => c.file === `${edit.file}.meta` && c.field === edit.field);
+      if (prior >= 0) changes.splice(prior, 1);
+      if (result.from !== result.to) changes.push({ file: `${edit.file}.meta`, field: edit.field, from: result.from, to: result.to, reason: text(edit.reason, 200) });
+    } catch (error) {
+      notes.push(`Skipped ${edit.field}: ${error.message}.`);
+    }
+  }
+  return changes;
+}
+
+const truthy = (value) => value === true || value === "true" || value === "on" || value === 1 || value === "1";
+
+/** Shrinks a texture dictionary on disk; reports what happened as a note. */
+async function shrinkFile(file, notes, label) {
+  try {
+    const result = shrinkYtd(await readFile(file));
+    if (!result.changed) {
+      notes.push(`${label} already fits (${(result.before / 1048576).toFixed(1)} MB in memory), so its textures were left alone.`);
+      return false;
+    }
+    await writeFile(file, result.buffer);
+    notes.push(`Made ${label} smaller: ${(result.before / 1048576).toFixed(1)} MB → ${(result.after / 1048576).toFixed(1)} MB in memory, ${result.textures.length} texture${result.textures.length === 1 ? "" : "s"} lowered in resolution (${result.textures.slice(0, 6).map((t) => `${t.name} ${t.from}→${t.to}`).join(", ")}${result.textures.length > 6 ? ", ..." : ""}).`);
+    return true;
+  } catch (error) {
+    notes.push(`Could not make ${label} smaller: ${error.message}. It was kept as is.`);
+    return false;
+  }
+}
+
+export function createPersonalImporter({ personals, audit, db }) {
   /**
    * Receives one chunk of a zip upload. The browser sends the file in order; offset must equal the
    * bytes received so far, so a retried chunk cannot be written twice.
@@ -581,8 +642,9 @@ export function createPersonalImporter({ personals, audit }) {
       }
       if (![...stream.keys()].some((name) => name.startsWith(`${model}.`) || name.startsWith(`${model}_hi.`)))
         throw new Error(`No ${model}.yft model file found in the pack.`);
+      const shrink = truthy(input.shrink);
       for (const file of stream.values())
-        if (file.ext === ".ytd" && file.size > 16 * 1024 * 1024) notes.push(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB. Over 16 MB causes texture loss for players.`);
+        if (!shrink && file.ext === ".ytd" && file.size > 16 * 1024 * 1024) notes.push(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB. Over 16 MB causes texture loss for players. Tick Make file size smaller and convert again.`);
       if (files.some((f) => AUDIO_EXT.has(f.ext))) notes.push("The pack has custom engine sounds. They are not installed, so the AI picks a base game sound.");
 
       const vehicleFile = metas.vehicles.find((m) => itemBlock(m.xml, "modelName", model));
@@ -616,27 +678,8 @@ export function createPersonalImporter({ personals, audit }) {
 
       // Apply the model's edits one by one; a bad edit is reported, never written.
       const blocks = { vehicles: vehicleItem.text, handling: handlingItem?.text ?? null };
-      const changes = [];
-      const locked = new Set(fixed.map((edit) => edit.field));
       const customAudio = files.some((f) => f.ext === ".awc");
-      const edits = [
-        ...(ai.edits || []).slice(0, 60)
-          .filter((edit) => !(edit.file === "handling" && locked.has(edit.field)))
-          .filter((edit) => customAudio || edit.field !== "audioNameHash"),
-        ...fixed,
-      ];
-      for (const edit of edits) {
-        if (!blocks[edit.file]) { notes.push(`Skipped ${edit.field}: no ${edit.file}.meta entry.`); continue; }
-        try {
-          const result = applyEdit(blocks[edit.file], edit.file, edit.field, edit.value);
-          blocks[edit.file] = result.block;
-          const prior = changes.findIndex((c) => c.file === `${edit.file}.meta` && c.field === edit.field);
-          if (prior >= 0) changes.splice(prior, 1);
-          if (result.from !== result.to) changes.push({ file: `${edit.file}.meta`, field: edit.field, from: result.from, to: result.to, reason: text(edit.reason, 200) });
-        } catch (error) {
-          notes.push(`Skipped ${edit.field}: ${error.message}.`);
-        }
-      }
+      const changes = applyAiEdits(blocks, ai, fixed, customAudio, notes);
 
       // Build the resource in a temporary folder, then swap it in.
       const resource = personalResourceName(model);
@@ -651,7 +694,19 @@ export function createPersonalImporter({ personals, audit }) {
       try {
         await mkdir(path.join(build, "stream"));
         await mkdir(path.join(build, "data"));
-        for (const file of stream.values()) await cp(file.full, path.join(build, "stream", file.name));
+        for (const file of stream.values()) {
+          // Many packs ship the same model twice as name.yft and name_hi.yft. A byte-identical copy only doubles
+          // the memory the car needs when it is close, so it is left out.
+          const hiOf = /^(.+)_hi\.yft$/i.exec(file.name);
+          const plain = hiOf && stream.get(`${hiOf[1].toLowerCase()}.yft`);
+          if (plain && plain.size === file.size && (await readFile(plain.full)).equals(await readFile(file.full))) {
+            notes.push(`${file.name} is identical to ${plain.name}, so it was left out to save memory.`);
+            continue;
+          }
+          const copy = path.join(build, "stream", file.name);
+          await cp(file.full, copy);
+          if (shrink && file.ext === ".ytd") await shrinkFile(copy, notes, file.name);
+        }
         const dataFiles = [];
         for (const type of META_TYPES) {
           for (const [index, meta] of metas[type.key].entries()) {
@@ -679,7 +734,7 @@ export function createPersonalImporter({ personals, audit }) {
         await writeFile(path.join(build, "fxmanifest.lua"), manifest);
         await writeFile(path.join(build, MARKER), JSON.stringify({ source: source.label || source.real, model, by: String(actorId), at: Date.now(), request, changes, security: { verdict: security.verdict, summary: security.summary, findings: security.findings, repairs: security.repairs } }, null, 2));
         if (existing) await rm(target, { recursive: true, force: true });
-        await rename(build, target);
+        await rename_(build, target);
       } catch (error) {
         await rm(build, { recursive: true, force: true });
         throw error;
@@ -711,5 +766,162 @@ export function createPersonalImporter({ personals, audit }) {
     }
   }
 
-  return { convert, uploadChunk };
+  /**
+   * Gives an imported vehicle another spawn name after its review: the stream files, the model, texture
+   * and handling names in the meta files and the resource folder are renamed, personals that used the old
+   * name follow it, and the new resource is started live.
+   */
+  async function rename(actorId, input) {
+    await personals.assertManager(actorId);
+    const from = personals.modelOf(input.model);
+    const to = personals.modelOf(input.newModel);
+    if (from === to) throw new Error("That is already the vehicle's model name.");
+    const fromResource = personalResourceName(from);
+    const toResource = personalResourceName(to);
+    const source = path.join(VEHICLES_DIR, fromResource);
+    const target = path.join(VEHICLES_DIR, toResource);
+    const marker = JSON.parse(await readFile(path.join(source, MARKER), "utf8").catch(() => "null") || "null");
+    if (!marker) throw new Error(`${fromResource} was not made by this importer, so it cannot be renamed here.`);
+    const existing = await stat(target).catch(() => null);
+    if (existing && !(await stat(path.join(target, MARKER)).catch(() => null)))
+      throw new Error(`${toResource} is already installed and was not made by this importer.`);
+    // A personal already named `to` without a resource is just waiting for its files; with one it is a different vehicle.
+    if (existing && (await db.one("SELECT id FROM personal_vehicles WHERE model=?", [to])))
+      throw new Error(`A personal vehicle already uses the model ${to}. Pick another name.`);
+
+    await mkdir(VEHICLES_DIR, { recursive: true });
+    const build = await mkdtemp(path.join(VEHICLES_DIR, `.build-${to}-`));
+    const renamed = [];
+    try {
+      await cp(source, build, { recursive: true });
+      const streamDir = path.join(build, "stream");
+      for (const name of await readdir(streamDir)) {
+        const next = renamedStreamName(name, from, to);
+        if (!next) continue;
+        await rename_(path.join(streamDir, name), path.join(streamDir, next));
+        renamed.push(`${name} → ${next}`);
+      }
+      if (!renamed.some((entry) => entry.startsWith(`${from}.`)))
+        throw new Error(`No ${from}.yft model file was found in ${fromResource}.`);
+      const dataDir = path.join(build, "data");
+      for (const name of await readdir(dataDir)) {
+        const file = path.join(dataDir, name);
+        await writeFile(file, renameMetaText(await readFile(file, "utf8"), from, to));
+      }
+      const manifestFile = path.join(build, "fxmanifest.lua");
+      await writeFile(manifestFile, (await readFile(manifestFile, "utf8")).replace(`personal vehicle: ${from} `, `personal vehicle: ${to} `));
+      await writeFile(path.join(build, MARKER), JSON.stringify({ ...marker, model: to, renamedFrom: from, renamedBy: String(actorId), renamedAt: Date.now() }, null, 2));
+      if (existing) await rm(target, { recursive: true, force: true });
+      await rename_(build, target);
+    } catch (error) {
+      await rm(build, { recursive: true, force: true });
+      throw error;
+    }
+
+    const started = await callGame("/personals/install", { resource: toResource, model: to }).catch(() => null);
+    const live = Boolean(started?.ok && (started.state === "started" || started.state === "restarted"));
+    const moved = await db.query("UPDATE personal_vehicles SET model=? WHERE model=?", [to, from]);
+    await callGame("/personals/refresh", {}).catch(() => null);
+    const removed = await deletePersonalResource(from).catch((error) => ({ error: error.message }));
+    const notes = [];
+    if (!live) notes.push("The renamed vehicle could not be started live. It loads on the next server restart.");
+    if (started?.state === "in_use") notes.push("Someone has this vehicle spawned right now, so the new files load after the next server restart.");
+    if (removed.error) notes.push(`The old ${fromResource} folder could not be removed: ${removed.error}`);
+    await audit(actorId, "personal.import.rename", toResource, { from, to, personals: moved?.affectedRows ?? 0, live });
+    return { model: to, previous: from, resource: toResource, started: live, personalsMoved: moved?.affectedRows ?? 0, renamed, notes };
+  }
+
+  /**
+   * Owner group only: asks the AI to change the handling of an imported vehicle that is already installed
+   * (percentages apply to its current handling), and/or makes its textures smaller. Restarts it live.
+   */
+  async function retune(actorId, input) {
+    if (!(await personals.isOwnerGroup(actorId))) throw new Error("Only the Owner group can change a vehicle's handling.");
+    const current = await personals.find(input.id);
+    const model = personals.modelOf(current.model);
+    const resource = personalResourceName(model);
+    const dir = path.join(VEHICLES_DIR, resource);
+    const marker = JSON.parse((await readFile(path.join(dir, MARKER), "utf8").catch(() => "null")) || "null");
+    if (!marker) throw new Error(`${resource} was not made by the importer, so its files are not managed here.`);
+    const request = handlingRequest(input.handling);
+    const shrink = truthy(input.shrink);
+    if (!Object.keys(request).length && !shrink) throw new Error("Choose a handling change or tick Make file size smaller.");
+
+    const notes = [];
+    let changes = [];
+    let summary = "";
+    if (Object.keys(request).length) {
+      const metas = { vehicles: [], handling: [] };
+      for (const name of await readdir(path.join(dir, "data"))) {
+        const full = path.join(dir, "data", name);
+        const xml = await readFile(full, "utf8");
+        const type = META_TYPES.find((t) => new RegExp(`<\\s*${t.root}\\b`).test(xml));
+        if (type && metas[type.key]) metas[type.key].push({ full, xml });
+      }
+      const vehicleFile = metas.vehicles.find((m) => itemBlock(m.xml, "modelName", model));
+      if (!vehicleFile) throw new Error(`vehicles.meta of ${resource} does not name ${model}.`);
+      const vehicleItem = itemBlock(vehicleFile.xml, "modelName", model);
+      const handlingId = tagValue(vehicleItem.text, "handlingId") || model;
+      const handlingFile = metas.handling.find((m) => itemBlock(m.xml, "handlingName", handlingId)) || (metas.handling.length === 1 ? metas.handling[0] : null);
+      const handlingItem = handlingFile ? itemBlock(handlingFile.xml, "handlingName", handlingId) : null;
+      if (!handlingItem) throw new Error(`${resource} has no handling entry for ${model}.`);
+
+      const fixed = menuEdits(request, handlingItem.text);
+      const ai = await askOpenAI({
+        model,
+        handlingInstructions: request.instructions || null,
+        appliedBySystem: fixed.map((edit) => `${edit.field} = ${Number(edit.value).toFixed(3)} (${edit.reason})`),
+        vehiclesMetaItem: vehicleItem.text.slice(0, 40000),
+        handlingMetaItem: handlingItem.text.slice(0, 40000),
+        streamFiles: [],
+        otherMetaFiles: [],
+        hasCustomAudio: false,
+        sourceNote: "This vehicle is already installed. Only change handling the manager asked for.",
+      });
+      const blocks = { vehicles: vehicleItem.text, handling: handlingItem.text };
+      changes = applyAiEdits(blocks, ai, fixed, false, notes);
+      summary = text(ai.summary, 600);
+      notes.push(...(ai.notes || []).map((n) => text(n, 300)).filter(Boolean));
+      if (changes.length) {
+        await writeFile(vehicleFile.full, vehicleFile.xml.slice(0, vehicleItem.start) + blocks.vehicles + vehicleFile.xml.slice(vehicleItem.end));
+        const handlingXml = vehicleFile === handlingFile ? await readFile(handlingFile.full, "utf8") : handlingFile.xml;
+        const handlingNow = itemBlock(handlingXml, "handlingName", handlingId);
+        await writeFile(handlingFile.full, handlingXml.slice(0, handlingNow.start) + blocks.handling + handlingXml.slice(handlingNow.end));
+      } else notes.push("The AI had nothing to change.");
+    }
+
+    let shrunk = false;
+    if (shrink) {
+      const streamDir = path.join(dir, "stream");
+      for (const name of await readdir(streamDir)) {
+        if (name.toLowerCase().endsWith(".ytd")) shrunk = (await shrinkFile(path.join(streamDir, name), notes, name)) || shrunk;
+      }
+    }
+
+    if (changes.length || shrunk) {
+      const history = Array.isArray(marker.retunes) ? marker.retunes : [];
+      history.push({ at: Date.now(), by: String(actorId), request, changes, shrink: shrunk });
+      await writeFile(path.join(dir, MARKER), JSON.stringify({ ...marker, retunes: history.slice(-20) }, null, 2));
+      const started = await callGame("/personals/install", { resource, model }).catch(() => null);
+      if (started?.state === "in_use") notes.push("Someone has this vehicle spawned right now, so the new files load after the next server restart.");
+      else if (!(started?.ok && (started.state === "started" || started.state === "restarted"))) notes.push("Could not reload it live. It loads on the next server restart.");
+      else notes.push("It was reloaded live. Players already online should reconnect to get the changes.");
+    }
+    await audit(actorId, "personal.retune", resource, { request, changes: changes.length, shrink: shrunk });
+    return { model, resource, summary, changes, notes, shrunk };
+  }
+
+  /** Personal edits that change the model of an imported vehicle carry its resource along. */
+  async function followModelChange(actorId, input) {
+    if (input.model === undefined) return null;
+    const current = await personals.find(input.id);
+    const next = personals.modelOf(input.model);
+    if (!current || current.model === next) return null;
+    const imported = await stat(path.join(VEHICLES_DIR, personalResourceName(current.model), MARKER)).catch(() => null);
+    const taken = await stat(path.join(VEHICLES_DIR, personalResourceName(next))).catch(() => null);
+    if (!imported || taken) return null;
+    return rename(actorId, { model: current.model, newModel: next });
+  }
+
+  return { convert, rename, retune, followModelChange, uploadChunk };
 }

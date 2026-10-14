@@ -71,6 +71,9 @@ export function createPersonals({ db, audit }) {
       owner_id: String(row.owner_id),
       enabled: Boolean(Number(row.enabled)),
       bulletproof: Boolean(Number(row.bulletproof)),
+      locked: Boolean(Number(row.locked)),
+      locked_by: row.locked_by ? String(row.locked_by) : null,
+      locked_at: row.locked_at ? Number(row.locked_at) : null,
       created_at: Number(row.created_at),
       trusted: trust.filter((item) => Number(item.personal_id) === Number(row.id)).map((item) => ({ discord_id: String(item.discord_id), added_by: item.added_by, added_at: Number(item.added_at) })),
       tags: tags.filter((item) => Number(item.personal_id) === Number(row.id)).map((item) => ({ id: Number(item.id), label: item.label, color: item.color, kind: item.kind, enabled: Boolean(Number(item.enabled)) })),
@@ -209,6 +212,17 @@ export function createPersonals({ db, audit }) {
     return current;
   }
 
+  /** DevOps lock: a locked personal cannot be spawned and despawns when anyone tries to use it. */
+  async function setLocked(actorId, input) {
+    await assertManager(actorId);
+    const current = await find(input.id);
+    const locked = flag(input.locked);
+    await db.query("UPDATE personal_vehicles SET locked=?,locked_by=?,locked_at=? WHERE id=?", [locked, locked ? String(actorId) : null, locked ? Date.now() : null, current.id]);
+    await audit(actorId, locked ? "personal.lock" : "personal.unlock", current.id, { model: current.model, label: current.label, ownerId: current.owner_id });
+    await notifyGame();
+    return find(current.id);
+  }
+
   async function setOwner(actorId, input) {
     await assertOwnerGroup(actorId);
     const current = await find(input.id);
@@ -327,6 +341,6 @@ export function createPersonals({ db, audit }) {
     MAX_TRUSTED,
     MAX_TRUSTED_WITH_TAG,
     assertManager, isOwnerGroup, modelOf,
-    canManage, portalData, find, relation, create, update, remove, setOwner, trust, untrust, lockTag, unlockTag, listFor, choices, lockableTags,
+    canManage, portalData, find, relation, create, update, remove, setLocked, setOwner, trust, untrust, lockTag, unlockTag, listFor, choices, lockableTags,
   };
 }

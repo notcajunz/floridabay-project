@@ -1,5 +1,6 @@
 import { Client, EmbedBuilder, GatewayIntentBits } from "discord.js";
 import { audit, db, pool } from "./database.js";
+import { createPersonalImporter } from "./personal-import.js";
 import { createPersonals } from "./personals.js";
 import { personalsCommandNames, personalsCommands } from "./personals-commands.js";
 import { card, chunkLines, COLORS, embed, who } from "./ui.js";
@@ -15,6 +16,7 @@ if (!token) throw new Error("PERSONALS_BOT_TOKEN is required.");
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const personals = createPersonals({ db, audit });
+const importer = createPersonalImporter({ personals, audit, db });
 const clean = (value, max = 1000) =>
   String(value ?? "")
     .replace(/[\u0000-\u001f]/g, " ")
@@ -31,7 +33,7 @@ function personalCard(title, row, { color = COLORS.success, description } = {}) 
       ["Vehicle", `${clean(row.label)}\n\`${row.model}\``],
       ["ID · plate", `#${row.id} · \`${row.plate}\``],
       ["Owner", who(row.owner_id)],
-      ["Status", `${row.enabled ? "Enabled" : "Disabled"}${row.bulletproof ? " · Bulletproof" : ""}`],
+      ["Status", `${row.enabled ? "Enabled" : "Disabled"}${row.bulletproof ? " · Bulletproof" : ""}${row.locked ? " · Locked by the DevOps team" : ""}`],
       [`Trusted (${row.trusted.length}/${trustLimit})`, row.trusted.length ? row.trusted.map((item) => `<@${item.discord_id}>`).join("\n") : "Nobody", false],
       ["Tag locks", row.tags.length ? row.tags.map((tag) => clean(tag.label)).join(", ") : "None", false],
     ],
@@ -70,13 +72,24 @@ async function personalCommand(i, sub) {
     if (plate !== null) input.plate = plate.trim() === "-" ? "" : plate;
     if (enabled !== null) input.enabled = enabled;
     if (Object.keys(input).length === 1) throw new Error("Choose at least one thing to change.");
-    return personalCard("Personal vehicle updated", await personals.update(actor, input));
+    // A new model name also renames an imported vehicle's files, or the garage would say "not installed".
+    const renamed = model !== null ? await importer.followModelChange(actor, input) : null;
+    return personalCard("Personal vehicle updated", await personals.update(actor, input), {
+      description: renamed ? `Vehicle files renamed from \`${renamed.previous}\` to \`${renamed.model}\`${renamed.started ? " and reloaded live" : ""}.` : undefined,
+    });
   }
   if (sub === "owner")
     return personalCard("Personal vehicle transferred", await personals.setOwner(actor, { id: vehicleId(), ownerId: i.options.getUser("member", true).id }));
   if (sub === "remove") {
     const row = await personals.remove(actor, { id: vehicleId() });
     return personalCard("Personal vehicle removed", row, { color: COLORS.warning });
+  }
+  if (sub === "lock" || sub === "unlock") {
+    const row = await personals.setLocked(actor, { id: vehicleId(), locked: sub === "lock" });
+    return personalCard(sub === "lock" ? "Personal vehicle locked" : "Personal vehicle unlocked", row, {
+      color: sub === "lock" ? COLORS.warning : COLORS.success,
+      description: sub === "lock" ? "It cannot be spawned, and it despawns when anyone tries to use it. They are told the DevOps team locked it." : undefined,
+    });
   }
   if (sub === "trust")
     return personalCard("Trust updated", await personals.trust(actor, { id: vehicleId(), discordId: i.options.getUser("member", true).id }));

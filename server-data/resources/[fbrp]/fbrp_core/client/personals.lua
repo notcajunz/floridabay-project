@@ -8,6 +8,9 @@ local lastNotice = 0
 local shuffleBlocked = false
 local bulletproof = {}       -- personal id -> true
 local bulletproofModels = {} -- model hash -> true (models that only exist as a bulletproof personal)
+local locked = {}            -- personal id -> true (locked by the DevOps team)
+local lockedModels = {}      -- model hash -> true
+local lastLockedTouch = 0
 
 RegisterNetEvent('fbrp:personals:sync', function(data)
     data = type(data) == 'table' and data or {}
@@ -18,7 +21,21 @@ RegisterNetEvent('fbrp:personals:sync', function(data)
     bulletproof, bulletproofModels = {}, {}
     for _, id in ipairs(data.bulletproof or {}) do bulletproof[tonumber(id)] = true end
     for _, model in ipairs(data.bulletproofModels or {}) do bulletproofModels[joaat(model)] = true end
+    locked, lockedModels = {}, {}
+    for _, id in ipairs(data.locked or {}) do locked[tonumber(id)] = true end
+    for _, model in ipairs(data.lockedModels or {}) do lockedModels[joaat(model)] = true end
 end)
+
+local function isLocked(vehicle)
+    if vehicle == 0 or not DoesEntityExist(vehicle) then return false end
+    local id
+    if NetworkGetEntityIsNetworked(vehicle) then
+        local ok, value = pcall(function() return Entity(vehicle).state.fbrpPersonal end)
+        if ok then id = tonumber(value) end
+    end
+    if id then return locked[id] == true end
+    return lockedModels[GetEntityModel(vehicle)] == true
+end
 
 local function blocked(vehicle)
     if bypass or vehicle == 0 or not DoesEntityExist(vehicle) then return false end
@@ -54,7 +71,15 @@ CreateThread(function()
     while true do
         local ped = PlayerPedId()
         local entering = GetVehiclePedIsTryingToEnter(ped)
-        if entering ~= 0 and GetSeatPedIsTryingToEnter(ped) == -1 and blocked(entering) then
+        if entering ~= 0 and isLocked(entering) then
+            -- Locked by the DevOps team: stop getting in and let the server despawn it.
+            ClearPedTasks(ped)
+            local stamp = GetGameTimer()
+            if stamp - lastLockedTouch > 2000 and NetworkGetEntityIsNetworked(entering) then
+                lastLockedTouch = stamp
+                TriggerServerEvent('fbrp:personals:lockedTouch', NetworkGetNetworkIdFromEntity(entering))
+            end
+        elseif entering ~= 0 and GetSeatPedIsTryingToEnter(ped) == -1 and blocked(entering) then
             ClearPedTasks(ped)
             warn()
         end

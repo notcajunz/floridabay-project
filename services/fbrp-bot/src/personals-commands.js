@@ -26,7 +26,7 @@ export const personal = new SlashCommandBuilder()
       .setDescription("Management: change a personal's name, model, plate or availability")
       .addStringOption(personalVehicle)
       .addStringOption((o) => o.setName("label").setDescription("Name shown in the F7 garage").setMaxLength(60))
-      .addStringOption((o) => o.setName("model").setDescription("Spawn name of the vehicle").setMaxLength(40))
+      .addStringOption((o) => o.setName("model").setDescription("New spawn name; renames an imported vehicle's files too").setMaxLength(40))
       .addStringOption((o) => o.setName("plate").setDescription("Plate, up to 8 characters; \"-\" resets it").setMaxLength(8))
       .addBooleanOption((o) => o.setName("enabled").setDescription("Turn the vehicle on or off"))
       .addBooleanOption((o) => o.setName("bulletproof").setDescription("Bulletproof glass and occupants, no shooting out")),
@@ -68,6 +68,12 @@ export const personal = new SlashCommandBuilder()
       .setDescription("Remove a tag lock from a personal")
       .addStringOption(personalVehicle)
       .addStringOption((o) => o.setName("tag").setDescription("Tag to remove").setRequired(true).setAutocomplete(true)),
+  )
+  .addSubcommand((s) =>
+    s.setName("lock").setDescription("Management: lock a personal so it cannot be spawned or used").addStringOption(personalVehicle),
+  )
+  .addSubcommand((s) =>
+    s.setName("unlock").setDescription("Management: unlock a locked personal vehicle").addStringOption(personalVehicle),
   )
   .addSubcommand((s) =>
     s.setName("info").setDescription("Show one personal vehicle").addStringOption(personalVehicle),

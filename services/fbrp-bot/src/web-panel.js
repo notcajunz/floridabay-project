@@ -26,6 +26,8 @@ const ACTOR = OWNER_DISCORD_ID;
 const INVESTIGATION_ROLE_ID = "1558227272107036755";
 const PORTAL_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const PORTAL_SESSION_TTL_SECONDS = PORTAL_SESSION_TTL_MS / 1000;
+/** Nothing is remembered: sessions are browser-session cookies and end after this long without activity. */
+const PORTAL_SESSION_IDLE_MS = 10 * 60 * 1000;
 /** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
 const ORG_ADMIN_RESOURCES = new Set(["organizations", "organization-requirements", "headtags", "org-shop", "org-wallets", "personals", "personal-trust", "personal-tags"]);
 /** Read-only lookups those sections need for their dropdowns. */
@@ -957,7 +959,9 @@ export function startWebPanel(context) {
 
   const cookieFor = (request, name, value, maxAge) => {
     const base = baseFor(request);
-    return `${name}=${encodeURIComponent(value)}; Path=${base.pathname === "/" ? "/" : base.pathname.replace(/\/$/, "")}; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${base.protocol === "https:" ? "; Secure" : ""}`;
+    // No Max-Age for a live value: it is a session cookie the browser drops when it closes. Max-Age=0 still clears it.
+    const age = maxAge === 0 || value === "" ? "; Max-Age=0" : name === "fbrp_session" ? "" : `; Max-Age=${maxAge}`;
+    return `${name}=${encodeURIComponent(value)}; Path=${base.pathname === "/" ? "/" : base.pathname.replace(/\/$/, "")}; HttpOnly; SameSite=Lax${age}${base.protocol === "https:" ? "; Secure" : ""}`;
   };
   const sessionCookie = (request, value, maxAge = PORTAL_SESSION_TTL_SECONDS) => cookieFor(request, "fbrp_session", value, maxAge);
   const stateCookie = (request, value, maxAge = 600) => cookieFor(request, "fbrp_oauth_state", value, maxAge);
@@ -967,11 +971,12 @@ export function startWebPanel(context) {
     if (!raw) return null;
     const row = await db.one("SELECT * FROM portal_sessions WHERE session_hash=?", [sha256(raw)]).catch(() => null);
     const hardExpiry = row ? Math.min(Number(row.expires_at), Number(row.created_at) + PORTAL_SESSION_TTL_MS) : 0;
-    if (!row || hardExpiry <= Date.now()) {
+    const idle = row ? Date.now() - Number(row.last_seen) > PORTAL_SESSION_IDLE_MS : false;
+    if (!row || idle || hardExpiry <= Date.now()) {
       if (row) await db.query("DELETE FROM portal_sessions WHERE session_hash=?", [row.session_hash]).catch(() => {});
       return null;
     }
-    if (Date.now() - Number(row.last_seen) > 300000)
+    if (Date.now() - Number(row.last_seen) > 30000)
       await db.query("UPDATE portal_sessions SET last_seen=? WHERE session_hash=?", [Date.now(), row.session_hash]).catch(() => {});
     return { id: String(row.discord_id), username: row.username, avatar: row.avatar };
   }
@@ -1847,14 +1852,21 @@ export function startWebPanel(context) {
         else if (url.pathname === "/api/portal/org/adjust") result = await economy.adjust(session.id, input);
         else if (url.pathname === "/api/portal/org/leader") result = await economy.setLeader(session.id, input);
         else if (url.pathname === "/api/portal/personal/create") result = await personals.create(session.id, input);
-        else if (url.pathname === "/api/portal/personal/update") result = await personals.update(session.id, input);
+        else if (url.pathname === "/api/portal/personal/update") {
+          // Changing the model of an imported vehicle renames its files too, or the garage would say "not installed".
+          await personalImporter.followModelChange(session.id, input);
+          result = await personals.update(session.id, input);
+        }
         else if (url.pathname === "/api/portal/personal/delete") result = await personals.remove(session.id, input);
+        else if (url.pathname === "/api/portal/personal/lock") result = await personals.setLocked(session.id, input);
         else if (url.pathname === "/api/portal/personal/owner") result = await personals.setOwner(session.id, input);
         else if (url.pathname === "/api/portal/personal/trust") result = await personals.trust(session.id, input);
         else if (url.pathname === "/api/portal/personal/untrust") result = await personals.untrust(session.id, input);
         else if (url.pathname === "/api/portal/personal/tag") result = await personals.lockTag(session.id, input);
         else if (url.pathname === "/api/portal/personal/untag") result = await personals.unlockTag(session.id, input);
         else if (url.pathname === "/api/portal/personal/import") result = await personalImporter.convert(session.id, input);
+        else if (url.pathname === "/api/portal/personal/retune") result = await personalImporter.retune(session.id, input);
+        else if (url.pathname === "/api/portal/personal/import/rename") result = await personalImporter.rename(session.id, input);
         else if (url.pathname === "/api/portal/ticket/request-close") {
           const ticket = await db.one("SELECT * FROM support_tickets WHERE id=? AND author_id=?", [Number(input.ticketId), session.id]);
           if (!ticket || ticket.status === "closed") throw new Error("That open ticket was not found.");
@@ -1981,6 +1993,8 @@ export function startWebPanel(context) {
   server.maxRequestsPerSocket = 100;
   server.maxConnections = 256;
   server.on("clientError", (_error, socket) => socket.destroy());
+  // Nothing is remembered across restarts either: everyone signs in again.
+  db.query("DELETE FROM portal_sessions").catch((error) => console.error("[FBRP panel] could not clear sessions:", error.message));
   server.listen(port, host, () =>
     console.log(`[FBRP panel] Community portal listening on http://${host}:${port} (${publicUrl})`),
   );

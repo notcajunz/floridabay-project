@@ -1319,3 +1319,6 @@ button.stat-tile:hover { transform: translateY(-3px); border-color: rgb(var(--to
 .personal-import-list { margin: 8px 0; padding-left: 18px; display: grid; gap: 4px; font-size: .84rem; }
 .personal-import-list small { display: block; color: var(--ink-3); }
 .personal-import-list.notes { color: var(--ink-2); }
+.personal-rename { margin-top: 10px; }
+.personal-rename-row { display: flex; gap: 8px; align-items: center; }
+.personal-rename-row input { flex: 1; }

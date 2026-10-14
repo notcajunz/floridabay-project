@@ -982,11 +982,12 @@ function personalCardHtml(p, d) {
   return `<article class="card personal">
     <div class="personal-shot">${icon("car")}<img class="personal-img" src="https://docs.fivem.net/vehicles/${encodeURIComponent(String(p.model).toLowerCase())}.webp" alt="" loading="lazy" referrerpolicy="no-referrer"></div>
     <div class="personal-main">
-      <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.model)}</span> · plate <span class="mono">${esc(p.plate)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill${viaTone ? ` pill-${viaTone}` : ""}">${viaLabel}</span>${p.bulletproof ? `<span class="pill" title="Bullets cannot break the glass or hit anyone inside. Nobody inside can shoot out.">${icon("shield")} Bulletproof</span>` : ""}${p.enabled ? "" : '<span class="pill pill-bad">Disabled</span>'}</div></div>
+      <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.model)}</span> · plate <span class="mono">${esc(p.plate)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill${viaTone ? ` pill-${viaTone}` : ""}">${viaLabel}</span>${p.bulletproof ? `<span class="pill" title="Bullets cannot break the glass or hit anyone inside. Nobody inside can shoot out.">${icon("shield")} Bulletproof</span>` : ""}${p.enabled ? "" : '<span class="pill pill-bad">Disabled</span>'}${p.locked ? `<span class="pill pill-bad" title="Locked by the DevOps team. It cannot be spawned and despawns when anyone tries to use it.">${icon("alert")} Locked</span>` : ""}</div></div>
       <div class="personal-section"><small>Owner</small>${person(p.owner_id)}</div>
       <div class="personal-section"><small>Trusted drivers · ${p.trusted.length} of ${trustLimit}</small>${trusted}</div>
       <div class="personal-section"><small>Locked to tag <span>(everyone holding the tag can use it)</span></small>${tags}</div>
-      ${edit || d.owner ? `<div class="personal-actions">
+      ${edit || d.owner || d.manage ? `<div class="personal-actions">
+        ${d.manage ? `<button class="btn ${p.locked ? "btn-sun" : "btn-ghost"} btn-sm" type="button" data-personal-lock="${p.id}:${p.locked ? "0" : "1"}">${p.locked ? "Unlock" : "Lock"}</button>` : ""}
         ${edit && p.trusted.length < trustLimit ? `<button class="btn btn-sun btn-sm" type="button" data-personal-trust="${p.id}">${icon("plus")} Trust someone</button>` : ""}
         ${canLock ? `<button class="btn btn-glass btn-sm" type="button" data-personal-tag="${p.id}">${icon("badge")} Lock to a tag</button>` : ""}
         ${d.owner ? `<button class="btn btn-ghost btn-sm" type="button" data-personal-edit="${p.id}">Edit</button><button class="btn btn-ghost btn-sm" type="button" data-personal-owner="${p.id}">Transfer</button><button class="btn btn-ghost btn-sm" type="button" data-personal-delete="${p.id}">Delete</button>` : ""}
@@ -1088,6 +1089,7 @@ function personalCreateDialog() {
             <label class="field">Gears<input name="hGears" type="number" min="1" max="10" step="1" placeholder="Stock"></label>
           </div>
           <label class="field">Anything else about the handling <small>(optional)</small><textarea name="hInstructions" maxlength="1500" placeholder="e.g. less body roll, a bit more oversteer, keep it stable at high speed"></textarea></label>
+          <label class="check-row"><input type="checkbox" name="hShrink"><span><b>Make file size smaller</b><small>Lowers the texture resolution of big packs so they stream reliably in game. Turn it on if the vehicle says "spawn timed out" or the pack is over about 30 MB.</small></span></label>
           <button class="btn btn-glass" type="button" data-personal-convert>${icon("sparkle")} Convert with AI</button>
           <div id="personal-import-result"></div>
         </div>
@@ -1101,6 +1103,7 @@ function personalCreateDialog() {
 
 const UPLOAD_CHUNK = 1536 * 1024;
 let personalUpload = null; // { file, id } of the zip already on the server, so converting again skips the upload
+let personalConverted = null; // { pack, current }: the model the pack names and the spawn name it is installed under
 
 /** Sends the zip in chunks small enough for the proxy. Returns the server's upload id. */
 async function uploadPersonalZip(file, progress) {
@@ -1125,6 +1128,61 @@ async function uploadPersonalZip(file, progress) {
   return id;
 }
 
+/** Renames the converted vehicle's spawn name (files, meta names and resource) without converting again. */
+async function personalRename(button) {
+  const form = button.closest("form") || $("#portal-dialog form") || $("#portal-dialog");
+  const input = $("#personal-rename-input");
+  const status = $("#personal-rename-status");
+  const next = input.value.trim().toLowerCase();
+  if (!personalConverted) return toast("Convert a vehicle first.", true);
+  if (!/^[a-z0-9_]{2,40}$/.test(next)) return toast("Use 2 to 40 letters, numbers or underscores.", true);
+  if (next === personalConverted.current) return toast("That is already the model name.", true);
+  const label = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<span class="spinner"></span> Renaming…`;
+  try {
+    const { result } = await api("portal/personal/import/rename", { method: "POST", body: JSON.stringify({ model: personalConverted.current, newModel: next }) });
+    personalConverted.current = result.model;
+    input.value = result.model;
+    form.querySelector('[name="model"]').value = result.model;
+    status.textContent = `Renamed to ${result.model}${result.started ? " and live now" : ""}.${result.personalsMoved ? ` ${result.personalsMoved} personal vehicle(s) now use the new name.` : ""}${result.notes.length ? ` ${result.notes.join(" ")}` : ""}`;
+    toast(`Renamed to ${result.model}.`);
+  } catch (error) {
+    status.textContent = error.message;
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = label;
+  }
+}
+
+/** Owner group: asks the AI to change an installed vehicle's handling and/or shrinks its textures. */
+async function personalRetune(button) {
+  const form = button.closest("form") || $("#portal-dialog form") || $("#portal-dialog");
+  const get = (name) => form.querySelector(`[name="${name}"]`)?.value ?? "";
+  const out = $("#personal-retune-result");
+  const label = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = `<span class="spinner"></span> Working… this can take a minute`;
+  out.innerHTML = "";
+  try {
+    const { result } = await api("portal/personal/retune", { method: "POST", body: JSON.stringify({
+      id: Number(button.dataset.personalRetune),
+      shrink: form.querySelector('[name="hShrink"]')?.checked === true,
+      handling: { topSpeed: get("hTopSpeed"), acceleration: get("hAcceleration"), braking: get("hBraking"), grip: get("hGrip"), weight: get("hWeight"), drivetrain: get("hDrivetrain"), gears: get("hGears"), instructions: get("hInstructions") },
+    }) });
+    out.innerHTML = `<div class="callout">${icon("check")}<div><b>Done.</b> ${esc(result.summary || "")}
+      ${result.changes.length ? `<ul class="personal-import-list">${result.changes.map((c) => `<li><code>${esc(c.field)}</code> ${esc(c.from)} → <b>${esc(c.to)}</b>${c.reason ? ` <small>${esc(c.reason)}</small>` : ""}</li>`).join("")}</ul>` : ""}
+      ${result.notes.length ? `<ul class="personal-import-list notes">${result.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div></div>`;
+    toast("Vehicle files updated.");
+  } catch (error) {
+    out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(error.message)}</div></div>`;
+  } finally {
+    button.disabled = false;
+    button.innerHTML = label;
+  }
+}
+
 /** Uploads the zip, runs the AI importer and fills in the model and name. */
 async function personalConvert(button) {
   const form = button.closest("form") || $("#portal-dialog form") || $("#portal-dialog");
@@ -1147,12 +1205,23 @@ async function personalConvert(button) {
     const { result } = await api("portal/personal/import", { method: "POST", body: JSON.stringify({
       uploadId: personalUpload.id,
       uploadName: file.name,
-      model: get("model").trim(),
+      // After a rename the field holds the new name; the pack still names the original.
+      model: personalConverted && get("model").trim() === personalConverted.current ? personalConverted.pack : get("model").trim(),
+      shrink: form.querySelector('[name="hShrink"]')?.checked === true,
       handling: { topSpeed: get("hTopSpeed"), acceleration: get("hAcceleration"), braking: get("hBraking"), grip: get("hGrip"), weight: get("hWeight"), drivetrain: get("hDrivetrain"), gears: get("hGears"), instructions: get("hInstructions") },
     }) }).catch((error) => {
       if (/expired/i.test(error.message)) personalUpload = null;
       throw error;
     });
+    const wantedName = personalConverted && personalConverted.current !== personalConverted.pack ? personalConverted.current : "";
+    if (wantedName && wantedName !== result.model) {
+      button.innerHTML = `<span class="spinner"></span> Renaming to ${esc(wantedName)}…`;
+      const renamed = await api("portal/personal/import/rename", { method: "POST", body: JSON.stringify({ model: result.model, newModel: wantedName }) });
+      result.resource = renamed.result.resource;
+      result.notes = [...result.notes, ...renamed.result.notes];
+      result.pack = result.model;
+      result.model = renamed.result.model;
+    }
     form.querySelector('[name="model"]').value = result.model;
     const name = form.querySelector('[name="label"]');
     if (!name.value.trim()) name.value = result.label;
@@ -1160,7 +1229,10 @@ async function personalConvert(button) {
       ${result.started ? (result.restarted ? " It was reloaded live with the new files. Players already online should reconnect to get the new handling." : " It is live now. Players already online should reconnect to see it.") : ""}
       ${result.changes.length ? `<ul class="personal-import-list">${result.changes.map((c) => `<li><code>${esc(c.field)}</code> ${esc(c.from)} → <b>${esc(c.to)}</b>${c.reason ? ` <small>${esc(c.reason)}</small>` : ""}</li>`).join("")}</ul>` : "<p>No handling changes.</p>"}
       ${result.notes.length ? `<ul class="personal-import-list notes">${result.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+      <div class="personal-rename"><label class="field">Spawn name <small>(rename it if you want a different model name)</small>
+        <span class="personal-rename-row"><input id="personal-rename-input" value="${esc(result.model)}" minlength="2" maxlength="40" pattern="[A-Za-z0-9_]+" autocapitalize="off"><button class="btn btn-glass" type="button" data-personal-rename>Rename</button></span></label><div id="personal-rename-status" class="muted"></div></div>
       <p>Check the owner below and press <b>Add vehicle</b>. Change the handling and convert again to redo it (the zip is not uploaded twice).</p></div></div>`;
+    personalConverted = { pack: result.pack || result.model, current: result.model };
     toast(`${result.model} converted.`);
   } catch (error) {
     out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(error.message)}</div></div>`;
@@ -1175,10 +1247,28 @@ function personalEditDialog(id) {
   if (!p) return;
   openDialog({ kicker: p.label, title: "Edit personal vehicle", submit: "Save", action: "personal-edit", data: { id: p.id },
     body: `<label class="field">Name in the garage<input name="label" required maxlength="60" value="${esc(p.label)}"></label>
-      <label class="field">Vehicle model<input name="model" required minlength="2" maxlength="40" pattern="[A-Za-z0-9_]+" value="${esc(p.model)}" autocapitalize="off"></label>
+      <label class="field">Vehicle model <small>(spawn name; changing it also renames an imported vehicle's files)</small><input name="model" required minlength="2" maxlength="40" pattern="[A-Za-z0-9_]+" value="${esc(p.model)}" autocapitalize="off"></label>
       <label class="field">Plate <small>(blank = automatic)</small><input name="plate" maxlength="8" value="${esc(p.customPlate ? p.plate : "")}" placeholder="${esc(p.plate)}" style="text-transform:uppercase"></label>
       <label class="check-row"><input type="checkbox" name="enabled" ${p.enabled ? "checked" : ""}><span><b>Enabled</b><small>Turn off to hide it from the F7 garage without deleting it.</small></span></label>
-      <label class="check-row"><input type="checkbox" name="bulletproof" ${p.bulletproof ? "checked" : ""}><span><b>Bulletproof</b><small>Bullets cannot break the glass or hit anyone inside, and nobody inside can shoot out.</small></span></label>` });
+      <label class="check-row"><input type="checkbox" name="bulletproof" ${p.bulletproof ? "checked" : ""}><span><b>Bulletproof</b><small>Bullets cannot break the glass or hit anyone inside, and nobody inside can shoot out.</small></span></label>
+      <details class="personal-import">
+        <summary>${icon("sparkle")}<span><b>Change handling with AI</b><small>Owner group · applies to the vehicle's current handling and reloads it live</small></span></summary>
+        <div class="personal-import-body">
+          <div class="personal-import-grid">
+            <label class="field">Top speed (mph)<input name="hTopSpeed" type="number" min="20" max="400" step="1" placeholder="Unchanged"></label>
+            <label class="field">Acceleration${levelSelect("hAcceleration")}</label>
+            <label class="field">Braking${levelSelect("hBraking")}</label>
+            <label class="field">Grip${levelSelect("hGrip")}</label>
+            <label class="field">Weight (kg)<input name="hWeight" type="number" min="100" max="30000" step="1" placeholder="Unchanged"></label>
+            <label class="field">Drivetrain<select name="hDrivetrain"><option value="">Unchanged</option><option value="rwd">Rear wheel</option><option value="awd">All wheel</option><option value="fwd">Front wheel</option></select></label>
+            <label class="field">Gears<input name="hGears" type="number" min="1" max="10" step="1" placeholder="Unchanged"></label>
+          </div>
+          <label class="field">Anything else about the handling <small>(optional)</small><textarea name="hInstructions" maxlength="1500" placeholder="e.g. less body roll, a bit more oversteer, keep it stable at high speed"></textarea></label>
+          <label class="check-row"><input type="checkbox" name="hShrink"><span><b>Make file size smaller</b><small>Lowers texture resolution if the vehicle times out when spawning.</small></span></label>
+          <button class="btn btn-glass" type="button" data-personal-retune="${p.id}">${icon("sparkle")} Apply with AI</button>
+          <div id="personal-retune-result"></div>
+        </div>
+      </details>` });
 }
 
 function personalOwnerDialog(id) {
@@ -1671,6 +1761,17 @@ $("#portal-content").addEventListener("click", async (event) => {
   if (personalTrust) return personalTrustDialog(personalTrust.dataset.personalTrust);
   const personalTag = target.closest("[data-personal-tag]");
   if (personalTag) return personalTagDialog(personalTag.dataset.personalTag);
+  const personalLock = target.closest("[data-personal-lock]");
+  if (personalLock) {
+    const [id, on] = personalLock.dataset.personalLock.split(":");
+    const p = personalById(id);
+    if (on === "1" && !confirm(`Lock ${p?.label || "this vehicle"}? It cannot be spawned, and it despawns when anyone tries to use it. They are told the DevOps team locked it.`)) return;
+    try {
+      const result = await api("portal/personal/lock", { method: "POST", body: JSON.stringify({ id: Number(id), locked: on === "1" }) });
+      state.data = result.data; render(); toast(on === "1" ? "Vehicle locked." : "Vehicle unlocked.");
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   const personalUntrust = target.closest("[data-personal-untrust]");
   const personalUntag = target.closest("[data-personal-untag]");
   if (personalUntrust || personalUntag) {
@@ -1827,6 +1928,15 @@ $("#portal-dialog").addEventListener("click", (event) => {
   if (event.target === $("#portal-dialog")) return $("#portal-dialog").close();
   const convert = event.target.closest?.("[data-personal-convert]");
   if (convert && !convert.disabled) personalConvert(convert);
+  const retuneButton = event.target.closest?.("[data-personal-retune]");
+  if (retuneButton && !retuneButton.disabled) personalRetune(retuneButton);
+  const renameButton = event.target.closest?.("[data-personal-rename]");
+  if (renameButton && !renameButton.disabled) personalRename(renameButton);
+});
+$("#portal-dialog").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.target.id !== "personal-rename-input") return;
+  event.preventDefault();
+  personalRename($("[data-personal-rename]"));
 });
 
 $("#dialog-form").addEventListener("submit", async (event) => {
