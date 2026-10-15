@@ -468,6 +468,56 @@ async function syncRoleAuthoritativeMemberships(member, actorId) {
   });
 }
 
+/** Management and above also wear this rank's Discord roles on top of their own. */
+export const STAFF_MANAGEMENT_EXTRA_GROUP = "head_administrator";
+const MANAGEMENT_FLOOR_GROUP = "mgmt_team";
+
+let staffRankCache = { at: 0, info: { ranks: new Map(), floor: null } };
+/**
+ * Staff rank groups (one per roster rank) with their rank_order, plus the rank_order from which a member counts
+ * as management. Cached briefly because every member reconcile reads it.
+ */
+export async function staffRankInfo() {
+  if (Date.now() - staffRankCache.at < 15000) return staffRankCache.info;
+  const [rows, floor] = await Promise.all([
+    db.query(
+      `SELECT DISTINCT g.name,g.rank_order FROM staff_roster_ranks r
+       JOIN ace_groups g ON g.name=r.ace_group`,
+    ),
+    db.one("SELECT rank_order FROM ace_groups WHERE name=?", [MANAGEMENT_FLOOR_GROUP]),
+  ]);
+  const info = {
+    ranks: new Map(rows.map((row) => [String(row.name), Number(row.rank_order)])),
+    floor: floor ? Number(floor.rank_order) : null,
+  };
+  staffRankCache = { at: Date.now(), info };
+  return info;
+}
+
+/**
+ * The staff rank groups whose Discord roles a member wears: their top rank, plus Head Administrator and every lower
+ * management/ownership rank when they are management or above. Lower ranks stay in their ACE groups regardless; this
+ * only decides which Discord roles are granted.
+ */
+export function staffDisplayGroups(top, info) {
+  const keep = new Set([top]);
+  const topOrder = info.ranks.get(top) ?? -1;
+  if (info.floor !== null && topOrder >= info.floor) {
+    keep.add(STAFF_MANAGEMENT_EXTRA_GROUP);
+    for (const [name, order] of info.ranks) if (order >= info.floor && order <= topOrder) keep.add(name);
+  }
+  return keep;
+}
+
+/** Memberships with every staff rank group except the member's displayed ones taken out (non-staff groups pass). */
+export function visibleMemberships(memberships, info) {
+  const held = [...memberships].filter((name) => info.ranks.has(name));
+  if (!held.length) return memberships;
+  const top = held.reduce((best, name) => (info.ranks.get(name) > info.ranks.get(best) ? name : best));
+  const keep = staffDisplayGroups(top, info);
+  return new Set([...memberships].filter((name) => !info.ranks.has(name) || keep.has(name)));
+}
+
 const lastFullFetch = new Map();
 /**
  * Every member of a guild. The GuildMembers intent keeps the cache current once it is full, and Discord
@@ -598,17 +648,22 @@ async function reconcileMemberRoles(client, member, { alert = "none" } = {}) {
   // Bootstrap memberships are reserved for in-game/bot authorization and are
   // intentionally excluded by directMemberships. They must never assign a
   // visible Discord role; only an explicit membership can do that.
-  const [gates, memberships, blacklisted, offenders] = await Promise.all([
+  const [gates, memberships, blacklisted, offenders, rankInfo] = await Promise.all([
     gatesForGuild(member.guild.id),
     directMemberships(member.id),
     blacklistedIds(),
     nukeOffenderIds(),
+    staffRankInfo(),
   ]);
   // A blacklisted member keeps only the isolation role; gated roles are never granted back.
   // Anti-nuke offenders are treated the same way until /security pardon.
   let quarantined = blacklisted.has(member.id) || offenders.has(member.id);
   if (quarantined) memberships.clear();
-  const wantedRole = (groups) => [...groups].some((name) => memberships.has(name));
+  // Staff keep every lower rank's ACE group, but only wear the Discord role of their top rank (see staffDisplayGroups).
+  const wantedRole = (groups) => {
+    const visible = visibleMemberships(memberships, rankInfo);
+    return [...groups].some((name) => visible.has(name));
+  };
   // Before taking a role away, confirm against fresh data. The member cache can lag a burst of role
   // changes, and the blacklist/offender caches can outlive a pardon; acting on either strips roles
   // the member is entitled to, and the resulting update event starts the next round of the fight.

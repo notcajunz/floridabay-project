@@ -68,6 +68,8 @@ import {
   syncUserAcrossNetwork,
   invalidateBlacklistCache,
   ROLE_AUTHORITATIVE_GROUPS,
+  staffRankInfo,
+  staffDisplayGroups,
 } from "./sync.js";
 import {
   EVENT_LABEL,
@@ -1682,10 +1684,13 @@ async function staffAdd(i, move = false) {
     );
     return old.map((row) => String(row.group_name));
   });
-  const ladderIds = new Set(ladder.map((row) => Number(row.id)));
+  // The member keeps every lower rank's ACE group but wears only their own rank role (management also wears Head Administrator).
+  const wear = staffDisplayGroups(String(rank.ace_group), await staffRankInfo());
+  const wornIds = new Set(ladder.filter((row) => wear.has(String(row.ace_group))).map((row) => Number(row.id)));
+  wornIds.add(Number(rank.id));
   for (const row of await db.query("SELECT id,discord_role_id,discord_guild_id FROM staff_roster_ranks"))
-    if (!ladderIds.has(Number(row.id))) await dropRankRole(row, user.id);
-  for (const row of ladder) await setRankRole(row, user.id, true);
+    if (!wornIds.has(Number(row.id))) await dropRankRole(row, user.id);
+  for (const row of ladder) if (wornIds.has(Number(row.id))) await setRankRole(row, user.id, true);
   await setStaffTeamRole(user.id, true);
   const rebalance = await rebalanceStaffCallsigns(i.user.id);
   const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;

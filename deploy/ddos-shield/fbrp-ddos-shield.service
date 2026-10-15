@@ -1,0 +1,21 @@
+[Unit]
+Description=FBRP DDoS shield (nftables rate limits + RPS)
+Documentation=file:///home/ubuntu/fbrp/deploy/ddos-shield/README.md
+After=network-pre.target ufw.service docker.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# nf_conntrack must be loaded before its sysctls and hash size exist.
+ExecStartPre=/usr/sbin/modprobe nf_conntrack
+ExecStartPre=/bin/sh -c 'echo 131072 > /sys/module/nf_conntrack/parameters/hashsize'
+ExecStartPre=/usr/sbin/sysctl -q -p /etc/sysctl.d/99-fbrp-ddos.conf
+# Spread RX processing for ens3's single queue over all CPUs.
+ExecStartPre=/bin/sh -c 'for q in /sys/class/net/ens3/queues/rx-*; do printf %%x $(( (1 << $(nproc)) - 1 )) > $q/rps_cpus; echo 32768 > $q/rps_flow_cnt; done'
+ExecStart=/usr/sbin/nft -f /etc/fbrp/ddos-shield.nft
+ExecReload=/usr/sbin/nft -f /etc/fbrp/ddos-shield.nft
+ExecStop=/usr/sbin/nft delete table inet fbrp_shield
+
+[Install]
+WantedBy=multi-user.target
