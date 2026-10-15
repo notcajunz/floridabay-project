@@ -238,8 +238,8 @@ Configure in-game radio channels
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/radio create <channel> <name> [organization] [description] [color]` | Create or update a managed frequency<br><small>Arguments: `channel` (required integer) — Frequency number. `name` (required text) — Channel display name. `organization` (optional text) — Organization slug; omit for a public channel. `description` (optional text) — Short channel description. `color` (optional text) — Six-digit hex color.</small> | Co-Owner rank or higher and `fbrp.radio.manage` |
-| `/radio delete <channel>` | Delete a managed frequency<br><small>Arguments: `channel` (required integer) — Frequency number.</small> | Co-Owner rank or higher and `fbrp.radio.manage` |
+| `/radio create <channel> <name> [organization] [description] [color]` | Create or update a managed frequency<br><small>Arguments: `channel` (required number) — Frequency from 1.00–999.99, with up to two decimals. `name` (required text) — Channel display name. `organization` (optional text) — Organization slug; omit for a public channel. `description` (optional text) — Short channel description. `color` (optional text) — Six-digit hex color.</small> | Co-Owner rank or higher and `fbrp.radio.manage` |
+| `/radio delete <channel>` | Delete a managed frequency<br><small>Arguments: `channel` (required number) — Frequency from 1.00–999.99.</small> | Co-Owner rank or higher and `fbrp.radio.manage` |
 | `/radio list` | List managed radio frequencies | Co-Owner rank or higher and `fbrp.radio.manage` |
 
 ## /network

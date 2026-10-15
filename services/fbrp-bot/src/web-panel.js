@@ -408,14 +408,13 @@ export const PANEL_RESOURCES = {
     effect: "game",
     fields: [
       field("id", "ID", "number", { readonly: true, auto: true }),
-      field("channel", "Frequency", "number", { required: true }),
+      field("channel", "Frequency", "number", { required: true, min: 1, max: 999.99, step: 0.01, precision: 2 }),
       field("name", "Display name", "text", { required: true }),
       field("description", "Description", "text"),
       field("color", "Color", "color", { default: "#43E8D8" }),
       field("org_id", "Duty organization", "relation", { source: "organizations", value: "id", display: "name" }),
       field("sort_order", "Display order", "number", { default: 0 }),
       field("enabled", "Enabled", "boolean", { default: true }),
-      field("bulletproof", "Bulletproof (glass holds, nobody inside can be shot or shoot out)", "boolean", { default: false }),
       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
       field("created_at", "Created at", "timestamp", { default: "now", advanced: true }),
     ],
@@ -778,6 +777,14 @@ function normalizedValue(meta, value) {
     if (!Number.isFinite(number)) throw new Error(`${meta.label} must be a number.`);
     if (meta.min !== undefined && number < Number(meta.min)) throw new Error(`${meta.label} must be at least ${meta.min}.`);
     if (meta.max !== undefined && number > Number(meta.max)) throw new Error(`${meta.label} must be no more than ${meta.max}.`);
+    if (meta.precision !== undefined) {
+      const scale = 10 ** Number(meta.precision);
+      const scaled = number * scale;
+      const rounded = Math.round(scaled);
+      if (!Number.isSafeInteger(rounded) || Math.abs(scaled - rounded) > 1e-8)
+        throw new Error(`${meta.label} has too many decimal places.`);
+      return rounded / scale;
+    }
     const stored = number * Number(meta.multiplier || 1);
     if (!Number.isSafeInteger(stored)) throw new Error(`${meta.label} has too many decimal places.`);
     return stored;

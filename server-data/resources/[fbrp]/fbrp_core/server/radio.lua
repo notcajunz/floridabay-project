@@ -2,13 +2,23 @@ local channels = {}
 local registeredChecks = {}
 local ready = false
 
+local function normalizeChannel(value)
+    local channel = tonumber(value)
+    if not channel then return 0 end
+    return math.floor(channel * 100 + 0.5) / 100
+end
+
+local function formatChannel(value)
+    return ('%.2f'):format(normalizeChannel(value))
+end
+
 local function playerOrg(source)
     local player = Player(tonumber(source))
     return player and player.state['fbrp:organization'] or nil
 end
 
 local function canJoin(source, channel)
-    local spec = channels[tonumber(channel)]
+    local spec = channels[normalizeChannel(channel)]
     if not spec then return true end
     if not spec.enabled then return false end
     if not spec.org_id then return true end
@@ -17,7 +27,7 @@ local function canJoin(source, channel)
 end
 
 local function registerCheck(channel)
-    channel = tonumber(channel)
+    channel = normalizeChannel(channel)
     if registeredChecks[channel] then return end
     exports['pma-voice']:addChannelCheck(channel, function(source)
         return canJoin(source, channel)
@@ -32,7 +42,7 @@ local function loadChannels()
         FROM radio_channels r LEFT JOIN organizations o ON o.id=r.org_id
         ORDER BY r.sort_order,r.channel
     ]])) do
-        row.channel = tonumber(row.channel)
+        row.channel = normalizeChannel(row.channel)
         row.org_id = row.org_id and tonumber(row.org_id) or nil
         row.enabled = row.enabled == true or row.enabled == 1
         nextChannels[row.channel] = row
@@ -43,6 +53,7 @@ local function loadChannels()
 end
 
 local function memberRows(channel)
+    channel = normalizeChannel(channel)
     local members = {}
     if channel <= 0 then return members end
     local ok, players = pcall(function() return exports['pma-voice']:getPlayersInRadioChannel(channel) end)
@@ -61,7 +72,7 @@ local function memberRows(channel)
 end
 
 local function menuPayload(source)
-    local current = tonumber(Player(source).state.radioChannel) or 0
+    local current = normalizeChannel(Player(source).state.radioChannel)
     local available = {}
     local org = playerOrg(source)
     for _, spec in pairs(channels) do
@@ -76,10 +87,10 @@ local function menuPayload(source)
     local currentSpec = channels[current]
     return {
         current=current,
-        currentName=currentSpec and currentSpec.name or (current > 0 and ('Frequency ' .. current) or 'Disconnected'),
+        currentName=currentSpec and currentSpec.name or (current > 0 and ('Frequency ' .. formatChannel(current)) or 'Disconnected'),
         channels=available,
         members=memberRows(current),
-        maxChannel=999
+        maxChannel=999.99
     }
 end
 
@@ -96,7 +107,7 @@ end
 local function validateCurrent(source, explain)
     local player = Player(tonumber(source))
     if not player then return end
-    local channel = tonumber(player.state.radioChannel) or 0
+    local channel = normalizeChannel(player.state.radioChannel)
     if channel > 0 and not canJoin(source, channel) then
         disconnect(source, explain and 'You were disconnected because this frequency requires active organization duty.' or nil)
     end
@@ -122,15 +133,15 @@ RegisterNetEvent('fbrp:radio:request', function() if ready then push(source) end
 
 RegisterNetEvent('fbrp:radio:join', function(raw)
     local source = source
-    local channel = math.floor(tonumber(raw) or 0)
-    if channel < 1 or channel > 999 then
-        return TriggerClientEvent('fbrp:notify', source, 'Radio frequencies run from 1 to 999.', 'error')
+    local channel = normalizeChannel(raw)
+    if channel < 1 or channel > 999.99 then
+        return TriggerClientEvent('fbrp:notify', source, 'Radio frequencies run from 1.00 to 999.99.', 'error')
     end
     if not canJoin(source, channel) then
         return TriggerClientEvent('fbrp:notify', source, 'That frequency is locked to an on-duty organization.', 'error')
     end
     exports['pma-voice']:setPlayerRadio(source, channel)
-    TriggerClientEvent('fbrp:notify', source, ('Connected to radio %d.'):format(channel), 'success')
+    TriggerClientEvent('fbrp:notify', source, ('Connected to radio %s.'):format(formatChannel(channel)), 'success')
     SetTimeout(200, function() if GetPlayerPing(source) > 0 then push(source) end end)
 end)
 
@@ -160,9 +171,9 @@ end)
 RegisterCommand('frequency', function(source, args)
     if source <= 0 then return end
     if not args[1] or args[1] == 'off' or args[1] == '0' then return disconnect(source) end
-    local channel = math.floor(tonumber(args[1]) or 0)
-    if channel < 1 or channel > 999 then return TriggerClientEvent('fbrp:notify', source, 'Usage: /frequency <1-999|off>', 'error') end
+    local channel = normalizeChannel(args[1])
+    if channel < 1 or channel > 999.99 then return TriggerClientEvent('fbrp:notify', source, 'Usage: /frequency <1.00-999.99|off>', 'error') end
     if not canJoin(source, channel) then return TriggerClientEvent('fbrp:notify', source, 'That frequency is locked to an on-duty organization.', 'error') end
     exports['pma-voice']:setPlayerRadio(source, channel)
-    TriggerClientEvent('fbrp:notify', source, ('Connected to radio %d.'):format(channel), 'success')
+    TriggerClientEvent('fbrp:notify', source, ('Connected to radio %s.'):format(formatChannel(channel)), 'success')
 end, false)

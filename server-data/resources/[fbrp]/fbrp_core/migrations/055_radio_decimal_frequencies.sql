@@ -1,0 +1,2 @@
+ALTER TABLE radio_channels
+  MODIFY channel DECIMAL(5,2) UNSIGNED NOT NULL;

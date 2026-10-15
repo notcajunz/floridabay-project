@@ -330,7 +330,7 @@ const radio = new SlashCommandBuilder()
   .setDescription("Configure in-game radio channels")
   .addSubcommand((s) =>
     s.setName("create").setDescription("Create or update a managed frequency")
-      .addIntegerOption((o) => o.setName("channel").setDescription("Frequency number").setRequired(true).setMinValue(1).setMaxValue(999))
+      .addNumberOption((o) => o.setName("channel").setDescription("Frequency, with up to two decimals").setRequired(true).setMinValue(1).setMaxValue(999.99))
       .addStringOption((o) => o.setName("name").setDescription("Channel display name").setRequired(true).setMaxLength(80))
       .addStringOption((o) => o.setName("organization").setDescription("Organization slug; omit for a public channel").setMaxLength(40))
       .addStringOption((o) => o.setName("description").setDescription("Short channel description").setMaxLength(180))
@@ -338,7 +338,7 @@ const radio = new SlashCommandBuilder()
   )
   .addSubcommand((s) =>
     s.setName("delete").setDescription("Delete a managed frequency")
-      .addIntegerOption((o) => o.setName("channel").setDescription("Frequency number").setRequired(true).setMinValue(1).setMaxValue(999)),
+      .addNumberOption((o) => o.setName("channel").setDescription("Frequency, with up to two decimals").setRequired(true).setMinValue(1).setMaxValue(999.99)),
   )
   .addSubcommand((s) => s.setName("list").setDescription("List managed radio frequencies"));
 

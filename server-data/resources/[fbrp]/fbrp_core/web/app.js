@@ -373,7 +373,7 @@ function updateHud(data) {
   setText("#voice", v.label);
   $$("#voice-range i").forEach((bar, i) => bar.classList.toggle("on", i < v.level));
   const onRadio = data.radio && data.radio !== 0;
-  setText("#radio", onRadio ? `Radio ${data.radio}` : "Proximity");
+  setText("#radio", onRadio ? `Radio ${Number(data.radio).toFixed(2)}` : "Proximity");
   $("#voice-box").classList.toggle("talking", !!data.talking);
   $("#voice-box").classList.toggle("on-radio", !!onRadio);
 
@@ -584,30 +584,25 @@ function renderInteractions(data) {
 function renderRadio(data) {
   const current = Number(data.current) || 0;
   const members = data.members || [];
-  const channels = data.channels || [];
   const volume = Number(ui.radioVolume ?? 30);
-  const channelRows = channels.map((c) => `
-    <button class="radio-channel${current === Number(c.channel) ? " active" : ""}" data-radio-channel="${Number(c.channel)}" style="--radio-color:${safeColor(c.color)}">
-      <span class="radio-frequency">${String(Number(c.channel)).padStart(3, "0")}</span>
-      <span class="radio-channel-copy"><strong>${esc(c.name)}</strong><small>${esc(c.description || (c.restricted ? `${c.organization} duty only` : "Public frequency"))}</small></span>
-      ${c.restricted ? '<span class="radio-lock">ORG</span>' : '<span class="radio-lock public">OPEN</span>'}
-    </button>`).join("");
-  const memberRows = members.map((m) => `
-    <div class="radio-member${m.talking ? " talking" : ""}"><i></i><span>${esc(m.name)}</span><small>#${Number(m.id)}</small></div>`).join("");
-  return `${head("Radio network", "Server-authorized frequencies powered by pma-voice.", current ? `<b>${String(current).padStart(3, "0")}</b> live` : "Offline")}
-    <div class="radio-console${current ? " connected" : ""}" id="radio-console">
-      <section class="radio-device">
-        <div class="radio-screen">
-          <div><small>CURRENT CHANNEL</small><strong>${esc(data.currentName || "Disconnected")}</strong></div>
-          <b>${current ? String(current).padStart(3, "0") : "---"}</b>
-        </div>
-        <form id="radio-tune" class="radio-tune"><label>Direct frequency<input name="channel" type="number" min="1" max="${Number(data.maxChannel) || 999}" placeholder="1–999" required></label><button type="submit" class="primary-action">Connect</button></form>
-        <label class="radio-volume"><span>Receive volume <b id="radio-volume-value">${volume}%</b></span><input id="radio-volume" type="range" min="0" max="100" value="${volume}"></label>
-        <button class="radio-disconnect" data-radio-leave ${current ? "" : "disabled"}>Disconnect</button>
-      </section>
-      <section class="radio-directory"><div class="eyebrow">Channel directory</div><div class="radio-channels">${channelRows || '<div class="empty">No managed channels are available. Enter a public frequency directly.</div>'}</div></section>
-      <section class="radio-roster"><div class="eyebrow">On frequency · ${members.length}</div><div class="radio-members">${memberRows || '<div class="empty compact">Nobody is connected.</div>'}</div><p>Hold <kbd>Left Alt</kbd> to transmit.</p></section>
-    </div>`;
+  const frequency = current ? current.toFixed(2) : "--.--";
+  return `<div class="radio-handset${current ? " connected" : ""}" id="radio-console">
+    <div class="radio-antenna"></div><div class="radio-knob"></div>
+    <header class="radio-brand"><span><b>FBRP</b><small>FIELD RADIO</small></span><button type="button" data-radio-close aria-label="Close radio">×</button></header>
+    <div class="radio-display">
+      <div class="radio-status"><i></i><span>${current ? "CONNECTED" : "STANDBY"}</span><em>${members.length} RX</em></div>
+      <strong>${frequency}</strong><small>MHz</small>
+      <p>${esc(data.currentName || "Disconnected")}</p>
+    </div>
+    <form id="radio-tune" class="radio-tune">
+      <label>Frequency<input name="channel" inputmode="decimal" type="number" min="1" max="${Number(data.maxChannel) || 999.99}" step="0.01" placeholder="00.00" required></label>
+      <button type="submit">Tune</button>
+    </form>
+    <div class="radio-speaker" aria-hidden="true"></div>
+    <label class="radio-volume"><span>Volume <b id="radio-volume-value">${volume}%</b></span><input id="radio-volume" type="range" min="0" max="100" value="${volume}"></label>
+    <div class="radio-footer"><span><kbd>Left Alt</kbd> Push to talk</span><button type="button" data-radio-leave ${current ? "" : "disabled"}>Off</button></div>
+    <p class="radio-access">All two-decimal frequencies are public unless organization locked.</p>
+  </div>`;
 }
 
 function characterForm() {
@@ -1029,6 +1024,8 @@ function renderMenu() {
   const shell = $(".menu-shell");
   shell.classList.toggle("wide", ["mdt", "orghub"].includes(currentView));
   shell.classList.toggle("cad-mode", currentView === "mdt");
+  shell.classList.toggle("radio-mode", currentView === "radio");
+  $("#menu").classList.toggle("radio-mode", currentView === "radio");
   const content = $("#menu-content");
   const scroll = content.scrollTop;
   content.innerHTML = renderers[currentView] ? renderers[currentView](currentPayload) : "";
@@ -2199,6 +2196,7 @@ $("#menu-content").addEventListener("click", (event) => {
   }
   const action = event.target.closest("[data-action]");
   if (action) fireAction(action);
+  if (event.target.closest("[data-radio-close]")) { post("close"); return; }
   const radio = event.target.closest("[data-radio-channel]");
   if (radio) post("radioAction", { action: "join", channel: Number(radio.dataset.radioChannel) });
   if (event.target.closest("[data-radio-leave]")) post("radioAction", { action: "leave" });

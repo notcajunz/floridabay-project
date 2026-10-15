@@ -1066,7 +1066,7 @@ async function organizationCommand(i, sub) {
 async function radioCommand(i, sub) {
   await requireCoOwnerControl(i, "fbrp.radio.manage", "manage radio frequencies");
   if (sub === "create") {
-    const channel = i.options.getInteger("channel", true);
+    const channel = Math.round(i.options.getNumber("channel", true) * 100) / 100;
     const name = clean(i.options.getString("name", true), 80);
     const description = clean(i.options.getString("description") || "", 180) || null;
     const color = hexColor(i.options.getString("color") || "#43E8D8");
@@ -1086,7 +1086,7 @@ async function radioCommand(i, sub) {
     });
   }
   if (sub === "delete") {
-    const channel = i.options.getInteger("channel", true);
+    const channel = Math.round(i.options.getNumber("channel", true) * 100) / 100;
     const row = await db.one("SELECT * FROM radio_channels WHERE channel=?", [channel]);
     if (!row) throw new Error("That managed frequency does not exist.");
     await db.query("DELETE FROM radio_channels WHERE channel=?", [channel]);
@@ -1096,7 +1096,7 @@ async function radioCommand(i, sub) {
   }
   const rows = await db.query(`SELECT r.*,o.name org_name,o.slug org_slug FROM radio_channels r LEFT JOIN organizations o ON o.id=r.org_id ORDER BY r.sort_order,r.channel`);
   return card("Managed radio frequencies", {
-    description: rows.map((row) => `\`${String(row.channel).padStart(3, "0")}\` · **${clean(row.name)}**\n${row.org_id ? `${clean(row.org_name)} duty only` : "Public"}${row.enabled ? "" : " · disabled"}`).join("\n\n") || "No managed frequencies.",
+    description: rows.map((row) => `\`${Number(row.channel).toFixed(2)}\` · **${clean(row.name)}**\n${row.org_id ? `${clean(row.org_name)} duty only` : "Public"}${row.enabled ? "" : " · disabled"}`).join("\n\n") || "No managed frequencies.",
   });
 }
 
