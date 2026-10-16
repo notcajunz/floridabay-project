@@ -178,6 +178,7 @@ RegisterNetEvent('fbrp:justice:findDvCandidates',function(maxDistance)
                     distance=distance,
                     plate=GetVehicleNumberPlateText(vehicle),
                     personalId=personalId,
+                    model=GetEntityModel(vehicle),
                 }
             end
         end

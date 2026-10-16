@@ -1530,15 +1530,51 @@ RegisterCommand('myvehicles', function(source)
     chat(source, 'REGISTRATION', #parts > 0 and table.concat(parts, ' · ') or 'No vehicles registered. Use /registervehicle while driving.', AQUA)
 end, false)
 
+-- Script-created vehicles retain their first network owner even when OneSync
+-- later migrates control to another player. Track the stable license as well so
+-- a briefly out-of-scope entity can still be matched to the player who spawned
+-- it. Population type 7 is mission/script-created; ambient traffic is excluded.
+local SCRIPTED_VEHICLE_POPULATION_TYPE = 7
+local spawnedVehicles = {} -- network id -> { license, model }
+
+local function rememberSpawnedVehicle(entity)
+    if not entity or entity == 0 or not DoesEntityExist(entity) or GetEntityType(entity) ~= 2 then return false end
+    local netId = NetworkGetNetworkIdFromEntity(entity)
+    if not netId or netId <= 0 then return false end
+    spawnedVehicles[netId] = nil -- network ids can be reused after deletion
+    if GetEntityPopulationType(entity) ~= SCRIPTED_VEHICLE_POPULATION_TYPE then return true end
+    local firstOwner = NetworkGetFirstEntityOwner(entity)
+    local ownerSession = firstOwner and firstOwner > 0 and sessions[firstOwner] or nil
+    if ownerSession and ownerSession.license then
+        spawnedVehicles[netId] = { license=ownerSession.license, model=GetEntityModel(entity) }
+    end
+    return true
+end
+
+AddEventHandler('entityCreated', function(entity)
+    CreateThread(function()
+        for _ = 1, 20 do
+            if DoesEntityExist(entity) and GetEntityType(entity) ~= 0 then
+                rememberSpawnedVehicle(entity)
+                return
+            end
+            Wait(50)
+        end
+    end)
+end)
+
+AddEventHandler('entityRemoved', function(entity)
+    local ok, netId = pcall(NetworkGetNetworkIdFromEntity, entity)
+    if ok and netId and netId > 0 then spawnedVehicles[netId] = nil end
+end)
+
 -- Ask the player who ran /dv for nearby network IDs because client-created
 -- vehicles are not always present in the server's entity pool. The server still
--- verifies distance and ownership before approving any deletion.
+-- verifies distance and ownership/creator identity before approving deletion.
 local pendingDv = {}
 
 RegisterCommand('dv', function(source)
     if source <= 0 or not sessions[source] then return end
-    local characterId = characterOf(source)
-    if not characterId then return notify(source, 'Pick a character before using /dv.', 'error') end
     pendingDv[source] = GetGameTimer() + 5000
     TriggerClientEvent('fbrp:justice:findDvCandidates', source, FBRP.Config.ownedVehicleDeleteDistance or 15.0)
 end, false)
@@ -1550,17 +1586,19 @@ RegisterNetEvent('fbrp:justice:dvCandidates', function(candidates)
     if not expires or GetGameTimer() > expires or not sessions[source] then return end
 
     local characterId = characterOf(source)
-    if not characterId then return notify(source, 'Pick a character before using /dv.', 'error') end
+    local session = sessions[source]
     local ped = GetPlayerPed(source)
     if not ped or ped == 0 then return end
     local origin = GetEntityCoords(ped)
     local maxDistance = FBRP.Config.ownedVehicleDeleteDistance or 15.0
     local registered = {}
-    for _, row in ipairs(MySQL.query.await('SELECT plate FROM vehicle_registrations WHERE character_id=?', { characterId }) or {}) do
-        registered[normalizePlate(row.plate)] = true
+    if characterId then
+        for _, row in ipairs(MySQL.query.await('SELECT plate FROM vehicle_registrations WHERE character_id=?', { characterId }) or {}) do
+            registered[normalizePlate(row.plate)] = true
+        end
     end
 
-    local closest, closestDistance, closestPlate, closestNetId
+    local closest, closestDistance, closestPlate, closestNetId, closestOwnership
     if type(candidates) ~= 'table' then candidates = {} end
     for index = 1, math.min(#candidates, 32) do
         local candidate = candidates[index]
@@ -1571,21 +1609,33 @@ RegisterNetEvent('fbrp:justice:dvCandidates', function(candidates)
         local clientDistance = type(candidate) == 'table' and tonumber(candidate.distance) or nil
         local clientPlate = type(candidate) == 'table' and normalizePlate(candidate.plate) or ''
         local clientPersonalId = type(candidate) == 'table' and tonumber(candidate.personalId) or nil
-        local clientOwnership = registered[clientPlate] == true
-            or (clientPersonalId and FBRP.Personals and FBRP.Personals.ownsId
-                and FBRP.Personals.ownsId(source, clientPersonalId))
+        local clientModel = type(candidate) == 'table' and tonumber(candidate.model) or nil
+        local trackedSpawn = spawnedVehicles[netId]
+        local spawnedOwnership = trackedSpawn and session and trackedSpawn.license == session.license
+            and (not clientModel or trackedSpawn.model == clientModel)
+        local registeredOwnership = registered[clientPlate] == true
+        local personalIdOwnership = clientPersonalId and FBRP.Personals and FBRP.Personals.ownsId
+            and FBRP.Personals.ownsId(source, clientPersonalId)
+        local clientOwnership = registeredOwnership or personalIdOwnership or spawnedOwnership
         local vehicle = NetworkGetEntityFromNetworkId(netId)
         if netId > 0 and vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetEntityType(vehicle) == 2 then
             local distance = #(GetEntityCoords(vehicle) - origin)
             if distance <= maxDistance and (not closestDistance or distance < closestDistance) then
                 local plate = normalizePlate(GetVehicleNumberPlateText(vehicle))
                 local personalOwner = FBRP.Personals and FBRP.Personals.owns and FBRP.Personals.owns(source, vehicle)
-                if personalOwner or registered[plate] then
+                local spawnedOwner = GetEntityPopulationType(vehicle) == SCRIPTED_VEHICLE_POPULATION_TYPE
+                    and NetworkGetFirstEntityOwner(vehicle) == source
+                if spawnedOwner and session and session.license then
+                    spawnedVehicles[netId] = { license=session.license, model=GetEntityModel(vehicle) }
+                end
+                if personalOwner or registered[plate] or spawnedOwner then
                     closest, closestDistance, closestPlate, closestNetId = vehicle, distance, plate, netId
+                    closestOwnership = personalOwner and 'personal' or registered[plate] and 'registered' or 'spawned'
                 elseif clientOwnership then
                     -- Plate/state-bag replication can lag behind the entity.
-                    -- The client claim is independently matched to this owner.
+                    -- Client metadata is independently matched to this owner.
                     closest, closestDistance, closestPlate, closestNetId = vehicle, distance, clientPlate, netId
+                    closestOwnership = spawnedOwnership and 'spawned' or personalIdOwnership and 'personal' or 'registered'
                 end
             end
         elseif netId > 0 and clientDistance and clientDistance >= 0 and clientDistance <= maxDistance
@@ -1593,13 +1643,14 @@ RegisterNetEvent('fbrp:justice:dvCandidates', function(candidates)
             and (not closestDistance or clientDistance < closestDistance) then
             -- The caller cannot use this fallback to delete somebody else's
             -- vehicle: the claimed plate or personal id is independently matched
-            -- to them, and deletion is sent only to the client that sees it.
+            -- to them, or the net id/model matches a vehicle they spawned.
             closest, closestDistance, closestPlate, closestNetId = false, clientDistance, clientPlate, netId
+            closestOwnership = spawnedOwnership and 'spawned' or personalIdOwnership and 'personal' or 'registered'
         end
     end
 
     if closest == nil then
-        return notify(source, ('No vehicle you own is within %d metres.'):format(math.floor(maxDistance)), 'error')
+        return notify(source, ('No vehicle you own or spawned is within %d metres.'):format(math.floor(maxDistance)), 'error')
     end
     if closest then
         if FBRP.Personals and FBRP.Personals.removed then FBRP.Personals.removed(closest) end
@@ -1614,6 +1665,7 @@ RegisterNetEvent('fbrp:justice:dvCandidates', function(candidates)
     local s = sessions[source]
     FBRP.DB.audit(s and s.discord or source, 'vehicle.delete', closestPlate ~= '' and closestPlate or nil, {
         distance = math.floor(closestDistance * 10 + 0.5) / 10,
+        ownership = closestOwnership,
     })
 end)
 
