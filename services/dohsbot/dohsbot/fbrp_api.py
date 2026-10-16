@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
+
+
+class FbrpApiError(RuntimeError):
+    pass
+
+
+class FbrpApi:
+    """Read-only client for the FBRP portal's organization and duty-hours API."""
+
+    def __init__(self, base_url: str | None = None, token: str | None = None):
+        self.base_url = (base_url or os.getenv("FBRP_API_URL", "")).strip().rstrip("/")
+        self.token = (token or os.getenv("FBRP_API_TOKEN", "")).strip()
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.base_url and self.token)
+
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if not self.configured:
+            raise FbrpApiError("FBRP_API_URL and FBRP_API_TOKEN are not set.")
+        query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
+        request = urllib.request.Request(
+            f"{self.base_url}{path}{'?' + query if query else ''}",
+            method="GET",
+            headers={"Authorization": f"Bearer {self.token}", "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            try:
+                detail = json.load(error).get("error", "")
+            except Exception:
+                detail = ""
+            raise FbrpApiError(detail or f"FBRP API returned {error.code}.") from None
+        except (urllib.error.URLError, TimeoutError, ValueError) as error:
+            raise FbrpApiError("Could not reach the FBRP API.") from error
+
+    async def org(self, org_ref: str) -> dict[str, Any]:
+        quoted = urllib.parse.quote(str(org_ref), safe="")
+        return (await asyncio.to_thread(self._get, f"/api/gangs/org/{quoted}"))["org"]
+
+    async def hours(self, org_ref: str, since_ms: int | None = None, until_ms: int | None = None,
+                    discord_id: int | None = None) -> dict[str, Any]:
+        quoted = urllib.parse.quote(str(org_ref), safe="")
+        return await asyncio.to_thread(
+            self._get, f"/api/gangs/org/{quoted}/hours",
+            {"since": since_ms, "until": until_ms, "discord_id": discord_id},
+        )

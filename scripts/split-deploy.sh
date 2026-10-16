@@ -12,6 +12,7 @@ readonly REMOTE=agent-origin
 readonly -a CONTROL_USER_UNITS=(
   businesses-bot.service
   departments-bot.service
+  dohs-bot.service
   devops-bot.service
   gangs-bot.service
   iaa-bot.service

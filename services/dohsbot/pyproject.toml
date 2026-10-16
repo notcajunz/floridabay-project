@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fbrp-dohs-assistant"
+version = "0.1.0"
+description = "Discord roster and duty-hours bot for FBRP | Department of Homefront Security"
+requires-python = ">=3.11"
+dependencies = [
+  "discord.py>=2.5,<3",
+  "gspread>=6.0,<7",
+  "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "pytest-asyncio>=0.24,<1"]
+
+[project.scripts]
+dohs-assistant = "dohsbot.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["dohsbot*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

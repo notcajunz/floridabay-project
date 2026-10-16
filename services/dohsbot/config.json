@@ -1,0 +1,58 @@
+{
+  "_help": "Paste Discord IDs as text. Leave a value as \"\" to skip it. Turn on Developer Mode in Discord, then right-click a role/channel -> Copy ID.",
+  "guild_id": "1558238773958017024",
+  "fbrp_org_id": "3",
+  "hours_channel_id": "1560780793297768518",
+  "hours_days": 7,
+  "hours_required": 0,
+  "hours_exempt_statuses": [
+    "LOA",
+    "Exempt",
+    "Reserve"
+  ],
+  "move_role_ids": [
+    "1558238884092190762",
+    "1558238882099757116",
+    "1558238878488338463"
+  ],
+  "staff_role_ids": [
+    "1558238884092190762",
+    "1558238882099757116",
+    "1558238878488338463"
+  ],
+  "admins_bypass": false,
+  "log_channel_id": "1560588667528159272",
+  "movement_channel_id": "1558605872211562566",
+  "movement_ping": true,
+  "movement_show_remove_reason": true,
+  "callsign_channel_id": "1558605894382788719",
+  "nickname_format": "{callsign} | {name}",
+  "member_role_id": "1558239521353629826",
+  "rank_roles": {
+    "Secretary": "1560416576266838098",
+    "Deputy Secretary": "1560416758177726586",
+    "Director": "1558238878987714620",
+    "Deputy Director": "1558238879491039234",
+    "Assistant Director": "1558238880954843166",
+    "Chief of Staff": "1558238880417976330",
+    "Section Chief": "1558238882951069797",
+    "Assistant Section Chief": "1558238883651518574",
+    "Special Agent in Charge": "1558238884792373278",
+    "Assistant Special Agent in Charge": "1558239335319347261",
+    "Supervisory Special Agent": "1558239337236136101",
+    "Special Agent": "1558239337387262092",
+    "Senior Agent": "1560400632559435777",
+    "Agent": "1558239337974468638",
+    "Probationary Agent": "1558239338611867739",
+    "Reserve Agent": "1560589262230130778"
+  },
+  "ladder_top_rank": "Section Chief",
+  "ladder_exclude": [
+    "Reserve Agent"
+  ],
+  "coc_lowest_rank": "Chief of Staff",
+  "coc_title": "DOHS · Chain of Command",
+  "coc_description": "The Department of Homefront Security hierarchy, from highest authority down.",
+  "coc_thumbnail_url": "",
+  "coc_colour": "#F1C40F"
+}
