@@ -50,6 +50,7 @@ class Config:
     transfer_blacklist_log_channel_id: int = 0
     role_conflict_channel_id: int = 0
     email_channel_id: int = 0
+    email_log_channel_id: int = 0
     punishment_channel_ids: tuple[int, ...] = ()
     custom_message_log_channel_id: int = 0
     server_log_channel_id: int = 0
@@ -212,6 +213,7 @@ class Config:
             transfer_blacklist_log_channel_id=channel("transfer_blacklist_log_channel_id"),
             role_conflict_channel_id=channel("role_conflict_channel_id"),
             email_channel_id=channel("email_channel_id"),
+            email_log_channel_id=channel("email_log_channel_id"),
             punishment_channel_ids=_ids(bot.get("punishment_channel_ids")),
             custom_message_log_channel_id=channel("custom_message_log_channel_id"),
             server_log_channel_id=channel("server_log_channel_id"),

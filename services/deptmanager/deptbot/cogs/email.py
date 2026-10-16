@@ -14,6 +14,7 @@ from ..common import (
     confirm_action,
     coordinator_only,
     department_autocomplete,
+    email_log,
     guild_id,
     has_bypass,
     reply,
@@ -154,6 +155,11 @@ class EmailCog(DeptCog):
         note = " Your registration was updated." if data.get("updated") else ""
         status = data.get("status", "Active")
         waiting = "" if status == "Active" else f" Your status is **{status}** until you hold the department role."
+        await email_log(
+            self.bot, guild, "Registered" if not data.get("updated") else "Registration updated",
+            f"{member.mention} saved their email for **{row['name']}**.",
+            color=discord.Color.green(), fields={"Rank": data.get("rank") or rank, "Status": status},
+        )
         await reply(interaction, f"Saved your email for **{row['name']}**.{note}{waiting}")
 
     @email.command(name="adduser", description="Request document access for a registered department member")
@@ -194,9 +200,20 @@ class EmailCog(DeptCog):
         issues = data.get("issues") or []
         if not data.get("ok"):
             if issues:
+                await email_log(
+                    self.bot, guild, f"{data.get('id', 'Request')} · {kind} rejected",
+                    f"{interaction.user.mention} asked for **{kind}** for {member.mention} in **{row['name']}**.",
+                    color=discord.Color.dark_grey(), fields={"Why": "; ".join(issues)},
+                )
                 raise ValueError(f"Request {data.get('id', '')} was not accepted:\n- " + "\n- ".join(issues))
             raise self.fail(data)
         await self.service.log(guild.id, "email", kind, interaction.user.id, row["name"], f"{member.id} {data.get('id')}")
+        await email_log(
+            self.bot, guild, f"{data.get('id')} · {kind} requested",
+            f"{interaction.user.mention} requested **{kind}** for {member.mention} in **{row['name']}**.",
+            color=discord.Color.orange(),
+            fields={"Decision": data.get("decision"), "Reason": reason, "Documents": docs or ""},
+        )
         if data.get("decision") == "Approved":
             await reply(interaction, f"**{data['id']}** was approved automatically. {kind} for {member.mention} is applied.")
             return
@@ -267,6 +284,11 @@ class EmailCog(DeptCog):
             await interaction.followup.send(str(data.get("error") or "The email database rejected that."), ephemeral=True)
             return
         await self._finish_message(interaction, verdict, interaction.user)
+        await email_log(
+            self.bot, interaction.guild, f"{request_id} · {verdict}",
+            f"{interaction.user.mention} {verdict.lower()} the request.",
+            color=DECISION_COLORS[verdict], fields={"Applied": str(data.get("applied") or "")},
+        )
         embed = interaction.message.embeds[0] if interaction.message and interaction.message.embeds else None
         requester = re.search(r"<@!?(\d+)>", embed.description or "") if embed else None
         applied = str(data.get("applied") or "")
@@ -306,6 +328,11 @@ class EmailCog(DeptCog):
         if not data.get("ok"):
             raise self.fail(data)
         await self.service.log(guild.id, "email", "wipe", interaction.user.id, row["name"], str(member.id))
+        await email_log(
+            self.bot, guild, "Member wiped",
+            f"{interaction.user.mention} deleted {member.mention} from **{row['name']}** in the email database.",
+            color=discord.Color.red(),
+        )
         await reply(interaction, f"Removed {member.mention} from **{row['name']}** in the email database.")
 
     @email.command(name="list", description="List a department's members and their access")

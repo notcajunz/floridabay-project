@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC, datetime
 
 import discord
 from discord import app_commands
@@ -362,3 +363,18 @@ async def confirm_action(interaction: discord.Interaction, prompt: str) -> bool:
         await interaction.response.send_message(prompt, view=view, ephemeral=True)
     await view.wait()
     return view.confirmed
+
+
+async def email_log(
+    bot, guild: discord.Guild | None, title: str, description: str,
+    *, color: discord.Color | None = None, fields: dict[str, str] | None = None,
+) -> None:
+    """One line in the email-logs channel for everything that happens in the email database."""
+    embed = discord.Embed(
+        title=title, description=description, color=color or discord.Color.blurple(),
+        timestamp=datetime.now(UTC),
+    )
+    for name, value in (fields or {}).items():
+        if value:
+            embed.add_field(name=name, value=str(value)[:1000], inline=True)
+    await send_to(guild, bot.config.email_log_channel_id, embed=embed)

@@ -15,6 +15,7 @@ from ..common import (
     coordinator_only,
     department_autocomplete,
     confirm_action,
+    email_log,
     guild_id,
     launch_or_manager,
     manager_only,
@@ -88,6 +89,11 @@ class DepartmentsCog(DeptCog):
             return f"Email database: not added ({error})"
         if not data.get("ok"):
             return f"Email database: not added ({data.get('error', 'rejected')})"
+        await email_log(
+            self.bot, interaction.guild, "Department added",
+            f"{interaction.user.mention} added **{row['name']}** as `{code}` with its own tab.",
+            color=discord.Color.green(), fields={"Category": category},
+        )
         return f"Email database: added as `{code}` with its own tab."
 
     async def _sheet_remove(self, interaction, row: dict) -> str:
@@ -103,6 +109,11 @@ class DepartmentsCog(DeptCog):
         except SheetApiError as error:
             return f"Email database: not archived ({error})"
         if data.get("ok"):
+            await email_log(
+                self.bot, interaction.guild, "Department removed",
+                f"{interaction.user.mention} removed **{row['name']}**; its tab was archived.",
+                color=discord.Color.red(), fields={"Member records kept": str(data.get("members", 0))},
+            )
             return f"Email database: tab archived ({data.get('members', 0)} member record(s) kept)."
         if "Unknown department" in str(data.get("error", "")):
             return "Email database: it was not in there."
