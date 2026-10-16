@@ -171,13 +171,20 @@ RegisterNetEvent('fbrp:justice:findDvCandidates',function(maxDistance)
             local distance=#(GetEntityCoords(vehicle)-origin)
             local netId=NetworkGetNetworkIdFromEntity(vehicle)
             if distance<=maxDistance and netId>0 then
-                nearby[#nearby+1]={netId=netId,distance=distance}
+                local personalId
+                pcall(function() personalId=tonumber(Entity(vehicle).state.fbrpPersonal) end)
+                nearby[#nearby+1]={
+                    netId=netId,
+                    distance=distance,
+                    plate=GetVehicleNumberPlateText(vehicle),
+                    personalId=personalId,
+                }
             end
         end
     end
     table.sort(nearby,function(a,b) return a.distance<b.distance end)
     local candidates={}
-    for index=1,math.min(#nearby,32) do candidates[index]=nearby[index].netId end
+    for index=1,math.min(#nearby,32) do candidates[index]=nearby[index] end
     TriggerServerEvent('fbrp:justice:dvCandidates',candidates)
 end)
 

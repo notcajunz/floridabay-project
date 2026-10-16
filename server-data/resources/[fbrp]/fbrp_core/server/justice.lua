@@ -1563,7 +1563,17 @@ RegisterNetEvent('fbrp:justice:dvCandidates', function(candidates)
     local closest, closestDistance, closestPlate, closestNetId
     if type(candidates) ~= 'table' then candidates = {} end
     for index = 1, math.min(#candidates, 32) do
-        local netId = tonumber(candidates[index]) or 0
+        local candidate = candidates[index]
+        -- Older clients sent only a network id. New clients also send the plate
+        -- and their measured distance so /dv still works when OneSync has not
+        -- materialized a client-created vehicle in the server entity pool.
+        local netId = tonumber(type(candidate) == 'table' and candidate.netId or candidate) or 0
+        local clientDistance = type(candidate) == 'table' and tonumber(candidate.distance) or nil
+        local clientPlate = type(candidate) == 'table' and normalizePlate(candidate.plate) or ''
+        local clientPersonalId = type(candidate) == 'table' and tonumber(candidate.personalId) or nil
+        local clientOwnership = registered[clientPlate] == true
+            or (clientPersonalId and FBRP.Personals and FBRP.Personals.ownsId
+                and FBRP.Personals.ownsId(source, clientPersonalId))
         local vehicle = NetworkGetEntityFromNetworkId(netId)
         if netId > 0 and vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetEntityType(vehicle) == 2 then
             local distance = #(GetEntityCoords(vehicle) - origin)
@@ -1572,16 +1582,31 @@ RegisterNetEvent('fbrp:justice:dvCandidates', function(candidates)
                 local personalOwner = FBRP.Personals and FBRP.Personals.owns and FBRP.Personals.owns(source, vehicle)
                 if personalOwner or registered[plate] then
                     closest, closestDistance, closestPlate, closestNetId = vehicle, distance, plate, netId
+                elseif clientOwnership then
+                    -- Plate/state-bag replication can lag behind the entity.
+                    -- The client claim is independently matched to this owner.
+                    closest, closestDistance, closestPlate, closestNetId = vehicle, distance, clientPlate, netId
                 end
             end
+        elseif netId > 0 and clientDistance and clientDistance >= 0 and clientDistance <= maxDistance
+            and clientOwnership
+            and (not closestDistance or clientDistance < closestDistance) then
+            -- The caller cannot use this fallback to delete somebody else's
+            -- vehicle: the claimed plate or personal id is independently matched
+            -- to them, and deletion is sent only to the client that sees it.
+            closest, closestDistance, closestPlate, closestNetId = false, clientDistance, clientPlate, netId
         end
     end
 
-    if not closest then
+    if closest == nil then
         return notify(source, ('No vehicle you own is within %d metres.'):format(math.floor(maxDistance)), 'error')
     end
-    if FBRP.Personals and FBRP.Personals.removed then FBRP.Personals.removed(closest) end
-    DeleteEntity(closest)
+    if closest then
+        if FBRP.Personals and FBRP.Personals.removed then FBRP.Personals.removed(closest) end
+        DeleteEntity(closest)
+    elseif FBRP.Personals and FBRP.Personals.removedNetId then
+        FBRP.Personals.removedNetId(closestNetId)
+    end
     -- The requesting client normally owns client-created vehicles, so let it
     -- finish the deletion if server-side entity removal has not propagated.
     TriggerClientEvent('fbrp:justice:deleteDvVehicle', source, closestNetId)

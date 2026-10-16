@@ -340,10 +340,26 @@ function FBRP.Personals.owns(source, vehicle)
     return p ~= nil and p.owner == discordOf(source)
 end
 
+-- Verify a personal id without requiring its client-created entity to have
+-- appeared in the server entity pool yet.
+function FBRP.Personals.ownsId(source, personalId)
+    local p = personals[tonumber(personalId)]
+    return p ~= nil and p.owner == discordOf(source)
+end
+
 -- Forget a tracked entity before another module removes it from the world.
 function FBRP.Personals.removed(vehicle)
     if not vehicle or vehicle == 0 then return end
     local netId = NetworkGetNetworkIdFromEntity(vehicle)
+    FBRP.Personals.removedNetId(netId)
+end
+
+-- Client-created vehicles can be visible to their owner before OneSync exposes
+-- a corresponding server entity. Allow ownership-sensitive commands to clear
+-- the tracking entry using the already validated network id in that case.
+function FBRP.Personals.removedNetId(netId)
+    netId = tonumber(netId)
+    if not netId then return end
     local id = registry[netId]
     registry[netId] = nil
     if id and active[id] == netId then active[id] = nil end

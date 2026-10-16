@@ -156,7 +156,7 @@ RegisterNetEvent('pma-voice:setTalkingOnRadio', setTalkingOnRadio)
 AddEventHandler("onResourceStop", function(resource)
 	for channel, cfxFunctionRef in pairs(radioChecks) do
 		local functionRef = cfxFunctionRef.__cfx_functionReference
-		local functionResource = string.match(functionRef, resource)
+		local functionResource = type(functionRef) == 'string' and functionRef:find(resource, 1, true)
 		if functionResource then
 			radioChecks[channel] = nil
 			logger.warn('Channel %s had its radio check removed because the resource that gave the checks stopped',
