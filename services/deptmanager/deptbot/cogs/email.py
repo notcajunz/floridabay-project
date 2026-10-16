@@ -374,6 +374,8 @@ class EmailCog(DeptCog):
         for guild in self.bot.guilds:
             try:
                 await self.sync_roles(guild)
+            except SheetApiError as error:
+                log.warning("Email database role sync skipped for %s: %s", guild.id, error)
             except Exception:
                 log.exception("Email database role sync failed for %s", guild.id)
 
