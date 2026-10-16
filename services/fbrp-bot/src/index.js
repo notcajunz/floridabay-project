@@ -4558,7 +4558,7 @@ async function forwardGameAudit() {
   }
   let cursor = Number(typeof stored.value === "string" ? JSON.parse(stored.value) : stored.value) || 0;
   const rows = await db.query("SELECT * FROM audit_log WHERE id>? ORDER BY id LIMIT 50", [cursor]);
-  // Joins and leaves are high volume, so they only post once a connections channel is bound.
+  // Joins and leaves use a dedicated connections channel when one is bound, else the game log.
   let connectionsBound = null;
   for (const row of rows) {
     const action = String(row.action);
@@ -4578,7 +4578,7 @@ async function forwardGameAudit() {
       purpose = "game";
     else if (action === "player.join" || action === "player.leave") {
       connectionsBound ??= Boolean(await db.one("SELECT 1 bound FROM discord_channel_bindings WHERE purpose='connections' LIMIT 1").catch(() => null));
-      if (connectionsBound) purpose = "connections";
+      purpose = connectionsBound ? "connections" : "game";
     }
     else if (String(row.actor_id) === "web-panel") purpose = "staff_audit";
     if (purpose) {
