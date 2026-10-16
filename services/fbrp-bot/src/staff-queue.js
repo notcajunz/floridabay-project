@@ -6,7 +6,7 @@
  *   network_role_queue  add or remove one role for one member in one server
  *   network_sync_queue  re-sync one member's ACE-driven roles in every server, or
  *                       (discord_id "coc-refresh") redraw the main chain-of-command board
- *   staff_welcome_queue the onboarding DM for a new staff member (rank, callsign, staff-server invite)
+ *   staff_welcome_queue the onboarding DM for a new staff member (rank, optional callsign, staff-server invite)
  *
  * A request is deleted only if nobody replaced it while it was being worked on.
  */
@@ -66,7 +66,7 @@ export function createStaffQueue({ client, db, syncUserAcrossNetwork, refreshCha
       "Welcome to the **Florida Bay Roleplay staff team**. Your staff access is ready.",
       "",
       `**Rank:** ${clean(row.rank_name, 80)}`,
-      `**Callsign:** ${row.callsign}`,
+      ...(row.callsign ? [`**Callsign:** ${row.callsign}`] : []),
       `**In-game access:** ${Number(row.staff_only) ? "Clock in with `/clockin` before using staff permissions." : "Active immediately."}`,
       ...(invite ? ["", `**Staff server:** ${invite.url}`, "This invite works once and also expires after seven days."] : []),
       ...(alreadyThere ? ["", `You are already in **${clean(guild.name, 100)}**, so no new invite was needed.`] : []),
@@ -151,7 +151,7 @@ export function createStaffQueue({ client, db, syncUserAcrossNetwork, refreshCha
           target: String(row.discord_id),
           fields: [
             ["Rank", clean(row.rank_name, 80)],
-            ["Callsign", String(row.callsign)],
+            ...(row.callsign ? [["Callsign", String(row.callsign)]] : []),
             ["Invite", result.invited ? "Single-use staff-server invite included" : "None"],
             ...(result.sent ? [] : [["Why", result.problem || "Their DMs are closed. Share the invite or access yourself.", false]]),
           ],

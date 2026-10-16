@@ -142,7 +142,7 @@ async function requireCoOwnerControl(i, permission, action) {
   await requirePermission(i, permission);
 }
 
-/** Community Director and above: republish every current staff callsign, including unchanged ones. */
+/** Community Director and above: republish every Head Administrator+ callsign, including unchanged ones. */
 async function callsignCommand(i, sub) {
   if (sub !== "sync") throw new Error("Unknown callsign action.");
   await requireMinimumStaffRank(i, "Community Director", "synchronize callsigns");
@@ -158,8 +158,9 @@ async function callsignCommand(i, sub) {
       WHERE m.status<>'removed'
       ORDER BY COALESCE(c.sort_order,9999),COALESCE(r.sort_order,9999),m.callsign,m.display_name`,
   );
-  const assigned = members.filter((member) => member.callsign !== null && member.callsign !== undefined && member.callsign !== "");
-  const missing = members.filter((member) => !assigned.includes(member));
+  const eligibleIds = new Set(rebalance.assignments.filter((member) => member.eligible).map((member) => member.discordId));
+  const assigned = members.filter((member) => eligibleIds.has(String(member.discord_id)) && member.callsign !== null && member.callsign !== undefined && member.callsign !== "");
+  const missing = members.filter((member) => eligibleIds.has(String(member.discord_id)) && !assigned.includes(member));
   for (const member of assigned)
     await channel.send({ content: `${mention(member.discord_id)} --> ${member.callsign}`, allowedMentions: { parse: [] } });
 
@@ -374,8 +375,7 @@ async function staffAdd(i, move = false) {
   for (const row of ladder) if (wornIds.has(Number(row.id))) await setRankRole(row, user.id, true);
   await setStaffTeamRole(user.id, true);
   const rebalance = await rebalanceStaffCallsigns(i.user.id);
-  const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
-  if (!callsign) throw new Error("The staff rank was saved, but no callsign could be assigned.");
+  const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign ?? null;
   await audit(i.user.id, move ? "staff.move" : "staff.add", user.id, { rank: rank.id, rankName: rank.name, from: previous?.rank_name || null, group: rank.ace_group, groups, callsign, removedGroups, reason });
   await refreshGame();
   await syncNetwork(user.id);
@@ -384,7 +384,7 @@ async function staffAdd(i, move = false) {
     ["Rank", `${clean(rank.name)}\n${clean(rank.category_name)}`],
     ["ACE group", `\`${rank.ace_group}\` (rank ${rank.group_rank})`],
     ...(groups.length > 1 ? [["Lower ranks included", groups.filter((g) => g !== rank.ace_group).map((g) => `\`${g}\``).join(" ")]] : []),
-    ["Callsign", String(callsign)],
+    ["Callsign", callsign === null ? "Not assigned (Head Administrator and above only)" : String(callsign)],
     ...(active && previous.rank_name && Number(previous.rank_id) !== Number(rank.id) ? [["Previous rank", clean(previous.rank_name)]] : []),
     ...(removedGroups.length ? [["Left groups", removedGroups.map((g) => `\`${g}\``).join(" ")]] : []),
     ...(welcome ? [["Welcome DM", "Queued: the main bot sends it with a single-use staff-server invite, and the result is posted in the staff audit log"]] : []),
@@ -759,18 +759,17 @@ async function rosterCommand(i, sub) {
     await setRankRole(rank, user.id, true);
     await setStaffTeamRole(user.id, true);
     const rebalance = await rebalanceStaffCallsigns(i.user.id);
-    const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
-    if (!callsign) throw new Error("The roster member was saved, but no callsign could be assigned.");
+    const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign ?? null;
     await log(i.guild, {
       title: "Roster member saved",
       color: COLORS.success,
       actor: i.user.id,
       target: user.id,
-      fields: [["Rank", rank.name], ["Callsign", String(callsign)]],
+      fields: [["Rank", rank.name], ["Callsign", callsign === null ? "Not assigned (Head Administrator and above only)" : String(callsign)]],
     }, "roster");
     return card("Roster member saved", {
       color: COLORS.success,
-      rows: [["Member", who(user.id)], ["Rank", rank.name], ["Callsign", String(callsign)]],
+      rows: [["Member", who(user.id)], ["Rank", rank.name], ["Callsign", callsign === null ? "Not assigned (Head Administrator and above only)" : String(callsign)]],
     });
   }
   if (sub === "remove") {
@@ -797,11 +796,12 @@ async function rosterCommand(i, sub) {
   }
   if (sub === "callsign") {
     const rebalance = await rebalanceStaffCallsigns(i.user.id);
-    const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
-    if (!callsign) throw new Error("That member is not on the active roster.");
+    const assignment = rebalance.assignments.find((row) => row.discordId === user.id);
+    if (!assignment) throw new Error("That member is not on the active roster.");
+    const callsign = assignment.callsign;
     return card("Callsigns rank-ordered", {
       color: COLORS.success,
-      rows: [["Member", who(user.id)], ["Callsign", String(callsign)], ["Changed assignments", String(rebalance.changes.length)]],
+      rows: [["Member", who(user.id)], ["Callsign", callsign === null ? "Not eligible (Head Administrator and above only)" : String(callsign)], ["Changed assignments", String(rebalance.changes.length)]],
     });
   }
   if (sub === "note") {
@@ -830,7 +830,7 @@ async function rosterCommand(i, sub) {
 
 
 /**
- * The onboarding DM (rank, callsign and a one-use staff-server invite) is sent by the main bot: the
+ * The onboarding DM (rank, optional callsign and a one-use staff-server invite) is sent by the main bot: the
  * request goes into staff_welcome_queue and src/staff-queue.js sends it and posts the result.
  */
 async function queueStaffWelcome(user, rank, callsign, requestedBy) {
@@ -838,7 +838,7 @@ async function queueStaffWelcome(user, rank, callsign, requestedBy) {
     `INSERT INTO staff_welcome_queue(discord_id,rank_name,callsign,staff_only,requested_by,requested_at,attempts)
      VALUES(?,?,?,?,?,?,0)
      ON DUPLICATE KEY UPDATE rank_name=VALUES(rank_name),callsign=VALUES(callsign),staff_only=VALUES(staff_only),requested_by=VALUES(requested_by),requested_at=VALUES(requested_at),attempts=0`,
-    [user.id, String(rank.name).slice(0, 80), String(callsign), rank.group_staff_only ? 1 : 0, String(requestedBy), Date.now()],
+    [user.id, String(rank.name).slice(0, 80), callsign === null ? "" : String(callsign), rank.group_staff_only ? 1 : 0, String(requestedBy), Date.now()],
   );
   return { queued: true };
 }

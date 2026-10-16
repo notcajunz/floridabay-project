@@ -497,7 +497,7 @@ export const PANEL_RESOURCES = {
   "roster-members": {
     label: "Roster members",
     group: "Staff roster",
-    description: "Staff on the roster. Callsigns are assigned automatically by rank order. Saving applies the rank role; use /staff add to also set ACE groups.",
+    description: "Staff on the roster. Head Administrator and higher receive callsigns automatically by rank order. Saving applies the rank role; use /staff add to also set ACE groups.",
     table: "staff_roster_members",
     pk: ["discord_id"],
     order: "status,callsign,display_name",

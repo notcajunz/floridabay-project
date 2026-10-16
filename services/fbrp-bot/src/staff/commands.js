@@ -22,7 +22,7 @@ const staff = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("add")
-      .setDescription("Put a member in a staff rank's ACE group and give them a callsign")
+      .setDescription("Put a member in a staff rank's ACE group")
       .addStringOption((o) =>
         o
           .setName("rank")
@@ -84,11 +84,11 @@ const staff = new SlashCommandBuilder()
 
 const callsign = new SlashCommandBuilder()
   .setName("callsign")
-  .setDescription("Rank-order and publish staff callsigns")
+  .setDescription("Rank-order and publish leadership callsigns")
   .addSubcommand((s) =>
     s
       .setName("sync")
-      .setDescription("Rebalance by rank and republish every callsign"),
+      .setDescription("Rebalance and republish Head Administrator+ callsigns"),
   );
 
 const coordall = new SlashCommandBuilder()

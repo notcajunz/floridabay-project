@@ -42,7 +42,8 @@ local migrationFiles = {
     'migrations/055_radio_decimal_frequencies.sql',
     'migrations/062_tag_outline.sql',
     'migrations/064_global_role_strips.sql',
-    'migrations/065_discord_oauth_grants.sql'
+    'migrations/065_discord_oauth_grants.sql',
+    'migrations/066_leadership_callsigns.sql'
 }
 
 local function splitSql(contents)

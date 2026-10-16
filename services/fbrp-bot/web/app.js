@@ -86,7 +86,7 @@ const FRIENDLY = {
   "roster-categories": ["Callsign ranges", "The callsign number range given to each group of staff ranks."],
   "roster-ranks": ["Staff ranks", "Every staff rank, its Discord role, its permission group and its activity requirement."],
   "roster-jobs": ["Secondary jobs", "Extra staff roles someone can hold alongside their rank."],
-  "roster-members": ["Staff members", "Everyone on the staff team. Callsigns are handed out automatically."],
+  "roster-members": ["Staff members", "Everyone on the staff team. Head Administrator and higher receive automatic callsigns."],
   "roster-member-jobs": ["Who has which secondary job", "Which staff members hold each secondary job."],
   "roster-discipline": ["Warnings & strikes", "Staff warnings and strikes. Add a revoke time to lift one."],
   "staff-exams": ["Promotion exams", "The exams staff take on the member portal to be promoted."],

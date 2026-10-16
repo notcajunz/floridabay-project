@@ -1,14 +1,29 @@
 /**
  * Reassign active staff callsigns by category and rank.
  *
- * Categories own non-overlapping numeric ranges. Within each category, higher
- * ACE rank_order values receive lower callsigns. Existing callsign order is
- * retained among members of the same rank so a rebalance is deterministic and
- * only moves people when the rank hierarchy requires it.
+ * Callsigns are reserved for ranks above Senior Administrator. Categories own
+ * non-overlapping numeric ranges. Within each category, higher ACE rank_order
+ * values receive lower callsigns. Existing callsign order is retained among
+ * members of the same rank so a rebalance is deterministic and only moves
+ * people when the rank hierarchy requires it.
  */
+export const CALLSIGN_EXCLUDED_THROUGH_RANK = "Senior Administrator";
+
 export async function rebalanceCallsigns(db, actorId = "system") {
   const stamp = Date.now();
   return db.transaction(async (query) => {
+    const cutoffRows = await query(
+      `SELECT MAX(g.rank_order) rank_order
+         FROM staff_roster_ranks r
+         JOIN ace_groups g ON g.name=r.ace_group
+        WHERE LOWER(r.name)=LOWER(?)`,
+      [CALLSIGN_EXCLUDED_THROUGH_RANK],
+    );
+    const cutoffValue = cutoffRows[0]?.rank_order;
+    const cutoff = cutoffValue === null || cutoffValue === undefined ? Number.NaN : Number(cutoffValue);
+    if (!Number.isFinite(cutoff))
+      throw new Error(`${CALLSIGN_EXCLUDED_THROUGH_RANK} must have a mapped ACE group before callsigns can be rebalanced.`);
+
     const members = await query(
       `SELECT m.discord_id,m.callsign,m.joined_at,m.rank_changed_at,
               r.id rank_id,r.sort_order rank_sort,g.rank_order,
@@ -23,14 +38,15 @@ export async function rebalanceCallsigns(db, actorId = "system") {
         FOR UPDATE`,
     );
 
+    const eligible = members.filter((member) => Number(member.rank_order) > cutoff);
     const categories = new Map();
-    for (const member of members) {
+    for (const member of eligible) {
       const id = Number(member.category_id);
       if (!categories.has(id)) categories.set(id, []);
       categories.get(id).push(member);
     }
 
-    const assignments = [];
+    const desired = new Map(members.map((member) => [String(member.discord_id), null]));
     for (const categoryMembers of categories.values()) {
       const first = categoryMembers[0];
       const start = Number(first.callsign_start);
@@ -47,15 +63,18 @@ export async function rebalanceCallsigns(db, actorId = "system") {
         || String(left.discord_id).localeCompare(String(right.discord_id)),
       );
 
-      categoryMembers.forEach((member, index) => assignments.push({
-        discordId: String(member.discord_id),
-        categoryId: Number(member.category_id),
-        categoryName: String(member.category_name),
-        rankId: Number(member.rank_id),
-        previous: member.callsign == null ? null : Number(member.callsign),
-        callsign: start + index,
-      }));
+      categoryMembers.forEach((member, index) => desired.set(String(member.discord_id), start + index));
     }
+
+    const assignments = members.map((member) => ({
+      discordId: String(member.discord_id),
+      categoryId: Number(member.category_id),
+      categoryName: String(member.category_name),
+      rankId: Number(member.rank_id),
+      previous: member.callsign == null ? null : Number(member.callsign),
+      callsign: desired.get(String(member.discord_id)),
+      eligible: Number(member.rank_order) > cutoff,
+    }));
 
     const changes = assignments.filter((row) => row.previous !== row.callsign);
     if (!changes.length) return { assignments, changes };
@@ -67,15 +86,17 @@ export async function rebalanceCallsigns(db, actorId = "system") {
       `UPDATE staff_roster_members SET callsign=NULL WHERE discord_id IN (${ids.map(() => "?").join(",")})`,
       ids,
     );
-    for (const row of assignments)
+    for (const row of assignments.filter((item) => item.callsign !== null))
       await query(
-        "UPDATE staff_roster_members SET callsign=?,updated_at=IF(?<>?, ?, updated_at) WHERE discord_id=?",
-        [row.callsign, row.previous ?? -1, row.callsign, stamp, row.discordId],
+        "UPDATE staff_roster_members SET callsign=? WHERE discord_id=?",
+        [row.callsign, row.discordId],
       );
+    for (const row of changes)
+      await query("UPDATE staff_roster_members SET updated_at=? WHERE discord_id=?", [stamp, row.discordId]);
     for (const row of changes)
       await query(
         "INSERT INTO staff_roster_history(discord_id,action,actor_id,details,created_at) VALUES(?,?,?,?,?)",
-        [row.discordId, "callsign_rebalance", String(actorId), JSON.stringify({ from: row.previous, to: row.callsign, reason: "rank_order" }), stamp],
+        [row.discordId, "callsign_rebalance", String(actorId), JSON.stringify({ from: row.previous, to: row.callsign, reason: row.eligible ? "rank_order" : "rank_policy" }), stamp],
       );
     return { assignments, changes };
   });

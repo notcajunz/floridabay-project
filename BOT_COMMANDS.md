@@ -542,8 +542,8 @@ Staff ranks and duty tracking
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/staff add <member> <rank>` | Put a member in a staff rank's ACE group and assign their rank-ordered callsign | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
-| `/staff move <member> <rank> [reason]` | Move an existing staff member to another rank and rebalance callsigns | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
+| `/staff add <member> <rank>` | Put a member in a staff rank's ACE group; Head Administrator and higher receive a rank-ordered callsign | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
+| `/staff move <member> <rank> [reason]` | Move an existing staff member to another rank and rebalance eligible callsigns | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
 | `/staff remove <member> <reason>` | Remove a member's staff rank, ACE group, and callsign | `fbrp.staff.assign`; target must be below your highest ACE rank |
 | `/staff hours <member>` | Show a member's staff hours | `fbrp.staff.manage` |
 | `/staff leaderboard [days]` | Show staff hours leaderboard | `fbrp.staff.manage` |
@@ -551,7 +551,7 @@ Staff ranks and duty tracking
 
 Assistant Community Manager and every higher staff rank automatically receive the `mgmt_team` ACE group.
 
-`add`, `move` and `remove` (and `/roster add`, `/roster remove`, `/coord add`, `/coord remove`) take either `member` or a `discord_id`, because the person may not be in the staff server. The onboarding DM from `/staff add` (rank, callsign and a single-use staff-server invite) is sent by the main bot; the result is posted in the staff audit log.
+`add`, `move` and `remove` (and `/roster add`, `/roster remove`, `/coord add`, `/coord remove`) take either `member` or a `discord_id`, because the person may not be in the staff server. The onboarding DM from `/staff add` (rank, callsign when eligible, and a single-use staff-server invite) is sent by the main bot; the result is posted in the staff audit log.
 
 ### /roster
 
@@ -559,7 +559,7 @@ Manage the staff roster and discipline
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/roster add <member> <rank>` | Add or update a roster member and assign their rank-ordered callsign | `fbrp.roster.manage` |
+| `/roster add <member> <rank>` | Add or update a roster member and assign a rank-ordered callsign when they are Head Administrator or higher | `fbrp.roster.manage` |
 | `/roster remove <member> <reason>` | Remove a roster member | `fbrp.roster.manage` |
 | `/roster status <member> <status>` | Change roster status (Active, Inactive, LOA) | `fbrp.roster.manage` |
 | `/roster discipline <member> <kind> <reason>` | Issue a warning or strike | `fbrp.roster.discipline` |
@@ -577,7 +577,7 @@ Role pickers only list roles of the server the command runs in, so ranks and job
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/callsign sync` | Reassign callsigns by rank order, then republish every current assignment in the staff callsigns channel | Community Director rank or higher |
+| `/callsign sync` | Reassign Head Administrator+ callsigns by rank order, then republish every current assignment in the staff callsigns channel | Community Director rank or higher |
 | `/exam give <member> <exam>` / `revoke` / `active` | Open, close or list staff promotion exams (60 minutes) | Assistant Community Director rank or higher; configured bot superusers also qualify |
 | `/coordall add <member>` | Add a member to every coordinator staff job, role and ACE group (incl. `staff_coordination_team`) | Bot owner only |
 | `/coordall remove [member] [discord_id]` | Remove the member from every coordination roster: staff coordination ranks, team and jobs, and the gang, department and business coordination roles (via the main bot) and their `coordinators` / liaison rows, plus every coordinator ACE group | Bot owner only |
