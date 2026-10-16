@@ -521,3 +521,46 @@ function FBRP.IsFreshwater(x, y)
     end
     return false
 end
+
+-- Launch essentials: AFK slot recovery, playtime, first-join welcome,
+-- connection and combat-log audits, staff chat and help commands.
+FBRP.Essentials = {
+    website = 'https://floridabay.net',
+    discordFallback = 'discord.gg/floridabayrp',
+    -- AFK: a player who neither moves, looks around nor talks for this long
+    -- is warned, then disconnected to free the slot. When the server is at
+    -- least `busyFraction` full the shorter limit applies. Staff on duty and
+    -- the `fbrp.afk.bypass` ACE are exempt.
+    afk = {
+        enabled = true,
+        minutes = 30,
+        busyMinutes = 15,
+        busyFraction = 0.8,
+        warnMinutes = 2,
+        bypassAce = 'fbrp.afk.bypass',
+    },
+    playtimeFlushSeconds = 300,
+    -- A drop this soon after taking player damage, or while restrained or
+    -- downed, is flagged to on-duty staff and the game audit log.
+    combatLogSeconds = 45,
+    rules = {
+        'Respect every player. No harassment, hate speech or targeting real-life traits.',
+        'No random deathmatch (RDM) or vehicle deathmatch (VDM). Violence needs roleplay first.',
+        'Value your life: fear-RP when outnumbered or at gunpoint.',
+        'No metagaming: Discord, streams and OOC chat are never in-character knowledge.',
+        'No powergaming or forcing outcomes on others. Give people room to respond.',
+        'New life rule: after you are downed and respawn, forget the scene that killed you.',
+        'Do not log out to escape a scene, arrest or injury (combat logging).',
+        'Use /report for rule breaks and let staff handle it. Full rules are on the Discord.',
+    },
+    help = {
+        { '/me /do /ooc', 'Character actions, scene details and nearby out-of-character chat' },
+        { 'M', 'Interaction hub: tags, duty, vehicles, emotes and more' },
+        { '/911 /311', 'Call emergency or non-emergency services' },
+        { '/duty /clockin', 'Clock into your organization or staff duty' },
+        { '/report', 'Report a player or problem to staff' },
+        { '/pastimes /activities', 'Side jobs, fishing, duels, skydiving and more' },
+        { '/playtime /id', 'Your time in Florida Bay and your server ID' },
+        { '/rules /discord', 'Community rules and the Discord invite' },
+    },
+}

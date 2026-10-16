@@ -33,7 +33,7 @@ fetch("api/public/status", { cache: "no-store" })
   .then((status) => {
     const online = Boolean(status.online);
     $("#server-state").textContent = online ? "City online" : "City restarting";
-    $("#server-detail").textContent = online ? `${status.players} in the city · AOP ${status.aop || "Statewide"}` : "Back shortly";
+    $("#server-detail").textContent = online ? `${status.players}${status.maxPlayers ? `/${status.maxPlayers}` : ""} in the city · AOP ${status.aop || "Statewide"}` : "Back shortly";
     $("#dock-state").textContent = online ? "Online" : "Restarting";
     $("#status-chip").classList.toggle("offline", !online);
     $("#aop").textContent = status.aop || "Statewide";

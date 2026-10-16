@@ -149,7 +149,7 @@ export const PANEL_RESOURCES = {
     order: "purpose",
     effect: "panels",
     fields: [
-      field("purpose", "Purpose", "text", { required: true, suggestions: ["ticket_panel", "tickets", "verification", "security", "moderation", "bans", "unbans", "blacklists", "staff_audit", "staff_exams", "staff_exams_head_admin", "staff_exams_management", "staff_duty", "roster", "role_sync", "protected_roles", "game", "easyadmin", "organizations"].map((value) => ({ value })) }),
+      field("purpose", "Purpose", "text", { required: true, suggestions: ["ticket_panel", "tickets", "verification", "security", "moderation", "bans", "unbans", "blacklists", "staff_audit", "staff_exams", "staff_exams_head_admin", "staff_exams_management", "staff_duty", "roster", "role_sync", "protected_roles", "game", "connections", "easyadmin", "organizations"].map((value) => ({ value })) }),
       field("guild_id", "Discord server", "guild", { required: true }),
       field("channel_id", "Channel", "channel", { guildField: "guild_id", required: true }),
       field("updated_by", "Updated by", "text", { default: ACTOR, advanced: true }),
@@ -1705,6 +1705,20 @@ export function startWebPanel(context) {
         });
       }
 
+      // Uptime monitors: 200 when the bot, database and game server all answer, 503 otherwise.
+      if (request.method === "GET" && url.pathname === "/api/public/health") {
+        const timed = (promise) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), 4000))]);
+        const [database, game] = await Promise.all([
+          timed(db.one("SELECT 1 ok").then(() => true).catch(() => false)),
+          timed(fetch(`${String(process.env.FBRP_FIVEM_ORIGIN || "http://127.0.0.1:30120/fbrp_core").replace(/\/$/, "")}/health`)
+            .then((result) => result.ok ? result.json() : null)
+            .catch(() => null)),
+        ]);
+        const checks = { bot: client.isReady(), database: database === true, game: Boolean(game?.ok) };
+        const ok = Object.values(checks).every(Boolean);
+        return sendJson(response, ok ? 200 : 503, { ok, checks, players: Number(game?.players || 0), checkedAt: Date.now() });
+      }
+
       if (request.method === "GET" && url.pathname === "/api/public/status") {
         const [staff, cases, health, operations] = await Promise.all([
           db.one("SELECT COUNT(*) count FROM staff_roster_members WHERE status<>'removed'"),
@@ -1717,6 +1731,7 @@ export function startWebPanel(context) {
         return sendJson(response, 200, {
           online: Boolean(health?.ok),
           players: Number(health?.players || 0),
+          maxPlayers: Number(health?.maxPlayers || 0),
           aop: health?.aop || "Statewide",
           peacetime: Boolean(health?.peacetime),
           priority: Object.fromEntries(Object.entries(health?.priority && typeof health.priority === "object" ? health.priority : {}).map(([zone, item]) => [zone, {

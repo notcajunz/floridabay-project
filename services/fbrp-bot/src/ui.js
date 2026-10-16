@@ -130,6 +130,7 @@ const CATEGORY = {
   staff_shifts: "Staff duty",
   game: "Game audit",
   game_audit: "Game audit",
+  connections: "Connections",
   easyadmin: "EasyAdmin",
   organization_audit: "Organizations",
 };

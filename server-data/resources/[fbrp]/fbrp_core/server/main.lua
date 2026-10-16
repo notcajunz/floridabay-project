@@ -465,6 +465,8 @@ local function initializePlayer(source)
         staff = isStaffMember(source),
         invite = FBRP.Config.discordInvite
     })
+    -- Lets modules loaded after this file react once the session exists.
+    TriggerEvent('fbrp:playerReady', source)
 end
 
 local function refreshPlayer(source)
@@ -1482,6 +1484,7 @@ FBRP.Server = {
     actorOf = actorOf,
     playersNear = playersNear,
     displayName = displayName,
+    isStaffMember = isStaffMember,
     sendDispatch = sendDispatch,
     recentCalls = recentCalls,
     isReady = function() return ready end,

@@ -1847,11 +1847,61 @@ async function securityCommand(i, sub) {
   });
 }
 
+/** Total in-game time for a Discord ID, summed over every linked Cfx license. */
+async function playtimeOf(discordId) {
+  const row = await db.one(
+    "SELECT COALESCE(SUM(seconds),0) seconds,COALESCE(SUM(sessions),0) sessions,COALESCE(SUM(afk_kicks),0) afk,MIN(first_seen) first_seen,MAX(last_seen) last_seen FROM player_playtime WHERE discord_id=?",
+    [discordId],
+  ).catch(() => null);
+  return {
+    seconds: Number(row?.seconds || 0),
+    sessions: Number(row?.sessions || 0),
+    afkKicks: Number(row?.afk || 0),
+    firstSeen: row?.first_seen ? Number(row.first_seen) : null,
+    lastSeen: row?.last_seen ? Number(row.last_seen) : null,
+  };
+}
+
+const playtimeHours = (seconds) => `${(Number(seconds || 0) / 3600).toFixed(1)} hours`;
+
+async function playtimeCommand(i) {
+  if (i.options.getBoolean("top")) {
+    const rows = await db.query(
+      "SELECT discord_id,SUM(seconds) seconds FROM player_playtime WHERE discord_id IS NOT NULL GROUP BY discord_id ORDER BY seconds DESC LIMIT 10",
+    );
+    return card("Top players by playtime", {
+      description: rows.map((row, index) => `**${index + 1}.** ${mention(row.discord_id)} · ${playtimeHours(row.seconds)}`).join("\n") || "No playtime recorded yet.",
+      footer: "Florida Bay Roleplay · in-game time across every linked Cfx account",
+    });
+  }
+  const target = i.options.getUser("member") || i.user;
+  if (target.id !== i.user.id) await requirePermission(i, "fbrp.investigate");
+  const stats = await playtimeOf(target.id);
+  if (!stats.sessions) return card(`Playtime · ${clean(target.username, 80)}`, { description: "No in-game time recorded yet. Connect to the server to start tracking." });
+  const ahead = await db.one(
+    "SELECT COUNT(*) count FROM (SELECT SUM(seconds) seconds FROM player_playtime WHERE discord_id IS NOT NULL GROUP BY discord_id) totals WHERE totals.seconds>?",
+    [stats.seconds],
+  );
+  const date = (ms) => (ms ? `<t:${Math.floor(ms / 1000)}:R>` : "Unknown");
+  return card(`Playtime · ${clean(target.username, 80)}`, {
+    description: mention(target.id),
+    rows: [
+      ["Total", playtimeHours(stats.seconds)],
+      ["Sessions", String(stats.sessions)],
+      ["Rank", `#${Number(ahead?.count || 0) + 1}`],
+      ["First visit", date(stats.firstSeen)],
+      ["Last seen", date(stats.lastSeen)],
+      ...(target.id !== i.user.id ? [["AFK disconnects", String(stats.afkKicks)]] : []),
+    ],
+    footer: "Florida Bay Roleplay · in-game time across every linked Cfx account",
+  });
+}
+
 async function userinfoCommand(i) {
   await requirePermission(i, "fbrp.investigate");
   const user = i.options.getUser("member", true),
     cutoff = Date.now() - 30 * 86400000;
-  const [players, groups, orgs, cases, discipline, hours] = await Promise.all([
+  const [players, groups, orgs, cases, discipline, hours, played] = await Promise.all([
     db.query(
       "SELECT id,name,license,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 5",
       [user.id],
@@ -1873,11 +1923,13 @@ async function userinfoCommand(i) {
       "SELECT COALESCE(SUM(CASE WHEN ended_at IS NULL THEN FLOOR((?-started_at)/1000) ELSE seconds END),0) seconds FROM staff_shifts WHERE discord_id=? AND started_at>=?",
       [Date.now(), user.id, cutoff],
     ),
+    playtimeOf(user.id),
   ]);
   const overview = card(`User information: ${clean(user.username)}`, {
     description: `${mention(user.id)}\n\`${user.id}\``,
     rows: [
       ["Staff time", `${(Number(hours?.seconds || 0) / 3600).toFixed(1)} hours`],
+      ["Playtime", `${playtimeHours(played.seconds)} · ${played.sessions} sessions${played.afkKicks ? ` · ${played.afkKicks} AFK kicks` : ""}`],
       ["ACE groups", groups.map((row) => `\`${row.group_name}\``).join(" ") || "None", false],
       ["Game identities", chunkLines(players.map((row) => `\`#${row.id}\` · ${clean(row.name)} · last seen ${new Date(row.last_seen).toISOString().slice(0, 10)}`))[0] || "None linked", false],
       ["Organizations & duty hours", chunkLines(orgs.map((row) => {
@@ -3691,6 +3743,7 @@ const COMMAND_PERMISSIONS = {
   security: "View and lockdown: Co-Owner rank or higher and `fbrp.security.manage`. Other changes: bot owner only (Discord ID 1090083387638812755)",
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
   userinfo: "`fbrp.investigate`; linked alt accounts also need `fbrp.global.alts`",
+  playtime: "Everyone for yourself and the top 10; other members need `fbrp.investigate`",
   case: "`fbrp.investigate`",
   office: "Co-Owner rank or higher and `fbrp.office.manage`",
   orgbank: "`balance`/`ledger`/`roster`: organization members; `transfer`: members whose rank can spend; `adjust`/`leader`: Co-Owner rank or higher",
@@ -4486,6 +4539,7 @@ const handlers = {
   blacklistedserver: blacklistedServerCommand,
   acelist: aceListCommand,
   userinfo: userinfoCommand,
+  playtime: playtimeCommand,
   case: caseLookupCommand,
   office: officeCommand,
   orgbank: orgbankCommand,
@@ -4504,6 +4558,8 @@ async function forwardGameAudit() {
   }
   let cursor = Number(typeof stored.value === "string" ? JSON.parse(stored.value) : stored.value) || 0;
   const rows = await db.query("SELECT * FROM audit_log WHERE id>? ORDER BY id LIMIT 50", [cursor]);
+  // Joins and leaves are high volume, so they only post once a connections channel is bound.
+  let connectionsBound = null;
   for (const row of rows) {
     const action = String(row.action);
     let purpose = null;
@@ -4515,9 +4571,15 @@ async function forwardGameAudit() {
       action.startsWith("interaction.") ||
       action.startsWith("justice.") ||
       action.startsWith("medical.") ||
-      action === "vehicle.spawn"
+      action === "vehicle.spawn" ||
+      action === "player.combat_log" ||
+      action === "player.afk_kick"
     )
       purpose = "game";
+    else if (action === "player.join" || action === "player.leave") {
+      connectionsBound ??= Boolean(await db.one("SELECT 1 bound FROM discord_channel_bindings WHERE purpose='connections' LIMIT 1").catch(() => null));
+      if (connectionsBound) purpose = "connections";
+    }
     else if (String(row.actor_id) === "web-panel") purpose = "staff_audit";
     if (purpose) {
       let payload = row.payload || {};

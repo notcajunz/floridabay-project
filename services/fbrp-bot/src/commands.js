@@ -962,6 +962,12 @@ const userinfo = new SlashCommandBuilder()
   .setDescription("Investigate a member: game and Discord records, servers and roles, and linked alt accounts")
   .addUserOption(user);
 
+const playtime = new SlashCommandBuilder()
+  .setName("playtime")
+  .setDescription("In-game time in Florida Bay: yours, another member's, or the top players")
+  .addUserOption((o) => o.setName("member").setDescription("Member to look up (staff only for others)"))
+  .addBooleanOption((o) => o.setName("top").setDescription("Show the top 10 players by playtime"));
+
 const caseLookup = new SlashCommandBuilder()
   .setName("case")
   .setDescription("Look up any Florida Bay case ID")
@@ -1283,6 +1289,7 @@ export const commands = [
   blacklistedserver,
   acelist,
   userinfo,
+  playtime,
   caseLookup,
   office,
   join,

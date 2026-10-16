@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 
 author 'Florida Bay Roleplay'
-description 'Standalone vMenu roleplay systems, pastimes (side jobs, supply drops, street duels, skydiving, achievements), Discord ACE bridge, live operations, community scenes, activities, geocaching, duty, organizations and their economy, tags, interactions, HUD, vehicles, justice and corrections, CAD/MDT, medical, fishing and exploration'
+description 'Standalone vMenu roleplay systems, pastimes (side jobs, supply drops, street duels, skydiving, achievements), Discord ACE bridge, live operations, community scenes, activities, geocaching, duty, organizations and their economy, tags, interactions, HUD, vehicles, justice and corrections, CAD/MDT, medical, fishing and exploration, AFK, playtime and launch essentials'
 version '1.6.0'
 
 lua54 'yes'
@@ -33,7 +33,8 @@ server_scripts {
     'server/pastime_jobs.lua',
     'server/pastime_events.lua',
     'server/pastime_duels.lua',
-    'server/pastime_skydive.lua'
+    'server/pastime_skydive.lua',
+    'server/essentials.lua'
 }
 
 client_scripts {
@@ -58,7 +59,8 @@ client_scripts {
     'client/pastime_jobs.lua',
     'client/pastime_events.lua',
     'client/pastime_duels.lua',
-    'client/pastime_skydive.lua'
+    'client/pastime_skydive.lua',
+    'client/essentials.lua'
 }
 
 ui_page 'web/index.html'
