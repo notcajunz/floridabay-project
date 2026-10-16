@@ -23,7 +23,6 @@
   "admins_bypass": false,
   "log_channel_id": "1560588667528159272",
   "movement_channel_id": "1558605872211562566",
-  "movement_ping": true,
   "movement_show_remove_reason": true,
   "callsign_channel_id": "1558605894382788719",
   "nickname_format": "{callsign} | {name}",

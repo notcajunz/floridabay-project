@@ -93,3 +93,21 @@ def test_hours_format_and_board():
     assert "<@1>" in lines[0] and "2h 00m" in lines[0] and "🟢" in lines[0] and "⚠️" in lines[0]
     data = {"members": members, "totalSeconds": 7200}
     assert "1 on duty" in hours.board_embed(data, 7).footer.text
+
+
+async def test_movement_and_callsign_lines_match_staff_format(monkeypatch):
+    from dohsbot import roster_bot as rb
+
+    sent = []
+
+    class Bot:
+        async def post_plain(self, channel_id, content):
+            sent.append((channel_id, content))
+
+    monkeypatch.setattr(rb, "MOVEMENT_CHANNEL_ID", 5)
+    monkeypatch.setattr(rb, "CALLSIGN_CHANNEL_ID", 6)
+    bot = Bot()
+    await rb.RosterBot.announce_movement(bot, 10, "Special Agent", 99)
+    await rb.RosterBot.announce_callsigns(bot, [(10, "201"), (11, ""), ("", "5")])
+    assert sent[0][0] == 5 and sent[0][1].startswith("<@10> --> Special Agent | <@99> | <t:") and sent[0][1].endswith(":D>")
+    assert sent[1] == (6, "<@10> --> 201")

@@ -40,6 +40,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 
 import discord
@@ -122,7 +123,6 @@ LADDER_EXCLUDE = set(CFG["ladder_exclude"])
 COC_LOWEST_RANK = CFG["coc_lowest_rank"]
 COC_FILE = os.getenv("COC_FILE", os.path.join(DATA_DIR, "coc.json"))
 MOVEMENT_CHANNEL_ID = _id(CFG["movement_channel_id"])
-MOVEMENT_PING = bool(CFG["movement_ping"])
 MOVEMENT_SHOW_REASON = bool(CFG["movement_show_remove_reason"])
 CALLSIGN_CHANNEL_ID = _id(CFG["callsign_channel_id"])
 
@@ -983,29 +983,25 @@ class RosterBot(discord.Client):
         except (discord.HTTPException, ValueError):
             log.warning("Couldn't post to channel %s", channel_id)
 
-    async def announce_movement(self, kind: str, discord_id, name: str, description: str,
-                                fields: dict | None = None) -> None:
-        """kind: hire | promote | demote | remove"""
-        title, colour = {
-            "hire": ("✅ New Hire", discord.Colour.green()),
-            "rehire": ("✅ Re-hire", discord.Colour.green()),
-            "promote": ("⬆️ Promotion", discord.Colour.green()),
-            "demote": ("⬇️ Demotion", discord.Colour.orange()),
-            "remove": ("🗑️ Departure", discord.Colour.red()),
-        }[kind]
-        e = discord.Embed(title=title, description=description, colour=colour, timestamp=discord.utils.utcnow())
-        for k, v in (fields or {}).items():
-            e.add_field(name=k, value=clip(v or "—"), inline=True)
-        ping = discord_id if MOVEMENT_PING and str(discord_id).isdigit() else None
-        await self.post_channel(MOVEMENT_CHANNEL_ID, e, f"<@{discord_id}>" if ping else None, ping)
-
-    async def announce_callsigns(self, title: str, rows: list[str]) -> None:
-        rows = [r for r in rows if r]
-        if not rows or not CALLSIGN_CHANNEL_ID:
+    async def announce_movement(self, discord_id, label: str, actor_id) -> None:
+        """Same line as the staff and IAA bots: `@member --> Rank | @actor | date`, no pings."""
+        if not MOVEMENT_CHANNEL_ID:
             return
-        e = discord.Embed(title=title, description="\n".join(rows)[:4000], colour=discord.Colour.dark_teal(),
-                          timestamp=discord.utils.utcnow())
-        await self.post_channel(CALLSIGN_CHANNEL_ID, e)
+        line = f"<@{discord_id}> --> {label} | <@{actor_id}> | <t:{int(time.time())}:D>"
+        await self.post_plain(MOVEMENT_CHANNEL_ID, line)
+
+    async def announce_callsigns(self, entries: list[tuple]) -> None:
+        """One `@member --> 123` line per new or changed callsign, like the staff and IAA feeds."""
+        lines = [f"<@{who}> --> {cs}" for who, cs in entries if who and cs]
+        if lines and CALLSIGN_CHANNEL_ID:
+            await self.post_plain(CALLSIGN_CHANNEL_ID, "\n".join(lines)[:2000])
+
+    async def post_plain(self, channel_id: int, content: str) -> None:
+        try:
+            channel = self.get_channel(channel_id) or await self.fetch_channel(channel_id)
+            await channel.send(content=content, allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            log.warning("Couldn't post to channel %s", channel_id)
 
     async def apply_shifted(self, guild, shifted: list[dict]) -> list[str]:
         """Nicknames for people who moved up to close a gap."""
@@ -1057,16 +1053,8 @@ def embed(title: str, colour: discord.Colour, lines: dict, by: discord.abc.User,
     return e
 
 
-def cs_row(discord_id, name: str, old: str, new: str, rank: str, note: str = "") -> str:
-    who = f"<@{discord_id}>" if discord_id else f"**{name}**"
-    old_s = f"`{old}`" if old else "*none*"
-    new_s = f"`{new}`" if new else "*none*"
-    return f"{who} {old_s} → {new_s} · {rank}{note}"
-
-
-def shifted_rows(shifted: list[dict]) -> list[str]:
-    return [cs_row(c["discord_id"], c["name"], c["old_callsign"], c["new_callsign"], c.get("rank", ""),
-                   " *(moved up)*") for c in shifted]
+def shifted_entries(shifted: list[dict]) -> list[tuple]:
+    return [(c["discord_id"], c["new_callsign"]) for c in shifted]
 
 
 async def send(bot: RosterBot, interaction: discord.Interaction, e: discord.Embed):
@@ -1129,7 +1117,7 @@ class UpdateGroup(app_commands.Group):
         warnings = await self.bot.apply_shifted(interaction.guild, changes)
         await send(self.bot, interaction, embed(f"🔼 {rank} updated", discord.Colour.blurple(), {},
                                                 interaction.user, warnings, changes))
-        await self.bot.announce_callsigns(f"🔼 {rank} reordered", shifted_rows(changes))
+        await self.bot.announce_callsigns(shifted_entries(changes))
 
     @app_commands.command(name="name", description="Change a member's in-game name")
     @app_commands.describe(member="Discord member", name="New in-game name")
@@ -1140,9 +1128,6 @@ class UpdateGroup(app_commands.Group):
         warn = await self.bot.set_nickname(interaction.guild, member.id, r["callsign"], r["new"])
         await send(self.bot, interaction, embed("✏️ Name updated", discord.Colour.blurple(), {
             "Member": member.mention, "From": r["old"], "To": r["new"]}, interaction.user, [warn]))
-        if r["callsign"]:
-            await self.bot.announce_callsigns("✏️ Name change", [
-                f"{member.mention} `{r['callsign']} | {r['old']}` → `{r['callsign']} | {r['new']}` · {r['rank']}"])
 
     @app_commands.command(name="details", description="Update status, time zone, notes, assignment and more")
     @app_commands.choices(field=[app_commands.Choice(name=label, value=key)
@@ -1294,12 +1279,8 @@ class RosterGroup(app_commands.Group):
         await self.bot.dm(member.id, g, "Welcome to DHS",
                           f"You've been added to the roster as **{r['rank']}** with callsign "
                           f"**{r['callsign'] or '—'}**.", discord.Colour.green())
-        await self.bot.announce_movement(
-            "rehire" if r["rehire"] else "hire", member.id, r["name"],
-            f"{member.mention} has joined DHS as **{r['rank']}**.",
-            {"Name": r["name"], "Rank": r["rank"], "Callsign": r["callsign"]})
-        await self.bot.announce_callsigns("🆕 Callsign assigned", [
-            cs_row(member.id, r["name"], "", r["callsign"], r["rank"])])
+        await self.bot.announce_movement(member.id, r["rank"], interaction.user.id)
+        await self.bot.announce_callsigns([(member.id, r["callsign"])])
 
     @app_commands.command(name="move", description="Promote, demote or move a member to a rank")
     @app_commands.describe(member="Discord member", to="Up, Down, or a specific rank")
@@ -1323,14 +1304,8 @@ class RosterGroup(app_commands.Group):
         await self.bot.dm(member.id, g, "You've been promoted" if up else "You've been demoted",
                           f"Your new rank is **{r['new_rank']}** with callsign **{r['new_callsign'] or '—'}**.",
                           colour)
-        await self.bot.announce_movement(
-            r["kind"], member.id, r["name"],
-            f"{member.mention} has been {'promoted' if up else 'demoted'} to **{r['new_rank']}**.",
-            {"From": f"{r['old_rank']} ({r['old_callsign'] or '—'})",
-             "To": f"{r['new_rank']} ({r['new_callsign'] or '—'})"})
-        await self.bot.announce_callsigns("🔁 Callsign change", [
-            cs_row(member.id, r["name"], r["old_callsign"], r["new_callsign"], r["new_rank"])]
-            + shifted_rows(r["shifted"]))
+        await self.bot.announce_movement(member.id, r["new_rank"], interaction.user.id)
+        await self.bot.announce_callsigns([(member.id, r["new_callsign"])] + shifted_entries(r["shifted"]))
 
     @app_commands.command(name="remove", description="Remove a member from the roster")
     @app_commands.choices(reason=[app_commands.Choice(name=s, value=s)
@@ -1352,13 +1327,9 @@ class RosterGroup(app_commands.Group):
         await send(self.bot, interaction, embed("🗑️ Member removed", discord.Colour.red(), {
             "Member": member.mention, "Name": r["name"], "Was": f"{r['rank']} ({r['callsign'] or '—'})",
             "Reason": reason.value}, interaction.user, warns, r["shifted"]))
-        fields = {"Was": f"{r['rank']} ({r['callsign'] or '—'})"}
-        if MOVEMENT_SHOW_REASON:
-            fields["Reason"] = reason.value
-        await self.bot.announce_movement("remove", member.id, r["name"],
-                                         f"{member.mention} has left DHS.", fields)
-        await self.bot.announce_callsigns("📤 Callsign released", [
-            cs_row(member.id, r["name"], r["callsign"], "", r["rank"])] + shifted_rows(r["shifted"]))
+        await self.bot.announce_movement(member.id, reason.value if MOVEMENT_SHOW_REASON else "Removed",
+                                         interaction.user.id)
+        await self.bot.announce_callsigns(shifted_entries(r["shifted"]))
 
     @app_commands.command(name="dc", description="Move a member's DC rank up or down")
     @app_commands.choices(direction=[app_commands.Choice(name="Up", value="up"),
