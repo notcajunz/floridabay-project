@@ -202,6 +202,11 @@ const headtag = new SlashCommandBuilder()
         o
           .setName("chat_tag")
           .setDescription("Also let players equip this beside their name in chat"),
+      )
+      .addBooleanOption((o) =>
+        o
+          .setName("outline")
+          .setDescription("Draw an outline around the tag text in game (default: yes)"),
       ),
   )
   .addSubcommand((s) =>
@@ -628,78 +633,6 @@ const server = new SlashCommandBuilder()
       ),
   );
 
-const staff = new SlashCommandBuilder()
-  .setName("staff")
-  .setDescription("Staff ranks and duty tracking")
-  .addSubcommand((s) =>
-    s
-      .setName("add")
-      .setDescription("Put a member in a staff rank's ACE group and give them a callsign")
-      .addUserOption(user)
-      .addStringOption((o) =>
-        o
-          .setName("rank")
-          .setDescription("Staff rank (only ranks below your own are allowed)")
-          .setRequired(true)
-          .setAutocomplete(true),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("move")
-      .setDescription("Move an existing staff member to another rank (promote or demote)")
-      .addUserOption(user)
-      .addStringOption((o) =>
-        o
-          .setName("rank")
-          .setDescription("New staff rank (only ranks below your own are allowed)")
-          .setRequired(true)
-          .setAutocomplete(true),
-      )
-      .addStringOption((o) => o.setName("reason").setDescription("Reason for the move").setMaxLength(300)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("remove")
-      .setDescription("Remove a member's staff rank, ACE group, and callsign")
-      .addUserOption(user)
-      .addStringOption(reason),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("hours")
-      .setDescription("Show a member’s staff hours")
-      .addUserOption(user),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("leaderboard")
-      .setDescription("Show staff hours leaderboard")
-      .addIntegerOption((o) =>
-        o
-          .setName("days")
-          .setDescription("Window in days")
-          .setMinValue(1)
-          .setMaxValue(365),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("forceout")
-      .setDescription("Close a member’s active staff shift")
-      .addUserOption(user)
-      .addStringOption(reason),
-  );
-
-const callsign = new SlashCommandBuilder()
-  .setName("callsign")
-  .setDescription("Rank-order and publish staff callsigns")
-  .addSubcommand((s) =>
-    s
-      .setName("sync")
-      .setDescription("Rebalance by rank and republish every callsign"),
-  );
-
 const protectrole = new SlashCommandBuilder()
   .setName("protectrole")
   .setDescription("Guard sensitive Discord roles")
@@ -912,162 +845,13 @@ const join = new SlashCommandBuilder()
     o.setName("server").setDescription("Network server to join").setRequired(true).setAutocomplete(true),
   )
   .addUserOption((o) =>
-    o.setName("user").setDescription("Send the invite to this member instead (needs fbrp.network.join.others)"),
+    o.setName("user").setDescription("Add this authorized member instead (needs fbrp.network.join.others)"),
   );
 
 const help = new SlashCommandBuilder()
   .setName("help")
   .setDescription("Show all commands, descriptions, and required permissions")
   .addStringOption((o) => o.setName("command").setDescription("Optional command name to filter"));
-
-const roster = new SlashCommandBuilder()
-  .setName("roster")
-  .setDescription("Manage the staff roster and discipline")
-  .addSubcommand((s) =>
-    s
-      .setName("add")
-      .setDescription("Add or update a roster member")
-      .addUserOption(user)
-      .addIntegerOption((o) =>
-        o
-          .setName("rank")
-          .setDescription("Rank ID from /roster list")
-          .setRequired(true)
-          .setMinValue(1),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("remove")
-      .setDescription("Remove a roster member")
-      .addUserOption(user)
-      .addStringOption(reason),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("status")
-      .setDescription("Change roster status")
-      .addUserOption(user)
-      .addStringOption((o) =>
-        o
-          .setName("status")
-          .setDescription("Roster status")
-          .setRequired(true)
-          .addChoices(
-            { name: "Active", value: "active" },
-            { name: "Inactive", value: "inactive" },
-            { name: "LOA", value: "loa" },
-          ),
-      ),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("discipline")
-      .setDescription("Issue a warning or strike")
-      .addUserOption(user)
-      .addStringOption((o) =>
-        o
-          .setName("kind")
-          .setDescription("Discipline type")
-          .setRequired(true)
-          .addChoices(
-            { name: "Warning", value: "warning" },
-            { name: "Strike", value: "strike" },
-          ),
-      )
-      .addStringOption(reason),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("profile")
-      .setDescription("Show one member's complete roster record")
-      .addUserOption(user),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("note")
-      .setDescription("Set a private roster activity note")
-      .addUserOption(user)
-      .addStringOption((o) => o.setName("note").setDescription("Activity note").setRequired(true).setMaxLength(500)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("discipline-revoke")
-      .setDescription("Revoke a warning or strike")
-      .addIntegerOption((o) => o.setName("id").setDescription("Discipline record ID").setRequired(true).setMinValue(1))
-      .addStringOption(reason),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("category-upsert")
-      .setDescription("Create or update a callsign category")
-      .addStringOption((o) => o.setName("name").setDescription("Category name").setRequired(true).setMaxLength(80))
-      .addIntegerOption((o) => o.setName("start").setDescription("First callsign").setRequired(true).setMinValue(1).setMaxValue(9999))
-      .addIntegerOption((o) => o.setName("end").setDescription("Last callsign").setRequired(true).setMinValue(1).setMaxValue(9999))
-      .addIntegerOption((o) => o.setName("id").setDescription("Existing category ID; blank creates"))
-      .addIntegerOption((o) => o.setName("order").setDescription("Display order")),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("category-delete")
-      .setDescription("Delete an unused roster category")
-      .addIntegerOption((o) => o.setName("id").setDescription("Category ID").setRequired(true).setMinValue(1)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("rank-upsert")
-      .setDescription("Create or update a staff rank and role mapping")
-      .addIntegerOption((o) => o.setName("category").setDescription("Category ID").setRequired(true).setMinValue(1))
-      .addStringOption((o) => o.setName("name").setDescription("Rank name").setRequired(true).setMaxLength(80))
-      .addIntegerOption((o) => o.setName("id").setDescription("Existing rank ID; blank creates"))
-      .addRoleOption((o) => o.setName("role").setDescription("Rank role in this server"))
-      .addStringOption((o) => o.setName("ace_group").setDescription("ACE group /staff add puts this rank in").setAutocomplete(true))
-      .addIntegerOption((o) => o.setName("weekly_hours").setDescription("Weekly activity requirement").setMinValue(0).setMaxValue(168))
-      .addIntegerOption((o) => o.setName("minimum_days").setDescription("Minimum days before promotion").setMinValue(0).setMaxValue(3650))
-      .addIntegerOption((o) => o.setName("order").setDescription("Display order")),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("rank-delete")
-      .setDescription("Delete an unused staff rank")
-      .addIntegerOption((o) => o.setName("id").setDescription("Rank ID").setRequired(true).setMinValue(1)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("job-upsert")
-      .setDescription("Create or update a staff secondary job")
-      .addStringOption((o) => o.setName("name").setDescription("Job name").setRequired(true).setMaxLength(80))
-      .addIntegerOption((o) => o.setName("id").setDescription("Existing job ID; blank creates"))
-      .addStringOption((o) => o.setName("description").setDescription("Job description").setMaxLength(300))
-      .addRoleOption((o) => o.setName("role").setDescription("Job role in this server"))
-      .addIntegerOption((o) => o.setName("order").setDescription("Display order")),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("job-delete")
-      .setDescription("Delete a staff secondary job")
-      .addIntegerOption((o) => o.setName("id").setDescription("Job ID").setRequired(true).setMinValue(1)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("job-assign")
-      .setDescription("Assign a secondary job to a roster member")
-      .addUserOption(user)
-      .addIntegerOption((o) => o.setName("job").setDescription("Job ID").setRequired(true).setMinValue(1)),
-  )
-  .addSubcommand((s) =>
-    s
-      .setName("job-remove")
-      .setDescription("Remove a secondary job from a roster member")
-      .addUserOption(user)
-      .addIntegerOption((o) => o.setName("job").setDescription("Job ID").setRequired(true).setMinValue(1)),
-  )
-  .addSubcommand((s) =>
-    s.setName("sync").setDescription("Sync roster ranks from Discord roles"),
-  )
-  .addSubcommand((s) =>
-    s.setName("list").setDescription("List the staff roster"),
-  );
 
 const globalUser = (option) =>
   option.setName("user").setDescription("Member").setRequired(true);
@@ -1135,6 +919,14 @@ const global = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s.setName("lookup").setDescription("See which Florida Bay servers a member is in and their network record")
       .addUserOption(globalUser),
+  )
+  .addSubcommand((s) =>
+    s.setName("rolestrip").setDescription("Community Director+: remove every network role and ACE group, with a saved snapshot")
+      .addUserOption(globalUser).addStringOption(globalReason()),
+  )
+  .addSubcommand((s) =>
+    s.setName("unrolestrip").setDescription("Community Director+: restore a role-strip snapshot across the network")
+      .addUserOption(globalUser).addStringOption(globalReason(false)),
   )
   .addSubcommand((s) =>
     s.setName("nick").setDescription("Set your nickname in every Florida Bay network server")
@@ -1407,24 +1199,6 @@ const orgbank = new SlashCommandBuilder()
       .addStringOption((o) => o.setName("organization").setDescription("Organization slug (defaults to yours)").setMaxLength(40)),
   );
 
-const examChoice = (o) =>
-  o.setName("exam").setDescription("Which exam").setRequired(true)
-    .addChoices({ name: "Head Administrator exam", value: "head_admin" }, { name: "Management exam", value: "management" });
-const exam = new SlashCommandBuilder()
-  .setName("exam")
-  .setDescription("Give out staff promotion exams (Assistant Community Director and above)")
-  .addSubcommand((s) =>
-    s.setName("give").setDescription("Open an exam for a member for 60 minutes")
-      .addUserOption((o) => o.setName("member").setDescription("Staff member sitting the exam").setRequired(true))
-      .addStringOption(examChoice),
-  )
-  .addSubcommand((s) =>
-    s.setName("revoke").setDescription("Close a member's exam access early")
-      .addUserOption((o) => o.setName("member").setDescription("Staff member").setRequired(true))
-      .addStringOption(examChoice),
-  )
-  .addSubcommand((s) => s.setName("active").setDescription("List exam access that is open right now"));
-
 const cocMember = (option) => option.setName("member").setDescription("Chain member").setRequired(true);
 const cocProfileOptions = (subcommand, { member = true, title = true, color = true } = {}) => {
   if (member) subcommand.addUserOption(cocMember);
@@ -1481,7 +1255,6 @@ const giveaway = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("list").setDescription("List running giveaways"));
 
 export const commands = [
-  exam,
   orgbank,
   welcome,
   github,
@@ -1497,8 +1270,6 @@ export const commands = [
   globalsync,
   mod,
   server,
-  staff,
-  callsign,
   role,
   protectrole,
   botguard,
@@ -1507,7 +1278,6 @@ export const commands = [
   support,
   vmenu,
   help,
-  roster,
   global,
   blacklist,
   blacklistedserver,

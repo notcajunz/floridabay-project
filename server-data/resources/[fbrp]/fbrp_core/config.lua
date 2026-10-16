@@ -4,7 +4,9 @@ FBRP.Config = {
     serverName = 'Florida Bay Roleplay',
     discordInvite = GetConvar('fbrp_discordInvite', ''),
     serviceToken = GetConvar('fbrp_serviceToken', ''),
-    tagDistance = 30.0,
+    -- Keep overhead identity close enough to support a scene without carrying
+    -- player information across a street or through a large interior.
+    tagDistance = 18.0,
     -- vMenu's "Show Player Names" draws a native "Name [id]" gamer tag over every player in
     -- range, including staff in noclip. fbrp tags replace it, so those gamer tags are removed.
     hideVmenuGamerTags = true,
@@ -15,6 +17,18 @@ FBRP.Config = {
     defaultPeacetime = false,
     maxTagLabel = 40,
     vehicleSpawnCooldownMs = 3500,
+    ownedVehicleDeleteDistance = 15.0,
+    healCooldownSeconds = 3 * 60,
+    armourCooldownSeconds = 5 * 60,
+    -- Ambient traffic and pedestrians. GTA requires these multipliers every
+    -- frame; 1.0 is stock density and 0.0 disables that population entirely.
+    populationDensity = {
+        vehicles = 0.35,
+        randomVehicles = 0.30,
+        parkedVehicles = 0.25,
+        peds = 0.40,
+        scenarioPeds = 0.35,
+    },
     -- Every driven vehicle is capped client-side. Holding the configured Discord
     -- role raises the cap; the server publishes the allowed value in player state.
     vehicleSpeedLimitMph = 180,

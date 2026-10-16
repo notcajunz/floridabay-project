@@ -8,6 +8,7 @@ local now, clean, notify, chat, hasPermission = S.now, S.clean, S.notify, S.chat
 
 local downed = {}       -- source -> { since, cause, lastDistress }
 local reviving = {}     -- medic source -> target
+local selfCareUsed = { heal={}, armour={} } -- stable player key -> last use (ms)
 
 local function authorizeDownedProtection(source)
     pcall(function() exports.corevia_ac:recordProtectionGrant(source, 3) end)
@@ -113,6 +114,45 @@ RegisterCommand('revive', function(source, args)
     notify(target, 'You were revived by staff.', 'success')
     if source > 0 and source ~= target then notify(source, 'Player revived.', 'success') end
 end, false)
+
+-- Self-service recovery commands are server-authoritative so reconnecting or
+-- invoking client events directly cannot bypass their cooldowns.
+local function selfCareKey(source)
+    local s = sessions[source]
+    return s and (s.license or s.discord) or nil
+end
+
+local function useSelfCare(source, kind, cooldownSeconds, clientEvent, label)
+    if source <= 0 or not sessions[source] then return end
+    if downed[source] then return notify(source, ('You cannot use /%s while incapacitated.'):format(kind), 'error') end
+    local key = selfCareKey(source)
+    if not key then return notify(source, 'Your player session is not ready yet.', 'error') end
+    local stamp = now()
+    local cooldownMs = cooldownSeconds * 1000
+    local readyAt = (selfCareUsed[kind][key] or 0) + cooldownMs
+    if readyAt > stamp then
+        local remaining = math.ceil((readyAt - stamp) / 1000)
+        return notify(source, ('/%s is ready again in %dm %02ds.'):format(kind, math.floor(remaining / 60), remaining % 60), 'warning')
+    end
+    selfCareUsed[kind][key] = stamp
+    -- Raising health or armour is legitimate here; tell the anticheat before
+    -- the client applies the increase.
+    local grantKind = kind == 'heal' and 'health' or kind
+    pcall(function() exports.corevia_ac:recordHealthGrant(source, grantKind, 100) end)
+    TriggerClientEvent(clientEvent, source)
+    notify(source, ('%s replenished.'):format(label), 'success')
+end
+
+RegisterCommand('heal', function(source)
+    useSelfCare(source, 'heal', FBRP.Config.healCooldownSeconds or 180, 'fbrp:medical:selfHeal', 'Health')
+end, false)
+
+local function armourCommand(source)
+    useSelfCare(source, 'armour', FBRP.Config.armourCooldownSeconds or 300, 'fbrp:medical:selfArmour', 'Armour')
+end
+
+RegisterCommand('armour', armourCommand, false)
+RegisterCommand('armor', armourCommand, false)
 
 -- ─────────────────────────── third eye ───────────────────────────
 

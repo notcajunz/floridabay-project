@@ -69,6 +69,7 @@ function filterMatches(row) {
   if (activeFilter === 'all') return true;
   const channel = row.dataset.channel;
   if (activeFilter === 'system') return row.classList.contains('system');
+  if (activeFilter === 'social') return ['twitter', 'twitch', 'instagram', 'darkweb', 'ad', 'news'].includes(channel);
   return channel === activeFilter;
 }
 
@@ -192,6 +193,8 @@ function updateMode() {
   if (command === '/me') { mode = 'me'; label = 'ME'; }
   else if (command === '/do') { mode = 'do'; label = 'DO'; }
   else if (command === '/ooc') { mode = 'ooc'; label = 'OOC'; }
+  else if (command === '/gme') { mode = 'gme'; label = 'GME'; }
+  else if (['/twitter', '/tweet', '/twitch', '/instagram', '/insta', '/darkweb', '/dark', '/ad', '/news'].includes(command)) { mode = 'social'; label = 'SOCIAL'; }
   else if (command) { mode = 'cmd'; label = 'CMD'; }
   modeEl.dataset.mode = mode;
   modeEl.textContent = label;

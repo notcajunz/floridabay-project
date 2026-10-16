@@ -28,6 +28,8 @@ import {
   isVerified,
   recordVerification as storeVerification,
   grantVerifiedRole,
+  oauthJoinToken,
+  clearOAuthAuthorization,
 } from "./verification.js";
 import { saveAll, listBackups, restoreAll, backupBusy } from "./backup.js";
 import {
@@ -70,9 +72,8 @@ import {
   syncUserAcrossNetwork,
   touchesCoordinationSource,
   invalidateBlacklistCache,
+  invalidateRoleStripCache,
   ROLE_AUTHORITATIVE_GROUPS,
-  staffRankInfo,
-  staffDisplayGroups,
   reconcileManagementMembership,
   reconcileAllManagementMemberships,
 } from "./sync.js";
@@ -138,6 +139,7 @@ import { createGiveaways } from "./giveaways.js";
 import { createStatusBoard } from "./status-board.js";
 import { createChainOfCommand } from "./chain-of-command.js";
 import { createRoleMembershipCommands } from "./role-membership.js";
+import { createStaffQueue } from "./staff-queue.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
@@ -246,31 +248,18 @@ const personalImporter = createPersonalImporter({ personals, audit, db });
 const giveaways = createGiveaways({ client, db, audit, clean });
 const statusBoard = createStatusBoard({ client, db, callGame, publicBase, connectUrl });
 const chainOfCommand = createChainOfCommand({ client, db, audit, hasPermission });
-
-/** /exam: Assistant Community Director and above open an exam for one member for 60 minutes. */
-async function examCommand(i, sub) {
-  if (sub === "give") {
-    const member = i.options.getUser("member", true);
-    const result = await staffExams.give(i.user.id, member.id, i.options.getString("exam", true));
-    return card(`${result.exam.title} given`, {
-      color: COLORS.success,
-      description: `${mention(member.id)} can sit the exam on the portal until <t:${Math.floor(result.expiresAt / 1000)}:t> (<t:${Math.floor(result.expiresAt / 1000)}:R>). It must be submitted before then.`,
-      rows: [["Portal", result.link, false], ["DM", result.dmSent ? "Sent with the link" : "Could not DM them - share the link yourself"]],
-    });
-  }
-  if (sub === "revoke") {
-    const member = i.options.getUser("member", true);
-    const result = await staffExams.revoke(i.user.id, member.id, i.options.getString("exam", true));
-    return card(`${result.exam.title} access revoked`, { color: COLORS.warning, rows: [["Member", who(member.id)]] });
-  }
-  const rows = await staffExams.activeGrants(i.user.id);
-  return card("Open exam access", {
-    color: COLORS.primary,
-    description: rows.length
-      ? rows.map((row) => `${mention(row.discord_id)} · **${clean(row.title, 60)}** · given by ${mention(row.granted_by)} · expires <t:${Math.floor(Number(row.expires_at) / 1000)}:R>`).join("\n")
-      : "Nobody has open exam access right now.",
-  });
-}
+// Requests from the Staff Assistant bot (src/staff), which is only in the staff server.
+const staffQueue = createStaffQueue({
+  client,
+  db,
+  audit,
+  syncUserAcrossNetwork,
+  refreshChainOfCommand: () => chainOfCommand.scheduleRosterRefresh(),
+  log,
+  publicBase,
+  embed,
+  COLORS,
+});
 
 /** /orgbank: organization wallets on Discord. Balances and ledgers for members, adjustments for managers. */
 async function orgbankCommand(i, sub) {
@@ -392,10 +381,6 @@ async function enforceCommandCooldown(interaction, commandKey, seconds = COMMAND
     throw new Error(`That command is on cooldown. Try again in ${remaining} second${remaining === 1 ? "" : "s"}.`);
 }
 
-/** Staff movement line: `@member --> Rank | @actor | date`. */
-const movementLine = (targetId, rankName, actorId) =>
-  `${mention(targetId)} --> ${rankName} | ${mention(actorId)} | <t:${Math.floor(Date.now() / 1000)}:D>`;
-
 /** Staff callsign feed: every new or changed callsign is posted here as `@member --> 123`. */
 const CALLSIGN_CHANNEL_ID = "1558275244567961690";
 async function announceCallsign(discordId, callsign) {
@@ -438,46 +423,6 @@ async function requireCoOwnerControl(i, permission, action) {
   await requirePermission(i, permission);
 }
 
-/** Community Director and above: republish every current staff callsign, including unchanged ones. */
-async function callsignCommand(i, sub) {
-  if (sub !== "sync") throw new Error("Unknown callsign action.");
-  await requireMinimumStaffRank(i, "Community Director", "synchronize callsigns");
-
-  const rebalance = await rebalanceStaffCallsigns(i.user.id, { announce: false });
-  const channel = await client.channels.fetch(CALLSIGN_CHANNEL_ID).catch(() => null);
-  if (!channel?.isTextBased()) throw new Error("The staff callsigns channel is unavailable.");
-  const members = await db.query(
-    `SELECT m.discord_id,m.callsign,m.status
-       FROM staff_roster_members m
-       LEFT JOIN staff_roster_ranks r ON r.id=m.rank_id
-       LEFT JOIN staff_roster_categories c ON c.id=r.category_id
-      WHERE m.status<>'removed'
-      ORDER BY COALESCE(c.sort_order,9999),COALESCE(r.sort_order,9999),m.callsign,m.display_name`,
-  );
-  const assigned = members.filter((member) => member.callsign !== null && member.callsign !== undefined && member.callsign !== "");
-  const missing = members.filter((member) => !assigned.includes(member));
-  for (const member of assigned)
-    await channel.send({ content: `${mention(member.discord_id)} --> ${member.callsign}`, allowedMentions: { parse: [] } });
-
-  await audit(i.user.id, "callsign.sync", channel.id, { posted: assigned.length, changed: rebalance.changes.length, missing: missing.map((member) => member.discord_id) });
-  await log(i.guild, {
-    title: "Staff callsigns synchronized",
-    color: COLORS.success,
-    actor: i.user.id,
-    fields: [
-      ["Callsigns posted", String(assigned.length)],
-      ["Rank-order changes", String(rebalance.changes.length)],
-      ["Destination", `<#${channel.id}>`],
-      ...(missing.length ? [["Missing callsigns", missing.map((member) => mention(member.discord_id)).join(" "), false]] : []),
-    ],
-  }, "staff_audit");
-  return card("Callsigns synchronized", {
-    color: COLORS.success,
-    description: `Rank-ordered and republished **${assigned.length}** staff callsign${assigned.length === 1 ? "" : "s"} in ${channel}.`,
-    rows: missing.length ? [["Not posted", `${missing.length} staff member${missing.length === 1 ? " has" : "s have"} no assigned callsign.`]] : [],
-  });
-}
-
 const levelText = (level) =>
   level === Number.POSITIVE_INFINITY ? "bot owner" : level < 0 ? "no staff rank" : `rank ${level}`;
 // Old rows used the sequential database ID. Keep that format only as a fallback for
@@ -502,7 +447,15 @@ async function assignPublicCaseId(id) {
 async function requireOutranks(i, targetId, verb = "manage") {
   if (String(targetId) === i.user.id) throw new Error(`You cannot ${verb} yourself.`);
   if (superuserIds().has(String(targetId))) throw new Error(`You cannot ${verb} a bot owner.`);
-  const [actor, target] = await Promise.all([staffLevel(i.user.id), staffLevel(targetId)]);
+  const [actor, liveTarget, stripped] = await Promise.all([
+    staffLevel(i.user.id),
+    staffLevel(targetId),
+    db.one("SELECT target_level FROM global_role_strips WHERE discord_id=?", [String(targetId)]).catch(() => null),
+  ]);
+  // A role-stripped staff member must retain their saved hierarchy for every
+  // moderation check; otherwise removing their ACE groups would make them look
+  // unranked and let lower staff act on them.
+  const target = stripped ? Math.max(liveTarget, Number(stripped.target_level)) : liveTarget;
   if (actor !== Number.POSITIVE_INFINITY && target >= actor)
     throw new Error(`That member (${levelText(target)}) is equal to or above you (${levelText(actor)}).`);
   return { actor, target };
@@ -801,6 +754,7 @@ async function headtagCommand(i, sub) {
       color = hexColor(i.options.getString("color", true)),
       owner = i.options.getUser("owner"),
       chatTag = i.options.getBoolean("chat_tag") === true,
+      outline = i.options.getBoolean("outline") !== false,
       orgSlug = clean(i.options.getString("organization") || "", 40).toLowerCase(),
       organization = orgSlug
         ? await db.one("SELECT id,name,slug FROM organizations WHERE slug=? AND active=TRUE", [orgSlug])
@@ -818,7 +772,7 @@ async function headtagCommand(i, sub) {
     }
     const result = await db.transaction(async (query) => {
       const inserted = await query(
-        "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,chat_tag,created_by) VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,chat_tag,outline,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
         [
           kind,
           label,
@@ -828,6 +782,7 @@ async function headtagCommand(i, sub) {
           organization?.id || null,
           i.options.getInteger("priority") || 0,
           chatTag,
+          outline,
           i.user.id,
         ],
       );
@@ -849,6 +804,7 @@ async function headtagCommand(i, sub) {
       roleId: role.id,
       orgId: organization?.id || null,
       chatTag,
+      outline,
       created,
       ownerId: owner?.id || null,
     });
@@ -859,7 +815,7 @@ async function headtagCommand(i, sub) {
       description: organization
         ? `Players with the role can select it in F6 only while on duty as **${clean(organization.name)}**. It replaces that organization's normal duty tag.`
         : `Players with the role can select it in F6 in ${kind === "both" ? "both the top headtag and bottom gang-tag slots" : kind === "head" ? "the top headtag slot" : "the bottom gang-tag slot"}.`,
-      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Owner", owner ? who(owner.id) : "None"], ["Chat tag", chatTag ? "Available" : "No"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
+      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Owner", owner ? who(owner.id) : "None"], ["Chat tag", chatTag ? "Available" : "No"], ["Outline", outline ? "On" : "Off"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
     });
   }
   if (sub === "delete") {
@@ -1547,323 +1503,13 @@ async function serverCommand(i, sub) {
   return card("Announcement sent", { color: COLORS.success, description: message });
 }
 
-/** Roster rank joined with its category range and ACE group rank. */
-async function staffRank(id) {
-  const row = await db.one(
-    `SELECT r.*,c.name category_name,c.callsign_start,c.callsign_end,g.rank_order group_rank,g.label group_label,g.staff_only group_staff_only
-     FROM staff_roster_ranks r JOIN staff_roster_categories c ON c.id=r.category_id
-     LEFT JOIN ace_groups g ON g.name=r.ace_group WHERE r.id=?`,
-    [id],
-  );
-  if (!row) throw new Error("Staff rank not found. Pick one from the list.");
-  if (!row.ace_group) throw new Error(`${row.name} has no ACE group. Set one with /roster rank-upsert ace_group or the web panel (Roster ranks).`);
-  return row;
-}
-
-/** Autocomplete for /staff add and /staff move rank: only ranks whose ACE group sits below the caller. */
-async function staffRankAutocomplete(i) {
-  const needle = String(i.options.getFocused() || "").toLowerCase();
-  const level = await staffLevel(i.user.id);
-  const rows = await db.query(
-    `SELECT r.id,r.name,r.ace_group,g.rank_order,c.name category FROM staff_roster_ranks r
-     JOIN staff_roster_categories c ON c.id=r.category_id JOIN ace_groups g ON g.name=r.ace_group
-     ORDER BY g.rank_order DESC,c.sort_order,r.sort_order`,
-  );
-  return i.respond(
-    rows
-      .filter((row) => Number(row.rank_order) < level && `${row.name} ${row.ace_group} ${row.category}`.toLowerCase().includes(needle))
-      .slice(0, 25)
-      .map((row) => ({ name: `${row.name} · ${row.category} · ${row.ace_group}`.slice(0, 100), value: String(row.id) })),
-  );
-}
-
-async function setRankRole(rank, discordId, add) {
-  if (!rank?.discord_role_id || !rank?.discord_guild_id) return;
-  const guild = client.guilds.cache.get(String(rank.discord_guild_id));
-  const member = await guild?.members.fetch(String(discordId)).catch(() => null);
-  if (member)
-    await (add
-      ? member.roles.add(String(rank.discord_role_id), "FBRP /staff rank")
-      : member.roles.remove(String(rank.discord_role_id), "FBRP /staff rank")
-    ).catch(() => {});
-}
-
-/** Removes a rank's Discord role only if the member actually wears it. */
-async function dropRankRole(rank, discordId) {
-  if (!rank?.discord_role_id || !rank?.discord_guild_id) return;
-  const guild = client.guilds.cache.get(String(rank.discord_guild_id));
-  const member = await guild?.members.fetch(String(discordId)).catch(() => null);
-  if (member?.roles.cache.has(String(rank.discord_role_id))) await setRankRole(rank, discordId, false);
-}
-
-/** Every active roster member wears this role in each staff Discord that has one by this name. */
-const STAFF_TEAM_ROLE = "FBRP | Staff Team";
-
-async function staffTeamRoles() {
-  const roles = [];
-  for (const row of await db.query("SELECT guild_id FROM network_guilds WHERE kind='staff'")) {
-    const guild = client.guilds.cache.get(String(row.guild_id));
-    const role = guild?.roles.cache.find((item) => item.name === STAFF_TEAM_ROLE);
-    if (role?.editable) roles.push(role);
-  }
-  return roles;
-}
-
-const activeStaff = async (discordId) =>
-  Boolean(await db.one("SELECT 1 ok FROM staff_roster_members WHERE discord_id=? AND status<>'removed'", [String(discordId)]));
-
-/** Adds or removes the Staff Team role for one member in every staff Discord they are in. */
-async function setStaffTeamRole(discordId, add) {
-  for (const role of await staffTeamRoles()) {
-    const member = await role.guild.members.fetch(String(discordId)).catch(() => null);
-    if (!member || member.user.bot || member.roles.cache.has(role.id) === add) continue;
-    await (add ? member.roles.add(role, "FBRP staff roster member") : member.roles.remove(role, "Removed from the FBRP staff roster")).catch((error) =>
-      console.error(`[FBRP staff] Staff Team role for ${discordId}:`, error.message || error),
-    );
-  }
-}
-
-/** Gives the Staff Team role to every active roster member missing it (startup, every 10 minutes, /roster sync). */
-/** Keeps a roster member's staff jobs in line with the Discord roles the jobs are bound to. */
-async function reconcileRosterJobs(member, jobs = null) {
-  if (!member || member.user.bot) return;
-  const rows = jobs || (await db.query(
-    "SELECT id,discord_role_id FROM staff_roster_jobs WHERE discord_role_id IS NOT NULL AND discord_guild_id=?",
-    [member.guild.id],
-  ));
-  if (!rows.length) return;
-  if (!(await db.one("SELECT 1 ok FROM staff_roster_members WHERE discord_id=? AND status<>'removed'", [member.id]))) return;
-  for (const job of rows) {
-    if (member.roles.cache.has(String(job.discord_role_id)))
-      await db.query("INSERT IGNORE INTO staff_roster_member_jobs(discord_id,job_id,assigned_by,assigned_at) VALUES(?,?,?,?)", [member.id, job.id, "role-sync", Date.now()]);
-    else
-      await db.query("DELETE FROM staff_roster_member_jobs WHERE discord_id=? AND job_id=?", [member.id, job.id]);
-  }
-}
-
-async function reconcileAllRosterJobs() {
-  const jobs = await db.query("SELECT id,discord_role_id,discord_guild_id FROM staff_roster_jobs WHERE discord_role_id IS NOT NULL AND discord_guild_id IS NOT NULL");
-  for (const guildId of new Set(jobs.map((job) => String(job.discord_guild_id)))) {
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild) continue;
-    const members = await guild.members.fetch().catch(() => guild.members.cache);
-    const here = jobs.filter((job) => String(job.discord_guild_id) === guildId);
-    for (const member of members.values()) await reconcileRosterJobs(member, here);
-  }
-}
-
-async function syncStaffTeamRoles() {
-  const roster = await db.query("SELECT discord_id FROM staff_roster_members WHERE status<>'removed'");
-  for (const row of roster) await setStaffTeamRole(row.discord_id, true);
-}
-
-/** The rank plus every staff rank whose ACE group sits below it; /staff add grants all of them. */
+/** The rank plus every staff rank whose ACE group sits below it; /ace member-add grants all of them. */
 async function staffLadder(rank) {
   return db.query(
     `SELECT r.*,g.rank_order group_rank FROM staff_roster_ranks r JOIN ace_groups g ON g.name=r.ace_group
      WHERE r.id=? OR g.rank_order<? ORDER BY g.rank_order DESC`,
     [rank.id, Number(rank.group_rank)],
   );
-}
-
-/** Every ACE group a staff rank maps to; /staff moves members between these. */
-const STAFF_GROUPS_SQL = "SELECT DISTINCT ace_group FROM staff_roster_ranks WHERE ace_group IS NOT NULL";
-
-/** /staff add, or /staff move (existing staff only: no welcome DM, optional reason). */
-async function staffAdd(i, move = false) {
-  await requirePermission(i, "fbrp.staff.assign");
-  const user = i.options.getUser("member", true);
-  if (user.bot) throw new Error("Bots cannot be staff.");
-  const rank = await staffRank(Number(i.options.getString("rank", true)));
-  const { actor } = await requireOutranks(i, user.id, "change the staff rank of");
-  if (actor !== Number.POSITIVE_INFINITY && Number(rank.group_rank) >= actor)
-    throw new Error(`You can only add members to groups below your own rank. ${rank.name} uses \`${rank.ace_group}\` (rank ${rank.group_rank}); your highest group is rank ${actor}.`);
-  const previous = await db.one(
-    `SELECT m.*,r.discord_role_id,r.discord_guild_id FROM staff_roster_members m
-     LEFT JOIN staff_roster_ranks r ON r.id=m.rank_id WHERE m.discord_id=?`,
-    [user.id],
-  );
-  const active = previous && previous.status !== "removed";
-  const reason = move ? clean(i.options.getString("reason") || "", 300) || null : null;
-  if (move && !active) throw new Error("That member is not on the staff roster. Use /staff add instead.");
-  if (move && Number(previous.rank_id) === Number(rank.id)) throw new Error(`That member is already ${rank.name}.`);
-  const ladder = await staffLadder(rank);
-  const groups = [...new Set(ladder.map((row) => String(row.ace_group)))];
-  const marks = groups.map(() => "?").join(",");
-  const removedGroups = await db.transaction(async (q) => {
-    const old = await q(
-      `SELECT DISTINCT group_name FROM ace_memberships WHERE discord_id=? AND origin='manual' AND group_name NOT IN (${marks}) AND group_name IN (${STAFF_GROUPS_SQL})`,
-      [user.id, ...groups],
-    );
-    await q(
-      `DELETE FROM ace_memberships WHERE discord_id=? AND origin='manual' AND group_name NOT IN (${marks}) AND group_name IN (${STAFF_GROUPS_SQL})`,
-      [user.id, ...groups],
-    );
-    for (const name of groups)
-      await q(
-        "INSERT IGNORE INTO ace_memberships(discord_id,group_name,origin,added_by,added_at) VALUES(?,?,'manual',?,?)",
-        [user.id, name, i.user.id, Date.now()],
-      );
-    const stamp = Date.now();
-    await q(
-      `INSERT INTO staff_roster_members(discord_id,display_name,username,rank_name,rank_id,callsign,status,joined_at,rank_changed_at,updated_at,added_by)
-       VALUES(?,?,?,?,?,?,'active',?,?,?,?)
-       ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),username=VALUES(username),rank_name=VALUES(rank_name),
-         rank_changed_at=IF(rank_id<=>VALUES(rank_id) AND status<>'removed',rank_changed_at,VALUES(rank_changed_at)),
-         joined_at=IF(status='removed',VALUES(joined_at),joined_at),rank_id=VALUES(rank_id),callsign=VALUES(callsign),status='active',
-         updated_at=VALUES(updated_at),removed_at=NULL,removed_by=NULL,removal_reason=NULL`,
-      [user.id, user.globalName || user.username, user.username, rank.name, rank.id, null, stamp, stamp, stamp, i.user.id],
-    );
-    await q(
-      "INSERT INTO staff_roster_history(discord_id,action,actor_id,details,created_at) VALUES(?,?,?,?,?)",
-      [user.id, move ? "staff_move" : "staff_add", i.user.id, JSON.stringify({ rank: rank.id, group: rank.ace_group, callsign: "rank_ordered", from: previous?.rank_id || null, ...(reason ? { reason } : {}) }), stamp],
-    );
-    return old.map((row) => String(row.group_name));
-  });
-  await reconcileManagementMembership(user.id, i.user.id);
-  // The member keeps every lower rank's ACE group but wears only their own rank role (management also wears Head Administrator).
-  const wear = staffDisplayGroups(String(rank.ace_group), await staffRankInfo());
-  const wornIds = new Set(ladder.filter((row) => wear.has(String(row.ace_group))).map((row) => Number(row.id)));
-  wornIds.add(Number(rank.id));
-  for (const row of await db.query("SELECT id,discord_role_id,discord_guild_id FROM staff_roster_ranks"))
-    if (!wornIds.has(Number(row.id))) await dropRankRole(row, user.id);
-  for (const row of ladder) if (wornIds.has(Number(row.id))) await setRankRole(row, user.id, true);
-  await setStaffTeamRole(user.id, true);
-  const rebalance = await rebalanceStaffCallsigns(i.user.id);
-  const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
-  if (!callsign) throw new Error("The staff rank was saved, but no callsign could be assigned.");
-  await audit(i.user.id, move ? "staff.move" : "staff.add", user.id, { rank: rank.id, rankName: rank.name, from: previous?.rank_name || null, group: rank.ace_group, groups, callsign, removedGroups, reason });
-  await refreshGame();
-  await syncUserAcrossNetwork(client, user.id);
-  const welcome = move ? null : await sendStaffWelcome(user, rank, callsign);
-  const rows = [
-    ["Rank", `${clean(rank.name)}\n${clean(rank.category_name)}`],
-    ["ACE group", `\`${rank.ace_group}\` (rank ${rank.group_rank})`],
-    ...(groups.length > 1 ? [["Lower ranks included", groups.filter((g) => g !== rank.ace_group).map((g) => `\`${g}\``).join(" ")]] : []),
-    ["Callsign", String(callsign)],
-    ...(active && previous.rank_name && Number(previous.rank_id) !== Number(rank.id) ? [["Previous rank", clean(previous.rank_name)]] : []),
-    ...(removedGroups.length ? [["Left groups", removedGroups.map((g) => `\`${g}\``).join(" ")]] : []),
-    ...(welcome ? [["Welcome DM", welcome.sent ? (welcome.invited ? "Sent with a single-use staff-server invite" : "Sent") : "Could not deliver (their DMs may be closed)"]] : []),
-    ...(reason ? [["Reason", reason, false]] : []),
-  ];
-  await log(i.guild, { content: movementLine(user.id, clean(rank.name), i.user.id) }, "roster");
-  await log(i.guild, { title: "Staff ACE membership set", color: COLORS.success, actor: i.user.id, target: user.id, fields: [["Groups", groups.map((g) => `\`${g}\``).join(" ")], ...(removedGroups.length ? [["Removed from", removedGroups.map((g) => `\`${g}\``).join(" ")]] : [])] }, "role_sync");
-  return card(move ? "Staff member moved" : active ? "Staff rank changed" : "Staff member added", {
-    color: COLORS.success,
-    description: `${mention(user.id)} now has the ${clean(rank.name)} permissions${rank.group_staff_only ? " (in game they apply while clocked in)" : ""}.`,
-    rows: [["Member", who(user.id)], ...rows],
-  });
-}
-
-async function staffRemove(i) {
-  await requirePermission(i, "fbrp.staff.assign");
-  const user = i.options.getUser("member", true);
-  const reason = clean(i.options.getString("reason", true), 300);
-  await requireOutranks(i, user.id, "remove");
-  const roster = await db.one(
-    `SELECT m.*,r.discord_role_id,r.discord_guild_id FROM staff_roster_members m
-     LEFT JOIN staff_roster_ranks r ON r.id=m.rank_id WHERE m.discord_id=?`,
-    [user.id],
-  );
-  const groups = (
-    await db.query(
-      `SELECT DISTINCT group_name FROM ace_memberships WHERE discord_id=? AND origin='manual' AND group_name IN (${STAFF_GROUPS_SQL})`,
-      [user.id],
-    )
-  ).map((row) => String(row.group_name));
-  if (!groups.length && (!roster || roster.status === "removed")) throw new Error("That member is not staff.");
-  const stamp = Date.now();
-  await db.transaction(async (q) => {
-    await q(`DELETE FROM ace_memberships WHERE discord_id=? AND origin='manual' AND group_name IN (${STAFF_GROUPS_SQL})`, [user.id]);
-    await q(
-      "UPDATE staff_roster_members SET status='removed',callsign=NULL,removed_at=?,removed_by=?,removal_reason=?,updated_at=? WHERE discord_id=?",
-      [stamp, i.user.id, reason, stamp, user.id],
-    );
-    await q(
-      "INSERT INTO staff_roster_history(discord_id,action,actor_id,details,created_at) VALUES(?,?,?,?,?)",
-      [user.id, "staff_remove", i.user.id, JSON.stringify({ reason, groups, callsign: roster?.callsign ?? null }), stamp],
-    );
-    await q(
-      "UPDATE staff_shifts SET ended_at=heartbeat_at,seconds=GREATEST(0,FLOOR((heartbeat_at-started_at)/1000)),end_reason='forceout',actor_id=?,note=? WHERE discord_id=? AND ended_at IS NULL",
-      [i.user.id, "Removed from staff", user.id],
-    );
-  });
-  await reconcileManagementMembership(user.id, i.user.id);
-  await setRankRole(roster, user.id, false);
-  await setStaffTeamRole(user.id, false);
-  await rebalanceStaffCallsigns(i.user.id);
-  await callGame("/forceout", { discord: user.id, actor: i.user.id, reason: "Removed from staff" }).catch(() => {});
-  await audit(i.user.id, "staff.remove", user.id, { reason, groups, rank: roster?.rank_name || null, callsign: roster?.callsign ?? null });
-  await refreshGame();
-  await syncUserAcrossNetwork(client, user.id);
-  const rows = [
-    ["Rank", clean(roster?.rank_name) || "None"],
-    ["Callsign released", roster?.callsign ? String(roster.callsign) : "None"],
-    ["ACE groups removed", groups.map((g) => `\`${g}\``).join(" ") || "None"],
-    ["Reason", reason, false],
-  ];
-  await log(i.guild, { content: movementLine(user.id, "Removed", i.user.id) }, "roster");
-  await log(i.guild, { title: "Staff ACE membership removed", color: COLORS.warning, actor: i.user.id, target: user.id, fields: [["Groups", groups.map((g) => `\`${g}\``).join(" ") || "None"]] }, "role_sync");
-  return card("Staff member removed", { color: COLORS.warning, rows: [["Member", who(user.id)], ...rows] });
-}
-
-async function staffCommand(i, sub) {
-  if (sub === "add") return staffAdd(i);
-  if (sub === "move") return staffAdd(i, true);
-  if (sub === "remove") return staffRemove(i);
-  await requirePermission(i, "fbrp.staff.manage");
-  const cutoff = Date.now() - 7 * 86400000;
-  if (sub === "hours") {
-    const user = i.options.getUser("member", true),
-      row = await db.one(
-        "SELECT COUNT(*) shifts,COALESCE(SUM(CASE WHEN ended_at IS NULL THEN FLOOR((?-started_at)/1000) ELSE seconds END),0) seconds FROM staff_shifts WHERE discord_id=? AND started_at>=?",
-        [Date.now(), user.id, cutoff],
-      );
-    return card("Staff hours", {
-      rows: [["Member", who(user.id)], ["Time on duty", `${(Number(row.seconds) / 3600).toFixed(1)} hours`], ["Shifts", String(row.shifts)]],
-      footer: "Florida Bay Roleplay \u00b7 Last 7 days",
-    });
-  }
-  if (sub === "leaderboard") {
-    const days = i.options.getInteger("days") || 7,
-      start = Date.now() - days * 86400000,
-      rows = await db.query(
-        "SELECT discord_id,MAX(name) name,COUNT(*) shifts,SUM(CASE WHEN ended_at IS NULL THEN FLOOR((?-started_at)/1000) ELSE seconds END) seconds FROM staff_shifts WHERE started_at>=? GROUP BY discord_id ORDER BY seconds DESC LIMIT 20",
-        [Date.now(), start],
-      );
-    return card("Staff leaderboard", {
-      description:
-        rows
-          .map(
-            (row, index) =>
-              `\`${String(index + 1).padStart(2, "0")}\` · **${clean(row.name)}** · ${(Number(row.seconds) / 3600).toFixed(1)}h across ${row.shifts} shift${Number(row.shifts) === 1 ? "" : "s"}`,
-          )
-          .join("\n") || "No recorded shifts.",
-      footer: `Florida Bay Roleplay \u00b7 Last ${days} days`,
-    });
-  }
-  const user = i.options.getUser("member", true),
-    reason = i.options.getString("reason", true),
-    stamp = Date.now();
-  const result = await db.query(
-    "UPDATE staff_shifts SET ended_at=heartbeat_at,seconds=GREATEST(0,FLOOR((heartbeat_at-started_at)/1000)),end_reason='forceout',actor_id=?,note=? WHERE discord_id=? AND ended_at IS NULL",
-    [i.user.id, reason, user.id],
-  );
-  await callGame("/forceout", {
-    discord: user.id,
-    actor: i.user.id,
-    reason,
-  }).catch(() => {});
-  await audit(i.user.id, "staff.forceout", user.id, {
-    reason,
-    rows: result.affectedRows,
-    stamp,
-  });
-  await log(i.guild, { title: "Staff clock-out enforced", color: COLORS.warning, actor: i.user.id, target: user.id, fields: [["Shifts closed", String(result.affectedRows)], ["Reason", clean(reason, 300), false]] }, "staff_duty");
-  return card("Staff clock-out enforced", {
-    color: COLORS.warning,
-    rows: [["Member", who(user.id)], ["Shifts closed", String(result.affectedRows)], ["Reason", clean(reason, 300), false]],
-  });
 }
 
 async function protectRoleCommand(i, sub) {
@@ -2197,323 +1843,6 @@ async function securityCommand(i, sub) {
       ["Servers", chunkLines(lockLines, 1000)[0] || "No network servers", false],
     ],
     footer: "Florida Bay Roleplay · Change settings with /security config",
-  });
-}
-
-async function rosterCommand(i, sub) {
-  const permission = ["list", "profile"].includes(sub)
-    ? "fbrp.roster.view"
-    : ["discipline", "discipline-revoke"].includes(sub)
-      ? "fbrp.roster.discipline"
-      : ["category-upsert", "category-delete", "rank-upsert", "rank-delete", "job-upsert", "job-delete", "sync"].includes(sub)
-        ? "fbrp.roster.config"
-        : "fbrp.roster.manage";
-  if (permission === "fbrp.roster.config")
-    await requireCoOwnerControl(i, permission, "configure the staff roster");
-  else await requirePermission(i, permission);
-  const history = (discordId, action, details) =>
-    db.query(
-      "INSERT INTO staff_roster_history(discord_id,action,actor_id,details,created_at) VALUES(?,?,?,?,?)",
-      [discordId, action, i.user.id, JSON.stringify(details || {}), Date.now()],
-    );
-  const rankById = async (id) => {
-    const row = await db.one(
-      `SELECT r.*,c.name category_name,c.callsign_start,c.callsign_end
-       FROM staff_roster_ranks r JOIN staff_roster_categories c ON c.id=r.category_id WHERE r.id=?`,
-      [id],
-    );
-    if (!row) throw new Error("Roster rank not found.");
-    return row;
-  };
-  if (sub === "list") {
-    const [categories, ranks, members, jobs] = await Promise.all([
-      db.query("SELECT * FROM staff_roster_categories ORDER BY sort_order,name"),
-      db.query("SELECT * FROM staff_roster_ranks ORDER BY category_id,sort_order,name"),
-      db.query(`SELECT m.*,r.name rank,c.name category,
-        (SELECT COUNT(*) FROM staff_roster_discipline d WHERE d.discord_id=m.discord_id AND d.revoked_at IS NULL) discipline
-        FROM staff_roster_members m LEFT JOIN staff_roster_ranks r ON r.id=m.rank_id
-        LEFT JOIN staff_roster_categories c ON c.id=r.category_id WHERE m.status<>'removed'
-        ORDER BY c.sort_order,r.sort_order,m.callsign`),
-      db.query("SELECT j.*,COUNT(m.discord_id) members FROM staff_roster_jobs j LEFT JOIN staff_roster_member_jobs m ON m.job_id=j.id GROUP BY j.id ORDER BY j.sort_order,j.name"),
-    ]);
-    const config = categories.map((c) => `\`C${c.id}\` · **${clean(c.name)}** · callsigns ${c.callsign_start} to ${c.callsign_end}`);
-    const rankText = ranks.map((r) => `\`R${r.id}\` · **${clean(r.name)}**${r.discord_role_id ? ` · ${roleRef(r.discord_role_id)}` : ""} · ${(Number(r.weekly_seconds) / 3600).toFixed(0)}h per week`);
-    const roster = members.map((row) => `${row.callsign ? `\`${row.callsign}\` · ` : ""}${mention(row.discord_id)} · **${clean(row.rank || row.rank_name)}** · ${row.status}${Number(row.discipline) ? ` · ${row.discipline} active warning${Number(row.discipline) === 1 ? "" : "s"}` : ""}`);
-    const jobText = jobs.map((j) => `\`J${j.id}\` · **${clean(j.name)}**${j.discord_role_id ? ` · ${roleRef(j.discord_role_id)}` : ""} · ${j.members} member${Number(j.members) === 1 ? "" : "s"}`);
-    const sections = [
-      ["Categories", config],
-      ["Ranks", rankText],
-      ["Secondary jobs", jobText],
-    ];
-    const list = card("Staff roster", {
-      description: `${members.length} active staff member${members.length === 1 ? "" : "s"} across ${categories.length} categor${categories.length === 1 ? "y" : "ies"}.`,
-      rows: sections.map(([name, items]) => [name, chunkLines(items)[0] || "None", false]),
-    });
-    const memberChunks = chunkLines(roster);
-    memberChunks.slice(0, 2).forEach((chunk, index) => list.addFields({ name: index ? "Staff (continued)" : "Staff", value: chunk }));
-    if (!memberChunks.length) list.addFields({ name: "Staff", value: "Empty" });
-    return list;
-  }
-  if (sub === "category-upsert") {
-    const id = i.options.getInteger("id"), name = clean(i.options.getString("name", true), 80);
-    const start = i.options.getInteger("start", true), end = i.options.getInteger("end", true);
-    if (end < start) throw new Error("Callsign end must be greater than or equal to start.");
-    const order = i.options.getInteger("order") || 0;
-    if (id) await db.query("UPDATE staff_roster_categories SET name=?,callsign_start=?,callsign_end=?,sort_order=? WHERE id=?", [name, start, end, order, id]);
-    else await db.query("INSERT INTO staff_roster_categories(name,callsign_start,callsign_end,sort_order,created_at) VALUES(?,?,?,?,?)", [name, start, end, order, Date.now()]);
-    const rebalance = await rebalanceStaffCallsigns(i.user.id);
-    await log(i.guild, {
-      title: id ? "Roster category updated" : "Roster category created",
-      color: COLORS.success,
-      actor: i.user.id,
-      fields: [["Category", name], ["Callsigns", `${start} to ${end}`], ["Callsign changes", String(rebalance.changes.length)]],
-    }, "roster");
-    return card("Roster category saved", { color: COLORS.success, rows: [["Category", name], ["Callsigns", `${start} to ${end}`], ["Callsign changes", String(rebalance.changes.length)]] });
-  }
-  if (sub === "category-delete") {
-    const id = i.options.getInteger("id", true);
-    await db.query("DELETE FROM staff_roster_categories WHERE id=?", [id]);
-    await log(i.guild, { title: "Roster category deleted", color: COLORS.warning, actor: i.user.id, fields: [["Category ID", `\`${id}\``]] }, "roster");
-    return card("Roster category deleted", { color: COLORS.warning, rows: [["Category ID", `\`${id}\``]] });
-  }
-  if (sub === "rank-upsert") {
-    const id = i.options.getInteger("id"), category = i.options.getInteger("category", true);
-    const name = clean(i.options.getString("name", true), 80), role = i.options.getRole("role");
-    const weekly = (i.options.getInteger("weekly_hours") || 0) * 3600;
-    const days = i.options.getInteger("minimum_days") || 0, order = i.options.getInteger("order") || 0;
-    const aceGroup = i.options.getString("ace_group") ? group(i.options.getString("ace_group")) : null;
-    if (aceGroup && !(await db.one("SELECT name FROM ace_groups WHERE name=?", [aceGroup]))) throw new Error(`ACE group \`${aceGroup}\` does not exist.`);
-    if (id) await db.query("UPDATE staff_roster_ranks SET category_id=?,name=?,discord_role_id=?,discord_guild_id=?,ace_group=?,sort_order=?,weekly_seconds=?,minimum_days=? WHERE id=?", [category, name, role?.id || null, role ? i.guildId : null, aceGroup, order, weekly, days, id]);
-    else await db.query("INSERT INTO staff_roster_ranks(category_id,name,discord_role_id,discord_guild_id,ace_group,sort_order,weekly_seconds,minimum_days,created_at) VALUES(?,?,?,?,?,?,?,?,?)", [category, name, role?.id || null, role ? i.guildId : null, aceGroup, order, weekly, days, Date.now()]);
-    const rebalance = await rebalanceStaffCallsigns(i.user.id);
-    const rows = [["Rank", name], ["Role", role ? roleRef(role.id) : "Not mapped"], ["ACE group", aceGroup ? `\`${aceGroup}\`` : "Not mapped"], ["Weekly hours", `${weekly / 3600}h`], ["Callsign changes", String(rebalance.changes.length)]];
-    await log(i.guild, {
-      title: id ? "Roster rank updated" : "Roster rank created",
-      color: COLORS.success,
-      actor: i.user.id,
-      fields: rows,
-    }, "roster");
-    return card("Roster rank saved", { color: COLORS.success, rows });
-  }
-  if (sub === "rank-delete") {
-    const id = i.options.getInteger("id", true);
-    await db.query("DELETE FROM staff_roster_ranks WHERE id=?", [id]);
-    await log(i.guild, { title: "Roster rank deleted", color: COLORS.warning, actor: i.user.id, fields: [["Rank ID", `\`${id}\``]] }, "roster");
-    return card("Roster rank deleted", { color: COLORS.warning, rows: [["Rank ID", `\`${id}\``]] });
-  }
-  if (sub === "job-upsert") {
-    const id = i.options.getInteger("id"), name = clean(i.options.getString("name", true), 80);
-    const description = clean(i.options.getString("description") || "", 300), role = i.options.getRole("role");
-    const order = i.options.getInteger("order") || 0;
-    if (id) await db.query("UPDATE staff_roster_jobs SET name=?,description=?,discord_role_id=?,discord_guild_id=?,sort_order=? WHERE id=?", [name, description, role?.id || null, role ? i.guildId : null, order, id]);
-    else await db.query("INSERT INTO staff_roster_jobs(name,description,discord_role_id,discord_guild_id,sort_order,created_at) VALUES(?,?,?,?,?,?)", [name, description, role?.id || null, role ? i.guildId : null, order, Date.now()]);
-    await log(i.guild, {
-      title: id ? "Staff job updated" : "Staff job created",
-      color: COLORS.success,
-      actor: i.user.id,
-      fields: [["Job", name], ["Role", role ? roleRef(role.id) : "Not mapped"]],
-    }, "roster");
-    return card("Staff job saved", {
-      color: COLORS.success,
-      description: description || undefined,
-      rows: [["Job", name], ["Role", role ? roleRef(role.id) : "Not mapped"]],
-    });
-  }
-  if (sub === "job-delete") {
-    const id = i.options.getInteger("id", true);
-    await db.query("DELETE FROM staff_roster_jobs WHERE id=?", [id]);
-    await log(i.guild, { title: "Staff job deleted", color: COLORS.warning, actor: i.user.id, fields: [["Job ID", `\`${id}\``]] }, "roster");
-    return card("Staff job deleted", { color: COLORS.warning, rows: [["Job ID", `\`${id}\``]] });
-  }
-  if (sub === "discipline-revoke") {
-    const id = i.options.getInteger("id", true), reason = clean(i.options.getString("reason", true), 300);
-    const row = await db.one("SELECT * FROM staff_roster_discipline WHERE id=? AND revoked_at IS NULL", [id]);
-    if (!row) throw new Error("Active discipline record not found.");
-    await db.query("UPDATE staff_roster_discipline SET revoked_at=?,revoked_by=?,revoke_reason=? WHERE id=?", [Date.now(), i.user.id, reason, id]);
-    await history(row.discord_id, "discipline_revoke", { id, reason });
-    await log(i.guild, {
-      title: "Discipline revoked",
-      color: COLORS.success,
-      actor: i.user.id,
-      target: row.discord_id,
-      fields: [["Record", `${humanize(row.kind)} #${id}`], ["Reason", reason, false]],
-    }, "roster");
-    return card("Discipline revoked", {
-      color: COLORS.success,
-      rows: [["Member", who(row.discord_id)], ["Record", `${humanize(row.kind)} #${id}`], ["Reason", reason, false]],
-    });
-  }
-  if (sub === "sync") {
-    const ranks = await db.query("SELECT * FROM staff_roster_ranks WHERE discord_role_id IS NOT NULL AND discord_guild_id IS NOT NULL ORDER BY sort_order");
-    let synced = 0;
-    for (const rank of ranks) {
-      const guild = client.guilds.cache.get(String(rank.discord_guild_id));
-      if (!guild) continue;
-      const role = await guild.roles.fetch(String(rank.discord_role_id)).catch(() => null);
-      if (!role) continue;
-      for (const member of role.members.values()) {
-        if (member.user.bot) continue;
-        await db.query(`INSERT INTO staff_roster_members(discord_id,display_name,username,rank_name,rank_id,callsign,status,joined_at,rank_changed_at,updated_at,added_by)
-          VALUES(?,?,?,?,?,?,'active',?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),username=VALUES(username),rank_name=VALUES(rank_name),rank_id=VALUES(rank_id),status='active',updated_at=VALUES(updated_at)`,
-        [member.id, member.displayName, member.user.username, rank.name, rank.id, null, Date.now(), Date.now(), Date.now(), i.user.id]);
-        synced++;
-      }
-    }
-    const jobs = await db.query("SELECT * FROM staff_roster_jobs WHERE discord_role_id IS NOT NULL AND discord_guild_id IS NOT NULL");
-    for (const job of jobs) {
-      const guild = client.guilds.cache.get(String(job.discord_guild_id));
-      if (!guild) continue;
-      const role = await guild.roles.fetch(String(job.discord_role_id)).catch(() => null);
-      if (!role) continue;
-      const roster = await db.query("SELECT discord_id FROM staff_roster_members WHERE status<>'removed'");
-      for (const row of roster) {
-        const member = await guild.members.fetch(String(row.discord_id)).catch(() => null);
-        if (member?.roles.cache.has(String(job.discord_role_id)))
-          await db.query("INSERT IGNORE INTO staff_roster_member_jobs(discord_id,job_id,assigned_by,assigned_at) VALUES(?,?,?,?)", [row.discord_id, job.id, i.user.id, Date.now()]);
-        else
-          await db.query("DELETE FROM staff_roster_member_jobs WHERE discord_id=? AND job_id=?", [row.discord_id, job.id]);
-      }
-    }
-    const rebalance = await rebalanceStaffCallsigns(i.user.id);
-    await syncStaffTeamRoles();
-    await log(i.guild, {
-      title: "Roster synchronized",
-      color: COLORS.success,
-      actor: i.user.id,
-      fields: [["Assignments", String(synced)], ["Callsign changes", String(rebalance.changes.length)]],
-    }, "role_sync");
-    return card("Roster synchronized", {
-      color: COLORS.success,
-      description: "Staff assignments were reconciled from Discord roles.",
-      rows: [["Assignments", String(synced)], ["Callsign changes", String(rebalance.changes.length)]],
-    });
-  }
-  const user = i.options.getUser("member", true);
-  if (sub === "job-assign" || sub === "job-remove") {
-    const jobId = i.options.getInteger("job", true);
-    const job = await db.one("SELECT * FROM staff_roster_jobs WHERE id=?", [jobId]);
-    if (!job) throw new Error("Staff job not found.");
-    const add = sub === "job-assign";
-    if (add) await db.query("INSERT IGNORE INTO staff_roster_member_jobs(discord_id,job_id,assigned_by,assigned_at) VALUES(?,?,?,?)", [user.id, jobId, i.user.id, Date.now()]);
-    else await db.query("DELETE FROM staff_roster_member_jobs WHERE discord_id=? AND job_id=?", [user.id, jobId]);
-    if (job.discord_role_id && job.discord_guild_id) {
-      const guild = client.guilds.cache.get(String(job.discord_guild_id));
-      const member = await guild?.members.fetch(user.id).catch(() => null);
-      if (member) await (add ? member.roles.add(String(job.discord_role_id), "FBRP roster job") : member.roles.remove(String(job.discord_role_id), "FBRP roster job")).catch(() => {});
-    }
-    await history(user.id, add ? "job_assign" : "job_remove", { job: jobId });
-    await log(i.guild, { title: add ? "Staff job assigned" : "Staff job removed", color: add ? COLORS.success : COLORS.warning, actor: i.user.id, target: user.id, fields: [["Job", clean(job.name)]] }, "roster");
-    return card("Staff job updated", {
-      color: COLORS.success,
-      rows: [["Member", who(user.id)], ["Job", clean(job.name)], ["Action", add ? "Assigned" : "Removed"]],
-    });
-  }
-  if (sub === "profile") {
-    const row = await db.one(`SELECT m.*,r.name rank,c.name category,r.weekly_seconds
-      FROM staff_roster_members m LEFT JOIN staff_roster_ranks r ON r.id=m.rank_id LEFT JOIN staff_roster_categories c ON c.id=r.category_id WHERE m.discord_id=?`, [user.id]);
-    if (!row) throw new Error("That member has no roster record.");
-    const [discipline, historyRows, hours, jobs] = await Promise.all([
-      db.query("SELECT * FROM staff_roster_discipline WHERE discord_id=? ORDER BY created_at DESC LIMIT 10", [user.id]),
-      db.query("SELECT * FROM staff_roster_history WHERE discord_id=? ORDER BY created_at DESC LIMIT 10", [user.id]),
-      db.one("SELECT COALESCE(SUM(CASE WHEN ended_at IS NULL THEN FLOOR((?-started_at)/1000) ELSE seconds END),0) seconds FROM staff_shifts WHERE discord_id=? AND started_at>=?", [Date.now(), user.id, Date.now() - 7 * 86400000]),
-      db.query("SELECT j.name FROM staff_roster_member_jobs m JOIN staff_roster_jobs j ON j.id=m.job_id WHERE m.discord_id=? ORDER BY j.sort_order,j.name", [user.id]),
-    ]);
-    return card(`Roster profile: ${clean(user.username)}`, {
-      description: `${mention(user.id)}\n\`${user.id}\``,
-      rows: [
-        ["Rank", clean(row.rank || row.rank_name) || "None"],
-        ["Category", clean(row.category) || "Uncategorized"],
-        ["Callsign", row.callsign ? String(row.callsign) : "Unassigned"],
-        ["Status", humanize(row.status)],
-        ["Weekly hours", `${(Number(hours?.seconds || 0) / 3600).toFixed(1)} of ${(Number(row.weekly_seconds || 0) / 3600).toFixed(1)}`],
-        ["Tickets handled", String(row.tickets_handled || 0)],
-        ["Jobs", jobs.map((j) => clean(j.name)).join(", ") || "None", false],
-        ["Note", clean(row.activity_note, 500) || "None", false],
-        ["Discipline", chunkLines(discipline.map((d) => `\`#${d.id}\` · ${humanize(d.kind)} · ${d.revoked_at ? "revoked" : "active"} · ${clean(d.reason, 100)}`))[0] || "None", false],
-        ["Recent history", chunkLines(historyRows.map((h) => `${humanize(h.action)} · ${when(h.created_at)}`))[0] || "None", false],
-      ],
-    });
-  }
-  if (sub === "add") {
-    const rank = await rankById(i.options.getInteger("rank", true));
-    const displayName = user.globalName || user.username;
-    await db.query(`INSERT INTO staff_roster_members(discord_id,display_name,username,rank_name,rank_id,callsign,status,joined_at,rank_changed_at,updated_at,added_by)
-      VALUES(?,?,?,?,?,?,'active',?,?,?,?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),username=VALUES(username),rank_name=VALUES(rank_name),rank_id=VALUES(rank_id),callsign=VALUES(callsign),status='active',rank_changed_at=VALUES(rank_changed_at),updated_at=VALUES(updated_at),removed_at=NULL,removed_by=NULL,removal_reason=NULL`,
-    [user.id, displayName, user.username, rank.name, rank.id, null, Date.now(), Date.now(), Date.now(), i.user.id]);
-    await history(user.id, "add_or_update", { rank: rank.id, callsign: "rank_ordered" });
-    if (rank.discord_role_id && rank.discord_guild_id) {
-      const guild = client.guilds.cache.get(String(rank.discord_guild_id));
-      const member = await guild?.members.fetch(user.id).catch(() => null);
-      if (member) await member.roles.add(String(rank.discord_role_id), "FBRP staff roster rank").catch(() => {});
-    }
-    await setStaffTeamRole(user.id, true);
-    const rebalance = await rebalanceStaffCallsigns(i.user.id);
-    const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
-    if (!callsign) throw new Error("The roster member was saved, but no callsign could be assigned.");
-    await log(i.guild, {
-      title: "Roster member saved",
-      color: COLORS.success,
-      actor: i.user.id,
-      target: user.id,
-      fields: [["Rank", rank.name], ["Callsign", String(callsign)]],
-    }, "roster");
-    return card("Roster member saved", {
-      color: COLORS.success,
-      rows: [["Member", who(user.id)], ["Rank", rank.name], ["Callsign", String(callsign)]],
-    });
-  }
-  if (sub === "remove") {
-    const reason = clean(i.options.getString("reason", true), 300);
-    await db.query("UPDATE staff_roster_members SET status='removed',callsign=NULL,removed_at=?,removed_by=?,removal_reason=?,updated_at=? WHERE discord_id=?", [Date.now(), i.user.id, reason, Date.now(), user.id]);
-    await history(user.id, "remove", { reason });
-    await setStaffTeamRole(user.id, false);
-    await rebalanceStaffCallsigns(i.user.id);
-    await log(i.guild, {
-      title: "Roster member removed",
-      color: COLORS.warning,
-      actor: i.user.id,
-      target: user.id,
-      fields: [["Reason", reason, false]],
-    }, "roster");
-    return card("Roster member removed", { color: COLORS.warning, rows: [["Member", who(user.id)], ["Reason", reason, false]] });
-  }
-  if (sub === "status") {
-    const status = i.options.getString("status", true);
-    await db.query("UPDATE staff_roster_members SET status=?,updated_at=? WHERE discord_id=?", [status, Date.now(), user.id]);
-    await history(user.id, "status", { status });
-    await log(i.guild, { title: "Roster status changed", color: COLORS.primary, actor: i.user.id, target: user.id, fields: [["Status", humanize(status)]] }, "roster");
-    return card("Roster status updated", { color: COLORS.success, rows: [["Member", who(user.id)], ["Status", humanize(status)]] });
-  }
-  if (sub === "callsign") {
-    const rebalance = await rebalanceStaffCallsigns(i.user.id);
-    const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign;
-    if (!callsign) throw new Error("That member is not on the active roster.");
-    return card("Callsigns rank-ordered", {
-      color: COLORS.success,
-      rows: [["Member", who(user.id)], ["Callsign", String(callsign)], ["Changed assignments", String(rebalance.changes.length)]],
-    });
-  }
-  if (sub === "note") {
-    const note = clean(i.options.getString("note", true), 500);
-    await db.query("UPDATE staff_roster_members SET activity_note=?,updated_at=? WHERE discord_id=?", [note, Date.now(), user.id]);
-    await history(user.id, "note", { note });
-    await log(i.guild, { title: "Roster note updated", color: COLORS.primary, actor: i.user.id, target: user.id, fields: [["Note", note, false]] }, "roster");
-    return card("Roster note updated", { color: COLORS.success, rows: [["Member", who(user.id)], ["Note", note, false]] });
-  }
-  const kind = i.options.getString("kind", true), reason = clean(i.options.getString("reason", true), 500);
-  const result = await db.query("INSERT INTO staff_roster_discipline(discord_id,kind,reason,actor_id,created_at) VALUES(?,?,?,?,?)", [user.id, kind, reason, i.user.id, Date.now()]);
-  await history(user.id, "discipline", { id: result.insertId, kind, reason });
-  await dm(user, `Staff ${kind} in ${i.guild.name}`, [["Record", `${humanize(kind)} #${result.insertId}`], ["Reason", reason, false]]);
-  await log(i.guild, {
-    title: "Staff discipline issued",
-    color: COLORS.warning,
-    actor: i.user.id,
-    target: user.id,
-    fields: [["Record", `${humanize(kind)} #${result.insertId}`], ["Reason", reason, false]],
-  }, "roster");
-  return card("Staff discipline issued", {
-    color: COLORS.warning,
-    rows: [["Member", who(user.id)], ["Record", `${humanize(kind)} #${result.insertId}`], ["Reason", reason, false]],
   });
 }
 
@@ -2947,6 +2276,80 @@ function storedRoleIds(value) {
   } catch {
     return [];
   }
+}
+
+/** MySQL may return JSON columns decoded or as strings depending on the driver. */
+function storedJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Replaces one account's complete ACE membership set inside an existing transaction. */
+async function replaceAceMemberships(query, discordId, memberships) {
+  await query("DELETE FROM ace_memberships WHERE discord_id=?", [String(discordId)]);
+  for (const membership of memberships) {
+    await query(
+      "INSERT INTO ace_memberships(discord_id,group_name,origin,added_by,added_at) VALUES(?,?,?,?,?)",
+      [
+        String(discordId),
+        String(membership.group_name),
+        String(membership.origin || "manual"),
+        membership.added_by ? String(membership.added_by) : null,
+        Number(membership.added_at) || Date.now(),
+      ],
+    );
+  }
+}
+
+/** Restores an exact ordinary-role snapshot while retaining Discord-managed integration roles. */
+async function setMemberRoleSnapshot(member, roleIds, reason) {
+  await member.guild.roles.fetch().catch(() => null);
+  const wanted = [...new Set(storedRoleIds(roleIds))];
+  const restorable = wanted
+    .map((id) => member.guild.roles.cache.get(id))
+    .filter((role) => role && role.id !== member.guild.id && !role.managed && role.editable && role.name !== CENSORED_ROLE);
+  const managed = member.roles.cache.filter((role) => role.managed).map((role) => role.id);
+  await member.roles.set([...new Set([...managed, ...restorable.map((role) => role.id)])], reason.slice(0, 500));
+  return { restored: restorable.length, skipped: wanted.filter((id) => id !== member.guild.id).length - restorable.length };
+}
+
+/** Active role strips are a hard quarantine: manual grants are removed again immediately. */
+async function enforceRoleStripRoles(member) {
+  if (member.user.bot) return false;
+  const stripped = await db.one(
+    "SELECT 1 FROM global_role_strips WHERE discord_id=? AND restoring=FALSE",
+    [member.id],
+  );
+  if (!stripped || await activeGlobal(member.id, "blacklist")) return false;
+  const ordinary = member.roles.cache.some((role) => role.id !== member.guild.id && !role.managed);
+  if (ordinary) {
+    if (!member.manageable)
+      throw new Error(`Role-strip enforcement cannot manage ${member.user.tag} in ${member.guild.name}.`);
+    const managed = member.roles.cache.filter((role) => role.managed).map((role) => role.id);
+    await member.roles.set(managed, "Florida Bay global role-strip enforcement");
+  }
+  return true;
+}
+
+/** Re-enforces durable role strips that remained active while the bot was offline. */
+async function enforceActiveRoleStrips() {
+  const rows = await db.query("SELECT discord_id FROM global_role_strips WHERE restoring=FALSE");
+  if (!rows.length) return 0;
+  let enforced = 0;
+  for (const network of await networkRows()) {
+    const guild = client.guilds.cache.get(String(network.guild_id));
+    if (!guild) continue;
+    for (const row of rows) {
+      const member = await guild.members.fetch(String(row.discord_id)).catch(() => null);
+      if (member && await enforceRoleStripRoles(member)) enforced++;
+    }
+  }
+  return enforced;
 }
 
 /** Saves each live membership before /global blacklist removes any roles or bans the member. */
@@ -3543,8 +2946,197 @@ async function globalNickname(i) {
   });
 }
 
+/** Community Director+ reversible, network-wide ACE and Discord role quarantine. */
+async function globalRoleStripCommand(i, sub) {
+  const restoring = sub === "unrolestrip";
+  await requireMinimumStaffRank(
+    i,
+    "Community Director",
+    restoring ? "restore a global role strip" : "globally role-strip a member",
+  );
+  const user = i.options.getUser("user", true);
+  if (user.bot) throw new Error("Bots cannot be globally role-stripped.");
+  const reason = clean(i.options.getString("reason") || (restoring ? "Global role strip lifted" : "No reason provided."), 300);
+  const saved = await db.one("SELECT * FROM global_role_strips WHERE discord_id=?", [user.id]);
+
+  if (!restoring) {
+    if (saved) throw new Error("That member already has an active global role strip. Use /global unrolestrip to restore it.");
+    if (await activeGlobal(user.id, "blacklist"))
+      throw new Error("That member is globally blacklisted. Lift the blacklist before using a role strip.");
+    const { target } = await requireOutranks(i, user.id, "role-strip");
+    const memberships = await db.query(
+      "SELECT group_name,origin,added_by,added_at FROM ace_memberships WHERE discord_id=? ORDER BY group_name,origin",
+      [user.id],
+    );
+    const snapshots = [];
+    const live = [];
+    for (const network of await networkRows()) {
+      const guild = client.guilds.cache.get(String(network.guild_id));
+      if (!guild)
+        throw new Error(`The bot cannot access ${clean(network.name, 80)}. Nothing was changed; every registered server must be reachable.`);
+      const member = await guild.members.fetch(user.id).catch(() => null);
+      const roles = member ? [...member.roles.cache.keys()] : [];
+      const removable = member
+        ? member.roles.cache.filter((role) => role.id !== guild.id && !role.managed).size
+        : 0;
+      snapshots.push({ guild_id: guild.id, name: guild.name, roles, removable });
+      if (!member) continue;
+      if (!member.manageable)
+        throw new Error(`${clean(guild.name, 80)} places that member at or above the bot. Nothing was changed.`);
+      live.push({ member, roles });
+    }
+
+    await db.query(
+      `INSERT INTO global_role_strips
+       (discord_id,ace_memberships,guild_roles,target_level,reason,stripped_by,stripped_at,restoring)
+       VALUES(?,?,?,?,?,?,?,FALSE)`,
+      [user.id, JSON.stringify(memberships), JSON.stringify(snapshots), target, reason, i.user.id, Date.now()],
+    );
+    invalidateRoleStripCache();
+
+    try {
+      for (const { member } of live) {
+        const managed = member.roles.cache.filter((role) => role.managed).map((role) => role.id);
+        await member.roles.set(managed, `/global rolestrip by ${i.user.tag}: ${reason}`.slice(0, 500));
+      }
+      await db.transaction((query) => replaceAceMemberships(query, user.id, []));
+      await syncUserAcrossNetwork(client, user.id);
+    } catch (error) {
+      // Keep the saved row until every rollback step succeeds. If Discord rejects
+      // any restoration, return to the fully quarantined state so a retry of
+      // /global unrolestrip remains deterministic and no permissions leak back.
+      const failures = [];
+      await db.transaction(async (query) => {
+        await query("UPDATE global_role_strips SET restoring=TRUE WHERE discord_id=?", [user.id]);
+        await replaceAceMemberships(query, user.id, memberships);
+      }).catch((rollbackError) => failures.push(`ACE: ${rollbackError.message}`));
+      invalidateRoleStripCache();
+      for (const snapshot of snapshots) {
+        const member = live.find((entry) => entry.member.guild.id === String(snapshot.guild_id))?.member;
+        if (!member) continue;
+        await setMemberRoleSnapshot(member, snapshot.roles, "Florida Bay role-strip rollback")
+          .catch((rollbackError) => failures.push(`${member.guild.name}: ${rollbackError.message}`));
+      }
+      if (!failures.length) {
+        await db.query("DELETE FROM global_role_strips WHERE discord_id=?", [user.id]);
+        invalidateRoleStripCache();
+        await syncUserAcrossNetwork(client, user.id).catch(() => {});
+      } else {
+        await db.query("UPDATE global_role_strips SET restoring=FALSE WHERE discord_id=?", [user.id]).catch(() => {});
+        invalidateRoleStripCache();
+        await enforceActiveRoleStrips().catch(() => {});
+        await refreshGame();
+      }
+      throw new Error(
+        failures.length
+          ? `Role strip failed (${clean(error.message, 120)}). The saved strip remains active for a safe /global unrolestrip retry: ${clean(failures.join("; "), 300)}`
+          : `Role strip failed (${clean(error.message, 160)}). Every change was rolled back.`,
+      );
+    }
+
+    const results = snapshots.map((snapshot) => {
+      const count = Number(snapshot.removable || 0);
+      return count
+        ? `✓ **${clean(snapshot.name, 80)}** · ${count} role${count === 1 ? "" : "s"} saved and removed`
+        : `• **${clean(snapshot.name, 80)}** · not a member / no removable roles`;
+    });
+    await audit(i.user.id, "global.rolestrip", user.id, {
+      reason,
+      targetLevel: target,
+      aceMemberships: memberships.map((row) => ({ group: row.group_name, origin: row.origin })),
+      guilds: snapshots.map((row) => ({ guild: row.guild_id, roles: row.roles.length })),
+    });
+    await log((await mainGuild()) || i.guild, {
+      title: "Global role strip applied",
+      color: COLORS.danger,
+      actor: i.user.id,
+      target: user.id,
+      fields: [["Reason", reason, false], ["ACE groups saved", String(memberships.length)], ["Servers", results.join("\n") || "No registered servers", false]],
+    }, "role_sync");
+    return card("Global role strip applied", {
+      color: COLORS.danger,
+      description: `${mention(user.id)} now has no ordinary Discord roles or active ACE groups across the Florida Bay network. The exact snapshot is saved for **/global unrolestrip**.`,
+      rows: [["ACE memberships saved", String(memberships.length)], ...chunkLines(results, 1000).map((value, index) => [`Servers${index ? ` (${index + 1})` : ""}`, value, false])],
+      footer: "Discord-managed integration roles cannot be removed by bots; they remain inert while the strip is active.",
+    });
+  }
+
+  if (!saved) throw new Error("That member does not have an active global role strip.");
+  if (await activeGlobal(user.id, "blacklist"))
+    throw new Error("That member is globally blacklisted. Lift the blacklist before restoring their roles.");
+  await requireOutranks(i, user.id, "restore roles for");
+  const memberships = storedJsonArray(saved.ace_memberships);
+  const snapshots = storedJsonArray(saved.guild_roles);
+  const live = new Map();
+  for (const snapshot of snapshots) {
+    const guild = client.guilds.cache.get(String(snapshot.guild_id));
+    if (!guild)
+      throw new Error(`The bot cannot access ${clean(snapshot.name, 80)}. Nothing was changed; every saved server must be reachable.`);
+    const member = await guild.members.fetch(user.id).catch(() => null);
+    if (member && !member.manageable)
+      throw new Error(`${clean(guild.name, 80)} places that member at or above the bot. Nothing was changed.`);
+    live.set(String(snapshot.guild_id), member);
+  }
+
+  await db.transaction(async (query) => {
+    await query("UPDATE global_role_strips SET restoring=TRUE WHERE discord_id=?", [user.id]);
+    await replaceAceMemberships(query, user.id, memberships);
+  });
+  invalidateRoleStripCache();
+  const expiry = Date.now() + 365 * 86400000;
+  const results = [];
+  try {
+    for (const snapshot of snapshots) {
+      const guildId = String(snapshot.guild_id);
+      const member = live.get(guildId);
+      const roleIds = storedRoleIds(snapshot.roles);
+      if (!member) {
+        await db.query(
+          `INSERT INTO discord_pending_role_restores(guild_id,discord_id,roles,requested_by,requested_at,expires_at)
+           VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE roles=VALUES(roles),requested_by=VALUES(requested_by),requested_at=VALUES(requested_at),expires_at=VALUES(expires_at)`,
+          [guildId, user.id, JSON.stringify(roleIds), i.user.id, Date.now(), expiry],
+        );
+        results.push(`• **${clean(snapshot.name, 80)}** · roles queued for their next join`);
+        continue;
+      }
+      const applied = await setMemberRoleSnapshot(member, roleIds, `/global unrolestrip by ${i.user.tag}: ${reason}`);
+      await db.query("DELETE FROM discord_pending_role_restores WHERE guild_id=? AND discord_id=?", [guildId, user.id]);
+      results.push(`✓ **${clean(member.guild.name, 80)}** · ${applied.restored} restored${applied.skipped ? `, ${applied.skipped} unavailable` : ""}`);
+    }
+  } catch (error) {
+    await db.query("UPDATE global_role_strips SET restoring=FALSE WHERE discord_id=?", [user.id]).catch(() => {});
+    invalidateRoleStripCache();
+    await enforceActiveRoleStrips().catch(() => {});
+    await refreshGame();
+    throw new Error(`Restoration stopped safely (${clean(error.message, 180)}). The saved role strip remains active; fix the Discord hierarchy issue and run /global unrolestrip again.`);
+  }
+
+  await db.query("DELETE FROM global_role_strips WHERE discord_id=?", [user.id]);
+  invalidateRoleStripCache();
+  const syncedServers = await syncUserAcrossNetwork(client, user.id);
+  await audit(i.user.id, "global.unrolestrip", user.id, {
+    reason,
+    aceMemberships: memberships.map((row) => ({ group: row.group_name, origin: row.origin })),
+    syncedServers,
+    results,
+  });
+  await log((await mainGuild()) || i.guild, {
+    title: "Global role strip restored",
+    color: COLORS.success,
+    actor: i.user.id,
+    target: user.id,
+    fields: [["Reason", reason, false], ["ACE memberships restored", String(memberships.length)], ["Servers", results.join("\n") || "No saved servers", false]],
+  }, "role_sync");
+  return card("Global role strip restored", {
+    color: COLORS.success,
+    description: `${mention(user.id)} received their saved ACE memberships and Discord roles across the Florida Bay network.`,
+    rows: [["ACE memberships restored", String(memberships.length)], ...chunkLines(results, 1000).map((value, index) => [`Servers${index ? ` (${index + 1})` : ""}`, value, false])],
+  });
+}
+
 async function globalCommand(i, sub) {
   if (sub === "nick") return globalNickname(i);
+  if (sub === "rolestrip" || sub === "unrolestrip") return globalRoleStripCommand(i, sub);
   await requirePermission(i, GLOBAL_ACE[sub]);
   const reason = i.options.getString("reason");
   if (sub === "game-unban") {
@@ -3919,8 +3511,8 @@ async function quarantineUnverifiedMember(member, reason = "Florida Bay verifica
 }
 
 /** Called by the website after a successful Discord sign-in. */
-async function recordPortalVerification({ discordId, address, connections, guilds, method }) {
-  const stored = await storeVerification(db, { discordId, address, connections, guilds, method });
+async function recordPortalVerification({ discordId, address, connections, guilds, method, oauth }) {
+  const stored = await storeVerification(db, { discordId, address, connections, guilds, method, oauth });
   const role = await grantVerifiedRole(client, discordId);
   await audit(discordId, "verify.complete", discordId, { method, role });
   await log((await mainGuild()) || client.guilds.cache.first(), {
@@ -3932,9 +3524,10 @@ async function recordPortalVerification({ discordId, address, connections, guild
       ["Verified role", humanize(role)],
       ["Identity links recorded", String(stored.links)],
       ["Discord servers recorded", stored.servers === null ? "Unavailable" : String(stored.servers)],
+      ["Direct server joins", stored.authorized ? "Authorized" : "Not authorized"],
     ],
   }, "verification");
-  return { role };
+  return { role, authorized: stored.authorized };
 }
 
 /** Everyone already holding the verified role when verification started counts as verified. */
@@ -4074,7 +3667,7 @@ const COMMAND_PERMISSIONS = {
   invite: "Bot owner only (Discord ID 1090083387638812755)",
   join: "`fbrp.network.join`; `user:` needs `fbrp.network.join.others`",
   acelist: "`fbrp.perms.manage`",
-  global: "`fbrp.global.<action>` (warn, timeout, kick, ban, blacklist, unban, invite, restore, lookup); moderated/restored targets must rank below you",
+  global: "`fbrp.global.<action>` (warn, timeout, kick, ban, blacklist, unban, invite, restore, lookup); `/global rolestrip` and `/global unrolestrip` require Community Director+; moderated/restored targets must rank below you",
   blacklist: "`fbrp.global.blacklist`; target must rank below you",
   blacklistedserver: "Co-Owner rank or higher",
   ticket: "Everyone; staff actions require `fbrp.tickets.support`",
@@ -4296,7 +3889,6 @@ let webPanelServer = null;
 /** ACE group autocomplete for /ace unbind-role and /roster rank-upsert ace_group. */
 async function aceGroupAutocomplete(i) {
   const focused = i.options.getFocused(true);
-  if (i.commandName === "staff" && focused.name === "rank") return staffRankAutocomplete(i);
   const deletingGroup = i.commandName === "ace"
     && i.options.getSubcommand(false) === "group-delete"
     && focused.name === "name";
@@ -4339,12 +3931,12 @@ function communityJoinPanelPayload(channel) {
   const panel = new EmbedBuilder()
     .setColor(COLORS.primary)
     .setTitle("Join a Community Server")
-    .setDescription("Explore more of the Florida Bay community. Select a server below and I’ll send you a temporary invite by DM.")
+    .setDescription("Explore more of the Florida Bay community. Select a server below and I’ll add your authorized Discord account directly.")
     .addFields({
       name: "Available servers",
       value: COMMUNITY_JOIN_SERVERS.map((server) => `${server.emoji} **${server.label}**\n${server.description}`).join("\n\n"),
     })
-    .setFooter({ text: "Florida Bay Network · Invites are single-use and expire after 10 minutes" });
+    .setFooter({ text: "Florida Bay Network · Verify and authorize once, then join directly" });
   if (channel.guild?.iconURL?.()) panel.setThumbnail(channel.guild.iconURL({ size: 256 }));
   return {
     embeds: [panel],
@@ -4388,6 +3980,44 @@ async function ensureCommunityJoinPanel() {
   return message;
 }
 
+function joinAuthorizationPayload(user, description = "") {
+  return {
+    embeds: [embed(
+      "Authorize direct server joins",
+      `${description || `${mention(user.id)} must verify and authorize the Florida Bay bot before it can add that account to a server.`}\n\nUse the button below, approve the Discord authorization, then run the join again.`,
+      COLORS.warning,
+    )],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setLabel("Verify and authorize").setStyle(ButtonStyle.Link).setURL(verifyPageUrl()),
+      ),
+    ],
+  };
+}
+
+/** Adds a verified user through their encrypted, short-lived Discord guilds.join grant. */
+async function addAuthorizedGuildMember(guild, user, knownToken = undefined) {
+  if (!(await isVerified(db, user.id))) return { state: "authorization_required" };
+  const accessToken = knownToken === undefined ? await oauthJoinToken(db, user.id) : knownToken;
+  if (!accessToken) return { state: "authorization_required" };
+  if (await guild.bans.fetch(user.id).catch(() => null)) return { state: "banned" };
+  try {
+    const member = await guild.members.add(user.id, { accessToken, force: true });
+    if (!member) throw new Error("Discord did not return the new server member.");
+    await grantVerifiedRole(client, user.id).catch(() => {});
+    await syncMember(client, member).catch(() => {});
+    return { state: "joined", member };
+  } catch (error) {
+    const code = Number(error?.code || 0);
+    if (Number(error?.status) === 401 || [40001, 50025, 50026].includes(code)) {
+      await clearOAuthAuthorization(db, user.id).catch(() => {});
+      return { state: "authorization_required" };
+    }
+    if (code === 40007) return { state: "banned" };
+    throw error;
+  }
+}
+
 async function communityJoinComponent(i) {
   await i.deferReply({ ephemeral: true });
   const spec = COMMUNITY_JOIN_SERVERS.find((server) => server.id === i.values[0]);
@@ -4395,74 +4025,19 @@ async function communityJoinComponent(i) {
   try {
     const guild = client.guilds.cache.get(spec.id) || await client.guilds.fetch(spec.id).catch(() => null);
     if (!guild) throw new Error("That community server is temporarily unavailable.");
-    const result = await createMemberInvite(guild, i.user, `Community join panel selection by ${i.user.tag}`, 600);
-    if (result.state === "member")
+    if (await guild.members.fetch(i.user.id).catch(() => null))
       return i.editReply({ embeds: [embed("Already a member", `You are already in **${clean(guild.name)}**.`, COLORS.primary)] });
+    const result = await addAuthorizedGuildMember(guild, i.user);
+    if (result.state === "authorization_required")
+      return i.editReply(joinAuthorizationPayload(i.user));
     if (result.state === "banned")
       return i.editReply({ embeds: [embed("Unable to join", `You cannot join **${clean(guild.name)}** while banned from that server.`, COLORS.danger)] });
-    if (result.state !== "invited")
-      throw new Error(`I could not create an invite for **${clean(guild.name)}**${result.detail ? `: ${clean(result.detail)}` : "."}`);
-    const sent = await i.user.send({
-      embeds: [
-        embed(
-          `Your invite to ${clean(guild.name, 200)}`,
-          `[Join **${clean(guild.name)}**](${result.invite.url})\n\nThis invite works once and expires in **10 minutes**. If it expires, return to the server panel and choose the server again.`,
-          COLORS.success,
-        ),
-      ],
-    }).then(() => true, () => false);
-    if (!sent) {
-      await result.invite.delete("Recipient could not receive community join DM").catch(() => {});
-      await audit(i.user.id, "network.join.panel", guild.id, { delivered: false });
-      return i.editReply({ embeds: [embed("Could not send your invite", "Please enable direct messages from server members, then select the server again.", COLORS.warning)] });
-    }
-    await audit(i.user.id, "network.join.panel", guild.id, { delivered: true });
-    return i.editReply({ embeds: [embed("Invite sent", `Check your DMs for a single-use invite to **${clean(guild.name)}**. It expires in 10 minutes.`, COLORS.success)] });
+    await audit(i.user.id, "network.join.panel", guild.id, { mode: "oauth_direct" });
+    return i.editReply({ embeds: [embed("Server joined", `You were added directly to **${clean(guild.name)}**. It should now appear in your Discord server list.`, COLORS.success)] });
   } catch (error) {
     console.error("[FBRP bot] community join panel:", error);
-    return i.editReply({ embeds: [embed("Could not create invite", clean(error.message || error, 1000), COLORS.danger)] });
+    return i.editReply({ embeds: [embed("Could not join server", clean(error.message || error, 1000), COLORS.danger)] });
   }
-}
-
-/** Sends every /staff add recipient their assignment and, when needed, a one-use staff invite. */
-async function sendStaffWelcome(user, rank, callsign) {
-  const row = await db.one("SELECT guild_id FROM network_guilds WHERE kind='staff' ORDER BY added_at LIMIT 1");
-  const guild = row ? client.guilds.cache.get(String(row.guild_id)) : null;
-  let invite = null;
-  let alreadyThere = false;
-  if (guild) {
-    alreadyThere = Boolean(await guild.members.fetch(user.id).catch(() => null));
-    if (!alreadyThere) {
-      const me = guild.members.me;
-      const channel = guild.channels.cache
-        .filter((item) => item?.isTextBased?.() && !item.isThread?.() && item.permissionsFor(me)?.has(PermissionFlagsBits.CreateInstantInvite))
-        .sort((a, b) => a.rawPosition - b.rawPosition)
-        .first();
-      if (channel)
-        invite = await channel
-          .createInvite({ maxAge: 7 * 86400, maxUses: 1, unique: true, reason: `/staff add welcome for ${user.tag}` })
-          .catch(() => null);
-    }
-  }
-  const portal = publicBase();
-  const details = [
-    `Welcome to the **Florida Bay Roleplay staff team**. Your staff access is ready.`,
-    "",
-    `**Rank:** ${clean(rank.name, 80)}`,
-    `**Callsign:** ${callsign}`,
-    `**In-game access:** ${rank.group_staff_only ? "Clock in with `/clockin` before using staff permissions." : "Active immediately."}`,
-    ...(invite ? ["", `**Staff server:** ${invite.url}`, "This invite works once and also expires after seven days."] : []),
-    ...(alreadyThere ? ["", `You are already in **${clean(guild.name, 100)}**, so no new invite was needed.`] : []),
-    ...(!guild ? ["", "The staff Discord is not configured yet. Ask management for access."] : !alreadyThere && !invite ? ["", "I could not create a staff-server invite. Ask management for access."] : []),
-    ...(portal ? ["", `**Staff portal:** ${portal}/portal.html#profile`] : []),
-  ];
-  const sent = await user
-    .send({ embeds: [embed("Your Florida Bay staff access", details.join("\n"), COLORS.success)] })
-    .then(() => true, () => false);
-  // A single-use invite that never reached its recipient should not be left active.
-  if (!sent && invite) await invite.delete("Staff welcome DM could not be delivered").catch(() => {});
-  await audit(client.user.id, "staff.welcome_dm", user.id, { sent, invited: sent && Boolean(invite), staffGuild: guild?.id || null });
-  return { sent, invited: sent && Boolean(invite) };
 }
 
 // Only this Discord account may get the bot's Administrator invite link.
@@ -4481,44 +4056,36 @@ async function inviteCommand(i) {
 async function joinCommand(i) {
   const target = i.options.getUser("user") ?? i.user;
   const self = target.id === i.user.id;
-  await requirePermission(i, self ? "fbrp.network.join" : "fbrp.network.join.others");
-  if (target.bot) throw new Error("Bots cannot be invited with /join.");
+  if (target.bot) throw new Error("Bots cannot be joined to servers with /join.");
   const id = i.options.getString("server", true);
   const network = await db.one("SELECT guild_id,kind FROM network_guilds WHERE guild_id=?", [id]);
   const guild = client.guilds.cache.get(id);
   if (!network || !guild || SECRET_GUILD_IDS.has(id)) throw new Error("Pick a network server from the list.");
   if (await guild.members.fetch(target.id).catch(() => null))
     return embed("Already a member", `${self ? "You are" : `${mention(target.id)} is`} already in **${clean(guild.name)}**.`);
-  const channel = inviteChannel(guild);
-  if (!channel)
-    throw new Error(`The bot cannot create an invite in **${clean(guild.name)}**. Give it Create Invite in a channel everyone can see.`);
-  const invite = await channel.createInvite({
-    maxAge: 600,
-    maxUses: 1,
-    unique: true,
-    reason: `/join by ${i.user.tag} for ${target.tag}`,
-  });
-  await audit(i.user.id, "network.join", guild.id, { target: target.id, invite: invite.code });
-  const note = "Single use · expires in 10 minutes. Any global roles you hold are applied automatically when you join.";
-  if (!self) {
-    const sent = await target
-      .send({ embeds: [embed(`Invite to ${clean(guild.name, 200)}`, `${mention(i.user.id)} invited you to **${clean(guild.name)}**.
-${invite.url}
-
-${note}`)] })
-      .then(() => true, () => false);
-    return embed(
-      sent ? "Invite sent" : "Could not DM them",
-      sent
-        ? `${mention(target.id)} was sent a single-use invite to **${clean(guild.name)}** by DM.`
-        : `${mention(target.id)} has DMs closed. Give them this single-use invite yourself:
-${invite.url}`,
-      sent ? COLORS.success : COLORS.warning,
-    );
+  const joinToken = (await isVerified(db, target.id)) ? await oauthJoinToken(db, target.id) : null;
+  // Someone joining themselves must be shown the authorization path before an
+  // ACE denial, because verification is how an ordinary member gets join access.
+  if (self && !joinToken) return joinAuthorizationPayload(target);
+  await requirePermission(i, self ? "fbrp.network.join" : "fbrp.network.join.others");
+  if (!joinToken) {
+    const prompt = joinAuthorizationPayload(target, `${mention(target.id)} has not authorized direct Florida Bay server joins yet.`);
+    const sent = await target.send(prompt).then(() => true, () => false);
+    prompt.embeds[0].setFooter({ text: sent ? "The authorization link was also sent to them by DM." : "They have DMs closed; send them this verification link." });
+    return prompt;
   }
-  return embed(`Join ${clean(guild.name, 200)}`, `${invite.url}
-
-${note}`, COLORS.success);
+  const result = await addAuthorizedGuildMember(guild, target, joinToken);
+  if (result.state === "authorization_required") return joinAuthorizationPayload(target);
+  if (result.state === "banned")
+    return embed("Unable to join", `${mention(target.id)} cannot join **${clean(guild.name)}** while banned from that server.`, COLORS.danger);
+  await audit(i.user.id, "network.join", guild.id, { target: target.id, mode: "oauth_direct" });
+  if (!self)
+    await target.send({ embeds: [embed("Added to a Florida Bay server", `${mention(i.user.id)} added you directly to **${clean(guild.name)}** with your authorized account.`, COLORS.success)] }).catch(() => {});
+  return embed(
+    "Server joined",
+    `${self ? "You were" : `${mention(target.id)} was`} added directly to **${clean(guild.name)}**. Global roles will sync automatically.`,
+    COLORS.success,
+  );
 }
 
 async function joinAutocomplete(i) {
@@ -4541,8 +4108,6 @@ const autocompleters = {
   headtag: headtagAutocomplete,
   ace: aceGroupAutocomplete,
   vmenu: aceGroupAutocomplete,
-  roster: aceGroupAutocomplete,
-  staff: aceGroupAutocomplete,
   globalsync: globalSyncAutocomplete,
   security: (i) => i.respond(i.options.getFocused(true).name === "setting" ? settingChoices(i.options.getFocused()) : []),
   ticket: ticketSystem.autocomplete,
@@ -4669,14 +4234,16 @@ async function verificationCommand(i, sub) {
   if (sub === "status") {
     const user = i.options.getUser("user");
     if (user) {
-      const [row, links] = await Promise.all([
+      const [row, links, oauth] = await Promise.all([
         db.one("SELECT * FROM member_verifications WHERE discord_id=?", [user.id]),
         db.query("SELECT kind,COUNT(*) n FROM identity_links WHERE discord_id=? GROUP BY kind", [user.id]),
+        db.one("SELECT scopes,expires_at FROM discord_oauth_grants WHERE discord_id=?", [user.id]),
       ]);
       return card(`Verification · ${clean(user.username, 60)}`, {
         color: row ? COLORS.success : COLORS.warning,
         rows: [
           ["Status", row ? `✓ verified ${when(Number(row.verified_at))} (${row.method})` : "✗ not verified"],
+          ["Direct joins", oauth && Number(oauth.expires_at) > Date.now() ? `✓ authorized · expires ${when(Number(oauth.expires_at))}` : "✗ authorization required"],
           ["Recorded links", links.map((link) => `${link.kind} ×${link.n}`).join(", ") || "None"],
         ],
       });
@@ -4715,6 +4282,7 @@ async function verificationCommand(i, sub) {
     return card("Verification granted", { color: COLORS.success, description: `${mention(user.id)} is verified (role: ${role}).` });
   }
   await db.query("DELETE FROM member_verifications WHERE discord_id=?", [user.id]);
+  await clearOAuthAuthorization(db, user.id).catch(() => {});
   const networkGuildIds = new Set((await networkRows()).map((row) => String(row.guild_id)));
   for (const guild of client.guilds.cache.values()) {
     if (!networkGuildIds.has(guild.id)) continue;
@@ -4905,8 +4473,6 @@ const handlers = {
   globalsync: globalSyncCommand,
   mod: moderationCommand,
   server: serverCommand,
-  staff: staffCommand,
-  callsign: callsignCommand,
   role: roleMembership.command,
   protectrole: protectRoleCommand,
   botguard: botguardCommand,
@@ -4914,7 +4480,6 @@ const handlers = {
   ticket: ticketSystem.command,
   support: ticketSystem.supportCommand,
   vmenu: vmenuCommand,
-  roster: rosterCommand,
   global: globalCommand,
   blacklist: (i) => globalCommand(i, "blacklist"),
   blacklistedserver: blacklistedServerCommand,
@@ -4923,7 +4488,6 @@ const handlers = {
   case: caseLookupCommand,
   office: officeCommand,
   orgbank: orgbankCommand,
-  exam: examCommand,
   coc: chainOfCommand.command,
 };
 
@@ -5066,6 +4630,16 @@ client.once("clientReady", async () => {
     );
   else
     console.error(`[FBRP verify] waiting-room channel ${VERIFICATION_CHANNEL_ID} was not found.`);
+  const interruptedRoleStrips = await db.query(
+    "UPDATE global_role_strips SET restoring=FALSE WHERE restoring=TRUE",
+  ).catch(() => ({ affectedRows: 0 }));
+  if (Number(interruptedRoleStrips.affectedRows)) {
+    invalidateRoleStripCache();
+    console.warn(`[FBRP global] Re-quarantining ${interruptedRoleStrips.affectedRows} interrupted role-strip restoration(s).`);
+  }
+  await enforceActiveRoleStrips()
+    .then((count) => count && console.log(`[FBRP global] startup role-strip enforcement: ${count} membership(s) checked.`))
+    .catch((error) => console.error("[FBRP global] startup role-strip enforcement:", error));
   // Report gated roles that were granted while the bot was offline, then do the full reconcile.
   await serial(() => sweep(client, "sweep", { fetch: true }))
     .then((r) => (r.added || r.removed) && console.log(`[FBRP global sync] startup role sweep: +${r.added} / -${r.removed}`))
@@ -5109,17 +4683,14 @@ client.once("clientReady", async () => {
   setInterval(() => void enforceAllChannelAccess(client).catch((error) => console.error("[FBRP bot] global channel access:", error)), 600000).unref();
   // Catches gated roles granted while the bot was offline or disconnected.
   setInterval(() => void serial(() => sweep(client, "sweep")).catch((error) => console.error("[FBRP bot] role sweep:", error)), 600000).unref();
-  await syncStaffTeamRoles().catch((error) => console.error("[FBRP staff] Staff Team roles:", error));
-  await reconcileAllRosterJobs().catch((error) => console.error("[FBRP staff] roster jobs:", error));
-  setInterval(() => void reconcileAllRosterJobs().catch((error) => console.error("[FBRP staff] roster jobs:", error)), 600000).unref();
   setInterval(() => void reconcileAllManagementMemberships(client.user.id)
     .then(async ({ changed }) => {
       for (const id of changed) await syncUserAcrossNetwork(client, id);
-      await syncStaffTeamRoles();
     })
     .catch((error) => console.error("[FBRP staff] Staff state sync:", error)), 600000).unref();
   client.user.setActivity("Florida Bay Roleplay");
   giveaways.start();
+  staffQueue.start();
 });
 
 /** Subcommands that only read data; everything else is written to the staff audit channel. */
@@ -5191,7 +4762,6 @@ client.on("interactionCreate", async (i) => {
       i,
       i.options.getSubcommand(false),
     );
-    if (["staff", "roster"].includes(i.commandName)) void chainOfCommand.scheduleRosterRefresh().catch(() => {});
     // The board refresh can sit behind Discord rate limits, so the reply never waits on it.
     if (["protectrole", "network"].includes(i.commandName))
       void ensureProtectedRoleBoard().catch(() => {});
@@ -5261,10 +4831,9 @@ client.on("guildMemberAdd", (member) => {
   void guardBot(member, securityLog)
     .then(async () => {
       // Security join alerts must run before verification/global enforcement can remove the member.
-      if (member.user.bot || await guardJoin(member, securityLog) || await enforceGlobalOnJoin(member) || await enforceVerificationOnJoin(member)) return;
+      if (member.user.bot || await guardJoin(member, securityLog) || await enforceGlobalOnJoin(member) || await enforceRoleStripRoles(member) || await enforceVerificationOnJoin(member)) return;
       await applyPendingRoleRestore(member);
       await syncMember(client, member);
-      if (await activeStaff(member.id)) await setStaffTeamRole(member.id, true);
     })
     .catch((error) => console.error("[FBRP bot] member add:", error));
 });
@@ -5296,12 +4865,12 @@ client.on("guildMemberUpdate", (oldMember, newMember) => {
   chainOfCommand.scheduleRefresh(newMember.guild.id);
   void enforceProtectedRoles(oldMember, newMember, securityLog)
     .then(() => enforceBlacklistRoles(newMember))
-    .then(() => enforceUnverifiedMemberRoles(newMember))
+    .then(() => enforceRoleStripRoles(newMember))
+    .then((roleStripped) => roleStripped || enforceUnverifiedMemberRoles(newMember))
     .then((quarantined) => quarantined || syncMember(client, newMember, { alert: "live" }))
     // A /coord hire or removal changes a sector coordination group, so push it to the other servers now.
     .then(async () => {
       if (await touchesCoordinationSource(oldMember, newMember)) await syncUserAcrossNetwork(client, newMember.id);
-      await reconcileRosterJobs(newMember);
     })
     .catch((error) => console.error("[FBRP bot] member update:", error));
 });

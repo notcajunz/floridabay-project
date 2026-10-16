@@ -1,0 +1,200 @@
+diff --git a/server-data/resources/[fbrp]/fbrp_core/client/tags.lua b/server-data/resources/[fbrp]/fbrp_core/client/tags.lua
+index 8801bf2..3d622da 100644
+--- a/server-data/resources/[fbrp]/fbrp_core/client/tags.lua
++++ b/server-data/resources/[fbrp]/fbrp_core/client/tags.lua
+@@ -45,10 +45,13 @@ local function rawText(text, x, y, font, scale, r, g, b, a, outline)
+ end
+ 
+ -- Dark colors disappear behind GTA's black outline, so they get a light halo
+--- instead (the same treatment the bigger RP communities use).
++-- instead (the same treatment the bigger RP communities use). A tag with its
++-- outline switched off is drawn as plain colored text with neither.
+ local halo = { {-1,0},{1,0},{0,-1},{0,1},{-1,-1},{1,1},{-1,1},{1,-1} }
+-local function drawText(text, x, y, font, scale, r, g, b, a, px, py)
+-    if isDark(r,g,b) then
++local function drawText(text, x, y, font, scale, r, g, b, a, px, py, outline)
++    if outline == false then
++        rawText(text, x, y, font, scale, r, g, b, a, false)
++    elseif isDark(r,g,b) then
+         local ha = math.floor(a*0.9)
+         for _,o in ipairs(halo) do
+             rawText(text, x + o[1]*px*1.4, y + o[2]*py*1.4, font, scale, 236, 240, 242, ha, false)
+@@ -129,8 +132,8 @@ CreateThread(function()
+                             serverId = serverId,
+                             ped = ped,
+                             id = ('[%d]'):format(serverId),
+-                            head = head and clean(head.label) and { label=clean(head.label), color={hexColor(head.color)} } or nil,
+-                            gang = gang and clean(gang.label) and { label=clean(gang.label), color={hexColor(gang.color)} } or nil,
++                            head = head and clean(head.label) and { label=clean(head.label), color={hexColor(head.color)}, outline=head.outline ~= false } or nil,
++                            gang = gang and clean(gang.label) and { label=clean(gang.label), color={hexColor(gang.color)}, outline=gang.outline ~= false } or nil,
+                             distance = distance
+                         }
+                     end
+@@ -167,7 +170,7 @@ CreateThread(function()
+                             local h = GetRenderedCharacterHeight(s, SUB_FONT)
+                             y = y - h * 1.05
+                             local r,g,b = table.unpack(row.gang.color)
+-                            drawText(row.gang.label, x - textWidth(row.gang.label, SUB_FONT, s)/2, y, SUB_FONT, s, r, g, b, a, px, py)
++                            drawText(row.gang.label, x - textWidth(row.gang.label, SUB_FONT, s)/2, y, SUB_FONT, s, r, g, b, a, px, py, row.gang.outline)
+                         end
+ 
+                         -- Top line: big headtag followed by the server ID.
+@@ -183,8 +186,8 @@ CreateThread(function()
+                             local wId = textWidth(idText, HEAD_FONT, s)
+                             local left = x - (wLabel + wId) / 2
+                             local r,g,b = table.unpack(row.head.color)
+-                            drawText(row.head.label, left, y, HEAD_FONT, s, r, g, b, a, px, py)
+-                            rawText(idText, left + wLabel, y, HEAD_FONT, s, ir, ig, ib, a, true)
++                            drawText(row.head.label, left, y, HEAD_FONT, s, r, g, b, a, px, py, row.head.outline)
++                            rawText(idText, left + wLabel, y, HEAD_FONT, s, ir, ig, ib, a, row.head.outline)
+                         else
+                             local s = ID_SCALE * k
+                             local h = GetRenderedCharacterHeight(s, HEAD_FONT)
+diff --git a/server-data/resources/[fbrp]/fbrp_core/server/database.lua b/server-data/resources/[fbrp]/fbrp_core/server/database.lua
+index 12ab42e..2d991f7 100644
+--- a/server-data/resources/[fbrp]/fbrp_core/server/database.lua
++++ b/server-data/resources/[fbrp]/fbrp_core/server/database.lua
+@@ -39,7 +39,8 @@ local migrationFiles = {
+     'migrations/052_custom_weapons_role.sql',
+     'migrations/053_personal_access_limits.sql',
+     'migrations/054_personal_lock.sql',
+-    'migrations/055_radio_decimal_frequencies.sql'
++    'migrations/055_radio_decimal_frequencies.sql',
++    'migrations/062_tag_outline.sql'
+ }
+ 
+ local function splitSql(contents)
+diff --git a/server-data/resources/[fbrp]/fbrp_core/server/main.lua b/server-data/resources/[fbrp]/fbrp_core/server/main.lua
+index 87b515a..2b645fe 100644
+--- a/server-data/resources/[fbrp]/fbrp_core/server/main.lua
++++ b/server-data/resources/[fbrp]/fbrp_core/server/main.lua
+@@ -321,15 +321,16 @@ local function tagRow(row)
+     return {
+         id = tonumber(row.id), label = row.label, color = row.color, kind = row.kind,
+         orgId = row.org_id and tonumber(row.org_id) or nil, orgName = row.org_name,
+-        chatTag = row.chat_tag == true or row.chat_tag == 1 or tostring(row.chat_tag) == '1'
++        chatTag = row.chat_tag == true or row.chat_tag == 1 or tostring(row.chat_tag) == '1',
++        outline = not (row.outline == false or row.outline == 0 or tostring(row.outline) == '0')
+     }
+ end
+ 
+ local function loadSelectedTags(s)
+     if not s.discord then return end
+     local selected = MySQL.single.await([[
+-        SELECT hs.id head_id,hs.label head_label,hs.color head_color,hs.kind head_kind,hs.org_id head_org_id,ho.name head_org_name,
+-               gs.id gang_id,gs.label gang_label,gs.color gang_color,gs.kind gang_kind,gs.org_id gang_org_id,go.name gang_org_name,
++        SELECT hs.id head_id,hs.label head_label,hs.color head_color,hs.outline head_outline,hs.kind head_kind,hs.org_id head_org_id,ho.name head_org_name,
++               gs.id gang_id,gs.label gang_label,gs.color gang_color,gs.outline gang_outline,gs.kind gang_kind,gs.org_id gang_org_id,go.name gang_org_name,
+                cs.id chat_id,cs.label chat_label,cs.color chat_color,cs.kind chat_kind,cs.org_id chat_org_id,co.name chat_org_name,cs.chat_tag chat_enabled
+         FROM player_tag_selection p
+         LEFT JOIN headtags hs ON hs.id=p.headtag_id AND hs.enabled=TRUE
+@@ -340,8 +341,8 @@ local function loadSelectedTags(s)
+         LEFT JOIN organizations co ON co.id=cs.org_id
+         WHERE p.discord_id=?
+     ]], { s.discord })
+-    s.headtag = selected and selected.head_id and tagRow({ id=selected.head_id,label=selected.head_label,color=selected.head_color,kind=selected.head_kind,org_id=selected.head_org_id,org_name=selected.head_org_name }) or nil
+-    s.gangtag = selected and selected.gang_id and tagRow({ id=selected.gang_id,label=selected.gang_label,color=selected.gang_color,kind=selected.gang_kind,org_id=selected.gang_org_id,org_name=selected.gang_org_name }) or nil
++    s.headtag = selected and selected.head_id and tagRow({ id=selected.head_id,label=selected.head_label,color=selected.head_color,kind=selected.head_kind,org_id=selected.head_org_id,org_name=selected.head_org_name,outline=selected.head_outline }) or nil
++    s.gangtag = selected and selected.gang_id and tagRow({ id=selected.gang_id,label=selected.gang_label,color=selected.gang_color,kind=selected.gang_kind,org_id=selected.gang_org_id,org_name=selected.gang_org_name,outline=selected.gang_outline }) or nil
+     s.chatTag = selected and selected.chat_id and tagRow({ id=selected.chat_id,label=selected.chat_label,color=selected.chat_color,kind=selected.chat_kind,org_id=selected.chat_org_id,org_name=selected.chat_org_name,chat_tag=selected.chat_enabled }) or nil
+ end
+ 
+@@ -817,7 +818,7 @@ end, false)
+ local function dutyOrganizations(discord, slug)
+     slug = slug or ''
+     return MySQL.query.await([[
+-        SELECT DISTINCT o.*,t.label tag_label,t.color tag_color,t.kind tag_kind
++        SELECT DISTINCT o.*,t.label tag_label,t.color tag_color,t.kind tag_kind,t.outline tag_outline
+         FROM organizations o
+         JOIN headtags t ON t.id=o.tag_id
+         WHERE o.active=TRUE AND (?='' OR o.slug=?)
+@@ -863,7 +864,7 @@ local function clockInOrganization(source, s, requested)
+     })
+     s.org = {
+         id=tonumber(org.id),slug=org.slug,name=org.name,type=org.type,ace_group=org.ace_group,
+-        tag=tagRow({ id=org.tag_id,label=org.tag_label,color=org.tag_color,kind=org.tag_kind,org_id=org.id,org_name=org.name })
++        tag=tagRow({ id=org.tag_id,label=org.tag_label,color=org.tag_color,kind=org.tag_kind,org_id=org.id,org_name=org.name,outline=org.tag_outline })
+     }
+     s.orgShift = { id=id,startedAt=started }
+     reconcilePrincipals(source)
+diff --git a/services/fbrp-bot/src/web-panel.js b/services/fbrp-bot/src/web-panel.js
+index 13a86e3..b2aaf61 100644
+--- a/services/fbrp-bot/src/web-panel.js
++++ b/services/fbrp-bot/src/web-panel.js
+@@ -256,6 +256,7 @@ export const PANEL_RESOURCES = {
+       field("priority", "Priority", "number", { default: 0 }),
+       field("enabled", "Enabled", "boolean", { default: true }),
+       field("chat_tag", "Available as an additional in-game chat tag", "boolean", { default: false }),
++      field("outline", "Outline around the tag text in game", "boolean", { default: true }),
+       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
+     ],
+     // Role-backed grants are materialized in headtag_grants. Refreshing FiveM alone
+diff --git a/services/fbrp-bot/src/commands.js b/services/fbrp-bot/src/commands.js
+--- a/services/fbrp-bot/src/commands.js	2026-10-16 00:58:56.822180610 +0000
++++ b/services/fbrp-bot/src/commands.js	2026-10-16 00:58:56.864604765 +0000
+@@ -202,6 +202,11 @@
+         o
+           .setName("chat_tag")
+           .setDescription("Also let players equip this beside their name in chat"),
++      )
++      .addBooleanOption((o) =>
++        o
++          .setName("outline")
++          .setDescription("Draw an outline around the tag text in game (default: yes)"),
+       ),
+   )
+   .addSubcommand((s) =>
+diff --git a/services/fbrp-bot/src/index.js b/services/fbrp-bot/src/index.js
+--- a/services/fbrp-bot/src/index.js	2026-10-16 00:58:56.832180729 +0000
++++ b/services/fbrp-bot/src/index.js	2026-10-16 00:58:56.869181169 +0000
+@@ -801,6 +801,7 @@
+       color = hexColor(i.options.getString("color", true)),
+       owner = i.options.getUser("owner"),
+       chatTag = i.options.getBoolean("chat_tag") === true,
++      outline = i.options.getBoolean("outline") !== false,
+       orgSlug = clean(i.options.getString("organization") || "", 40).toLowerCase(),
+       organization = orgSlug
+         ? await db.one("SELECT id,name,slug FROM organizations WHERE slug=? AND active=TRUE", [orgSlug])
+@@ -818,7 +819,7 @@
+     }
+     const result = await db.transaction(async (query) => {
+       const inserted = await query(
+-        "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,chat_tag,created_by) VALUES(?,?,?,?,?,?,?,?,?)",
++        "INSERT INTO headtags(kind,label,color,role_id,guild_id,org_id,priority,chat_tag,outline,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
+         [
+           kind,
+           label,
+@@ -828,6 +829,7 @@
+           organization?.id || null,
+           i.options.getInteger("priority") || 0,
+           chatTag,
++          outline,
+           i.user.id,
+         ],
+       );
+@@ -849,6 +851,7 @@
+       roleId: role.id,
+       orgId: organization?.id || null,
+       chatTag,
++      outline,
+       created,
+       ownerId: owner?.id || null,
+     });
+@@ -859,7 +862,7 @@
+       description: organization
+         ? `Players with the role can select it in F6 only while on duty as **${clean(organization.name)}**. It replaces that organization's normal duty tag.`
+         : `Players with the role can select it in F6 in ${kind === "both" ? "both the top headtag and bottom gang-tag slots" : kind === "head" ? "the top headtag slot" : "the bottom gang-tag slot"}.`,
+-      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Owner", owner ? who(owner.id) : "None"], ["Chat tag", chatTag ? "Available" : "No"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
++      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Owner", owner ? who(owner.id) : "None"], ["Chat tag", chatTag ? "Available" : "No"], ["Outline", outline ? "On" : "Off"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
+     });
+   }
+   if (sub === "delete") {
+diff --git a/server-data/resources/[fbrp]/fbrp_core/migrations/062_tag_outline.sql b/server-data/resources/[fbrp]/fbrp_core/migrations/062_tag_outline.sql
+new file mode 100644
+index 0000000..7d4bf1b
+--- /dev/null
++++ b/server-data/resources/[fbrp]/fbrp_core/migrations/062_tag_outline.sql
+@@ -0,0 +1,3 @@
++-- Per-tag switch for the outline drawn around overhead tag text (GTA black outline or the light halo on dark colors).
++ALTER TABLE headtags
++  ADD COLUMN IF NOT EXISTS outline BOOLEAN NOT NULL DEFAULT TRUE AFTER chat_tag;

@@ -42,6 +42,7 @@ client_scripts {
     'client/characters.lua',
     'client/interactions.lua',
     'client/tags.lua',
+    'client/population.lua',
     'client/vmenu_gate.lua',
     'client/vehicles.lua',
     'client/radio.lua',

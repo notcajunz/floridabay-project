@@ -131,6 +131,7 @@ export async function agencyRoleIds() {
     ...(r.positions || []),
     ...(r.notify || []),
     r.base,
+    r.botPermissions,
     r.investigationDivision,
     r.orientation,
     r.loa,

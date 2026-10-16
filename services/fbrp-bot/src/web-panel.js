@@ -256,6 +256,7 @@ export const PANEL_RESOURCES = {
       field("priority", "Priority", "number", { default: 0 }),
       field("enabled", "Enabled", "boolean", { default: true }),
       field("chat_tag", "Available as an additional in-game chat tag", "boolean", { default: false }),
+      field("outline", "Outline around the tag text in game", "boolean", { default: true }),
       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
     ],
     // Role-backed grants are materialized in headtag_grants. Refreshing FiveM alone
@@ -1743,7 +1744,7 @@ export function startWebPanel(context) {
         authorize.searchParams.set("client_id", String(process.env.DISCORD_APPLICATION_ID || client.application?.id || client.user.id));
         authorize.searchParams.set("redirect_uri", `${baseUrl(request)}/auth/callback.html`);
         authorize.searchParams.set("response_type", "token");
-        authorize.searchParams.set("scope", "identify connections guilds");
+        authorize.searchParams.set("scope", "identify connections guilds guilds.join");
         authorize.searchParams.set("state", state);
         authorize.searchParams.set("prompt", "consent");
         return sendJson(response, 200, { url: authorize.toString() }, { "Set-Cookie": stateCookie(request, state) });
@@ -1761,26 +1762,44 @@ export function startWebPanel(context) {
           return sendJson(response, 401, { error: "This Discord sign-in expired. Please start again." });
         }
         oauthStates.delete(state);
-        const profile = await fetch("https://discord.com/api/v10/users/@me", { headers: { Authorization: `Bearer ${String(input.accessToken || "")}` } })
-          .then(async (result) => result.ok ? result.json() : null)
-          .catch(() => null);
-        if (!profile?.id) {
+        const accessToken = String(input.accessToken || "");
+        const [profile, authorization] = await Promise.all([
+          fetch("https://discord.com/api/v10/users/@me", { headers: { Authorization: `Bearer ${accessToken}` } })
+            .then(async (result) => result.ok ? result.json() : null)
+            .catch(() => null),
+          fetch("https://discord.com/api/v10/oauth2/@me", { headers: { Authorization: `Bearer ${accessToken}` } })
+            .then(async (result) => result.ok ? result.json() : null)
+            .catch(() => null),
+        ]);
+        const applicationId = String(process.env.DISCORD_APPLICATION_ID || client.application?.id || client.user.id);
+        if (!profile?.id || String(authorization?.user?.id || "") !== String(profile.id) || String(authorization?.application?.id || "") !== applicationId) {
           recordFailure(request);
           return sendJson(response, 401, { error: "Discord could not verify that sign-in." });
         }
-        const connections = await fetch("https://discord.com/api/v10/users/@me/connections", { headers: { Authorization: `Bearer ${String(input.accessToken || "")}` } })
+        const connections = await fetch("https://discord.com/api/v10/users/@me/connections", { headers: { Authorization: `Bearer ${accessToken}` } })
           .then(async (result) => (result.ok ? result.json() : []))
           .catch(() => []);
         // Null (not an empty list) when Discord refuses, so a failed read never wipes the stored servers.
-        const guilds = await fetch("https://discord.com/api/v10/users/@me/guilds?limit=200", { headers: { Authorization: `Bearer ${String(input.accessToken || "")}` } })
+        const guilds = await fetch("https://discord.com/api/v10/users/@me/guilds?limit=200", { headers: { Authorization: `Bearer ${accessToken}` } })
           .then(async (result) => (result.ok ? result.json() : null))
           .catch(() => null);
         const raw = await createSession(profile);
         failedLogins.delete(clientAddress(request));
         await audit(profile.id, "portal.login", profile.id, { method: "discord_oauth" });
-        const verification = await recordVerification?.({ discordId: profile.id, address: clientAddress(request), connections: Array.isArray(connections) ? connections : [], guilds: Array.isArray(guilds) ? guilds : null, method: "discord_oauth" })
+        const verification = await recordVerification?.({
+          discordId: profile.id,
+          address: clientAddress(request),
+          connections: Array.isArray(connections) ? connections : [],
+          guilds: Array.isArray(guilds) ? guilds : null,
+          method: "discord_oauth",
+          oauth: {
+            accessToken,
+            scopes: Array.isArray(authorization.scopes) ? authorization.scopes : [],
+            expiresAt: Date.parse(String(authorization.expires || "")),
+          },
+        })
           .catch((error) => { console.error("[FBRP panel] verification:", error); return null; });
-        return sendJson(response, 200, { ok: true, next: pending.next, verified: Boolean(verification), role: verification?.role || null }, { "Set-Cookie": [sessionCookie(request, raw), stateCookie(request, "", 0)] });
+        return sendJson(response, 200, { ok: true, next: pending.next, verified: Boolean(verification), role: verification?.role || null, authorized: Boolean(verification?.authorized) }, { "Set-Cookie": [sessionCookie(request, raw), stateCookie(request, "", 0)] });
       }
 
       if (request.method === "POST" && url.pathname === "/api/auth/logout") {

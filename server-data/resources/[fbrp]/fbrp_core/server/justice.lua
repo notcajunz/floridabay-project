@@ -1530,6 +1530,48 @@ RegisterCommand('myvehicles', function(source)
     chat(source, 'REGISTRATION', #parts > 0 and table.concat(parts, ' · ') or 'No vehicles registered. Use /registervehicle while driving.', AQUA)
 end, false)
 
+-- Delete the closest nearby vehicle the current player actually owns. The
+-- server chooses the entity and verifies both registration and personal-vehicle
+-- ownership; no client-supplied network ID is trusted.
+RegisterCommand('dv', function(source)
+    if source <= 0 or not sessions[source] then return end
+    local characterId = characterOf(source)
+    if not characterId then return notify(source, 'Pick a character before using /dv.', 'error') end
+    local ped = GetPlayerPed(source)
+    if not ped or ped == 0 then return end
+    local origin = GetEntityCoords(ped)
+    local maxDistance = FBRP.Config.ownedVehicleDeleteDistance or 15.0
+    local registered = {}
+    for _, row in ipairs(MySQL.query.await('SELECT plate FROM vehicle_registrations WHERE character_id=?', { characterId }) or {}) do
+        registered[normalizePlate(row.plate)] = true
+    end
+
+    local closest, closestDistance, closestPlate
+    for _, vehicle in ipairs(GetAllVehicles()) do
+        if DoesEntityExist(vehicle) then
+            local distance = #(GetEntityCoords(vehicle) - origin)
+            if distance <= maxDistance and (not closestDistance or distance < closestDistance) then
+                local plate = normalizePlate(GetVehicleNumberPlateText(vehicle))
+                local personalOwner = FBRP.Personals and FBRP.Personals.owns and FBRP.Personals.owns(source, vehicle)
+                if personalOwner or registered[plate] then
+                    closest, closestDistance, closestPlate = vehicle, distance, plate
+                end
+            end
+        end
+    end
+
+    if not closest then
+        return notify(source, ('No vehicle you own is within %d metres.'):format(math.floor(maxDistance)), 'error')
+    end
+    if FBRP.Personals and FBRP.Personals.removed then FBRP.Personals.removed(closest) end
+    DeleteEntity(closest)
+    notify(source, ('Your vehicle%s was deleted.'):format(closestPlate ~= '' and (' (' .. closestPlate .. ')') or ''), 'success')
+    local s = sessions[source]
+    FBRP.DB.audit(s and s.discord or source, 'vehicle.delete', closestPlate ~= '' and closestPlate or nil, {
+        distance = math.floor(closestDistance * 10 + 0.5) / 10,
+    })
+end, false)
+
 RegisterNetEvent('fbrp:justice:runplate', function(rawPlate)
     local src = source
     if not isPolice(src) then return S.deny(src, FBRP.Ace.police) end

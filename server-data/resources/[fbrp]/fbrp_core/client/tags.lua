@@ -45,10 +45,13 @@ local function rawText(text, x, y, font, scale, r, g, b, a, outline)
 end
 
 -- Dark colors disappear behind GTA's black outline, so they get a light halo
--- instead (the same treatment the bigger RP communities use).
+-- instead (the same treatment the bigger RP communities use). A tag with its
+-- outline switched off is drawn as plain colored text with neither.
 local halo = { {-1,0},{1,0},{0,-1},{0,1},{-1,-1},{1,1},{-1,1},{1,-1} }
-local function drawText(text, x, y, font, scale, r, g, b, a, px, py)
-    if isDark(r,g,b) then
+local function drawText(text, x, y, font, scale, r, g, b, a, px, py, outline)
+    if outline == false then
+        rawText(text, x, y, font, scale, r, g, b, a, false)
+    elseif isDark(r,g,b) then
         local ha = math.floor(a*0.9)
         for _,o in ipairs(halo) do
             rawText(text, x + o[1]*px*1.4, y + o[2]*py*1.4, font, scale, 236, 240, 242, ha, false)
@@ -129,8 +132,8 @@ CreateThread(function()
                             serverId = serverId,
                             ped = ped,
                             id = ('[%d]'):format(serverId),
-                            head = head and clean(head.label) and { label=clean(head.label), color={hexColor(head.color)} } or nil,
-                            gang = gang and clean(gang.label) and { label=clean(gang.label), color={hexColor(gang.color)} } or nil,
+                            head = head and clean(head.label) and { label=clean(head.label), color={hexColor(head.color)}, outline=head.outline ~= false } or nil,
+                            gang = gang and clean(gang.label) and { label=clean(gang.label), color={hexColor(gang.color)}, outline=gang.outline ~= false } or nil,
                             distance = distance
                         }
                     end
@@ -167,7 +170,7 @@ CreateThread(function()
                             local h = GetRenderedCharacterHeight(s, SUB_FONT)
                             y = y - h * 1.05
                             local r,g,b = table.unpack(row.gang.color)
-                            drawText(row.gang.label, x - textWidth(row.gang.label, SUB_FONT, s)/2, y, SUB_FONT, s, r, g, b, a, px, py)
+                            drawText(row.gang.label, x - textWidth(row.gang.label, SUB_FONT, s)/2, y, SUB_FONT, s, r, g, b, a, px, py, row.gang.outline)
                         end
 
                         -- Top line: big headtag followed by the server ID.
@@ -183,8 +186,8 @@ CreateThread(function()
                             local wId = textWidth(idText, HEAD_FONT, s)
                             local left = x - (wLabel + wId) / 2
                             local r,g,b = table.unpack(row.head.color)
-                            drawText(row.head.label, left, y, HEAD_FONT, s, r, g, b, a, px, py)
-                            rawText(idText, left + wLabel, y, HEAD_FONT, s, ir, ig, ib, a, true)
+                            drawText(row.head.label, left, y, HEAD_FONT, s, r, g, b, a, px, py, row.head.outline)
+                            rawText(idText, left + wLabel, y, HEAD_FONT, s, ir, ig, ib, a, row.head.outline)
                         else
                             local s = ID_SCALE * k
                             local h = GetRenderedCharacterHeight(s, HEAD_FONT)

@@ -749,6 +749,18 @@ export function invalidateBlacklistCache() {
   blacklistCache = { at: 0, ids: new Set() };
 }
 
+let roleStripCache = { at: 0, ids: new Set() };
+/** Accounts actively held without roles/ACE by /global rolestrip. */
+export async function roleStrippedIds() {
+  if (Date.now() - roleStripCache.at < 15000) return roleStripCache.ids;
+  const rows = await db.query("SELECT discord_id FROM global_role_strips WHERE restoring=FALSE").catch(() => []);
+  roleStripCache = { at: Date.now(), ids: new Set(rows.map((row) => String(row.discord_id))) };
+  return roleStripCache.ids;
+}
+export function invalidateRoleStripCache() {
+  roleStripCache = { at: 0, ids: new Set() };
+}
+
 let offenderCache = { at: 0, ids: new Set() };
 /** Accounts on the anti-nuke offender list: quarantined network-wide, so role sync never hands roles back. */
 async function nukeOffenderIds() {
@@ -801,7 +813,8 @@ export function syncMemberRoles(client, member, { alert = "none" } = {}) {
 async function reconcileMemberRoles(client, member, { alert = "none" } = {}) {
   // Reconcile role-sourced ACE access before enforcing gates. This prevents a
   // newly granted LEO/fire/verified role from being mistaken for an unauthorized grant.
-  await syncRoleAuthoritativeMemberships(member, client.user.id);
+  const roleStripped = (await roleStrippedIds()).has(member.id);
+  if (!roleStripped) await syncRoleAuthoritativeMemberships(member, client.user.id);
   // Bootstrap memberships are reserved for in-game/bot authorization and are
   // intentionally excluded by directMemberships. They must never assign a
   // visible Discord role; only an explicit membership can do that.
@@ -814,7 +827,7 @@ async function reconcileMemberRoles(client, member, { alert = "none" } = {}) {
   ]);
   // A blacklisted member keeps only the isolation role; gated roles are never granted back.
   // Anti-nuke offenders are treated the same way until /security pardon.
-  let quarantined = blacklisted.has(member.id) || offenders.has(member.id);
+  let quarantined = blacklisted.has(member.id) || offenders.has(member.id) || roleStripped;
   if (quarantined) memberships.clear();
   // Staff keep every lower rank's ACE group, but only wear the Discord role of their top rank (see staffDisplayGroups).
   const wantedRole = (groups) => {
@@ -830,8 +843,9 @@ async function reconcileMemberRoles(client, member, { alert = "none" } = {}) {
     if (quarantined) {
       invalidateBlacklistCache();
       offenderCache = { at: 0, ids: new Set() };
-      const [freshBlacklist, freshOffenders] = await Promise.all([blacklistedIds(), nukeOffenderIds()]);
-      quarantined = freshBlacklist.has(member.id) || freshOffenders.has(member.id);
+      invalidateRoleStripCache();
+      const [freshBlacklist, freshOffenders, freshRoleStrips] = await Promise.all([blacklistedIds(), nukeOffenderIds(), roleStrippedIds()]);
+      quarantined = freshBlacklist.has(member.id) || freshOffenders.has(member.id) || freshRoleStrips.has(member.id);
       if (!quarantined) for (const name of await directMemberships(member.id)) memberships.add(name);
     }
   }

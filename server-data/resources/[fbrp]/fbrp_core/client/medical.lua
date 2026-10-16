@@ -201,6 +201,19 @@ RegisterNetEvent('fbrp:medical:heal', function()
     ClearPedBloodDamage(ped)
 end)
 
+RegisterNetEvent('fbrp:medical:selfHeal', function()
+    if downed then return end
+    local ped = PlayerPedId()
+    SetEntityHealth(ped, GetEntityMaxHealth(ped))
+    ClearPedBloodDamage(ped)
+    ResetPedVisibleDamage(ped)
+end)
+
+RegisterNetEvent('fbrp:medical:selfArmour', function()
+    if downed then return end
+    SetPedArmour(PlayerPedId(), 100)
+end)
+
 RegisterNetEvent('fbrp:medical:hospitalRespawn', function(coords, label)
     leaveDowned()
     DoScreenFadeOut(600)

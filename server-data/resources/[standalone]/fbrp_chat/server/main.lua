@@ -75,10 +75,7 @@ local function nearbyPlayers(source, radius)
     return recipients
 end
 
-local function roleplayMessage(source, kind, raw)
-    if source <= 0 or not allowedToSpeak(source) then return end
-    local message = clean(raw)
-    if message == '' then return end
+local function speaker(source)
     local player = Player(source)
     local name = clean(player and player.state['fbrp:name'] or GetPlayerName(source), 80)
     local selectedChatTag = player and player.state['fbrp:chatTag'] or nil
@@ -86,6 +83,14 @@ local function roleplayMessage(source, kind, raw)
         label=clean(selectedChatTag.label, 40),
         color=clean(selectedChatTag.color, 7)
     } or nil
+    return name, chatTag
+end
+
+local function roleplayMessage(source, kind, raw)
+    if source <= 0 or not allowedToSpeak(source) then return end
+    local message = clean(raw)
+    if message == '' then return end
+    local name, chatTag = speaker(source)
 
     TriggerEvent('chatMessage', source, name, message)
     if WasEventCanceled() then return end
@@ -100,10 +105,48 @@ local function roleplayMessage(source, kind, raw)
         badge=style.badge, icon=style.icon, color=style.color,
         author=name, playerId=source, message=message, channel=kind, chatTag=chatTag
     }
-    for _, target in ipairs(nearbyPlayers(source, CHAT_RANGE)) do emit(target, payload) end
+    -- /me belongs in the world above the speaker, not duplicated in the chat
+    -- transcript. /do and OOC retain their nearby transcript entries.
+    if kind ~= 'me' then
+        for _, target in ipairs(nearbyPlayers(source, CHAT_RANGE)) do emit(target, payload) end
+    end
     if kind == 'me' or kind == 'do' then
         TriggerClientEvent('fbrp_chat:floating', -1, source, kind, message)
     end
+end
+
+local globalStyles = {
+    gme       = { badge='GME',       icon='✦', color='#4FE08C' },
+    twitter   = { badge='TWITTER',   icon='t', color='#55ACEE' },
+    twitch    = { badge='TWITCH',    icon='●', color='#A970FF' },
+    instagram = { badge='INSTAGRAM', icon='◎', color='#F06EAA' },
+    darkweb   = { badge='DARK WEB',  icon='◈', color='#FF596D', anonymous=true },
+    ad        = { badge='AD',        icon='◆', color='#FFD166' },
+    news      = { badge='NEWS',      icon='▣', color='#69C9FF' },
+}
+
+local function globalRoleplayMessage(source, kind, raw)
+    if source <= 0 or not allowedToSpeak(source) then return end
+    local message = clean(raw)
+    if message == '' then return systemMessage(source, ('Usage: /%s [message]'):format(kind), 'warning') end
+    local style = globalStyles[kind]
+    if not style then return end
+    local name, chatTag = speaker(source)
+    TriggerEvent('chatMessage', source, name, message)
+    if WasEventCanceled() then return end
+    emit(-1, {
+        badge=style.badge, icon=style.icon, color=style.color,
+        author=style.anonymous and 'Anonymous' or name,
+        playerId=style.anonymous and nil or source,
+        message=message, channel=kind,
+        chatTag=style.anonymous and nil or chatTag,
+    })
+end
+
+local function registerGlobalCommand(command, kind)
+    RegisterCommand(command, function(source, args)
+        globalRoleplayMessage(source, kind, table.concat(args, ' '))
+    end, false)
 end
 
 RegisterNetEvent('fbrp_chat:say', function(message)
@@ -121,6 +164,17 @@ end, false)
 RegisterCommand('do', function(source, args)
     roleplayMessage(source, 'do', table.concat(args, ' '))
 end, false)
+
+registerGlobalCommand('gme', 'gme')
+registerGlobalCommand('twitter', 'twitter')
+registerGlobalCommand('tweet', 'twitter')
+registerGlobalCommand('twitch', 'twitch')
+registerGlobalCommand('instagram', 'instagram')
+registerGlobalCommand('insta', 'instagram')
+registerGlobalCommand('darkweb', 'darkweb')
+registerGlobalCommand('dark', 'darkweb')
+registerGlobalCommand('ad', 'ad')
+registerGlobalCommand('news', 'news')
 
 AddEventHandler('playerDropped', function() recent[source] = nil end)
 

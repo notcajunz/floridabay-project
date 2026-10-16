@@ -119,6 +119,9 @@ local function membershipRows(discord)
         FROM ace_memberships m
         JOIN ace_groups g ON g.name=m.group_name
         WHERE m.discord_id=?
+          AND NOT EXISTS (
+              SELECT 1 FROM global_role_strips rs WHERE rs.discord_id=m.discord_id
+          )
         ORDER BY g.rank_order DESC
     ]], { discord })
 end
@@ -321,15 +324,16 @@ local function tagRow(row)
     return {
         id = tonumber(row.id), label = row.label, color = row.color, kind = row.kind,
         orgId = row.org_id and tonumber(row.org_id) or nil, orgName = row.org_name,
-        chatTag = row.chat_tag == true or row.chat_tag == 1 or tostring(row.chat_tag) == '1'
+        chatTag = row.chat_tag == true or row.chat_tag == 1 or tostring(row.chat_tag) == '1',
+        outline = not (row.outline == false or row.outline == 0 or tostring(row.outline) == '0')
     }
 end
 
 local function loadSelectedTags(s)
     if not s.discord then return end
     local selected = MySQL.single.await([[
-        SELECT hs.id head_id,hs.label head_label,hs.color head_color,hs.kind head_kind,hs.org_id head_org_id,ho.name head_org_name,
-               gs.id gang_id,gs.label gang_label,gs.color gang_color,gs.kind gang_kind,gs.org_id gang_org_id,go.name gang_org_name,
+        SELECT hs.id head_id,hs.label head_label,hs.color head_color,hs.outline head_outline,hs.kind head_kind,hs.org_id head_org_id,ho.name head_org_name,
+               gs.id gang_id,gs.label gang_label,gs.color gang_color,gs.outline gang_outline,gs.kind gang_kind,gs.org_id gang_org_id,go.name gang_org_name,
                cs.id chat_id,cs.label chat_label,cs.color chat_color,cs.kind chat_kind,cs.org_id chat_org_id,co.name chat_org_name,cs.chat_tag chat_enabled
         FROM player_tag_selection p
         LEFT JOIN headtags hs ON hs.id=p.headtag_id AND hs.enabled=TRUE
@@ -340,8 +344,8 @@ local function loadSelectedTags(s)
         LEFT JOIN organizations co ON co.id=cs.org_id
         WHERE p.discord_id=?
     ]], { s.discord })
-    s.headtag = selected and selected.head_id and tagRow({ id=selected.head_id,label=selected.head_label,color=selected.head_color,kind=selected.head_kind,org_id=selected.head_org_id,org_name=selected.head_org_name }) or nil
-    s.gangtag = selected and selected.gang_id and tagRow({ id=selected.gang_id,label=selected.gang_label,color=selected.gang_color,kind=selected.gang_kind,org_id=selected.gang_org_id,org_name=selected.gang_org_name }) or nil
+    s.headtag = selected and selected.head_id and tagRow({ id=selected.head_id,label=selected.head_label,color=selected.head_color,kind=selected.head_kind,org_id=selected.head_org_id,org_name=selected.head_org_name,outline=selected.head_outline }) or nil
+    s.gangtag = selected and selected.gang_id and tagRow({ id=selected.gang_id,label=selected.gang_label,color=selected.gang_color,kind=selected.gang_kind,org_id=selected.gang_org_id,org_name=selected.gang_org_name,outline=selected.gang_outline }) or nil
     s.chatTag = selected and selected.chat_id and tagRow({ id=selected.chat_id,label=selected.chat_label,color=selected.chat_color,kind=selected.chat_kind,org_id=selected.chat_org_id,org_name=selected.chat_org_name,chat_tag=selected.chat_enabled }) or nil
 end
 
@@ -817,7 +821,7 @@ end, false)
 local function dutyOrganizations(discord, slug)
     slug = slug or ''
     return MySQL.query.await([[
-        SELECT DISTINCT o.*,t.label tag_label,t.color tag_color,t.kind tag_kind
+        SELECT DISTINCT o.*,t.label tag_label,t.color tag_color,t.kind tag_kind,t.outline tag_outline
         FROM organizations o
         JOIN headtags t ON t.id=o.tag_id
         WHERE o.active=TRUE AND (?='' OR o.slug=?)
@@ -863,7 +867,7 @@ local function clockInOrganization(source, s, requested)
     })
     s.org = {
         id=tonumber(org.id),slug=org.slug,name=org.name,type=org.type,ace_group=org.ace_group,
-        tag=tagRow({ id=org.tag_id,label=org.tag_label,color=org.tag_color,kind=org.tag_kind,org_id=org.id,org_name=org.name })
+        tag=tagRow({ id=org.tag_id,label=org.tag_label,color=org.tag_color,kind=org.tag_kind,org_id=org.id,org_name=org.name,outline=org.tag_outline })
     }
     s.orgShift = { id=id,startedAt=started }
     reconcilePrincipals(source)

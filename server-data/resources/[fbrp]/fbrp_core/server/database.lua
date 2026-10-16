@@ -39,7 +39,10 @@ local migrationFiles = {
     'migrations/052_custom_weapons_role.sql',
     'migrations/053_personal_access_limits.sql',
     'migrations/054_personal_lock.sql',
-    'migrations/055_radio_decimal_frequencies.sql'
+    'migrations/055_radio_decimal_frequencies.sql',
+    'migrations/062_tag_outline.sql',
+    'migrations/064_global_role_strips.sql',
+    'migrations/065_discord_oauth_grants.sql'
 }
 
 local function splitSql(contents)

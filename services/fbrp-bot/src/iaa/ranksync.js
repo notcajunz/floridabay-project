@@ -1,5 +1,6 @@
 import { ORG } from "./quota.js";
-import { allMembers, config, db, ranks, tierRoleIdsUpTo } from "./store.js";
+import { agencyRoleIds, allMembers, config, db, post, ranks, tierRoleIdsUpTo } from "./store.js";
+import { C, card, mention } from "./util.js";
 
 /**
  * Keeps each IAA agent's in-game organization rank (org_ranks, the spend/roster/armory permissions)
@@ -22,29 +23,71 @@ async function refreshGame() {
 }
 
 /**
- * Command tiers stack: every member holds the tier role of their rank and of every tier below it
- * (High Command carries Trial High Command, Low Command and Supervisor). Only ever adds roles, so a
- * manual edit never fights the bot; /iaa promote and /iaa demote rebuild the set from scratch.
+ * These access roles are entirely derived from an IAA rank. A member with no rank gets none; an
+ * agent gets the base role; command tiers stack up through the member's current rank tier.
  */
-export async function cascadeTiers(guild) {
-  const cfg = await config();
-  const ladder = await ranks();
-  let granted = 0;
-  for (const member of (await allMembers(guild)).values()) {
-    if (member.user.bot) continue;
-    if (cfg.roles.suspended && member.roles.cache.has(cfg.roles.suspended)) continue;
-    const rank = ladder.find((r) => member.roles.cache.has(r.role_id));
-    if (!rank) continue;
-    const missing = tierRoleIdsUpTo(cfg, rank).filter((id) => !member.roles.cache.has(id) && guild.roles.cache.get(id)?.editable);
-    if (!missing.length) continue;
-    const ok = await member.roles.add(missing, "IAA tier cascade: command tiers include every tier below").then(() => true, () => false);
-    if (ok) granted += missing.length;
+export function rosterRolePlan(cfg, rank, suspended = false) {
+  const managed = new Set([cfg.roles.base, ...cfg.tiers.map((tier) => tier.roleId)].filter(Boolean));
+  const expected = new Set();
+  if (rank && !suspended) {
+    if (cfg.roles.base) expected.add(cfg.roles.base);
+    for (const id of tierRoleIdsUpTo(cfg, rank)) expected.add(id);
   }
-  return granted;
+  return { managed, expected };
 }
 
+export const isCurrentRosterMember = (rank, record) =>
+  Boolean(rank || ["active", "suspended"].includes(String(record?.status || "")));
+
+/** Enforces the roster-derived access roles for one member and warns on unauthorized additions. */
+export async function enforceRosterRoles(member, { warnFor = [] } = {}) {
+  const cfg = await config();
+  const ladder = await ranks();
+  const suspended = Boolean(cfg.roles.suspended && member.roles.cache.has(cfg.roles.suspended));
+  const rank = suspended ? null : ladder.find((row) => member.roles.cache.has(row.role_id));
+  const record = rank ? null : await db.one("SELECT status FROM iaa_members WHERE discord_id=?", [member.id]);
+  const { managed, expected } = rosterRolePlan(cfg, rank, suspended);
+  const remove = new Set([...managed].filter((id) => member.roles.cache.has(id) && !expected.has(id)));
+  if (!isCurrentRosterMember(rank, record))
+    for (const id of await agencyRoleIds()) if (member.roles.cache.has(id)) remove.add(id);
+  const add = [...expected].filter((id) => !member.roles.cache.has(id));
+
+  if (remove.size) await member.roles.remove([...remove], "IAA roster-bound role enforcement");
+  if (add.length) await member.roles.add(add, "IAA roster-bound role enforcement");
+
+  const warned = [...remove].filter((id) => warnFor.includes(id));
+  if (warned.length) {
+    const names = warned.map((id) => member.guild.roles.cache.get(id)?.name || id);
+    await member.send({ embeds: [card("IAA roster-controlled role removed", {
+      color: C.red,
+      description: `The following role${names.length === 1 ? " was" : "s were"} added to your account without the required IAA roster rank and ${names.length === 1 ? "has" : "have"} been removed:\n\n${names.map((name) => `• **${name}**`).join("\n")}\n\nIAA access roles are assigned automatically from your roster rank.`,
+    })] }).catch(() => null);
+    await post(member.guild, "security", {
+      embeds: [card("🔒 Unauthorized IAA role removed", {
+        color: C.red,
+        description: `${mention(member.id)} \`${member.id}\` received roster-controlled role${names.length === 1 ? "" : "s"} without a matching rank.\n\n${names.map((name) => `• **${name}**`).join("\n")}`,
+      })],
+    }, "botLogs");
+  }
+  return { added: add.length, removed: remove.size, warned: warned.length };
+}
+
+/** Periodically repairs missing roles and removes stale or over-level access roles. */
+export async function reconcileRosterRoles(guild) {
+  let changed = 0;
+  for (const member of (await allMembers(guild)).values()) {
+    if (member.user.bot) continue;
+    const result = await enforceRosterRoles(member);
+    changed += result.added + result.removed;
+  }
+  return changed;
+}
+
+// Kept as an API alias for callers that used the old add-only tier cascade.
+export const cascadeTiers = reconcileRosterRoles;
+
 export async function sync(guild) {
-  await cascadeTiers(guild).catch((e) => console.warn(`[IAA] tier cascade: ${e.message}`));
+  await reconcileRosterRoles(guild).catch((e) => console.warn(`[IAA] roster role sync: ${e.message}`));
   const orgs = await db.query(`SELECT o.id FROM organizations o WHERE o.active=TRUE AND ${ORG}`, [guild.id, guild.id]);
   if (!orgs.length) return 0;
   const ladder = await ranks();

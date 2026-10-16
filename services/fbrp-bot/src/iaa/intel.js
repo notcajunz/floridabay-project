@@ -230,9 +230,9 @@ async function alert(guild, user, intel, source) {
     {
       content: source === "join" ? "🚨 **Screening hit on join**" : "🚨 **Sweep hit**",
       embeds: [
-        card(`${type === "blacklisted_server" ? "🚫" : "🎭"} ${user.username} · new intel`, {
+        card(`${type === "blacklisted_server" ? "🚫" : "🎭"} ${user?.username || intel.userId} · new intel`, {
           color: C.red,
-          thumbnail: user.displayAvatarURL?.(),
+          thumbnail: user?.displayAvatarURL?.(),
           description: `${mention(intel.userId)} \`${intel.userId}\`\n\n${fresh.map((f) => `${f.kind === "blacklist" ? "🚫 Blacklisted" : "🎭 Watchlisted"}: **${clip(f.guild_name, 60)}**${f.reason ? ` — ${clip(f.reason, 80)}` : ""}`).join("\n")}\n\nThreat ${intel.dot} **${intel.level}** (${intel.score}/100)${open ? `\n📂 Already under investigation: \`${open.reference}\`` : ""}`,
         }),
       ],
@@ -248,7 +248,7 @@ async function alert(guild, user, intel, source) {
     "security",
     "botLogs",
   );
-  return true;
+  return fresh.length;
 }
 
 /** Re-checks every agency member against both lists. New findings alert once. */
@@ -265,6 +265,58 @@ export async function sweep(guild) {
     if ((intel.blacklistedHits.length || intel.watchHits.length) && (await alert(guild, member.user, intel, "sweep"))) hits++;
   }
   return hits;
+}
+
+/**
+ * Every durable source proving that an account completed a Florida Bay website OAuth flow.
+ * The UNION deliberately excludes grandfathered/manual verification by itself while retaining
+ * old OAuth users whose current verification row or short-lived join grant was later removed.
+ */
+export const AUTHORIZED_HISTORY_SQL = `
+  SELECT discord_id FROM member_verifications WHERE method='discord_oauth'
+  UNION SELECT actor_id discord_id FROM audit_log WHERE action='portal.login' AND actor_id REGEXP '^[0-9]{15,24}$'
+  UNION SELECT discord_id FROM member_guilds
+  UNION SELECT discord_id FROM identity_links
+  UNION SELECT discord_id FROM discord_oauth_grants`;
+
+/** Checks every account ever authenticated, including former/non-IAA members. */
+export async function authSweep(guild, onProgress = null) {
+  const [totalRow, candidates] = await Promise.all([
+    db.one(`SELECT COUNT(*) n FROM (${AUTHORIZED_HISTORY_SQL}) authorized_accounts`),
+    db.query(
+      `SELECT DISTINCT authorized_accounts.discord_id
+         FROM (${AUTHORIZED_HISTORY_SQL}) authorized_accounts
+         JOIN member_guilds membership ON membership.discord_id=authorized_accounts.discord_id
+         LEFT JOIN blacklisted_servers blacklisted ON blacklisted.guild_id=membership.guild_id
+         LEFT JOIN iaa_watch_servers watched ON watched.guild_id=membership.guild_id
+        WHERE blacklisted.guild_id IS NOT NULL OR watched.guild_id IS NOT NULL
+        ORDER BY authorized_accounts.discord_id`,
+    ),
+  ]);
+  let accounts = 0;
+  let findings = 0;
+  let checkedCandidates = 0;
+  for (const row of candidates) {
+    const id = String(row.discord_id);
+    const intel = await gatherIntel(id);
+    if (intel.blacklistedHits.length || intel.watchHits.length) {
+      const user = await guild.client.users.fetch(id).catch(() => null);
+      const fresh = await alert(guild, user, intel, "auth-sweep");
+      if (fresh) {
+        accounts++;
+        findings += Number(fresh);
+      }
+    }
+    checkedCandidates++;
+    if (onProgress && (checkedCandidates % 10 === 0 || checkedCandidates === candidates.length))
+      await onProgress({ checked: checkedCandidates, candidates: candidates.length, total: Number(totalRow?.n || 0), accounts, findings });
+  }
+  return {
+    total: Number(totalRow?.n || 0),
+    candidates: candidates.length,
+    accounts,
+    findings,
+  };
 }
 
 /* ------------------------------------------------------------------ server lists */
@@ -307,6 +359,31 @@ export async function command(i, actor, group, sub) {
     await i.deferReply(EPHEMERAL);
     const hits = await sweep(i.guild);
     return respond(i, `Sweep complete. **${hits}** member(s) produced new alerts.`);
+  }
+  if (!group && sub === "auth-sweep") {
+    await demand(actor, "intel.manage");
+    await i.deferReply(EPHEMERAL);
+    const result = await authSweep(i.guild, ({ checked, candidates, total, accounts, findings }) =>
+      i.editReply({ embeds: [card("🛰️ Historical authorization sweep", {
+        color: C.navy,
+        description: `Checked **${checked}/${candidates}** account(s) with listed-server matches from **${total}** accounts that have ever authenticated.\n\nNew alerts so far: **${accounts}** account(s), **${findings}** finding(s).`,
+      })] }).catch(() => null));
+    await db.query(
+      "INSERT INTO audit_log(actor_id,action,target_id,payload,created_at) VALUES(?, 'iaa.intel.auth_sweep', NULL, ?, ?)",
+      [i.user.id, JSON.stringify(result), Date.now()],
+    );
+    await post(i.guild, "botLogs", { embeds: [card("🛰️ Historical authorization sweep complete", {
+      color: result.findings ? C.amber : C.green,
+      fields: [
+        ["Run by", mention(i.user.id)],
+        ["Ever authenticated", String(result.total)],
+        ["Accounts with listed-server matches", String(result.candidates)],
+        ["New alert accounts", String(result.accounts)],
+        ["New findings", String(result.findings)],
+      ],
+      footer: "Existing findings are not alerted twice",
+    })] });
+    return respond(i, `Historical sweep complete. Checked **${result.total}** account(s) that have ever authenticated. **${result.candidates}** account(s) matched a blacklisted or watchlisted server; **${result.accounts}** account(s) produced **${result.findings}** new alert(s).`);
   }
   await demand(actor, sub === "list" ? "intel.lookup" : "intel.manage");
   const table = group === "watchlist" ? "iaa_watch_servers" : "blacklisted_servers";

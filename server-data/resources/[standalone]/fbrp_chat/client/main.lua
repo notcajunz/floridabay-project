@@ -124,8 +124,21 @@ CreateThread(function()
         if name ~= '/' then suggestions[name] = suggestions[name] or { name=name, help='Server command', params={} } end
     end
     suggestions['/ooc'] = { name='/ooc', help='Nearby out-of-character message', params={{name='message'}} }
-    suggestions['/me'] = { name='/me', help='Describe your character action nearby', params={{name='action'}} }
+    suggestions['/me'] = { name='/me', help='Show an action above your head to nearby players', params={{name='action'}} }
     suggestions['/do'] = { name='/do', help='Describe the nearby scene or situation', params={{name='detail'}} }
+    suggestions['/gme'] = { name='/gme', help='Global roleplay action in the green GME channel', params={{name='action'}} }
+    suggestions['/twitter'] = { name='/twitter', help='Post to the global Twitter feed', params={{name='message'}} }
+    suggestions['/tweet'] = { name='/tweet', help='Alias for /twitter', params={{name='message'}} }
+    suggestions['/twitch'] = { name='/twitch', help='Post a Twitch stream update', params={{name='message'}} }
+    suggestions['/instagram'] = { name='/instagram', help='Post to the global Instagram feed', params={{name='message'}} }
+    suggestions['/insta'] = { name='/insta', help='Alias for /instagram', params={{name='message'}} }
+    suggestions['/darkweb'] = { name='/darkweb', help='Post anonymously to the global dark web feed', params={{name='message'}} }
+    suggestions['/dark'] = { name='/dark', help='Alias for /darkweb', params={{name='message'}} }
+    suggestions['/ad'] = { name='/ad', help='Post a global roleplay advertisement', params={{name='message'}} }
+    suggestions['/news'] = { name='/news', help='Post a global breaking-news message', params={{name='message'}} }
+    suggestions['/dv'] = { name='/dv', help='Delete the closest nearby vehicle you own', params={} }
+    suggestions['/heal'] = { name='/heal', help='Restore health (3 minute cooldown)', params={} }
+    suggestions['/armour'] = { name='/armour', help='Replenish armour (5 minute cooldown)', params={} }
     suggestions['/clear'] = { name='/clear', help='Clear your chat history', params={} }
     post({ type='suggestions', data=suggestions })
 end)

@@ -306,6 +306,7 @@ const intel = new SlashCommandBuilder()
   .setDMPermission(false)
   .addSubcommand((s) => s.setName("lookup").setDescription("Full intel dossier on a user").addUserOption((o) => user(o, "User")))
   .addSubcommand((s) => s.setName("sweep").setDescription("Re-screen every agent against the server lists now"))
+  .addSubcommand((s) => s.setName("auth-sweep").setDescription("Check every account that has ever authenticated with Florida Bay"))
   .addSubcommandGroup((g) => serverGroup(g, "watchlist", "Rival agencies (membership = dual clanning lead)"))
   .addSubcommandGroup((g) => serverGroup(g, "blacklisted-server", "Network-wide blacklisted servers"));
 

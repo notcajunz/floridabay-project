@@ -332,6 +332,23 @@ function FBRP.Personals.spawn(source, key)
     FBRP.DB.audit(discord or source, 'vehicle.spawn', p.model, { category = 'personal', personal = p.id, access = level })
 end
 
+-- Used by ownership-sensitive world commands such as /dv. Trusted drivers and
+-- tag holders have access, but only the actual Discord owner passes this check.
+function FBRP.Personals.owns(source, vehicle)
+    local id = personalIdOf(vehicle)
+    local p = id and personals[id]
+    return p ~= nil and p.owner == discordOf(source)
+end
+
+-- Forget a tracked entity before another module removes it from the world.
+function FBRP.Personals.removed(vehicle)
+    if not vehicle or vehicle == 0 then return end
+    local netId = NetworkGetNetworkIdFromEntity(vehicle)
+    local id = registry[netId]
+    registry[netId] = nil
+    if id and active[id] == netId then active[id] = nil end
+end
+
 -- The client creates the vehicle; it reports the network id so the server can track it.
 RegisterNetEvent('fbrp:personals:spawned', function(personalId, netId)
     local src = source

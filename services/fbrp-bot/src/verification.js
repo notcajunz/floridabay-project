@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { isIPv4, isIPv6 } from "node:net";
 
 /** The role the bot gives once someone has verified on the website. */
@@ -7,6 +7,69 @@ export const VERIFIED_ROLE_ID = String(process.env.FBRP_VERIFIED_ROLE_ID || "155
 export const VERIFICATION_CHANNEL_ID = String(process.env.FBRP_VERIFICATION_CHANNEL_ID || "1558919447014547546");
 export const UNVERIFIED_ROLE_NAME = String(process.env.FBRP_UNVERIFIED_ROLE_NAME || "FBRP | Unverified");
 export const verificationRequired = () => String(process.env.FBRP_REQUIRE_VERIFICATION || "true").toLowerCase() !== "false";
+
+const OAUTH_JOIN_SCOPE = "guilds.join";
+
+/** Derives a separate at-rest encryption key from the existing private identity salt. */
+function oauthKey() {
+  const secret = String(process.env.FBRP_OAUTH_TOKEN_SECRET || process.env.FBRP_IDENTITY_SALT || "");
+  if (secret.length < 16) throw new Error("FBRP_IDENTITY_SALT (or FBRP_OAUTH_TOKEN_SECRET) must protect stored OAuth grants.");
+  return createHash("sha256").update(`fbrp:discord-oauth:v1:${secret}`).digest();
+}
+
+function encryptOAuthToken(token) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", oauthKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(String(token), "utf8"), cipher.final()]);
+  return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
+}
+
+function decryptOAuthToken(value) {
+  const [version, rawIv, rawTag, rawCiphertext] = String(value || "").split(".");
+  if (version !== "v1" || !rawIv || !rawTag || !rawCiphertext) throw new Error("Invalid OAuth grant ciphertext.");
+  const decipher = createDecipheriv("aes-256-gcm", oauthKey(), Buffer.from(rawIv, "base64url"));
+  decipher.setAuthTag(Buffer.from(rawTag, "base64url"));
+  return Buffer.concat([decipher.update(Buffer.from(rawCiphertext, "base64url")), decipher.final()]).toString("utf8");
+}
+
+/** Stores only grants that Discord confirms include guilds.join. */
+export async function saveOAuthAuthorization(db, { discordId, accessToken, scopes, expiresAt }) {
+  const granted = new Set((Array.isArray(scopes) ? scopes : String(scopes || "").split(/\s+/)).map(String));
+  const id = String(discordId);
+  const expiry = Number(expiresAt);
+  if (!accessToken || !granted.has(OAUTH_JOIN_SCOPE) || !Number.isFinite(expiry) || expiry <= Date.now() + 30000) {
+    await db.query("DELETE FROM discord_oauth_grants WHERE discord_id=?", [id]);
+    return false;
+  }
+  await db.query(
+    `INSERT INTO discord_oauth_grants(discord_id,token_ciphertext,scopes,expires_at,updated_at)
+     VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE token_ciphertext=VALUES(token_ciphertext),scopes=VALUES(scopes),expires_at=VALUES(expires_at),updated_at=VALUES(updated_at)`,
+    [id, encryptOAuthToken(accessToken), [...granted].sort().join(" ").slice(0, 500), expiry, Date.now()],
+  );
+  return true;
+}
+
+/** Returns a usable guilds.join token, removing expired or unreadable grants. */
+export async function oauthJoinToken(db, discordId) {
+  const id = String(discordId);
+  const row = await db.one(
+    "SELECT token_ciphertext,scopes,expires_at FROM discord_oauth_grants WHERE discord_id=?",
+    [id],
+  ).catch(() => null);
+  if (!row || Number(row.expires_at) <= Date.now() + 30000 || !String(row.scopes || "").split(/\s+/).includes(OAUTH_JOIN_SCOPE)) {
+    if (row) await db.query("DELETE FROM discord_oauth_grants WHERE discord_id=?", [id]).catch(() => {});
+    return null;
+  }
+  try {
+    return decryptOAuthToken(row.token_ciphertext);
+  } catch {
+    await db.query("DELETE FROM discord_oauth_grants WHERE discord_id=?", [id]).catch(() => {});
+    return null;
+  }
+}
+
+export const clearOAuthAuthorization = (db, discordId) =>
+  db.query("DELETE FROM discord_oauth_grants WHERE discord_id=?", [String(discordId)]);
 
 const PRIVATE_V4 = /^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/;
 
@@ -68,7 +131,7 @@ async function storeGuilds(db, id, guilds, stamp) {
  * Marks a member verified and stores hashed identity links seen during this sign-in. `guilds` is
  * Discord's server list for the member, or null when it could not be read (the old list is kept).
  */
-export async function recordVerification(db, { discordId, address, connections = [], guilds = null, method }) {
+export async function recordVerification(db, { discordId, address, connections = [], guilds = null, method, oauth = null }) {
   const id = String(discordId);
   const stamp = Date.now();
   await db.query(
@@ -90,7 +153,10 @@ export async function recordVerification(db, { discordId, address, connections =
       [id, kind, hash, stamp, stamp],
     );
   const servers = Array.isArray(guilds) ? await storeGuilds(db, id, guilds, stamp) : null;
-  return { links: links.length, servers };
+  const authorized = oauth
+    ? await saveOAuthAuthorization(db, { discordId: id, ...oauth })
+    : false;
+  return { links: links.length, servers, authorized };
 }
 
 /** Gives the verified role in every server that has it. Returns "granted", "pending" or "failed". */

@@ -1,6 +1,6 @@
 import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags, Partials } from "discord.js";
 import { pool } from "../database.js";
-import { allMembers, authority, config } from "./store.js";
+import { agencyRoleIds, allMembers, authority, config } from "./store.js";
 import { UserError, fail, card, C } from "./util.js";
 import { definitions } from "./commands.js";
 import * as roster from "./roster.js";
@@ -156,6 +156,11 @@ client.on(Events.GuildMemberRemove, (member) => {
 client.on(Events.GuildMemberUpdate, (before, after) => {
   if (after.guild.id !== GUILD_ID || before.partial) return;
   if (before.roles.cache.size !== after.roles.cache.size || before.roles.cache.some((r) => !after.roles.cache.has(r.id))) {
+    void (async () => {
+      const controlled = await agencyRoleIds();
+      const added = [...after.roles.cache.keys()].filter((id) => controlled.has(id) && !before.roles.cache.has(id));
+      await ranksync.enforceRosterRoles(after, { warnFor: added });
+    })().catch((e) => console.warn(`[IAA] roster role enforcement: ${e.message}`));
     refreshPanels(after.guild, "chain", "directory");
     scheduleResequence(after.guild);
     ranksync.queue(after.guild);
@@ -185,7 +190,10 @@ client.once(Events.ClientReady, async () => {
   await g.commands.set(definitions);
   await allMembers(g);
   client.user.setPresence({ activities: [{ name: "the watchers 🦅", type: ActivityType.Watching }], status: "online" });
-  if ((await config()).ready) await resequence(g, { reason: "Startup sync" }).catch((e) => console.warn(`[IAA] startup resequence: ${e.message}`));
+  if ((await config()).ready) {
+    await resequence(g, { reason: "Startup sync" }).catch((e) => console.warn(`[IAA] startup resequence: ${e.message}`));
+    await ranksync.reconcileRosterRoles(g).catch((e) => console.warn(`[IAA] startup roster role sync: ${e.message}`));
+  }
   console.log(`[IAA] ${client.user.tag} ready in ${g.name} · ${definitions.length} commands registered.`);
 
   every(60_000, "expiry", async (gg) => {

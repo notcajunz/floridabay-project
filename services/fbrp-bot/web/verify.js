@@ -6,7 +6,9 @@ if (params.get("done")) {
   document.querySelector("#verify-start").style.display = "none";
   document.querySelector("#verify-done").style.display = "grid";
   const role = params.get("role");
-  if (role === "pending")
+  if (params.get("authorized") === "1")
+    document.querySelector("#verify-done-text").textContent = "You are verified and authorized. /join and the community server selector can now add you directly to Florida Bay servers.";
+  else if (role === "pending")
     document.querySelector("#verify-done-text").textContent = "You are verified. Join the Florida Bay Discord and your member role will be applied the moment you arrive.";
   else if (role === "failed")
     document.querySelector("#verify-done-text").textContent = "You are verified, but the member role could not be applied automatically. Ask a staff member to assign it.";

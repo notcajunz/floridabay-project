@@ -74,6 +74,7 @@ export async function staffLevel(discordId) {
     `SELECT MAX(g.rank_order) level
        FROM ace_memberships m JOIN ace_groups g ON g.name=m.group_name
       WHERE m.discord_id=?
+        AND NOT EXISTS (SELECT 1 FROM global_role_strips rs WHERE rs.discord_id=m.discord_id)
         AND (m.origin NOT LIKE 'discord:%' OR m.group_name='ban_blacklist_moderator')`,
     [String(discordId)],
   );
@@ -88,6 +89,7 @@ export async function hasPermission(discordId, object) {
     FROM ace_memberships m
     JOIN ace_entries e ON e.group_name=m.group_name
     WHERE m.discord_id=?
+      AND NOT EXISTS (SELECT 1 FROM global_role_strips rs WHERE rs.discord_id=m.discord_id)
     ORDER BY e.mode='deny' DESC`,
     [discordId],
   );

@@ -1,6 +1,6 @@
 # Florida Bay bot command reference
 
-This file documents every command registered by the Florida Bay Discord bots: **46 top-level slash commands**, **199 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-15.
+This file documents every command registered by the Florida Bay Discord bots: **42 top-level slash commands**, **172 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-15.
 
 ## How permissions work
 
@@ -14,7 +14,7 @@ This file documents every command registered by the Florida Bay Discord bots: **
 
 ## Command index
 
-[`/addrole`](#role-manager) · [`/removerole`](#role-manager) · [`/wiperole`](#role-manager) · [`/useradd`](#role-manager) · [`/setowner`](#role-manager) · [`/userdel`](#role-manager) · [`/mgrwipe`](#role-manager) · [`/role`](#role) · [`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/personal`](#personal) · [`/coc`](#coc) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/callsign`](#callsign) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/case`](#case) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
+[`/addrole`](#role-manager) · [`/removerole`](#role-manager) · [`/wiperole`](#role-manager) · [`/useradd`](#role-manager) · [`/setowner`](#role-manager) · [`/userdel`](#role-manager) · [`/mgrwipe`](#role-manager) · [`/role`](#role) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/personal`](#personal) · [`/coc`](#coc) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/case`](#case) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
 
 ## Role manager
 
@@ -47,21 +47,6 @@ Assign or unassign Discord roles in the main server.
 | `/role unassign <member> <role>` | Remove a role from a main-server member<br><small>Arguments: `member` (required user) — Member losing the role. `role` (required role) — Role to remove.</small> | Assistant Community Manager rank or higher |
 
 These commands only work in the server registered as `main`. Protected roles retain the stricter protected-role policy: the caller must also be Co-Owner rank or higher and one of the authorized protected-role accounts. The bot also refuses `@everyone`, Discord-managed roles, and roles at or above its highest role.
-
-## /exam
-
-Give out staff promotion exams (Assistant Community Director and above)
-
-| Command | What it does | Permission required |
-|---|---|---|
-| `/exam give <member> <exam>` | Open an exam for a member for 60 minutes<br><small>Arguments: `member` (required user) — Staff member sitting the exam. `exam` (required text) — Which exam. Choices: `Head Administrator exam`, `Management exam`.</small> | Assistant Community Director rank or higher; configured bot superusers also qualify |
-| `/exam revoke <member> <exam>` | Close a member's exam access early<br><small>Arguments: `member` (required user) — Staff member. `exam` (required text) — Which exam. Choices: `Head Administrator exam`, `Management exam`.</small> | Assistant Community Director rank or higher; configured bot superusers also qualify |
-| `/exam active` | List exam access that is open right now | Assistant Community Director rank or higher; configured bot superusers also qualify |
-
-Important behavior:
-
-- `give` creates a one-hour portal grant and only works when the member's current direct staff rank is eligible for that exam; it cannot be given to yourself.
-- `revoke` only closes an active, unused grant. `active` lists unexpired grants.
 
 ## /orgbank
 
@@ -220,14 +205,6 @@ Create and manage the live chain-of-command board for Assistant Community Manage
 
 `positions` accepts entries separated by `|`. `assistants` accepts user mentions or Discord IDs. Use `-` to clear a field. Rendered mentions do not ping anyone.
 
-## /callsign
-
-| Command | What it does | Permission required |
-|---|---|---|
-| `/callsign sync` | Reassign callsigns by rank order, then republish every current assignment in the staff callsigns channel | Community Director rank or higher |
-
-Callsigns are automatic within each configured category range. Higher ACE rank orders receive lower callsign numbers; existing order is preserved among members of the same rank.
-
 ## /organization
 
 Manage gangs, businesses, and departments
@@ -313,24 +290,6 @@ Control live Florida Bay state
 | `/server aop <value>` | Set the area of play<br><small>Arguments: `value` (required text) — AOP label.</small> | `fbrp.ops` |
 | `/server peacetime <enabled>` | Set peacetime<br><small>Arguments: `enabled` (required true/false) — Peacetime state.</small> | `fbrp.ops` |
 | `/server announce <message>` | Send an in-game announcement<br><small>Arguments: `message` (required text) — Announcement.</small> | `fbrp.ops` |
-
-## /staff
-
-Staff ranks and duty tracking
-
-| Command | What it does | Permission required |
-|---|---|---|
-| `/staff add <member> <rank>` | Put a member in a staff rank's ACE group and assign their rank-ordered callsign<br><small>Arguments: `member` (required user) — Discord member. `rank` (required text) — Staff rank (only ranks below your own are allowed). Autocomplete is provided.</small> | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
-| `/staff move <member> <rank> [reason]` | Move an existing staff member to another rank and rebalance callsigns<br><small>Arguments: `member` (required user) — Discord member. `rank` (required text) — New staff rank (only ranks below your own are allowed). Autocomplete is provided. `reason` (optional text) — Reason for the move.</small> | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
-| `/staff remove <member> <reason>` | Remove a member's staff rank, ACE group, and callsign<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.staff.assign`; target must be below your highest ACE rank |
-| `/staff hours <member>` | Show a member’s staff hours<br><small>Arguments: `member` (required user) — Discord member.</small> | `fbrp.staff.manage` |
-| `/staff leaderboard [days]` | Show staff hours leaderboard<br><small>Arguments: `days` (optional integer) — Window in days.</small> | `fbrp.staff.manage` |
-| `/staff forceout <member> <reason>` | Close a member’s active staff shift<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.staff.manage` |
-
-Important behavior:
-
-- `add`, `move`, and `remove` enforce strict rank hierarchy. `forceout` closes an active game/staff shift but does not remove the member's staff rank.
-- Assistant Community Manager and every higher staff rank automatically receive the `mgmt_team` ACE group. It is derived from the member's highest staff ACE rank and is removed automatically when they are demoted below ACM or removed from staff.
 
 ## /protectrole
 
@@ -458,34 +417,6 @@ Show all commands, descriptions, and required permissions
 |---|---|---|
 | `/help [command]` | Show all commands, descriptions, and required permissions<br><small>Arguments: `command` (optional text) — Optional command name to filter.</small> | Everyone |
 
-## /roster
-
-Manage the staff roster and discipline
-
-| Command | What it does | Permission required |
-|---|---|---|
-| `/roster add <member> <rank>` | Add or update a roster member and assign their rank-ordered callsign<br><small>Arguments: `member` (required user) — Discord member. `rank` (required integer) — Rank ID from /roster list.</small> | `fbrp.roster.manage` |
-| `/roster remove <member> <reason>` | Remove a roster member<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.roster.manage` |
-| `/roster status <member> <status>` | Change roster status<br><small>Arguments: `member` (required user) — Discord member. `status` (required text) — Roster status. Choices: `Active`, `Inactive`, `LOA`.</small> | `fbrp.roster.manage` |
-| `/roster discipline <member> <kind> <reason>` | Issue a warning or strike<br><small>Arguments: `member` (required user) — Discord member. `kind` (required text) — Discipline type. Choices: `Warning`, `Strike`. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.roster.discipline` |
-| `/roster profile <member>` | Show one member's complete roster record<br><small>Arguments: `member` (required user) — Discord member.</small> | `fbrp.roster.view` |
-| `/roster note <member> <note>` | Set a private roster activity note<br><small>Arguments: `member` (required user) — Discord member. `note` (required text) — Activity note.</small> | `fbrp.roster.manage` |
-| `/roster discipline-revoke <id> <reason>` | Revoke a warning or strike<br><small>Arguments: `id` (required integer) — Discipline record ID. `reason` (required text) — Reason recorded in the audit log.</small> | `fbrp.roster.discipline` |
-| `/roster category-upsert <name> <start> <end> [id] [order]` | Create or update a callsign category<br><small>Arguments: `name` (required text) — Category name. `start` (required integer) — First callsign. `end` (required integer) — Last callsign. `id` (optional integer) — Existing category ID; blank creates. `order` (optional integer) — Display order.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
-| `/roster category-delete <id>` | Delete an unused roster category<br><small>Arguments: `id` (required integer) — Category ID.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
-| `/roster rank-upsert <category> <name> [id] [role] [ace_group] [weekly_hours] [minimum_days] [order]` | Create or update a staff rank and role mapping<br><small>Arguments: `category` (required integer) — Category ID. `name` (required text) — Rank name. `id` (optional integer) — Existing rank ID; blank creates. `role` (optional role) — Rank role in this server. `ace_group` (optional text) — ACE group /staff add puts this rank in. Autocomplete is provided. `weekly_hours` (optional integer) — Weekly activity requirement. `minimum_days` (optional integer) — Minimum days before promotion. `order` (optional integer) — Display order.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
-| `/roster rank-delete <id>` | Delete an unused staff rank<br><small>Arguments: `id` (required integer) — Rank ID.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
-| `/roster job-upsert <name> [id] [description] [role] [order]` | Create or update a staff secondary job<br><small>Arguments: `name` (required text) — Job name. `id` (optional integer) — Existing job ID; blank creates. `description` (optional text) — Job description. `role` (optional role) — Job role in this server. `order` (optional integer) — Display order.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
-| `/roster job-delete <id>` | Delete a staff secondary job<br><small>Arguments: `id` (required integer) — Job ID.</small> | Co-Owner rank or higher and `fbrp.roster.config` |
-| `/roster job-assign <member> <job>` | Assign a secondary job to a roster member<br><small>Arguments: `member` (required user) — Discord member. `job` (required integer) — Job ID.</small> | `fbrp.roster.manage` |
-| `/roster job-remove <member> <job>` | Remove a secondary job from a roster member<br><small>Arguments: `member` (required user) — Discord member. `job` (required integer) — Job ID.</small> | `fbrp.roster.manage` |
-| `/roster sync` | Sync roster ranks from Discord roles | Co-Owner rank or higher and `fbrp.roster.config` |
-| `/roster list` | List the staff roster | `fbrp.roster.view` |
-
-Important behavior:
-
-- Roster configuration commands define callsign ranges, rank/role/ACE mappings, weekly requirements, and secondary jobs. `sync` imports assignments from mapped Discord roles.
-
 ## /global
 
 Manage a member across every Florida Bay Discord server
@@ -583,11 +514,11 @@ Join any Florida Bay network server
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/join <server> [user]` | Join any Florida Bay network server<br><small>Arguments: `server` (required text) — Network server to join. Autocomplete is provided. `user` (optional user) — Send the invite to this member instead (needs fbrp.network.join.others).</small> | `fbrp.network.join` for yourself; `fbrp.network.join.others` when `user` is supplied |
+| `/join <server> [user]` | Join any Florida Bay network server<br><small>Arguments: `server` (required text) — Network server to join. Autocomplete is provided. `user` (optional user) — Add this authorized member instead (needs fbrp.network.join.others).</small> | `fbrp.network.join` for yourself; `fbrp.network.join.others` when `user` is supplied |
 
 Important behavior:
 
-- Creates a single-use invite that expires after 10 minutes. Supplying another user DMs the invite to that user when possible.
+- Adds the selected, verified user directly through their Discord OAuth authorization. If authorization is missing or expired, the bot returns the verification/authorization link. `/global invite` continues to create invite links.
 
 ## /invite
 
@@ -600,6 +531,75 @@ Get the link to add this bot to a server with Administrator
 Important behavior:
 
 - Returns an OAuth2 bot invite with Administrator and `applications.commands`; this command is locked to the hard-coded owner ID.
+
+## Staff Assistant bot
+
+Staff management lives in its own bot, **FBRP | Staff Assistant**, which is only in the staff server (it is not part of the main bot's command set). Its commands are registered in the staff server only. Anything that has to happen in another server (rank roles, a network-wide ACE re-sync, the manager+ roles in the main server) is queued in `network_role_queue` / `network_sync_queue` and carried out by the main bot.
+
+### /staff
+
+Staff ranks and duty tracking
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/staff add <member> <rank>` | Put a member in a staff rank's ACE group and assign their rank-ordered callsign | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
+| `/staff move <member> <rank> [reason]` | Move an existing staff member to another rank and rebalance callsigns | `fbrp.staff.assign`; target and assigned rank must be below your highest ACE rank |
+| `/staff remove <member> <reason>` | Remove a member's staff rank, ACE group, and callsign | `fbrp.staff.assign`; target must be below your highest ACE rank |
+| `/staff hours <member>` | Show a member's staff hours | `fbrp.staff.manage` |
+| `/staff leaderboard [days]` | Show staff hours leaderboard | `fbrp.staff.manage` |
+| `/staff forceout <member> <reason>` | Close a member's active staff shift | `fbrp.staff.manage` |
+
+Assistant Community Manager and every higher staff rank automatically receive the `mgmt_team` ACE group.
+
+`add`, `move` and `remove` (and `/roster add`, `/roster remove`, `/coord add`, `/coord remove`) take either `member` or a `discord_id`, because the person may not be in the staff server. The onboarding DM from `/staff add` (rank, callsign and a single-use staff-server invite) is sent by the main bot; the result is posted in the staff audit log.
+
+### /roster
+
+Manage the staff roster and discipline
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/roster add <member> <rank>` | Add or update a roster member and assign their rank-ordered callsign | `fbrp.roster.manage` |
+| `/roster remove <member> <reason>` | Remove a roster member | `fbrp.roster.manage` |
+| `/roster status <member> <status>` | Change roster status (Active, Inactive, LOA) | `fbrp.roster.manage` |
+| `/roster discipline <member> <kind> <reason>` | Issue a warning or strike | `fbrp.roster.discipline` |
+| `/roster discipline-revoke <id> <reason>` | Revoke a warning or strike | `fbrp.roster.discipline` |
+| `/roster profile <member>` | Show one member's complete roster record | `fbrp.roster.view` |
+| `/roster note <member> <note>` | Set a private roster activity note | `fbrp.roster.manage` |
+| `/roster job-assign <member> <job>` / `/roster job-remove <member> <job>` | Assign or remove a secondary job | `fbrp.roster.manage` |
+| `/roster category-upsert` / `category-delete` / `rank-upsert` / `rank-delete` / `job-upsert` / `job-delete` | Callsign categories, ranks (role and ACE mapping) and jobs | Co-Owner rank or higher and `fbrp.roster.config` |
+| `/roster sync` | Sync roster ranks from Discord roles | Co-Owner rank or higher and `fbrp.roster.config` |
+| `/roster list` | List the staff roster | `fbrp.roster.view` |
+
+Role pickers only list roles of the server the command runs in, so ranks and jobs bound to a role in another server keep their binding unless `role` is changed.
+
+### /callsign, /exam, /coordall
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/callsign sync` | Reassign callsigns by rank order, then republish every current assignment in the staff callsigns channel | Community Director rank or higher |
+| `/exam give <member> <exam>` / `revoke` / `active` | Open, close or list staff promotion exams (60 minutes) | Assistant Community Director rank or higher; configured bot superusers also qualify |
+| `/coordall add <member>` | Add a member to every coordinator staff job, role and ACE group (incl. `staff_coordination_team`) | Bot owner only |
+| `/coordall remove [member] [discord_id]` | Remove the member from every coordination roster: staff coordination ranks, team and jobs, and the gang, department and business coordination roles (via the main bot) and their `coordinators` / liaison rows, plus every coordinator ACE group | Bot owner only |
+
+### /coord (staff coordination team only)
+
+Gang, department and business coordination teams keep their own `/coord` in their own bots. This group manages only the **staff coordination team**.
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/coord add <member> <rank>` | Hire, promote or demote: gives the rank role, the Staff Coordination Team role (and Staff Leadership from Assistant Staff Manager up) and puts them on the `staff_coordination_team` ACE group | Staff Manager or higher (or Assistant Community Manager+); only ranks below your own |
+| `/coord remove <member> <reason>` | Remove every coordination role and the ACE group (`Resigned` or `Removed`) | Staff Manager or higher (or ACM+); only ranks below your own |
+| `/coord hours [member] [days]` | Staff hours and weekly requirement; blank member is yourself | Team members for themselves; Staff Manager+ for others |
+| `/coord leaderboard [days]` | Hours for the whole team | Staff Manager or higher (or ACM+) |
+| `/coord list` | The team by rank | Everyone in the staff server |
+| `/coord sync` | Re-check the ACE group, roster job and chain-of-command board | Staff Manager or higher (or ACM+) |
+
+Ranks, high to low: Staff Director, Assistant Staff Director, Staff Manager, Assistant Staff Manager, Senior Staff Coordinator, Staff Coordinator, Trial Staff Coordinator. Role changes, ACE membership and the live board in `#chain-of-command` also follow role changes made by hand in Discord.
+
+### Manager+ roles in the main server
+
+The bot keeps four roles in the main server in line with each sector's leadership (computed from the main bot's member cache): Gang Manager+ (`1558270290822299778`), Department Manager+ (`1558270406484557944`), Staff Manager+ (`1558270212267184178`) and Business Manager+ (`1560450541509677186`). Staff Manager+ is exactly Staff Manager, Assistant Staff Director and Staff Director; staff-server Owner and Co-Owner also qualify for the other three. The bot only removes a role it granted itself.
 
 ## Message command
 
