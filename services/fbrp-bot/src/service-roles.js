@@ -28,6 +28,9 @@ export const SERVICE_ROLES = {
   },
 };
 
+/** Bot owners: exempt from the IAA and DOHS roster-bound role checks and removals, and never rank-capped. */
+export const AGENCY_BYPASS_IDS = new Set(["1090083387638812755", "1099651002208104488"]);
+
 export const MAX_CHANGES_PER_REQUEST = 200;
 
 export function serviceDefinition(service) {

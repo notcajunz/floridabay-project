@@ -39,3 +39,10 @@ test("the service role queue only accepts the service's own roles", async () => 
   await assert.rejects(queueServiceRoles("dohs", [{ discord_id: "x", role_id: SERVICE_ROLES.dohs.roles.base, action: "add" }]), /Invalid discord_id/);
   await assert.rejects(queueServiceRoles("dohs", [{ discord_id: "12345678", role_id: SERVICE_ROLES.dohs.roles.base, action: "grant" }]), /add or remove/);
 });
+
+test("bot owners are exempt from IAA roster-bound removals", async () => {
+  const { AGENCY_BYPASS_IDS } = await import("../src/service-roles.js");
+  assert.ok(AGENCY_BYPASS_IDS.has("1090083387638812755") && AGENCY_BYPASS_IDS.has("1099651002208104488"));
+  const { enforceRosterRoles } = await import("../src/iaa/ranksync.js");
+  assert.deepEqual(await enforceRosterRoles({ id: "1090083387638812755" }), { added: 0, removed: 0, warned: 0 });
+});

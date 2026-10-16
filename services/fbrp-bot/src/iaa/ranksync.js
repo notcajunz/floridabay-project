@@ -1,7 +1,7 @@
 import { ORG } from "./quota.js";
 import { agencyRoleIds, allMembers, config, db, post, ranks, tierRoleIdsUpTo } from "./store.js";
 import { C, card, mention } from "./util.js";
-import { SERVICE_ROLES, queueServiceRoles, serviceRoleHolders } from "../service-roles.js";
+import { AGENCY_BYPASS_IDS, SERVICE_ROLES, queueServiceRoles, serviceRoleHolders } from "../service-roles.js";
 
 /**
  * The main Florida Bay server has its own IAA, IAA Supervisor and IAA High Command roles. They follow
@@ -51,7 +51,7 @@ export async function reconcileMainRoles(guild) {
   }
   // A failed member fetch must never read as "nobody is on the roster".
   if (!expected.size) return { skipped: "no ranked members found" };
-  const { holders } = await serviceRoleHolders("iaa");
+  const holders = Object.fromEntries(Object.entries((await serviceRoleHolders("iaa")).holders).map(([role, ids]) => [role, ids.filter((id) => !AGENCY_BYPASS_IDS.has(id))]));
   const { changes, removals } = planMainRoles({ expected, holders, roleIds: Object.values(SERVICE_ROLES.iaa.roles) });
   const apply = removals > MAX_MAIN_REMOVALS ? changes.filter((c) => c.action === "add") : changes;
   if (removals > MAX_MAIN_REMOVALS)
@@ -99,6 +99,7 @@ export const isCurrentRosterMember = (rank, record) =>
 
 /** Enforces the roster-derived access roles for one member and warns on unauthorized additions. */
 export async function enforceRosterRoles(member, { warnFor = [] } = {}) {
+  if (AGENCY_BYPASS_IDS.has(member.id)) return { added: 0, removed: 0, warned: 0 };
   const cfg = await config();
   const ladder = await ranks();
   const suspended = Boolean(cfg.roles.suspended && member.roles.cache.has(cfg.roles.suspended));

