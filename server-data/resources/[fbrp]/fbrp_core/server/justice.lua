@@ -1530,11 +1530,25 @@ RegisterCommand('myvehicles', function(source)
     chat(source, 'REGISTRATION', #parts > 0 and table.concat(parts, ' · ') or 'No vehicles registered. Use /registervehicle while driving.', AQUA)
 end, false)
 
--- Delete the closest nearby vehicle the current player actually owns. The
--- server chooses the entity and verifies both registration and personal-vehicle
--- ownership; no client-supplied network ID is trusted.
+-- Ask the player who ran /dv for nearby network IDs because client-created
+-- vehicles are not always present in the server's entity pool. The server still
+-- verifies distance and ownership before approving any deletion.
+local pendingDv = {}
+
 RegisterCommand('dv', function(source)
     if source <= 0 or not sessions[source] then return end
+    local characterId = characterOf(source)
+    if not characterId then return notify(source, 'Pick a character before using /dv.', 'error') end
+    pendingDv[source] = GetGameTimer() + 5000
+    TriggerClientEvent('fbrp:justice:findDvCandidates', source, FBRP.Config.ownedVehicleDeleteDistance or 15.0)
+end, false)
+
+RegisterNetEvent('fbrp:justice:dvCandidates', function(candidates)
+    local source = source
+    local expires = pendingDv[source]
+    pendingDv[source] = nil
+    if not expires or GetGameTimer() > expires or not sessions[source] then return end
+
     local characterId = characterOf(source)
     if not characterId then return notify(source, 'Pick a character before using /dv.', 'error') end
     local ped = GetPlayerPed(source)
@@ -1546,15 +1560,18 @@ RegisterCommand('dv', function(source)
         registered[normalizePlate(row.plate)] = true
     end
 
-    local closest, closestDistance, closestPlate
-    for _, vehicle in ipairs(GetAllVehicles()) do
-        if DoesEntityExist(vehicle) then
+    local closest, closestDistance, closestPlate, closestNetId
+    if type(candidates) ~= 'table' then candidates = {} end
+    for index = 1, math.min(#candidates, 32) do
+        local netId = tonumber(candidates[index]) or 0
+        local vehicle = NetworkGetEntityFromNetworkId(netId)
+        if netId > 0 and vehicle and vehicle ~= 0 and DoesEntityExist(vehicle) and GetEntityType(vehicle) == 2 then
             local distance = #(GetEntityCoords(vehicle) - origin)
             if distance <= maxDistance and (not closestDistance or distance < closestDistance) then
                 local plate = normalizePlate(GetVehicleNumberPlateText(vehicle))
                 local personalOwner = FBRP.Personals and FBRP.Personals.owns and FBRP.Personals.owns(source, vehicle)
                 if personalOwner or registered[plate] then
-                    closest, closestDistance, closestPlate = vehicle, distance, plate
+                    closest, closestDistance, closestPlate, closestNetId = vehicle, distance, plate, netId
                 end
             end
         end
@@ -1565,12 +1582,19 @@ RegisterCommand('dv', function(source)
     end
     if FBRP.Personals and FBRP.Personals.removed then FBRP.Personals.removed(closest) end
     DeleteEntity(closest)
+    -- The requesting client normally owns client-created vehicles, so let it
+    -- finish the deletion if server-side entity removal has not propagated.
+    TriggerClientEvent('fbrp:justice:deleteDvVehicle', source, closestNetId)
     notify(source, ('Your vehicle%s was deleted.'):format(closestPlate ~= '' and (' (' .. closestPlate .. ')') or ''), 'success')
     local s = sessions[source]
     FBRP.DB.audit(s and s.discord or source, 'vehicle.delete', closestPlate ~= '' and closestPlate or nil, {
         distance = math.floor(closestDistance * 10 + 0.5) / 10,
     })
-end, false)
+end)
+
+AddEventHandler('playerDropped', function()
+    pendingDv[source] = nil
+end)
 
 RegisterNetEvent('fbrp:justice:runplate', function(rawPlate)
     local src = source

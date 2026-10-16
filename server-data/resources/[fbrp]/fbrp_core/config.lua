@@ -6,7 +6,7 @@ FBRP.Config = {
     serviceToken = GetConvar('fbrp_serviceToken', ''),
     -- Keep overhead identity close enough to support a scene without carrying
     -- player information across a street or through a large interior.
-    tagDistance = 18.0,
+    tagDistance = 10.0,
     -- vMenu's "Show Player Names" draws a native "Name [id]" gamer tag over every player in
     -- range, including staff in noclip. fbrp tags replace it, so those gamer tags are removed.
     hideVmenuGamerTags = true,
@@ -336,4 +336,3 @@ FBRP.Interactions = {
     { id = 'diagnose', label = 'Check injuries', aceAny = { FBRP.Ace.ems, FBRP.Ace.police } },
     { id = 'showid', label = 'Show my ID', public = true },
 }
-

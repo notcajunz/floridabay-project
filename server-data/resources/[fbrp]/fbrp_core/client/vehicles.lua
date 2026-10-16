@@ -162,6 +162,40 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     TriggerEvent('fbrp:notify',(label or model)..' ready.','success')
 end)
 
+RegisterNetEvent('fbrp:justice:findDvCandidates',function(maxDistance)
+    local origin=GetEntityCoords(PlayerPedId())
+    local nearby={}
+    maxDistance=tonumber(maxDistance) or 15.0
+    for _,vehicle in ipairs(GetGamePool('CVehicle')) do
+        if DoesEntityExist(vehicle) then
+            local distance=#(GetEntityCoords(vehicle)-origin)
+            local netId=NetworkGetNetworkIdFromEntity(vehicle)
+            if distance<=maxDistance and netId>0 then
+                nearby[#nearby+1]={netId=netId,distance=distance}
+            end
+        end
+    end
+    table.sort(nearby,function(a,b) return a.distance<b.distance end)
+    local candidates={}
+    for index=1,math.min(#nearby,32) do candidates[index]=nearby[index].netId end
+    TriggerServerEvent('fbrp:justice:dvCandidates',candidates)
+end)
+
+RegisterNetEvent('fbrp:justice:deleteDvVehicle',function(netId)
+    local vehicle=NetworkGetEntityFromNetworkId(tonumber(netId) or 0)
+    if vehicle==0 or not DoesEntityExist(vehicle) then return end
+    NetworkRequestControlOfEntity(vehicle)
+    local timeout=GetGameTimer()+1000
+    while not NetworkHasControlOfEntity(vehicle) and GetGameTimer()<timeout do
+        Wait(0)
+        NetworkRequestControlOfEntity(vehicle)
+    end
+    if DoesEntityExist(vehicle) then
+        SetEntityAsMissionEntity(vehicle,true,true)
+        DeleteVehicle(vehicle)
+    end
+end)
+
 local function myVehicle(driverOnly)
     local ped=PlayerPedId(); local vehicle=GetVehiclePedIsIn(ped,false)
     if vehicle==0 then return nil end
@@ -405,4 +439,3 @@ function FBRP.VehicleStatus()
         locked=GetVehicleDoorLockStatus(vehicle)>=2
     }
 end
-
