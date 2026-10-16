@@ -832,11 +832,12 @@ export function createPersonalImporter({ personals, audit, db }) {
   }
 
   /**
-   * Owner group only: asks the AI to change the handling of an imported vehicle that is already installed
-   * (percentages apply to its current handling), and/or makes its textures smaller. Restarts it live.
+   * Designated personal manager only: asks the AI to change the handling of an imported vehicle that is
+   * already installed (percentages apply to its current handling), and/or makes its textures smaller.
+   * Restarts it live.
    */
   async function retune(actorId, input) {
-    if (!(await personals.isOwnerGroup(actorId))) throw new Error("Only the Owner group can change a vehicle's handling.");
+    await personals.assertManager(actorId);
     const current = await personals.find(input.id);
     const model = personals.modelOf(current.model);
     const resource = personalResourceName(model);

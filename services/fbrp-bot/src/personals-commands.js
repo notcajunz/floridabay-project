@@ -11,7 +11,7 @@ export const personal = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("add")
-      .setDescription("Management: make a vehicle model someone's personal")
+      .setDescription("Personal manager: make a vehicle model someone's personal")
       .addStringOption((o) =>
         o.setName("model").setDescription("Spawn name of the vehicle, e.g. sultanrs").setRequired(true).setMaxLength(40),
       )
@@ -23,7 +23,7 @@ export const personal = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("edit")
-      .setDescription("Management: change a personal's name, model, plate or availability")
+      .setDescription("Personal manager: change a personal's name, model, plate or availability")
       .addStringOption(personalVehicle)
       .addStringOption((o) => o.setName("label").setDescription("Name shown in the F7 garage").setMaxLength(60))
       .addStringOption((o) => o.setName("model").setDescription("New spawn name; renames an imported vehicle's files too").setMaxLength(40))
@@ -34,12 +34,12 @@ export const personal = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("owner")
-      .setDescription("Management: transfer a personal to someone else")
+      .setDescription("Personal manager: transfer a personal to someone else")
       .addStringOption(personalVehicle)
       .addUserOption((o) => o.setName("member").setDescription("New owner").setRequired(true)),
   )
   .addSubcommand((s) =>
-    s.setName("remove").setDescription("Management: delete a personal vehicle").addStringOption(personalVehicle),
+    s.setName("remove").setDescription("Personal manager: delete a personal vehicle").addStringOption(personalVehicle),
   )
   .addSubcommand((s) =>
     s
@@ -70,10 +70,10 @@ export const personal = new SlashCommandBuilder()
       .addStringOption((o) => o.setName("tag").setDescription("Tag to remove").setRequired(true).setAutocomplete(true)),
   )
   .addSubcommand((s) =>
-    s.setName("lock").setDescription("Management: lock a personal so it cannot be spawned or used").addStringOption(personalVehicle),
+    s.setName("lock").setDescription("Personal manager: lock a personal so it cannot be spawned or used").addStringOption(personalVehicle),
   )
   .addSubcommand((s) =>
-    s.setName("unlock").setDescription("Management: unlock a locked personal vehicle").addStringOption(personalVehicle),
+    s.setName("unlock").setDescription("Personal manager: unlock a locked personal vehicle").addStringOption(personalVehicle),
   )
   .addSubcommand((s) =>
     s.setName("info").setDescription("Show one personal vehicle").addStringOption(personalVehicle),
@@ -81,9 +81,9 @@ export const personal = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("list")
-      .setDescription("List your personal vehicles (management can look up anyone or list them all)")
-      .addUserOption((o) => o.setName("member").setDescription("Management: whose vehicles to show"))
-      .addBooleanOption((o) => o.setName("all").setDescription("Management: show every personal vehicle")),
+      .setDescription("List your personal vehicles (the personal manager can list the fleet)")
+      .addUserOption((o) => o.setName("member").setDescription("Personal manager: whose vehicles to show"))
+      .addBooleanOption((o) => o.setName("all").setDescription("Personal manager: show every personal vehicle")),
   );
 
 export const personalsCommands = [personal].map((command) => command.toJSON());

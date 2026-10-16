@@ -34,11 +34,18 @@ local freezeThreadRunning = false
 
 RegisterNetEvent("EasyAdmin:adminresponse", function(perms)
 	permissions = perms
+	isAdmin = false
 
 	for perm, val in pairs(perms) do
 		if val == true then
 			isAdmin = true
 		end
+	end
+
+	-- Staff ACEs disappear immediately on clock-out. Do not leave an existing
+	-- EasyAdmin spectate session (its noclip-like mode) running from cached state.
+	if not permissions["player.spectate"] and IsSpectating and spectatePlayer then
+		spectatePlayer(PlayerPedId(), PlayerId(), GetPlayerName(PlayerId()))
 	end
 end)
 

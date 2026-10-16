@@ -112,6 +112,16 @@ local function acePatternMatches(pattern, object)
     return false
 end
 
+-- vMenu snapshots permissions before the player's database session is ready, so
+-- staff groups also receive a connect-time vMenu-only principal. Never mirror
+-- an explicit NoClip grant onto that always-on principal. vMenu.Everything
+-- still needs to preserve unrelated player-facing features; the client gate
+-- strips its NoClip result unless the server authorizes the current duty.
+local function offDutyVmenuObject(object)
+    if type(object) ~= 'string' or object:sub(1, 6) ~= 'vMenu.' then return false end
+    return not acePatternMatches(object, 'vMenu.NoClip')
+end
+
 local function membershipRows(discord)
     if not discord then return {} end
     return MySQL.query.await([[
@@ -246,11 +256,11 @@ local function reconcilePrincipals(source)
     for _, group in ipairs(s.groups or {}) do
         local staffOnly = group.staff_only == 1 or group.staff_only == true
         if not staffOnly or s.staffDuty then wanted['group:' .. group.name] = groupPrincipal(group.name) end
-        -- vMenu is player-facing and must reflect Discord/ACE grants even while a staff member is
-        -- off duty. Keep it on a separate principal so EasyAdmin and fbrp staff powers remain gated.
+        -- Player-facing vMenu grants may remain available off duty. NoClip is
+        -- deliberately excluded and comes only from the duty-gated principal.
         if staffOnly then
             for _, entry in ipairs(permissionRows[group.name] or {}) do
-                if entry.object:sub(1, 6) == 'vMenu.' then
+                if offDutyVmenuObject(entry.object) then
                     wanted['vmenu:' .. group.name] = vmenuPrincipal(group.name)
                     break
                 end
@@ -290,7 +300,7 @@ local function loadPermissionModel()
             ExecuteCommand(('add_ace %s %s %s'):format(groupPrincipal(row.group_name), row.object, row.mode))
             appliedAces[key] = row.mode
         end
-        if row.object:sub(1, 6) == 'vMenu.' then
+        if offDutyVmenuObject(row.object) then
             local vmenuKey = row.group_name .. '|vmenu|' .. row.object
             if not appliedAces[vmenuKey] or appliedAces[vmenuKey] ~= row.mode then
                 if appliedAces[vmenuKey] then
@@ -307,7 +317,7 @@ local function loadPermissionModel()
         if scopedObject then object = scopedObject end
         local keep = false
         for _, row in ipairs(nextRows[group] or {}) do
-            if row.object == object and row.mode == mode and (not scopedObject or row.object:sub(1, 6) == 'vMenu.') then keep = true break end
+            if row.object == object and row.mode == mode and (not scopedObject or offDutyVmenuObject(row.object)) then keep = true break end
         end
         if not keep then
             local principal = scopedObject and vmenuPrincipal(group) or groupPrincipal(group)
@@ -365,6 +375,9 @@ local function publishPlayer(source)
     player.state:set('fbrp:id', source, true)
     player.state:set('fbrp:name', player.state['fbrp:characterName'] or GetPlayerName(source) or s.name, true)
     player.state:set('fbrp:staffDuty', s.staffDuty == true, true)
+    player.state:set('fbrp:staffNoclip', s.staffDuty == true and (
+        databasePermission(source, 'vMenu.NoClip') or databasePermission(source, 'vMenu.Everything')
+    ), true)
     player.state:set('fbrp:maxVehicleSpeedMph', s.maxVehicleSpeedMph or FBRP.Config.vehicleSpeedLimitMph or 180, true)
     local headtag = selectedTagVisible(s, s.headtag)
     local gangtag = selectedTagVisible(s, s.gangtag)
@@ -731,7 +744,7 @@ AddEventHandler('playerConnecting', function(_, _, deferrals)
                 parent = groupPrincipal(group.name)
             else
                 for _, entry in ipairs(permissionRows[group.name] or {}) do
-                    if entry.object:sub(1, 6) == 'vMenu.' then parent = vmenuPrincipal(group.name) break end
+                    if offDutyVmenuObject(entry.object) then parent = vmenuPrincipal(group.name) break end
                 end
             end
             if parent and not held[parent] then

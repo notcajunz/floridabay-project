@@ -40,7 +40,7 @@ function personalCard(title, row, { color = COLORS.success, description } = {}) 
   });
 }
 
-/** /personal: owner-only vehicles with a short trust list. Management (Co-Owner+) runs the whole fleet. */
+/** /personal: owners manage their own trust list; the designated manager runs the whole fleet. */
 async function personalCommand(i, sub) {
   const actor = i.user.id;
   const vehicleId = () => {

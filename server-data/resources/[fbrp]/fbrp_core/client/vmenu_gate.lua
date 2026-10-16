@@ -1,24 +1,25 @@
--- vMenu hands out its permissions once, when a player joins, from their ACE groups at that moment.
--- NoClip is a staff power that must only work while clocked in (/clockin), so this keeps vMenu's
--- own permission table in step with the duty state: the server's table is intercepted and NoClip is
--- cleared while off duty, then restored when the player clocks in.
+-- vMenu hands out its permissions once, when a player joins. NoClip is never
+-- carried by the always-on vMenu principal: the server publishes a separate,
+-- authoritative flag which is true only while a staff member with the grant is
+-- clocked in. Keep vMenu's cached table synchronized with that flag.
 
 local rawPermissions = nil -- last permissions JSON vMenu's server sent
-local applied = nil        -- duty state the table was last written for
+local applied = nil        -- authorization state the table was last written for
 local applying = false
 
-local function onDuty()
+local function authorized()
     return LocalPlayer.state['fbrp:staffDuty'] == true
+        and LocalPlayer.state['fbrp:staffNoclip'] == true
 end
 
 local function apply(force)
     if not rawPermissions then return end
-    local duty = onDuty()
-    if not force and applied == duty then return end
+    local allowed = authorized()
+    if not force and applied == allowed then return end
     local ok, data = pcall(json.decode, rawPermissions)
     if not ok or type(data) ~= 'table' then return end
-    if not duty and data.NoClip ~= nil then data.NoClip = false end
-    applied = duty
+    data.NoClip = allowed
+    applied = allowed
     applying = true
     TriggerEvent('vMenu:SetPermissions', json.encode(data))
     applying = false
@@ -29,16 +30,16 @@ AddEventHandler('vMenu:SetPermissions', function(payload)
     if applying or type(payload) ~= 'string' then return end
     rawPermissions = payload
     applied = nil
-    -- vMenu's own handler runs after this one, so write our copy once it has settled.
+    -- vMenu's own handler runs after this one, so write our copy on the next tick.
     CreateThread(function()
-        Wait(300)
+        Wait(0)
         apply(true)
     end)
 end)
 
 CreateThread(function()
     while true do
-        Wait(1000)
+        Wait(250)
         apply(false)
     end
 end)

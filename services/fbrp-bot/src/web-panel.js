@@ -29,6 +29,8 @@ const PORTAL_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const PORTAL_SESSION_TTL_SECONDS = PORTAL_SESSION_TTL_MS / 1000;
 /** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
 const ORG_ADMIN_RESOURCES = new Set(["organizations", "organization-requirements", "headtags", "org-shop", "org-wallets", "personals", "personal-trust", "personal-tags"]);
+/** Fleet-wide personal data is visible and mutable only to the designated manager. */
+const PERSONAL_ADMIN_RESOURCES = new Set(["personals", "personal-trust", "personal-tags"]);
 /** Read-only lookups those sections need for their dropdowns. */
 const ORG_ADMIN_LOOKUPS = { "ace-groups": ["name", "label"] };
 const now = () => Date.now();
@@ -771,13 +773,13 @@ export const PANEL_RESOURCES = {
   },
 };
 
-const publicDefinition = ([id, resource], suggestions, personalOwner = false) => ({
+const publicDefinition = ([id, resource], suggestions, personalManager = false) => ({
   id,
   label: resource.label,
   group: resource.group,
   description: resource.description,
   pk: resource.pk,
-  editExisting: id !== "personals" || personalOwner,
+  editExisting: id !== "personals" || personalManager,
   fields: resource.fields.map(({ suggest, ...meta }) =>
     suggest ? { ...meta, suggestions: suggestions[suggest] || [] } : meta,
   ),
@@ -1148,9 +1150,11 @@ export function startWebPanel(context) {
     }
   }
 
-  async function bootstrap(scope = "full", personalOwner = false) {
+  async function bootstrap(scope = "full", personalManager = false) {
     const scoped = scope !== "full";
-    const allowed = ([id]) => !scoped || ORG_ADMIN_RESOURCES.has(id);
+    const allowed = ([id]) => !PERSONAL_ADMIN_RESOURCES.has(id) || personalManager
+      ? (!scoped || ORG_ADMIN_RESOURCES.has(id))
+      : false;
     const records = {};
     const types = await db.query("SELECT type_key,label FROM ticket_types ORDER BY sort_order,label").catch(() => []);
     const suggestions = {
@@ -1200,7 +1204,7 @@ export function startWebPanel(context) {
       online: client.isReady(),
       bot: client.user ? { id: client.user.id, tag: client.user.tag } : null,
       generatedAt: now(),
-      resources: Object.entries(PANEL_RESOURCES).filter(allowed).map((entry) => publicDefinition(entry, suggestions, personalOwner)),
+      resources: Object.entries(PANEL_RESOURCES).filter(allowed).map((entry) => publicDefinition(entry, suggestions, personalManager)),
       catalog: scoped ? [] : EDITOR_CATALOG,
       bundles: scoped ? [] : [
         ...Object.entries(PERMISSION_BUNDLES).map(([name, objects]) => ({ name, objects })),
@@ -1991,18 +1995,17 @@ export function startWebPanel(context) {
       // The complete live configuration plane is owner-only; Co-Owners and above get the organization sections.
       const scope = await panelScope(session.id);
       if (!scope) return sendJson(response, 403, { error: "Live configuration needs the Co-Owner rank or higher." });
-      const personalOwner = await personals.isOwnerGroup(session.id);
+      const personalManager = await personals.canManage(session.id);
       if (request.method === "GET" && url.pathname === "/api/bootstrap")
-        return sendJson(response, 200, await bootstrap(scope, personalOwner));
+        return sendJson(response, 200, await bootstrap(scope, personalManager));
       if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
       const input = await bodyJson(request);
       if (scope !== "full" && !(["/api/record/save", "/api/record/delete"].includes(url.pathname) && ORG_ADMIN_RESOURCES.has(String(input.resource))))
         return sendJson(response, 403, { error: "Co-Owners can only change the organization sections of live configuration." });
-      // Editing or deleting a personal vehicle is Owner-group only, here as well as on the portal.
-      if (String(input.resource) === "personals"
-        && (url.pathname === "/api/record/delete" || (url.pathname === "/api/record/save" && input.original))
-        && !personalOwner)
-        return sendJson(response, 403, { error: "Only the Owner group can edit or delete personal vehicles." });
+      // The generic editor bypasses personals.js, so enforce the designated
+      // manager for every personal table and every create/edit/delete action.
+      if (PERSONAL_ADMIN_RESOURCES.has(String(input.resource)) && !personalManager)
+        return sendJson(response, 403, { error: "Only the designated personal-vehicle manager can change personal vehicles." });
       let result = null;
       if (url.pathname === "/api/record/save") {
         await saveRecord(input.resource, input.record || {}, input.original || null, session.id);
@@ -2045,7 +2048,7 @@ export function startWebPanel(context) {
         await syncAll(client);
         await refreshGame();
       } else throw new Error("Unknown panel action.");
-      return sendJson(response, 200, { ok: true, result, data: await bootstrap(scope, personalOwner) });
+      return sendJson(response, 200, { ok: true, result, data: await bootstrap(scope, personalManager) });
     } catch (error) {
       console.error("[FBRP panel]", error);
       return sendJson(response, 400, { error: error.message || String(error) });

@@ -318,6 +318,24 @@ Citizen.CreateThread(function()
 		TriggerLatentClientEvent("EasyAdmin:SetLanguage", source, 10000, strings)
 		
 	end)
+
+	-- fbrp_core owns staff duty and changes ACE principals at runtime. Refresh
+	-- EasyAdmin's client-side permission cache immediately in both directions;
+	-- the regular request endpoint is intentionally rate-limited for players.
+	AddEventHandler('fbrp:staffDutyChanged', function(playerId)
+		playerId = tonumber(playerId)
+		if not playerId or playerId <= 0 then return end
+		local perms = {}
+		local any = false
+		for perm in pairs(permissions) do
+			local allowed = DoesPlayerHavePermission(playerId, perm)
+			if perm == "player.screenshot" and not screenshots then allowed = false end
+			perms[perm] = allowed
+			if allowed then any = true end
+		end
+		OnlineAdmins[playerId] = any and true or nil
+		TriggerClientEvent("EasyAdmin:adminresponse", playerId, perms)
+	end)
 	
 	RegisterServerEvent("EasyAdmin:kickPlayer", function(playerId,reason)
 		-- Validate playerId before proceeding

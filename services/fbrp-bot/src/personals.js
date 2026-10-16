@@ -1,6 +1,6 @@
-import { staffLevel, superuserIds } from "./database.js";
 import { callGame } from "./sync.js";
 import { deletePersonalResource } from "./personal-resources.js";
+import { OWNER_DISCORD_ID } from "./access-control.js";
 
 /**
  * Personal vehicles (website + Discord side).
@@ -12,6 +12,7 @@ import { deletePersonalResource } from "./personal-resources.js";
 
 export const MAX_TRUSTED = 3;
 export const MAX_TRUSTED_WITH_TAG = 2;
+export const PERSONALS_MANAGER_ID = OWNER_DISCORD_ID;
 
 const MODEL = /^[a-z0-9_]{2,40}$/;
 const PLATE = /^[A-Z0-9 ]{1,8}$/;
@@ -27,22 +28,10 @@ export function discordIdOf(value) {
 }
 
 export function createPersonals({ db, audit }) {
-  /** Co-Owner and above manage every personal, with or without the ACE permission. */
-  async function coOwnerOrAbove(discordId) {
-    const [level, coOwner] = await Promise.all([staffLevel(discordId), db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'")]);
-    return level >= Number(coOwner?.rank_order ?? 950);
-  }
-  const canManage = async (discordId) =>
-    superuserIds().has(String(discordId)) ||
-    (await coOwnerOrAbove(discordId));
-
-  /** Editing, transferring and deleting a personal is limited strictly to the Owner ACE group. */
-  async function isOwnerGroup(discordId) {
-    const row = await db.one("SELECT 1 ok FROM ace_memberships WHERE discord_id=? AND group_name='owner' LIMIT 1", [String(discordId)]);
-    return Boolean(row);
-  }
-  async function assertOwnerGroup(discordId) {
-    if (!(await isOwnerGroup(discordId))) throw new Error("Only the Owner group can edit, transfer or delete personal vehicles.");
+  /** Fleet-wide personal administration belongs to one explicitly designated Discord account. */
+  const canManage = async (discordId) => String(discordId) === PERSONALS_MANAGER_ID;
+  async function assertManager(discordId) {
+    if (!(await canManage(discordId))) throw new Error("Only the designated personal-vehicle manager can do that.");
   }
 
   const notifyGame = () => callGame("/personals/refresh", {}).catch(() => null);
@@ -119,7 +108,7 @@ export function createPersonals({ db, audit }) {
   /** Everything the website needs for one member. */
   async function portalData(discordId) {
     const id = String(discordId);
-    const [manage, owner] = await Promise.all([canManage(id), isOwnerGroup(id)]);
+    const manage = await canManage(id);
     const [all, tags] = await Promise.all([
       db.query("SELECT * FROM personal_vehicles ORDER BY label,id"),
       lockableTags(id, manage),
@@ -135,7 +124,7 @@ export function createPersonals({ db, audit }) {
     }
     return {
       manage,
-      owner,
+      owner: manage,
       limit: MAX_TRUSTED,
       taggedLimit: MAX_TRUSTED_WITH_TAG,
       mine,
@@ -148,10 +137,6 @@ export function createPersonals({ db, audit }) {
     const manage = await canManage(discordId);
     if (personal.owner_id !== String(discordId) && !manage) throw new Error("Only the owner of this vehicle can change that.");
     return manage;
-  }
-
-  async function assertManager(discordId) {
-    if (!(await canManage(discordId))) throw new Error("Co-Owner rank or higher is required.");
   }
 
   function modelOf(value) {
@@ -188,7 +173,7 @@ export function createPersonals({ db, audit }) {
   }
 
   async function update(actorId, input) {
-    await assertOwnerGroup(actorId);
+    await assertManager(actorId);
     const current = await find(input.id);
     const model = input.model !== undefined ? modelOf(input.model) : current.model;
     const label = input.label !== undefined ? text(input.label, 60) || current.label : current.label;
@@ -202,7 +187,7 @@ export function createPersonals({ db, audit }) {
   }
 
   async function remove(actorId, input) {
-    await assertOwnerGroup(actorId);
+    await assertManager(actorId);
     const current = await find(input.id);
     const other = await db.one("SELECT id FROM personal_vehicles WHERE model=? AND id<>? LIMIT 1", [current.model, current.id]);
     const files = other ? { resource: null, deleted: false, shared: true } : await deletePersonalResource(current.model);
@@ -224,7 +209,7 @@ export function createPersonals({ db, audit }) {
   }
 
   async function setOwner(actorId, input) {
-    await assertOwnerGroup(actorId);
+    await assertManager(actorId);
     const current = await find(input.id);
     const ownerId = discordIdOf(input.ownerId);
     // The new owner should not also sit on the trust list.
@@ -340,7 +325,7 @@ export function createPersonals({ db, audit }) {
   return {
     MAX_TRUSTED,
     MAX_TRUSTED_WITH_TAG,
-    assertManager, isOwnerGroup, modelOf,
+    assertManager, modelOf,
     canManage, portalData, find, relation, create, update, remove, setLocked, setOwner, trust, untrust, lockTag, unlockTag, listFor, choices, lockableTags,
   };
 }
