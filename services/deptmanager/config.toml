@@ -16,6 +16,7 @@ hours_channel_id = 1560394222799163392               # dept-leaderboard (hours p
 transfer_log_channel_id = 1560394430991831120        # transfer-logs
 transfer_blacklist_log_channel_id = 1560394439027859477
 role_conflict_channel_id = 1560394400662556752       # dc-logs
+email_channel_id = 1560394400662556752               # email access requests for coordination to approve (dc-logs)
 punishment_channel_ids = [1560394377443016844]       # dc-punishment-logs
 custom_message_log_channel_id = 1560394337131565179  # custom-msg-logs (/dm send, /embed)
 member_log_channel_id = 1560394541150896238
@@ -28,6 +29,8 @@ message_log_channel_id = 0                           # no message-log channel in
 member_role_id = 1560393920364544070                 # Member, given on join
 transfer_blacklist_role_id = 1560393498639736834
 suspension_role_id = 0                               # suspensions are logged without a role
+launch_group_role_id = 1560393409942917210           # Department Launch Group: may run /dept add and /dept remove
+email_approver_rank = "Senior Department Coordinator"  # SDC and above approve email database access
 coord_team_role_id = 1560393453479657563             # FBRP | Department Coordinator, given with every rank from it up
 multi_department_bypass_role_ids = []
 restricted_role_ids = []
@@ -110,6 +113,12 @@ mode = "inherit"
 users = []
 roles = []
 commands = ["dept add", "dept create", "dept hours", "dept info", "dept list", "dept remove", "dept role", "dept status", "dept update"]
+
+[access.categories.email]
+mode = "inherit"
+users = []
+roles = []
+commands = ["email adduser", "email list", "email registrar", "email removeuser", "email wipe"]
 
 [access.categories.coordination]
 mode = "inherit"

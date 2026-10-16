@@ -5,6 +5,7 @@ from deptbot.bot import DepartmentManagerBot
 from deptbot.cogs.coordination import CoordinationCog
 from deptbot.cogs.core import CoreCog
 from deptbot.cogs.departments import DepartmentsCog
+from deptbot.cogs.email import EmailCog
 from deptbot.cogs.members import MembersCog
 from deptbot.config import Config
 from deptbot.constants import COORDINATOR_RANKS, DEPARTMENT_CATEGORIES
@@ -25,7 +26,7 @@ def walk(command, prefix=""):
 
 async def registered(tmp_path: Path) -> set[str]:
     bot = DepartmentManagerBot(Config("unused", tmp_path / "commands.db", None, frozenset()))
-    for cog in (CoreCog(bot), DepartmentsCog(bot), CoordinationCog(bot), MembersCog(bot), TicketsCog(bot)):
+    for cog in (CoreCog(bot), DepartmentsCog(bot), CoordinationCog(bot), MembersCog(bot), EmailCog(bot), TicketsCog(bot)):
         await bot.add_cog(cog)
     return {name for command in bot.tree.get_commands() for name in walk(command)}
 

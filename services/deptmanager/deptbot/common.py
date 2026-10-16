@@ -310,3 +310,55 @@ async def _has_permission_override(
         key=lambda row: (scope_rank.get(row["permission"], 3), 0 if row["target_type"] == "user" else 1),
     )
     return bool(chosen["allowed"])
+
+
+async def _launch_or_manager(interaction: discord.Interaction) -> bool:
+    """Department Launch Group members, or managers and above."""
+    config = interaction.client.config  # type: ignore[attr-defined]
+    if has_bypass(interaction):
+        return True
+    if (
+        config.launch_group_role_id
+        and isinstance(interaction.user, discord.Member)
+        and any(role.id == config.launch_group_role_id for role in interaction.user.roles)
+    ):
+        return True
+    return await require_level(interaction, "manager")
+
+
+launch_or_manager = app_commands.check(_launch_or_manager)
+
+
+class _ConfirmView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.confirmed = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Only the person who ran the command can answer.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.confirmed = True
+        await interaction.response.edit_message(content="Working...", view=None)
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(content="Cancelled.", view=None)
+        self.stop()
+
+
+async def confirm_action(interaction: discord.Interaction, prompt: str) -> bool:
+    """Ask the invoker to confirm with buttons. The command carries on with followups when True."""
+    view = _ConfirmView(interaction.user.id)
+    if interaction.response.is_done():
+        await interaction.followup.send(prompt, view=view, ephemeral=True)
+    else:
+        await interaction.response.send_message(prompt, view=view, ephemeral=True)
+    await view.wait()
+    return view.confirmed

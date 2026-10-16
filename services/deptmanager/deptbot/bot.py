@@ -60,12 +60,13 @@ class DepartmentManagerBot(commands.Bot):
         from .cogs.coordination import CoordinationCog
         from .cogs.core import CoreCog
         from .cogs.departments import DepartmentsCog
+        from .cogs.email import EmailCog
         from .cogs.events import EventsCog
         from .cogs.members import MembersCog
         from .cogs.panels import PanelsCog
         from .tickets import TicketsCog
 
-        for cog in (CoreCog(self), DepartmentsCog(self), CoordinationCog(self), MembersCog(self), EventsCog(self), PanelsCog(self), TicketsCog(self)):
+        for cog in (CoreCog(self), DepartmentsCog(self), CoordinationCog(self), MembersCog(self), EmailCog(self), EventsCog(self), PanelsCog(self), TicketsCog(self)):
             await self.add_cog(cog)
 
         self.tree.on_error = self.on_tree_error

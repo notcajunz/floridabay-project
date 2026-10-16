@@ -80,3 +80,13 @@ channel in its own Discord category. Staff for a ticket are the type's `staff_ro
   Closed channels are removed after `delete_closed_after_hours`.
 - Limits: `max_open` per member, `cooldown_seconds` between tickets, `blacklist_role_ids` cannot open.
 - Tables `tickets` and `ticket_participants` live in the bot's own SQLite database.
+
+## Email database
+
+`/email registrar|adduser|removeuser|wipe|list` talk to the Department Email Database, a Google
+Apps Script web app (`SHEET_API_URL`, `SHEET_API_SECRET` in `.env`; the web app must be deployed
+with access set to Anyone). `/email adduser` and `/email removeuser` post an Approve/Deny request in
+`email_channel_id` that pings Senior Department Coordinator and above (`email_approver_rank`).
+`/dept add` also creates the department's tab and `/dept remove` archives it (the Launch Group role,
+`launch_group_role_id`, may run both). The bot reports registered members' hub roles to the sheet
+every 15 minutes so access follows roles.

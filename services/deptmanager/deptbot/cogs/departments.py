@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from datetime import UTC, datetime
 
@@ -13,7 +14,9 @@ from ..common import (
     clean_text,
     coordinator_only,
     department_autocomplete,
+    confirm_action,
     guild_id,
+    launch_or_manager,
     manager_only,
     refresh_panels,
     reply,
@@ -25,6 +28,7 @@ from ..constants import DEPARTMENT_CATEGORIES, DEPARTMENT_STATUSES
 from ..fbrp_api import FbrpApi, FbrpApiError
 from ..role_policy import department_movement_embed, format_hours_line, today
 from ..services import duration, parse_color
+from ..sheet_api import SheetApi, SheetApiError
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +42,23 @@ STATUS_COLORS = {
 }
 
 
+# The email database groups departments into its own categories.
+SHEET_CATEGORIES = ("Law Enforcement", "Fire / EMS", "DOT", "Handpicked", "Coordination")
+SHEET_CATEGORY_CHOICES = [app_commands.Choice(name=value, value=value) for value in SHEET_CATEGORIES]
+SHEET_CATEGORY_DEFAULTS = {
+    "Main LEO": "Law Enforcement", "Main FED": "Law Enforcement", "Pre-Main": "Law Enforcement",
+    "Armed Forces": "Law Enforcement", "Other": "Handpicked", "Handpicked": "Handpicked",
+}
+
+
+def sheet_code(initials: str | None, name: str) -> str:
+    """The short code a department gets in the email database (2 to 10 letters or numbers)."""
+    code = re.sub(r"[^A-Z0-9]", "", (initials or "").upper())
+    if len(code) < 2:
+        code = "".join(word[0] for word in re.findall(r"[A-Za-z0-9]+", name)).upper()
+    return code[:10]
+
+
 def unique_org_error(error: sqlite3.IntegrityError) -> ValueError:
     if "fbrp_org" in str(error):
         return ValueError("That FBRP organization is already linked to another department.")
@@ -46,6 +67,46 @@ def unique_org_error(error: sqlite3.IntegrityError) -> ValueError:
 
 class DepartmentsCog(DeptCog):
     dept = app_commands.Group(name="dept", description="Create and manage departments")
+
+    def __init__(self, bot, sheet: SheetApi | None = None):
+        super().__init__(bot)
+        self.sheet = sheet or SheetApi()
+
+    async def _sheet_add(self, interaction, row: dict, *, category: str, folder_link, handpicked: bool, restricted: bool) -> str:
+        """Add the department to the email database. Returns a line for the reply; never fails the command."""
+        code = sheet_code(row.get("initials"), row["name"])
+        if len(code) < 2:
+            return "Email database: not added, give `initials` of at least 2 letters or numbers."
+        try:
+            data = await self.sheet.call(
+                "deptAdd", code=code, name=row["name"], category=category, handpicked=handpicked,
+                restricted=restricted, folderLink=folder_link or "",
+                hcRole=str(row["command_role_id"] or ""), memberRole=str(row["base_role_id"] or ""),
+                byName=str(interaction.user), byId=str(interaction.user.id),
+            )
+        except SheetApiError as error:
+            return f"Email database: not added ({error})"
+        if not data.get("ok"):
+            return f"Email database: not added ({data.get('error', 'rejected')})"
+        return f"Email database: added as `{code}` with its own tab."
+
+    async def _sheet_remove(self, interaction, row: dict) -> str:
+        refs = [value for value in (row.get("initials"), row["name"]) if value]
+        data: dict = {}
+        try:
+            for ref in refs:
+                data = await self.sheet.call(
+                    "deptRemove", code=ref, byName=str(interaction.user), byId=str(interaction.user.id)
+                )
+                if data.get("ok") or "Unknown department" not in str(data.get("error", "")):
+                    break
+        except SheetApiError as error:
+            return f"Email database: not archived ({error})"
+        if data.get("ok"):
+            return f"Email database: tab archived ({data.get('members', 0)} member record(s) kept)."
+        if "Unknown department" in str(data.get("error", "")):
+            return "Email database: it was not in there."
+        return f"Email database: not archived ({data.get('error', 'rejected')})"
 
     async def _place_under_divider(self, guild: discord.Guild, category: str, roles: list[discord.Role]) -> None:
         """Move new roles just under their category divider so they sit with the other departments."""
@@ -124,10 +185,16 @@ class DepartmentsCog(DeptCog):
             + ("" if org else " Link its FBRP org with `/dept update org_id:` to track hours."),
         )
 
-    @dept.command(name="add", description="Register an existing department and its roles")
-    @manager_only
-    @app_commands.choices(category=CATEGORY_CHOICES)
-    @app_commands.describe(org_id="FBRP organization ID or slug, used for the hours integration")
+    @dept.command(name="add", description="Register a department and its roles (also adds it to the email database)")
+    @launch_or_manager
+    @app_commands.choices(category=CATEGORY_CHOICES, email_category=SHEET_CATEGORY_CHOICES)
+    @app_commands.describe(
+        org_id="FBRP organization ID or slug, used for the hours integration",
+        folder_link="Google Drive folder for the department's documents (email database)",
+        email_category="Email database category (defaults from the department category)",
+        handpicked="Members wait for Coordination approval (email database)",
+        restricted="Hide the folder from Full Access sharing (email database)",
+    )
     async def dept_add(
         self,
         interaction: discord.Interaction,
@@ -138,6 +205,10 @@ class DepartmentsCog(DeptCog):
         head: discord.Member | None = None,
         org_id: str | None = None,
         initials: str | None = None,
+        folder_link: str | None = None,
+        email_category: app_commands.Choice[str] | None = None,
+        handpicked: bool = False,
+        restricted: bool = False,
     ) -> None:
         guild = require_guild(interaction)
         if base_role.id == command_role.id:
@@ -161,7 +232,13 @@ class DepartmentsCog(DeptCog):
         await self.service.log(guild.id, "department", "added", actor_id(interaction), name)
         await self._post_movement(interaction, department_id, "Registered", org)
         await refresh_panels(self.bot, guild, "hours")
-        await reply(interaction, f"Registered **{name}** ({base_role.mention} / {command_role.mention}).")
+        row = dict(await self.db.fetch_one("SELECT * FROM departments WHERE id=?", (department_id,)))
+        sheet_line = await self._sheet_add(
+            interaction, row,
+            category=email_category.value if email_category else SHEET_CATEGORY_DEFAULTS[category.value],
+            folder_link=folder_link, handpicked=handpicked or category.value == "Handpicked", restricted=restricted,
+        )
+        await reply(interaction, f"Registered **{name}** ({base_role.mention} / {command_role.mention}).\n{sheet_line}")
 
     @dept.command(name="update", description="Update department details")
     @manager_only
@@ -329,12 +406,17 @@ class DepartmentsCog(DeptCog):
         await self.db.execute("UPDATE departments SET role_color=? WHERE id=?", (value, row["id"]))
         await reply(interaction, f"Updated **{row['name']}** role color to `#{value:06X}`.")
 
-    @dept.command(name="remove", description="Remove a department record (Discord roles are kept)")
-    @manager_only
+    @dept.command(name="remove", description="Remove a department record and archive its email database tab")
+    @launch_or_manager
     @app_commands.autocomplete(department=department_autocomplete)
     async def dept_remove(self, interaction: discord.Interaction, department: str) -> None:
         guild = require_guild(interaction)
         row = await self.service.department(guild.id, department)
+        if not await confirm_action(
+            interaction,
+            f"Remove **{row['name']}**? Its email database tab is archived and sharing is revoked. Discord roles are kept.",
+        ):
+            return
         await self.db.execute("DELETE FROM departments WHERE id=?", (row["id"],))
         await self.service.log(guild.id, "department", "removed", actor_id(interaction), row["name"])
         base = f"<@&{row['base_role_id']}>" if row["base_role_id"] else f"**{row['name']}**"
@@ -343,4 +425,5 @@ class DepartmentsCog(DeptCog):
             f"{base} --> Removed ({row['category']}) | {today()} | {interaction.user.mention}",
         )
         await refresh_panels(self.bot, guild, "hours")
-        await reply(interaction, f"Removed **{row['name']}**. Discord roles were left untouched.")
+        sheet_line = await self._sheet_remove(interaction, row)
+        await reply(interaction, f"Removed **{row['name']}**. Discord roles were left untouched.\n{sheet_line}")

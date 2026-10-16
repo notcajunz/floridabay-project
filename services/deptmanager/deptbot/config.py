@@ -49,6 +49,7 @@ class Config:
     transfer_log_channel_id: int = 0
     transfer_blacklist_log_channel_id: int = 0
     role_conflict_channel_id: int = 0
+    email_channel_id: int = 0
     punishment_channel_ids: tuple[int, ...] = ()
     custom_message_log_channel_id: int = 0
     server_log_channel_id: int = 0
@@ -75,6 +76,9 @@ class Config:
     transfer_cooldown_role_ids: dict[str, int] = field(default_factory=dict)
     resignation_cooldown_role_ids: dict[str, int] = field(default_factory=dict)
     level_ranks: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_LEVEL_RANKS))
+    # Lowest coordination rank that approves or denies email database access requests.
+    email_approver_rank: str = "Senior Department Coordinator"
+    launch_group_role_id: int = 0
 
     def cooldown_role_id(self, kind: str, category: str) -> int:
         roles = self.transfer_cooldown_role_ids if kind == "Transfer" else self.resignation_cooldown_role_ids
@@ -179,6 +183,10 @@ class Config:
             if unknown:
                 raise RuntimeError(f"Unknown department categories in {key}: {', '.join(sorted(unknown))}")
 
+        email_approver_rank = str(bot.get("email_approver_rank", "Senior Department Coordinator"))
+        if email_approver_rank not in COORDINATOR_RANKS:
+            raise RuntimeError(f"email_approver_rank must be a coordinator rank, not {email_approver_rank!r}")
+
         def channel(name: str) -> int:
             return int(bot.get(name, 0) or 0)
 
@@ -203,6 +211,7 @@ class Config:
             transfer_log_channel_id=channel("transfer_log_channel_id"),
             transfer_blacklist_log_channel_id=channel("transfer_blacklist_log_channel_id"),
             role_conflict_channel_id=channel("role_conflict_channel_id"),
+            email_channel_id=channel("email_channel_id"),
             punishment_channel_ids=_ids(bot.get("punishment_channel_ids")),
             custom_message_log_channel_id=channel("custom_message_log_channel_id"),
             server_log_channel_id=channel("server_log_channel_id"),
@@ -228,4 +237,6 @@ class Config:
             transfer_cooldown_role_ids=_id_map(bot.get("transfer_cooldown_role_ids")),
             resignation_cooldown_role_ids=_id_map(bot.get("resignation_cooldown_role_ids")),
             level_ranks=level_ranks,
+            email_approver_rank=email_approver_rank,
+            launch_group_role_id=channel("launch_group_role_id"),
         )
