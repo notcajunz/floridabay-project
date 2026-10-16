@@ -63,8 +63,16 @@ local function drawText(text, x, y, font, scale, r, g, b, a, px, py, outline)
 end
 
 local visible = {}
+local tagsHidden = GetResourceKvpString('fbrp_hide_tags') == '1'
 local noclipActive = false
 local lastNoclipSignal = 0
+
+RegisterCommand('hidetags', function()
+    tagsHidden = not tagsHidden
+    SetResourceKvp('fbrp_hide_tags', tagsHidden and '1' or '0')
+    if tagsHidden then visible = {} end
+    TriggerEvent('fbrp:notify', tagsHidden and 'Overhead tags hidden.' or 'Overhead tags shown.', 'info')
+end, false)
 
 -- vMenu keeps its noclip flag internal, but its NoClipHandler runs every frame on the
 -- controlled entity (the ped, or the vehicle it is in): FreezeEntityPosition(true),
@@ -118,24 +126,26 @@ CreateThread(function()
         local origin = GetEntityCoords(mine)
         local maxDistance = FBRP.Config.tagDistance
         local rows = {}
-        for _,player in ipairs(GetActivePlayers()) do
-            local ped = GetPlayerPed(player)
-            if DoesEntityExist(ped) and not IsEntityDead(ped) and IsEntityVisible(ped) then
-                local distance = #(origin - GetEntityCoords(ped))
-                if distance <= maxDistance and (ped == mine or HasEntityClearLosToEntity(mine, ped, 17)) then
-                    local serverId = GetPlayerServerId(player)
-                    local bag = Player(serverId).state
-                    local head, gang = bag['fbrp:headtag'], bag['fbrp:gangtag']
-                    if bag['fbrp:noclip'] ~= true then
-                        rows[#rows+1] = {
-                            player = player,
-                            serverId = serverId,
-                            ped = ped,
-                            id = ('[%d]'):format(serverId),
-                            head = head and clean(head.label) and { label=clean(head.label), color={hexColor(head.color)}, outline=head.outline ~= false } or nil,
-                            gang = gang and clean(gang.label) and { label=clean(gang.label), color={hexColor(gang.color)}, outline=gang.outline ~= false } or nil,
-                            distance = distance
-                        }
+        if not tagsHidden then
+            for _,player in ipairs(GetActivePlayers()) do
+                local ped = GetPlayerPed(player)
+                if DoesEntityExist(ped) and not IsEntityDead(ped) and IsEntityVisible(ped) then
+                    local distance = #(origin - GetEntityCoords(ped))
+                    if distance <= maxDistance and (ped == mine or HasEntityClearLosToEntity(mine, ped, 17)) then
+                        local serverId = GetPlayerServerId(player)
+                        local bag = Player(serverId).state
+                        local head, gang = bag['fbrp:headtag'], bag['fbrp:gangtag']
+                        if bag['fbrp:noclip'] ~= true then
+                            rows[#rows+1] = {
+                                player = player,
+                                serverId = serverId,
+                                ped = ped,
+                                id = ('[%d]'):format(serverId),
+                                head = head and clean(head.label) and { label=clean(head.label), color={hexColor(head.color)}, outline=head.outline ~= false } or nil,
+                                gang = gang and clean(gang.label) and { label=clean(gang.label), color={hexColor(gang.color)}, outline=gang.outline ~= false } or nil,
+                                distance = distance
+                            }
+                        end
                     end
                 end
             end
@@ -147,7 +157,7 @@ end)
 
 CreateThread(function()
     while true do
-        if #visible == 0 then
+        if tagsHidden or #visible == 0 then
             Wait(200)
         else
             local camCoords = GetFinalRenderedCamCoord()

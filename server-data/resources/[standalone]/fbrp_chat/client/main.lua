@@ -137,6 +137,7 @@ CreateThread(function()
     suggestions['/ad'] = { name='/ad', help='Post a global roleplay advertisement', params={{name='message'}} }
     suggestions['/news'] = { name='/news', help='Post a global breaking-news message', params={{name='message'}} }
     suggestions['/dv'] = { name='/dv', help='Delete the closest nearby vehicle you own', params={} }
+    suggestions['/hidetags'] = { name='/hidetags', help='Hide or show all overhead tags for yourself', params={} }
     suggestions['/heal'] = { name='/heal', help='Restore health (3 minute cooldown)', params={} }
     suggestions['/armour'] = { name='/armour', help='Replenish armour (5 minute cooldown)', params={} }
     suggestions['/clear'] = { name='/clear', help='Clear your chat history', params={} }
@@ -146,4 +147,3 @@ end)
 AddEventHandler('onClientResourceStop', function(resource)
     if resource == GetCurrentResourceName() and open then SetNuiFocus(false, false) end
 end)
-
