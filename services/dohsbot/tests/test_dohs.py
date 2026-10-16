@@ -111,3 +111,12 @@ async def test_movement_and_callsign_lines_match_staff_format(monkeypatch):
     await rb.RosterBot.announce_callsigns(bot, [(10, "201"), (11, ""), ("", "5")])
     assert sent[0][0] == 5 and sent[0][1].startswith("<@10> --> Special Agent | <@99> | <t:") and sent[0][1].endswith(":D>")
     assert sent[1] == (6, "<@10> --> 201")
+
+
+def test_owner_ids_bypass_every_check(monkeypatch):
+    from types import SimpleNamespace
+    from dohsbot import roster_bot as rb
+
+    monkeypatch.setattr(rb, "OWNER_IDS", {42})
+    assert rb.is_bypass(SimpleNamespace(id=42))
+    assert not rb.is_bypass(SimpleNamespace(id=43))

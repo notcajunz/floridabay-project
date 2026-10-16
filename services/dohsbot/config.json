@@ -1,6 +1,11 @@
 {
   "_help": "Paste Discord IDs as text. Leave a value as \"\" to skip it. Turn on Developer Mode in Discord, then right-click a role/channel -> Copy ID.",
   "guild_id": "1558238773958017024",
+  "owner_ids": [
+    "1090083387638812755",
+    "1099651002208104488"
+  ],
+  "bypass_role_ids": [],
   "fbrp_org_id": "3",
   "hours_channel_id": "1560780793297768518",
   "hours_days": 7,

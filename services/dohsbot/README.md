@@ -20,6 +20,7 @@ tracking from the FBRP organization system (DOHS is org `3`).
 | `/roster coc setup\|refresh` | Staff | Self-updating Chain of Command message |
 
 You can only act on people below your own roster rank, never on yourself, and only
+`owner_ids` (and anyone holding a `bypass_role_ids` role) skip every role and rank check, and no roster entry is needed.
 add/move people into ranks below yours.
 
 ## Hours commands

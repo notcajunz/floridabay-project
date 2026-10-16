@@ -72,6 +72,8 @@ DEFAULT_CONFIG = {
     "hours_days": 7,
     "hours_required": 0,
     "hours_exempt_statuses": ["LOA", "Exempt", "Reserve"],
+    "owner_ids": [],
+    "bypass_role_ids": [],
     "move_role_ids": [LOW_COMMAND_ROLE],
     "staff_role_ids": [LOW_COMMAND_ROLE],
     "admins_bypass": False,
@@ -114,6 +116,8 @@ GUILD_ID = _id(CFG["guild_id"]) or _id(os.getenv("DISCORD_GUILD_ID", ""))
 MOVE_ROLE_IDS = _id_set(CFG["move_role_ids"])
 STAFF_ROLE_IDS = _id_set(CFG["staff_role_ids"]) | MOVE_ROLE_IDS
 ADMINS_BYPASS = bool(CFG["admins_bypass"])
+OWNER_IDS = _id_set(CFG["owner_ids"])              # these users pass every role and rank check
+BYPASS_ROLE_IDS = _id_set(CFG["bypass_role_ids"])  # so do members holding any of these roles
 LOG_CHANNEL_ID = _id(CFG["log_channel_id"])
 NICKNAME_FORMAT = CFG["nickname_format"]
 MEMBER_ROLE_ID = _id(CFG["member_role_id"])
@@ -1009,7 +1013,13 @@ class RosterBot(discord.Client):
 
 
 def is_bypass(user) -> bool:
-    return ADMINS_BYPASS and isinstance(user, discord.Member) and user.guild_permissions.administrator
+    if user.id in OWNER_IDS:
+        return True
+    if not isinstance(user, discord.Member):
+        return False
+    if BYPASS_ROLE_IDS and any(r.id in BYPASS_ROLE_IDS for r in user.roles):
+        return True
+    return ADMINS_BYPASS and user.guild_permissions.administrator
 
 
 def has_any_role(user, role_ids: set[int]) -> bool:
