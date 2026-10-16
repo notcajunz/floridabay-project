@@ -25,13 +25,21 @@ class FbrpApi:
         return bool(self.base_url and self.token)
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._request("GET", path, params=params)
+
+    def _request(self, method: str, path: str, params: dict[str, Any] | None = None,
+                 payload: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.configured:
             raise FbrpApiError("FBRP_API_URL and FBRP_API_TOKEN are not set.")
         query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
+        headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
+        if payload is not None:
+            headers["Content-Type"] = "application/json"
         request = urllib.request.Request(
             f"{self.base_url}{path}{'?' + query if query else ''}",
-            method="GET",
-            headers={"Authorization": f"Bearer {self.token}", "Accept": "application/json"},
+            data=json.dumps(payload).encode() if payload is not None else None,
+            method=method,
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(request, timeout=10) as response:
@@ -56,3 +64,17 @@ class FbrpApi:
             self._get, f"/api/gangs/org/{quoted}/hours",
             {"since": since_ms, "until": until_ms, "discord_id": discord_id},
         )
+
+    async def service_role_holders(self, service: str = "dohs") -> dict[str, Any]:
+        """Who holds the service's roles in the main server: {"holders": {role_id: [discord_id, ...]}}."""
+        return await asyncio.to_thread(self._get, f"/api/gangs/service-roles/{urllib.parse.quote(service, safe='')}")
+
+    async def queue_service_roles(self, changes: list[dict[str, Any]], service: str = "dohs") -> int:
+        """Ask the main bot to add/remove main-server roles. Each change: discord_id, role_id, action, reason."""
+        queued = 0
+        for start in range(0, len(changes), 200):
+            data = await asyncio.to_thread(
+                self._request, "POST", f"/api/gangs/service-roles/{urllib.parse.quote(service, safe='')}",
+                None, {"changes": changes[start:start + 200]})
+            queued += int(data.get("queued", 0))
+        return queued

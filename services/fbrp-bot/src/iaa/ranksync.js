@@ -1,6 +1,64 @@
 import { ORG } from "./quota.js";
 import { agencyRoleIds, allMembers, config, db, post, ranks, tierRoleIdsUpTo } from "./store.js";
 import { C, card, mention } from "./util.js";
+import { SERVICE_ROLES, queueServiceRoles, serviceRoleHolders } from "../service-roles.js";
+
+/**
+ * The main Florida Bay server has its own IAA, IAA Supervisor and IAA High Command roles. They follow
+ * the IAA roster: anyone without a rank here loses them there, and ranked agents get the ones their
+ * tier earns. The IAA bot is not in the main server, so the changes go through the main bot's queue.
+ */
+const MAX_MAIN_REMOVALS = 40;
+
+/** Pure planner. `expected` maps discord id -> set of main-server role ids that person should hold. */
+export function planMainRoles({ expected, holders, roleIds }) {
+  const changes = [];
+  let removals = 0;
+  for (const roleId of roleIds) {
+    const has = new Set((holders[roleId] || []).map(String));
+    for (const id of has)
+      if (!expected.get(id)?.has(roleId)) {
+        changes.push({ discord_id: id, role_id: roleId, action: "remove" });
+        removals++;
+      }
+    for (const [id, want] of expected) if (want.has(roleId) && !has.has(id)) changes.push({ discord_id: id, role_id: roleId, action: "add" });
+  }
+  return { changes, removals };
+}
+
+/** Main-server roles a ranked IAA member should hold, by tier. */
+export function mainRolesForRank(cfg, rank, suspended = false, roles = SERVICE_ROLES.iaa.roles) {
+  const want = new Set();
+  if (!rank || suspended) return want;
+  want.add(roles.base);
+  const own = cfg.tiers.find((t) => t.key === rank.tier);
+  const supervisor = cfg.tiers.find((t) => t.key === "supervisor");
+  if (own && supervisor && own.index >= supervisor.index) want.add(roles.supervisor);
+  if (/high_command/.test(rank.tier || "")) want.add(roles.high_command);
+  return want;
+}
+
+export async function reconcileMainRoles(guild) {
+  const cfg = await config();
+  const ladder = await ranks();
+  const expected = new Map();
+  for (const member of (await allMembers(guild)).values()) {
+    if (member.user.bot) continue;
+    const suspended = Boolean(cfg.roles.suspended && member.roles.cache.has(cfg.roles.suspended));
+    const rank = ladder.find((row) => member.roles.cache.has(row.role_id));
+    const want = mainRolesForRank(cfg, rank, suspended);
+    if (want.size) expected.set(member.id, want);
+  }
+  // A failed member fetch must never read as "nobody is on the roster".
+  if (!expected.size) return { skipped: "no ranked members found" };
+  const { holders } = await serviceRoleHolders("iaa");
+  const { changes, removals } = planMainRoles({ expected, holders, roleIds: Object.values(SERVICE_ROLES.iaa.roles) });
+  const apply = removals > MAX_MAIN_REMOVALS ? changes.filter((c) => c.action === "add") : changes;
+  if (removals > MAX_MAIN_REMOVALS)
+    await post(guild, "botLogs", { content: `⚠️ Main-server IAA role sync wants to remove ${removals} roles, which is more than the safety limit of ${MAX_MAIN_REMOVALS}. Removals were skipped; check the roster and run again.`, allowedMentions: { parse: [] } }).catch(() => null);
+  if (apply.length) await queueServiceRoles("iaa", apply, { requestedBy: "iaa-bot", reason: "IAA roster-bound main-server role" });
+  return { queued: apply.length, removals };
+}
 
 /**
  * Keeps each IAA agent's in-game organization rank (org_ranks, the spend/roster/armory permissions)
@@ -88,6 +146,7 @@ export const cascadeTiers = reconcileRosterRoles;
 
 export async function sync(guild) {
   await reconcileRosterRoles(guild).catch((e) => console.warn(`[IAA] roster role sync: ${e.message}`));
+  await reconcileMainRoles(guild).catch((e) => console.warn(`[IAA] main-server role sync: ${e.message}`));
   const orgs = await db.query(`SELECT o.id FROM organizations o WHERE o.active=TRUE AND ${ORG}`, [guild.id, guild.id]);
   if (!orgs.length) return 0;
   const ladder = await ranks();

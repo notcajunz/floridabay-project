@@ -32,6 +32,18 @@
   "callsign_channel_id": "1558605894382788719",
   "nickname_format": "{callsign} | {name}",
   "member_role_id": "1558239521353629826",
+  "main_server_roles": {
+    "base": "1557692420269936660",
+    "supervisor": "1557692388737028196",
+    "high_command": "1560396125125742684"
+  },
+  "supervisor_min_rank": "Assistant Special Agent in Charge",
+  "high_command_min_rank": "Chief of Staff",
+  "main_sync_max_removals": 15,
+  "keep_role_ids": [
+    "1558621583298404422",
+    "1560433567132155924"
+  ],
   "rank_roles": {
     "Secretary": "1560416576266838098",
     "Deputy Secretary": "1560416758177726586",

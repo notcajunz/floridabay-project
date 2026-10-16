@@ -48,6 +48,9 @@ import gspread
 from discord import app_commands
 from discord.ext import tasks
 from dotenv import load_dotenv
+
+from .fbrp_api import FbrpApi, FbrpApiError
+from .main_roles import expected_main_roles, plan_main_roles
 from gspread.utils import ValueInputOption
 
 load_dotenv()
@@ -72,6 +75,11 @@ DEFAULT_CONFIG = {
     "hours_days": 7,
     "hours_required": 0,
     "hours_exempt_statuses": ["LOA", "Exempt", "Reserve"],
+    "main_server_roles": {},
+    "supervisor_min_rank": "Assistant Special Agent in Charge",
+    "high_command_min_rank": "Chief of Staff",
+    "main_sync_max_removals": 15,
+    "keep_role_ids": [],
     "owner_ids": [],
     "bypass_role_ids": [],
     "move_role_ids": [LOW_COMMAND_ROLE],
@@ -116,6 +124,9 @@ GUILD_ID = _id(CFG["guild_id"]) or _id(os.getenv("DISCORD_GUILD_ID", ""))
 MOVE_ROLE_IDS = _id_set(CFG["move_role_ids"])
 STAFF_ROLE_IDS = _id_set(CFG["staff_role_ids"]) | MOVE_ROLE_IDS
 ADMINS_BYPASS = bool(CFG["admins_bypass"])
+MAIN_ROLES = {k: str(_id(v)) for k, v in CFG["main_server_roles"].items() if _id(v)}
+MAIN_SYNC_MAX_REMOVALS = int(CFG["main_sync_max_removals"])
+KEEP_ROLE_IDS = _id_set(CFG["keep_role_ids"])  # network roles that survive a wipe
 OWNER_IDS = _id_set(CFG["owner_ids"])              # these users pass every role and rank check
 BYPASS_ROLE_IDS = _id_set(CFG["bypass_role_ids"])  # so do members holding any of these roles
 LOG_CHANNEL_ID = _id(CFG["log_channel_id"])
@@ -785,6 +796,7 @@ class RosterBot(discord.Client):
         super().__init__(intents=discord.Intents.default())
         self.tree = GuildTree(self)
         self.extra_groups: list = []
+        self.api = FbrpApi()
         self._sheet_warned = False
         self.tree.on_error = self.on_app_command_error
         self.lock = asyncio.Lock()
@@ -876,6 +888,10 @@ class RosterBot(discord.Client):
                         timestamp=discord.utils.utcnow()))
             await self.run_sheet(self.roster.load)
             await self.refresh_coc()  # also picks up edits made by hand in the sheet
+            try:
+                await self.sync_main_roles()
+            except (FbrpApiError, RosterError):
+                log.warning("Main-server role sync failed", exc_info=True)
         except Exception:
             log.exception("LOA check failed")
 
@@ -1007,6 +1023,79 @@ class RosterBot(discord.Client):
         except discord.HTTPException:
             log.warning("Couldn't post to channel %s", channel_id)
 
+    # ---------- main-server DHS roles (applied by the main bot) ----------
+    async def sync_main_roles(self, force: bool = False) -> dict:
+        """Make the main server's DHS / Supervisor / High Command roles match the roster.
+
+        The main bot owns that server, so this only computes the difference and queues it through the
+        portal API. A pass that would remove more than `main_sync_max_removals` roles is refused unless
+        `force`, so a bad sheet read can't strip everyone.
+        """
+        if not MAIN_ROLES.get("base") or self.roster is None or not self.api.configured:
+            return {"skipped": True}
+        people = await self.run_sheet(self.roster.members)
+        if not people:
+            return {"skipped": True, "reason": "the roster has nobody on it"}
+        expected = expected_main_roles(people, self.roster.ranks, MAIN_ROLES,
+                                       CFG["supervisor_min_rank"], CFG["high_command_min_rank"])
+        holders = (await self.api.service_role_holders("dohs"))["holders"]
+        # The bot owners keep whatever DHS roles they hold; they are not on the roster by design.
+        holders = {rid: [d for d in ids if int(d) not in OWNER_IDS] for rid, ids in holders.items()}
+        changes, removals = plan_main_roles(expected, holders, list(MAIN_ROLES.values()))
+        blocked = removals > MAIN_SYNC_MAX_REMOVALS and not force
+        apply = [c for c in changes if c["action"] == "add"] if blocked else changes
+        for c in apply:
+            c["reason"] = "DOHS roster-bound role"
+        queued = await self.api.queue_service_roles(apply) if apply else 0
+        if blocked:
+            await self.post_log(discord.Embed(
+                title="⚠️ Main-server role sync held back", colour=discord.Colour.orange(),
+                description=(f"It wants to remove **{removals}** DHS roles in the main server, above the safety "
+                             f"limit of {MAIN_SYNC_MAX_REMOVALS}. Adds were queued, removals were not. "
+                             "Check the roster, then run `/roster sync-main force:True`."),
+                timestamp=discord.utils.utcnow()))
+        elif queued:
+            adds = sum(1 for c in apply if c["action"] == "add")
+            await self.post_log(discord.Embed(
+                title="🔗 Main-server DHS roles synced", colour=discord.Colour.dark_teal(),
+                description=f"Queued **{adds}** role grants and **{removals}** removals for the main bot.",
+                timestamp=discord.utils.utcnow()))
+        return {"queued": queued, "removals": removals, "blocked": blocked}
+
+    async def strip_main_roles(self, discord_id) -> None:
+        """Immediately ask the main bot to take every DHS role from one person."""
+        if not MAIN_ROLES or not self.api.configured or not str(discord_id).isdigit():
+            return
+        await self.api.queue_service_roles([
+            {"discord_id": str(discord_id), "role_id": rid, "action": "remove", "reason": "Left the DOHS roster"}
+            for rid in MAIN_ROLES.values()])
+
+    async def wipe_roles(self, guild: discord.Guild, discord_id) -> str | None:
+        """Take every role the bot can edit, except network roles in keep_role_ids."""
+        member = await self.get_member(guild, discord_id)
+        if not member:
+            return None
+        me = guild.me
+        drop = [r for r in member.roles
+                if r != guild.default_role and not r.managed and r.id not in KEEP_ROLE_IDS
+                and me is not None and r < me.top_role]
+        try:
+            if drop:
+                await member.remove_roles(*drop, reason="DOHS roster removal")
+        except discord.Forbidden:
+            return f"Couldn't wipe {member.mention}'s roles — the bot's role must be above them."
+        return None
+
+    async def kick_member(self, guild: discord.Guild, discord_id, reason: str) -> str | None:
+        member = await self.get_member(guild, discord_id)
+        if not member:
+            return None
+        try:
+            await member.kick(reason=reason[:400])
+        except discord.Forbidden:
+            return f"Couldn't kick {member.mention} — the bot needs **Kick Members** and a role above theirs."
+        return None
+
     async def apply_shifted(self, guild, shifted: list[dict]) -> list[str]:
         """Nicknames for people who moved up to close a gap."""
         return [await self.set_nickname(guild, c["discord_id"], c["new_callsign"], c["name"]) for c in shifted]
@@ -1071,6 +1160,10 @@ async def send(bot: RosterBot, interaction: discord.Interaction, e: discord.Embe
     await interaction.followup.send(embed=e)
     await bot.post_log(e, skip_channel_id=interaction.channel_id)
     await bot.refresh_coc()
+    try:
+        await bot.sync_main_roles()
+    except (FbrpApiError, RosterError):
+        log.warning("Main-server role sync failed", exc_info=True)
 
 
 # ---------- autocomplete ----------
@@ -1334,12 +1427,43 @@ class RosterGroup(app_commands.Group):
         warns = [await self.bot.set_nickname(g, member.id, None, None),
                  await self.bot.sync_roles(g, member.id, None)]
         warns += await self.bot.apply_shifted(g, r["shifted"])
+        terminated, resigned = reason.value == "Terminated", reason.value == "Resigned"
+        outcome = "Roster slot cleared, DHS roles removed"
+        try:
+            await self.bot.strip_main_roles(member.id)  # main-server DHS roles go through the main bot
+        except FbrpApiError as error:
+            warns.append(f"Couldn't queue the main-server role removal ({error}). The 10-minute sync will retry.")
+        if terminated or resigned:
+            warns.append(await self.bot.wipe_roles(g, member.id))
+            outcome = "Roster slot cleared, all roles wiped"
+        if terminated:
+            warns.append(await self.bot.kick_member(g, member.id, f"Terminated by {interaction.user} ({interaction.user.id})"))
+            outcome += ", kicked from this server"
         await send(self.bot, interaction, embed("🗑️ Member removed", discord.Colour.red(), {
             "Member": member.mention, "Name": r["name"], "Was": f"{r['rank']} ({r['callsign'] or '—'})",
-            "Reason": reason.value}, interaction.user, warns, r["shifted"]))
+            "Reason": reason.value, "Result": outcome}, interaction.user, warns, r["shifted"]))
         await self.bot.announce_movement(member.id, reason.value if MOVEMENT_SHOW_REASON else "Removed",
                                          interaction.user.id)
         await self.bot.announce_callsigns(shifted_entries(r["shifted"]))
+
+    @app_commands.command(name="sync-main", description="Match the main server's DHS roles to the roster now")
+    @app_commands.describe(force="Apply a large number of removals (bypass users only)")
+    @roster_staff()
+    async def cmd_sync_main(self, interaction: discord.Interaction, force: bool = False):
+        await interaction.response.defer(ephemeral=True)
+        if force and not is_bypass(interaction.user):
+            raise RosterError("Only the bot owners can force a large removal.")
+        try:
+            r = await self.bot.sync_main_roles(force=force)
+        except FbrpApiError as error:
+            raise RosterError(f"Couldn't reach the main bot: {error}") from None
+        if r.get("skipped"):
+            why = r.get("reason") or "main-server roles are not configured"
+            raise RosterError(f"Nothing to sync ({why}).")
+        text = (f"Queued **{r['queued']}** changes ({r['removals']} removals). The main bot applies them within seconds."
+                if not r["blocked"] else
+                f"Held back **{r['removals']}** removals (over the safety limit). Re-run with `force:True` after checking the roster.")
+        await interaction.followup.send("🔗 " + text, ephemeral=True)
 
     @app_commands.command(name="dc", description="Move a member's DC rank up or down")
     @app_commands.choices(direction=[app_commands.Choice(name="Up", value="up"),

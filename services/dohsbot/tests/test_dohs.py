@@ -120,3 +120,19 @@ def test_owner_ids_bypass_every_check(monkeypatch):
     monkeypatch.setattr(rb, "OWNER_IDS", {42})
     assert rb.is_bypass(SimpleNamespace(id=42))
     assert not rb.is_bypass(SimpleNamespace(id=43))
+
+
+def test_main_role_plan_matches_roster():
+    from dohsbot.main_roles import expected_main_roles, plan_main_roles
+
+    ranks = ["Director", "Chief of Staff", "Assistant Special Agent in Charge", "Agent"]
+    roles = {"base": "B", "supervisor": "S", "high_command": "H"}
+    members = [{"discord_id": "1", "rank": "Chief of Staff"}, {"discord_id": "2", "rank": "Agent"},
+               {"discord_id": "3", "rank": "Assistant Special Agent in Charge"}, {"discord_id": "", "rank": "Agent"}]
+    exp = expected_main_roles(members, ranks, roles, "Assistant Special Agent in Charge", "Chief of Staff")
+    assert exp == {"1": {"B", "S", "H"}, "2": {"B"}, "3": {"B", "S"}}
+    holders = {"B": ["2", "9"], "S": ["9", "3"], "H": ["9"]}
+    changes, removals = plan_main_roles(exp, holders, ["B", "S", "H"])
+    assert removals == 3 and all(c["discord_id"] == "9" for c in changes if c["action"] == "remove")
+    assert {(c["discord_id"], c["role_id"]) for c in changes if c["action"] == "add"} == {
+        ("1", "B"), ("3", "B"), ("1", "S"), ("1", "H")}

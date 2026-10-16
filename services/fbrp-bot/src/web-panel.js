@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { NETWORK_KINDS, callGame } from "./sync.js";
 import { PERMISSION_BUNDLES, PERMISSION_CATALOG, VMENU_BUNDLES } from "./permission-catalog.js";
 import { connectUrl } from "./site-url.js";
+import { queueServiceRoles, serviceRoleHolders } from "./service-roles.js";
 import { createAppeals } from "./appeals.js";
 import { OWNER_DISCORD_ID } from "./access-control.js";
 import { staffLevel } from "./database.js";
@@ -1655,6 +1656,20 @@ export function startWebPanel(context) {
         if (url.pathname === "/api/gangs/economy/batch") {
           if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
           return sendJson(response, 200, await economy.serviceBatch(await bodyJson(request)));
+        }
+        // Agency bots (IAA, DOHS) read who holds their main-server roles and ask for changes. Only the
+        // fixed roles in service-roles.js can be queued; the main bot carries them out.
+        const serviceMatch = /^\/api\/gangs\/service-roles\/([a-z]{1,16})$/.exec(url.pathname);
+        if (serviceMatch) {
+          try {
+            if (request.method === "GET") return sendJson(response, 200, await serviceRoleHolders(serviceMatch[1]));
+            if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
+            const input = await bodyJson(request);
+            const queued = await queueServiceRoles(serviceMatch[1], input.changes, { requestedBy: `${serviceMatch[1]}-bot` });
+            return sendJson(response, 200, { ok: true, queued });
+          } catch (error) {
+            return sendJson(response, Number(error.status) || 500, { error: Number(error.status) ? error.message : "Could not process the request." });
+          }
         }
         const match = /^\/api\/gangs\/org\/([^/]{1,80})(?:\/(hours|economy))?$/.exec(url.pathname);
         if (!match) return sendJson(response, 404, { error: "Not found." });

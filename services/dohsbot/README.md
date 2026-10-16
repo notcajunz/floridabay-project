@@ -21,6 +21,7 @@ tracking from the FBRP organization system (DOHS is org `3`).
 
 You can only act on people below your own roster rank, never on yourself, and only
 `owner_ids` (and anyone holding a `bypass_role_ids` role) skip every role and rank check, and no roster entry is needed.
+Main-server DHS, DHS Supervisor and DHS High Command roles follow the roster through the main bot (owners keep theirs). `Terminated` wipes roles and kicks; `Resigned` wipes roles without a kick.
 add/move people into ranks below yours.
 
 ## Hours commands
