@@ -948,6 +948,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .88rem; }
 .kv small { display: block; color: var(--ink-3); font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .kv b { display: block; margin-top: 3px; font-weight: 600; font-size: .92rem; overflow-wrap: anywhere; }
 .kv .wide { grid-column: 1 / -1; }
+.case-kv { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.case-kv .person { margin-top: 5px; }
+.case-raw { display: block; margin-top: 5px; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.case-json { margin: 7px 0 0; padding: 10px 12px; max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: rgba(0, 0, 0, .24); color: var(--ink-2); font: .76rem/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.case-entry .txt { min-width: 0; }
+.case-entry .txt p { margin-top: 8px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.case-appeal + .case-appeal { margin-top: 14px; }
+.case-hero .profile-cover { background: radial-gradient(60% 140% at 20% 100%, rgba(255, 191, 105, .32), transparent 60%), radial-gradient(50% 120% at 80% 0%, rgba(67, 232, 216, .28), transparent 60%), #0b1220; }
 
 /* =================================================================
    RESPONSIVE

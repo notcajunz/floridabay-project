@@ -13,6 +13,7 @@ import { OWNER_DISCORD_ID } from "./access-control.js";
 import { staffLevel } from "./database.js";
 import { findLinkedAccounts } from "./alts.js";
 import { organizationActivity } from "./investigation.js";
+import { lookupAnyCase } from "./case-lookup.js";
 import { MAX_TRUSTED, MAX_TRUSTED_WITH_TAG } from "./personals.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
@@ -26,8 +27,6 @@ const ACTOR = OWNER_DISCORD_ID;
 const INVESTIGATION_ROLE_ID = "1558227272107036755";
 const PORTAL_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const PORTAL_SESSION_TTL_SECONDS = PORTAL_SESSION_TTL_MS / 1000;
-/** Nothing is remembered: sessions are browser-session cookies and end after this long without activity. */
-const PORTAL_SESSION_IDLE_MS = 10 * 60 * 1000;
 /** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
 const ORG_ADMIN_RESOURCES = new Set(["organizations", "organization-requirements", "headtags", "org-shop", "org-wallets", "personals", "personal-trust", "personal-tags"]);
 /** Read-only lookups those sections need for their dropdowns. */
@@ -101,6 +100,13 @@ export const PANEL_RESOURCES = {
       field("added_by", "Added by", "text", { default: ACTOR, advanced: true }),
       field("added_at", "Added at", "timestamp", { default: "now", advanced: true }),
     ],
+    afterSave: async ({ reconcileManagementMembership }, values, original) => {
+      if (original && String(original.discord_id) !== String(values.discord_id))
+        await reconcileManagementMembership?.(original.discord_id, ACTOR);
+      await reconcileManagementMembership?.(values.discord_id, ACTOR);
+    },
+    afterDelete: async ({ reconcileManagementMembership }, _key, row) =>
+      reconcileManagementMembership?.(row.discord_id, ACTOR),
   },
   "role-bindings": {
     label: "ACE role gates",
@@ -239,7 +245,6 @@ export const PANEL_RESOURCES = {
     table: "headtags",
     pk: ["id"],
     order: "kind,priority DESC,label",
-    effect: "game",
     fields: [
       field("id", "ID", "number", { readonly: true, auto: true }),
       field("kind", "Tag slot", "select", { options: ["head", "gang", "both"], default: "head" }),
@@ -253,6 +258,11 @@ export const PANEL_RESOURCES = {
       field("chat_tag", "Available as an additional in-game chat tag", "boolean", { default: false }),
       field("created_by", "Created by", "text", { default: ACTOR, advanced: true }),
     ],
+    // Role-backed grants are materialized in headtag_grants. Refreshing FiveM alone
+    // leaves a newly created/retargeted tag invisible until each holder changes roles.
+    // syncAll rebuilds those grants for every cached Discord member and refreshes FiveM.
+    afterSave: async ({ client, syncAll }) => syncAll(client),
+    afterDelete: async ({ client, syncAll }) => syncAll(client),
   },
   "headtag-grants": {
     label: "Headtag grants",
@@ -633,6 +643,12 @@ export const PANEL_RESOURCES = {
       field("added_by", "Added by", "text", { default: ACTOR, advanced: true }),
       field("added_at", "Added at", "timestamp", { default: "now", advanced: true }),
     ],
+    afterSave: async ({ invalidateSecurityExemption }, values, original) => {
+      if (original) invalidateSecurityExemption?.(original.discord_id, original.guild_id);
+      invalidateSecurityExemption?.(values.discord_id, values.guild_id);
+    },
+    afterDelete: async ({ invalidateSecurityExemption }, _key, row) =>
+      invalidateSecurityExemption?.(row.discord_id, row.guild_id),
   },
   offices: {
     label: "Voice offices",
@@ -966,8 +982,7 @@ export function startWebPanel(context) {
 
   const cookieFor = (request, name, value, maxAge) => {
     const base = baseFor(request);
-    // No Max-Age for a live value: it is a session cookie the browser drops when it closes. Max-Age=0 still clears it.
-    const age = maxAge === 0 || value === "" ? "; Max-Age=0" : name === "fbrp_session" ? "" : `; Max-Age=${maxAge}`;
+    const age = maxAge === 0 || value === "" ? "; Max-Age=0" : `; Max-Age=${maxAge}`;
     return `${name}=${encodeURIComponent(value)}; Path=${base.pathname === "/" ? "/" : base.pathname.replace(/\/$/, "")}; HttpOnly; SameSite=Lax${age}${base.protocol === "https:" ? "; Secure" : ""}`;
   };
   const sessionCookie = (request, value, maxAge = PORTAL_SESSION_TTL_SECONDS) => cookieFor(request, "fbrp_session", value, maxAge);
@@ -978,8 +993,7 @@ export function startWebPanel(context) {
     if (!raw) return null;
     const row = await db.one("SELECT * FROM portal_sessions WHERE session_hash=?", [sha256(raw)]).catch(() => null);
     const hardExpiry = row ? Math.min(Number(row.expires_at), Number(row.created_at) + PORTAL_SESSION_TTL_MS) : 0;
-    const idle = row ? Date.now() - Number(row.last_seen) > PORTAL_SESSION_IDLE_MS : false;
-    if (!row || idle || hardExpiry <= Date.now()) {
+    if (!row || hardExpiry <= Date.now()) {
       if (row) await db.query("DELETE FROM portal_sessions WHERE session_hash=?", [row.session_hash]).catch(() => {});
       return null;
     }
@@ -1828,6 +1842,31 @@ export function startWebPanel(context) {
           linkedAccounts: record.alts.accounts.length,
         });
         await investigationAudit(session.id, record);
+        return sendJson(response, 200, record);
+      }
+      if (request.method === "GET" && url.pathname === "/api/portal/case") {
+        const access = await accessFor(session.id);
+        if (!access.investigate)
+          return sendJson(response, 403, { error: "Co-Owner rank or the investigations role is required." });
+        const record = await lookupAnyCase(db, url.searchParams.get("id"));
+        const ids = new Set();
+        const add = (value) => { if (/^\d{15,24}$/.test(String(value || ""))) ids.add(String(value)); };
+        if (record.kind === "moderation") {
+          add(record.case.target_id); add(record.case.actor_id);
+          add(record.sourceCase?.target_id); add(record.sourceCase?.actor_id);
+          for (const row of record.derivedCases) { add(row.target_id); add(row.actor_id); }
+          for (const appeal of record.appeals) {
+            add(appeal.author_id); add(appeal.reviewed_by); add(appeal.assigned_to);
+            for (const event of appeal.events) add(event.actor_id);
+          }
+        } else {
+          add(record.case.subject_id); add(record.case.opened_by); add(record.case.lead_id); add(record.case.closed_by);
+          for (const entry of record.entries) add(entry.author_id);
+          for (const item of record.discipline) { add(item.discord_id); add(item.actor_id); add(item.revoked_by); }
+        }
+        for (const item of record.audits) { add(item.actor_id); add(item.target_id); }
+        record.people = await resolvePeople([...ids], { fetchLimit: 100 });
+        await audit(session.id, "case.lookup", record.publicId, { kind: record.kind, caseId: record.case.id, source: "website" });
         return sendJson(response, 200, record);
       }
 

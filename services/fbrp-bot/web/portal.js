@@ -69,7 +69,7 @@ const PATHS = {
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[name] || ""}</svg>`;
 
 /* ---------- state ---------- */
-const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, investigation: null, investigationLoading: false, filters: {}, commandReference: null };
+const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, investigation: null, investigationLoading: false, caseLookup: null, caseLookupLoading: false, filters: {}, commandReference: null };
 let economySyncing = false;
 const filter = (key, fallback = "") => state.filters[key] ?? fallback;
 
@@ -156,7 +156,7 @@ function nav() {
         ["appeals", "Appeal queue", "scale", pendingAppeals],
         ["ticketops", "Tickets", "ticket", openTickets],
       ] : []),
-      ...(access.investigate ? [["investigation", "Member investigations", "search"]] : []),
+      ...(access.investigate ? [["investigation", "Member investigations", "search"], ["cases", "Case lookup", "gavel"]] : []),
       ...(exams.reviewer ? [["examreviews", "Exam reviews", "review", pendingExams]] : []),
       ...(access.commandReference ? [["commands", "Bot commands", "code"]] : []),
     ]]] : []),
@@ -1394,6 +1394,74 @@ function commandReferenceView() {
     <div class="command-doc-list">${shown.length ? shown.map((section) => `<section class="card command-doc-section" id="command-${esc(section.title.replace(/^\//, "").replace(/\s+/g, "-"))}">${markdownBlock(section.source)}</section>`).join("") : `<section class="card"><div class="card-body">${empty("No commands found", "Try a command name, action, or ACE permission.", "search")}</div></section>`}</div>`;
 }
 
+const caseDiscordFields = new Set(["target_id", "actor_id", "author_id", "reviewed_by", "assigned_to", "subject_id", "opened_by", "lead_id", "closed_by", "discord_id", "revoked_by"]);
+function caseRaw(value) {
+  if (value == null || value === "") return '<span class="muted">None</span>';
+  if (typeof value === "object") return `<pre class="case-json">${esc(JSON.stringify(value, null, 2))}</pre>`;
+  return `<span class="case-raw">${esc(value)}</span>`;
+}
+function caseFieldValue(key, value) {
+  if (caseDiscordFields.has(key) && /^\d{15,24}$/.test(String(value || ""))) return person(String(value));
+  if (/(?:^|_)(?:created|updated|opened|closed|expires|decided|reduced|last_activity|reminded|revoked)_?at$/.test(key) && Number(value))
+    return `<b>${esc(date(value))}</b><small>${esc(ago(value))}</small>`;
+  if (["active", "alt_scan", "flagged", "notify_subject"].includes(key)) return Number(value) ? '<span class="pill pill-good">Yes</span>' : '<span class="pill">No</span>';
+  return caseRaw(value);
+}
+const caseFields = (row) => `<div class="kv case-kv">${Object.entries(row || {}).map(([key, value]) => `<div class="${typeof value === "object" || String(value ?? "").length > 120 ? "wide" : ""}"><small>${esc(titleCase(key))}</small>${caseFieldValue(key, value)}</div>`).join("")}</div>`;
+const caseAuditRows = (rows) => rows.map((row) => `<tr><td class="mono">#${fmt(row.id)}</td><td>${esc(date(row.created_at))}</td><td>${caseFieldValue("actor_id", row.actor_id)}</td><td class="strong">${esc(row.action)}</td><td>${caseFieldValue("target_id", row.target_id)}</td><td class="wrap">${caseRaw(row.payload)}</td></tr>`).join("");
+
+function caseLookupView() {
+  if (!state.data.access.investigate) return go("dashboard");
+  setTitle("Investigations workspace", "Case lookup");
+  const record = state.caseLookup;
+  const search = `<form id="case-lookup-search" class="toolbar investigation-search">
+    <label class="search">${icon("search")}<input name="caseId" maxlength="32" value="${esc(record?.publicId || "")}" placeholder="FB-123456 or IA-2026-0001" required aria-label="Case ID"></label>
+    <button class="btn btn-sun" type="submit">${icon("search")} Look up case</button>
+    ${record ? `<button class="btn btn-ghost" type="button" data-copy="${esc(record.publicId)}">${icon("copy")} Copy case ID</button>` : ""}
+  </form>`;
+  if (state.caseLookupLoading) {
+    $("#portal-content").innerHTML = `${search}<div class="loading"><div class="spinner"></div>Loading the complete case file</div>`;
+    return;
+  }
+  if (!record) {
+    $("#portal-content").innerHTML = `${search}<section class="card"><div class="card-body">${empty("Look up any case", "Enter an FB moderation case or an IA Internal Affairs reference. The result includes every stored field, appeal, event, linked case, discipline record, and audit entry.", "gavel", "143 124 255")}</div></section>`;
+    return;
+  }
+
+  const row = record.case;
+  if (record.kind === "internal_affairs") {
+    const entryRows = record.entries.map((entry) => `<div class="feed-row case-entry"><div class="feed-ico">${icon(entry.kind === "evidence" ? "external" : entry.kind === "note" ? "review" : "history")}</div><div class="txt"><b>${esc(titleCase(entry.kind))} · ${esc(date(entry.created_at))}</b><small>${person(entry.author_id)}</small><p>${esc(entry.body)}</p>${entry.url ? `<pre class="case-json">${esc(entry.url)}</pre>` : ""}</div></div>`).join("");
+    const discipline = record.discipline.map((item) => `<section class="card"><div class="card-head"><div><h2>Discipline #${fmt(item.id)} · ${esc(titleCase(item.kind))}</h2><p>${Number(item.active) ? "Active" : "Inactive"} · issued ${esc(date(item.created_at))}</p></div>${pill(Number(item.active) ? "active" : "lifted")}</div><div class="card-body">${caseFields(item)}</div></section>`).join("");
+    $("#portal-content").innerHTML = `${search}
+      <section class="profile-hero case-hero"><div class="profile-cover"></div><div class="profile-id"><div class="feed-ico">${icon("gavel")}</div><div class="who"><small>Internal Affairs case</small><h2>${esc(record.publicId)}</h2><p>${esc(titleCase(row.type))} · ${esc(row.subject_name || row.subject_id)}</p><div class="chips">${pill(row.status)}<span class="pill pill-warn">${esc(titleCase(row.priority))} priority</span></div></div><div class="callsign-badge"><small>Opened</small><b>${esc(day(row.opened_at))}</b></div></div></section>
+      <section class="card"><div class="card-head"><div><h2>Complete case record</h2><p>Every stored field from the Internal Affairs case.</p></div></div><div class="card-body">${caseFields(row)}</div></section>
+      <section class="card"><div class="card-head"><div><h2>Case log</h2><p>${plural(record.entries.length, "entry")} in chronological order.</p></div></div>${entryRows ? `<div class="feed">${entryRows}</div>` : empty("Empty case log", "No notes, evidence, or system events are stored.", "history")}</section>
+      ${discipline}
+      <section class="card"><div class="card-head"><div><h2>Audit trail</h2><p>${plural(record.audits.length, "matching audit event")}.</p></div></div>${record.audits.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Date</th><th>Actor</th><th>Action</th><th>Target</th><th>Payload</th></tr></thead><tbody>${caseAuditRows(record.audits)}</tbody></table></div>` : empty("No matching audit entries", "The case log above remains the authoritative Internal Affairs timeline.", "history")}</section>`;
+    return;
+  }
+
+  const status = caseState(row);
+  const links = [
+    ...(record.sourceCase ? [{ label: "Parent case", row: record.sourceCase }] : []),
+    ...record.derivedCases.map((item) => ({ label: "Derived alt case", row: item })),
+  ];
+  const linkedRows = links.map(({ label, row: item }) => `<tr><td>${esc(label)}</td><td><button class="id-chip" type="button" data-case-id="${esc(item.publicId)}">${esc(item.publicId)}</button></td><td>${esc(titleCase(item.action))}</td><td>${caseFieldValue("target_id", item.target_id)}</td><td>${pill(caseState(item))}</td><td class="wrap">${esc(item.reason)}</td></tr>`).join("");
+  const appeals = record.appeals.map((appeal) => `<section class="card case-appeal"><div class="card-head"><div><h2>Appeal #${fmt(appeal.id)}</h2><p>Opened ${esc(date(appeal.created_at))} · updated ${esc(date(appeal.updated_at))}</p></div>${pill(appeal.status)}</div><div class="card-body">${caseFields(Object.fromEntries(Object.entries(appeal).filter(([key]) => key !== "events")))}</div>${appeal.events.length ? `<div class="appeal-timeline">${appeal.events.map((event) => `<div><i></i><section><small>${esc(date(event.created_at))} · ${esc(titleCase(event.kind))} · ${esc(event.visibility)}</small>${person(event.actor_id)}<p>${esc(event.body || "No message")}</p>${event.data != null ? caseRaw(event.data) : ""}</section></div>`).join("")}</div>` : ""}</section>`).join("");
+  $("#portal-content").innerHTML = `${search}
+    <section class="profile-hero case-hero"><div class="profile-cover"></div><div class="profile-id"><div class="feed-ico">${icon("shield")}</div><div class="who"><small>Moderation case</small><h2>${esc(record.publicId)}</h2><p>${esc(titleCase(row.action))} · ${esc(sourceLabel(row))}</p><div class="chips">${pill(status)}<span class="pill plain">${esc(row.source || "discord_bot")}</span></div></div><div class="callsign-badge"><small>Created</small><b>${esc(day(row.created_at))}</b></div></div></section>
+    <div class="stats">
+      <div class="stat-tile ${status === "active" ? "tone-bad" : "tone-good"}"><div class="ico">${icon("shield")}</div><span>Status</span><strong>${esc(titleCase(status))}</strong><small>${row.expires_at ? `Expires ${esc(date(row.expires_at))}` : "No expiration"}</small></div>
+      <div class="stat-tile tone-sea"><div class="ico">${icon("users")}</div><span>Target</span><strong>${esc(state.data.people?.[row.target_id]?.name || row.target_name || row.target_id)}</strong><small class="mono">${esc(row.target_id)}</small></div>
+      <div class="stat-tile tone-dusk"><div class="ico">${icon("scale")}</div><span>Appeals</span><strong>${fmt(record.appeals.length)}</strong><small>${record.appeals.filter((item) => ["submitted", "under_review"].includes(item.status)).length} awaiting decision</small></div>
+      <div class="stat-tile tone-sky"><div class="ico">${icon("history")}</div><span>Audit events</span><strong>${fmt(record.audits.length)}</strong><small>${plural(record.derivedCases.length, "derived case")}</small></div>
+    </div>
+    <section class="card"><div class="card-head"><div><h2>Complete case record</h2><p>Every stored field from the shared Discord, network, and game moderation ledger.</p></div></div><div class="card-body">${caseFields(row)}</div></section>
+    <section class="card"><div class="card-head"><div><h2>Linked cases</h2><p>Parent and alt-derived enforcement records.</p></div></div>${linkedRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Relationship</th><th>Case</th><th>Action</th><th>Target</th><th>Status</th><th>Reason</th></tr></thead><tbody>${linkedRows}</tbody></table></div>` : empty("No linked cases", "This record has no parent or derived alt-account cases.", "history")}</section>
+    ${appeals || `<section class="card"><div class="card-body">${empty("No appeals", "No appeal has been filed against this case.", "scale")}</div></section>`}
+    <section class="card"><div class="card-head"><div><h2>Audit trail</h2><p>${plural(record.audits.length, "matching audit event")} with full payloads.</p></div></div>${record.audits.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>ID</th><th>Date</th><th>Actor</th><th>Action</th><th>Target</th><th>Payload</th></tr></thead><tbody>${caseAuditRows(record.audits)}</tbody></table></div>` : empty("No matching audit entries", "The case record is still available above.", "history")}</section>`;
+}
+
 function investigationView() {
   if (!state.data.access.investigate) return go("dashboard");
   setTitle("Investigations workspace", "Member investigations");
@@ -1455,7 +1523,7 @@ function investigationView() {
     ${record.discipline.length ? `<section class="card"><div class="card-head"><div><h2>Staff discipline</h2><p>Warnings and strikes, including revoked records.</p></div></div><div class="feed">${record.discipline.map((row) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(row.kind))}${row.revoked_at ? " · revoked" : ""}</b><small>${esc(row.reason)}${row.revoke_reason ? ` · Revocation: ${esc(row.revoke_reason)}` : ""}</small></div><time>${esc(day(row.created_at))}</time></div>`).join("")}</div></section>` : ""}`;
 }
 
-const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, personals: personalsView, commands: commandReferenceView, investigation: investigationView };
+const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, personals: personalsView, commands: commandReferenceView, investigation: investigationView, cases: caseLookupView };
 function render() {
   nav();
   (renders[state.view] || dashboard)();
@@ -1479,6 +1547,10 @@ async function load({ quiet = false } = {}) {
   if (state.investigation?.user?.id && state.view === "investigation") {
     state.investigation = await api(`portal/investigation?id=${encodeURIComponent(state.investigation.user.id)}`).catch(() => null);
     if (state.investigation?.people) state.data.people = { ...(state.data.people || {}), ...state.investigation.people };
+  }
+  if (state.caseLookup?.publicId && state.view === "cases") {
+    state.caseLookup = await api(`portal/case?id=${encodeURIComponent(state.caseLookup.publicId)}`).catch(() => null);
+    if (state.caseLookup?.people) state.data.people = { ...(state.data.people || {}), ...state.caseLookup.people };
   }
   render();
 }
@@ -1507,6 +1579,18 @@ async function investigate(discordId) {
     if (state.investigation.people) state.data.people = { ...(state.data.people || {}), ...state.investigation.people };
   } finally {
     state.investigationLoading = false;
+  }
+  render();
+}
+
+async function lookupCase(caseId) {
+  state.caseLookupLoading = true;
+  render();
+  try {
+    state.caseLookup = await api(`portal/case?id=${encodeURIComponent(String(caseId || "").trim())}`);
+    if (state.caseLookup.people) state.data.people = { ...(state.data.people || {}), ...state.caseLookup.people };
+  } finally {
+    state.caseLookupLoading = false;
   }
   render();
 }
@@ -1587,6 +1671,12 @@ $("#portal-content").addEventListener("click", async (event) => {
   const target = event.target;
   const chip = target.closest("[data-copy]");
   if (chip) return copy(chip.dataset.copy);
+  const linkedCase = target.closest("[data-case-id]");
+  if (linkedCase) {
+    try { await lookupCase(linkedCase.dataset.caseId); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    catch (error) { toast(error.message, true); }
+    return;
+  }
   const investigationTarget = target.closest("[data-investigate-id]");
   if (investigationTarget) {
     try { await investigate(investigationTarget.dataset.investigateId); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -1799,6 +1889,15 @@ $("#portal-content").addEventListener("change", (event) => {
 });
 
 $("#portal-content").addEventListener("submit", async (event) => {
+  const caseForm = event.target.closest("#case-lookup-search");
+  if (caseForm) {
+    event.preventDefault();
+    const button = caseForm.querySelector("button[type=submit]");
+    button.disabled = true;
+    try { await lookupCase(new FormData(caseForm).get("caseId")); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    catch (error) { toast(error.message, true); button.disabled = false; }
+    return;
+  }
   const investigationForm = event.target.closest("#investigation-search");
   if (investigationForm) {
     event.preventDefault();

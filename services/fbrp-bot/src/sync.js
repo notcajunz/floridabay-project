@@ -21,6 +21,18 @@ export const ROLE_AUTHORITATIVE_GROUPS = new Set([
 const ROLE_AUTHORITATIVE_GROUP_SQL = [...ROLE_AUTHORITATIVE_GROUPS]
   .map(() => "?")
   .join(",");
+// Sector coordination groups. A member joins one by holding a source role in `discord_role_sources`
+// (the sector team role that /coord add hands out, or a rank role in the staff server). The synced
+// display role this group puts in every other server is never a source, so removing the /coord role
+// really removes the group everywhere instead of being held up by a mirrored role.
+export const ROLE_SOURCED_GROUPS = new Set([
+  "gang_coordination_team",
+  "department_coordinator",
+  "business_coordinator",
+]);
+const ROLE_SOURCED_GROUP_SQL = [...ROLE_SOURCED_GROUPS].map(() => "?").join(",");
+const MEMBERSHIP_GROUPS = [...ROLE_AUTHORITATIVE_GROUPS, ...ROLE_SOURCED_GROUPS];
+const MEMBERSHIP_GROUP_SQL = MEMBERSHIP_GROUPS.map(() => "?").join(",");
 const P = PermissionFlagsBits;
 const ALL_PERMISSIONS = Object.values(P).reduce((all, bit) => all | bit, 0n);
 export const DANGEROUS_ROLE_PERMISSIONS =
@@ -284,7 +296,7 @@ async function applyRoleOrder(guild) {
   const rows = await db.query(
     `SELECT r.role_id FROM network_sync_roles r
      JOIN network_syncs s ON s.id=r.sync_id
-     WHERE r.guild_id=? ORDER BY s.sort_order,s.id`,
+     WHERE r.guild_id=? AND s.placement='top' ORDER BY s.sort_order,s.id`,
     [guild.id],
   );
   await guild.roles.fetch().catch(() => {});
@@ -323,6 +335,47 @@ async function applyRoleOrder(guild) {
   return result;
 }
 
+/**
+ * Puts syncs with placement 'below' directly under their anchor role (network_sync_anchors, the
+ * server's Management Team or Staff Coordination Team role). Several roles on one anchor stack in network order.
+ * Roles linked without an anchor are never moved.
+ */
+async function applyBelowPlacement(guild) {
+  const rows = await db.query(
+    `SELECT r.role_id,a.below_role_id FROM network_sync_roles r
+     JOIN network_syncs s ON s.id=r.sync_id
+     JOIN network_sync_anchors a ON a.sync_id=r.sync_id AND a.guild_id=r.guild_id
+     WHERE r.guild_id=? AND s.placement='below'
+     ORDER BY s.sort_order,s.id`,
+    [guild.id],
+  );
+  const result = { moved: 0, skipped: 0 };
+  if (!rows.length) return result;
+  await guild.roles.fetch().catch(() => {});
+  const botPosition = guild.members.me?.roles.highest.position || 0;
+  const tail = new Map();
+  for (const row of rows) {
+    const role = guild.roles.cache.get(String(row.role_id));
+    const anchor = guild.roles.cache.get(tail.get(row.below_role_id) || String(row.below_role_id));
+    if (!role || !anchor || !role.editable || anchor.position - 1 >= botPosition) {
+      result.skipped += 1;
+      continue;
+    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = guild.roles.cache.get(role.id);
+      const above = guild.roles.cache.get(anchor.id);
+      if (current.position === above.position - 1) break;
+      const target = current.position > above.position ? above.position : above.position - 1;
+      const moved = await current.setPosition(target, { reason: "Florida Bay global role sync: below anchor" }).then(() => true, () => false);
+      if (!moved) break;
+      await guild.roles.fetch().catch(() => {});
+      if (attempt === 0) result.moved += 1;
+    }
+    tail.set(row.below_role_id, role.id);
+  }
+  return result;
+}
+
 /** Creates, restyles or unlinks every synced role in one server to match network_syncs. */
 async function syncGuildRoles(client, guild, kind, channelsTurnedOffFor = null) {
   const lines = [];
@@ -343,6 +396,9 @@ async function syncGuildRoles(client, guild, kind, channelsTurnedOffFor = null) 
   }
   await applyRoleOrder(guild).catch((error) =>
     lines.push(`Role order: ${clean(error?.message ?? error)}`),
+  );
+  await applyBelowPlacement(guild).catch((error) =>
+    lines.push(`Role placement: ${clean(error?.message ?? error)}`),
   );
   return lines;
 }
@@ -369,6 +425,7 @@ export async function applySync(client, sync, channelsTurnedOff = false) {
           ? channelNote(await applyChannelAccess(guild, role.id, Boolean(sync.all_channels)))
           : "";
       await applyRoleOrder(guild).catch(() => {});
+      await applyBelowPlacement(guild).catch(() => {});
       lines.push(`**${clean(guild.name)}** · ${line}${channels}`);
     } else {
       const removed = await unlinkRole(client, guild.id, sync.id, true);
@@ -421,8 +478,8 @@ async function directMemberships(discordId) {
         `SELECT DISTINCT group_name FROM ace_memberships
          WHERE discord_id=?
            AND origin <> 'bootstrap'
-           AND (origin NOT LIKE 'discord:%' OR group_name IN (${ROLE_AUTHORITATIVE_GROUP_SQL}))`,
-        [discordId, ...ROLE_AUTHORITATIVE_GROUPS],
+           AND (origin NOT LIKE 'discord:%' OR group_name IN (${MEMBERSHIP_GROUP_SQL}))`,
+        [discordId, ...MEMBERSHIP_GROUPS],
       )
     ).map((row) => String(row.group_name)),
   );
@@ -440,12 +497,17 @@ async function syncRoleAuthoritativeMemberships(member, actorId) {
      UNION ALL
      SELECT r.role_id,s.group_name FROM network_sync_roles r
        JOIN network_syncs s ON s.id=r.sync_id
-       WHERE r.guild_id=? AND s.group_name IN (${ROLE_AUTHORITATIVE_GROUP_SQL})`,
+       WHERE r.guild_id=? AND s.group_name IN (${ROLE_AUTHORITATIVE_GROUP_SQL})
+     UNION ALL
+     SELECT role_id,group_name FROM discord_role_sources
+       WHERE guild_id=? AND group_name IN (${ROLE_SOURCED_GROUP_SQL})`,
     [
       member.guild.id,
       ...ROLE_AUTHORITATIVE_GROUPS,
       member.guild.id,
       ...ROLE_AUTHORITATIVE_GROUPS,
+      member.guild.id,
+      ...ROLE_SOURCED_GROUPS,
     ],
   );
   const heldGroups = new Set(
@@ -457,8 +519,8 @@ async function syncRoleAuthoritativeMemberships(member, actorId) {
   await db.transaction(async (query) => {
     await query(
       `DELETE FROM ace_memberships
-       WHERE discord_id=? AND origin=? AND group_name IN (${ROLE_AUTHORITATIVE_GROUP_SQL})`,
-      [member.id, membershipOrigin, ...ROLE_AUTHORITATIVE_GROUPS],
+       WHERE discord_id=? AND origin=? AND group_name IN (${MEMBERSHIP_GROUP_SQL})`,
+      [member.id, membershipOrigin, ...MEMBERSHIP_GROUPS],
     );
     for (const groupName of heldGroups)
       await query(
@@ -468,9 +530,104 @@ async function syncRoleAuthoritativeMemberships(member, actorId) {
   });
 }
 
+let sourceRoleCache = { at: 0, ids: new Set() };
+/** True when a member update added or removed a role that grants a sector coordination group. */
+export async function touchesCoordinationSource(oldMember, newMember) {
+  if (Date.now() - sourceRoleCache.at > 30000) {
+    const rows = await db.query("SELECT DISTINCT role_id FROM discord_role_sources").catch(() => []);
+    sourceRoleCache = { at: Date.now(), ids: new Set(rows.map((row) => String(row.role_id))) };
+  }
+  if (!sourceRoleCache.ids.size) return false;
+  const before = oldMember?.roles?.cache;
+  const after = newMember.roles.cache;
+  if (!before) return [...sourceRoleCache.ids].some((id) => after.has(id));
+  return [...sourceRoleCache.ids].some((id) => before.has(id) !== after.has(id));
+}
+
 /** Management and above also wear this rank's Discord roles on top of their own. */
 export const STAFF_MANAGEMENT_EXTRA_GROUP = "head_administrator";
 const MANAGEMENT_FLOOR_GROUP = "mgmt_team";
+export const MANAGEMENT_MEMBERSHIP_GROUP = "mgmt_team";
+export const MANAGEMENT_MINIMUM_GROUP = "assistant_community_manager";
+export const MANAGEMENT_MEMBERSHIP_ORIGIN = "derived:acm_plus";
+
+/**
+ * Makes Management Team membership a derived property of holding ACM or a higher
+ * staff ACE rank. All origins for mgmt_team are replaced so a stale manual grant
+ * cannot survive a demotion or staff removal.
+ */
+export async function reconcileManagementMembership(discordId, addedBy = "system", database = db) {
+  const id = String(discordId);
+  const [eligible, existing] = await Promise.all([
+    database.one(
+      `SELECT 1 ok FROM ace_memberships m
+       JOIN ace_groups held ON held.name=m.group_name
+       JOIN ace_groups floor ON floor.name=?
+       WHERE m.discord_id=? AND m.group_name<>? AND held.staff_only=TRUE
+         AND held.rank_order>=floor.rank_order
+         AND (m.origin NOT LIKE 'discord:%' OR m.group_name='ban_blacklist_moderator')
+       LIMIT 1`,
+      [MANAGEMENT_MINIMUM_GROUP, id, MANAGEMENT_MEMBERSHIP_GROUP],
+    ),
+    database.query(
+      "SELECT origin FROM ace_memberships WHERE discord_id=? AND group_name=?",
+      [id, MANAGEMENT_MEMBERSHIP_GROUP],
+    ),
+  ]);
+  const correct = eligible
+    ? existing.length === 1 && String(existing[0].origin) === MANAGEMENT_MEMBERSHIP_ORIGIN
+    : existing.length === 0;
+  if (correct) return { eligible: Boolean(eligible), changed: false };
+  await database.transaction(async (query) => {
+    await query("DELETE FROM ace_memberships WHERE discord_id=? AND group_name=?", [id, MANAGEMENT_MEMBERSHIP_GROUP]);
+    if (eligible)
+      await query(
+        "INSERT INTO ace_memberships(discord_id,group_name,origin,added_by,added_at) VALUES(?,?,?,?,?)",
+        [id, MANAGEMENT_MEMBERSHIP_GROUP, MANAGEMENT_MEMBERSHIP_ORIGIN, String(addedBy), Date.now()],
+      );
+  });
+  return { eligible: Boolean(eligible), changed: true };
+}
+
+/** Rebuilds the derived group for every account, including accounts no longer in Discord caches. */
+export async function reconcileAllManagementMemberships(addedBy = "system", database = db) {
+  const [eligibleRows, existing] = await Promise.all([
+    database.query(
+      `SELECT DISTINCT m.discord_id FROM ace_memberships m
+       JOIN ace_groups held ON held.name=m.group_name
+       JOIN ace_groups floor ON floor.name=?
+       WHERE m.group_name<>? AND held.staff_only=TRUE
+         AND held.rank_order>=floor.rank_order
+         AND (m.origin NOT LIKE 'discord:%' OR m.group_name='ban_blacklist_moderator')`,
+      [MANAGEMENT_MINIMUM_GROUP, MANAGEMENT_MEMBERSHIP_GROUP],
+    ),
+    database.query(
+      "SELECT discord_id,origin FROM ace_memberships WHERE group_name=?",
+      [MANAGEMENT_MEMBERSHIP_GROUP],
+    ),
+  ]);
+  const eligible = new Set(eligibleRows.map((row) => String(row.discord_id)));
+  const byAccount = new Map();
+  for (const row of existing) byAccount.set(String(row.discord_id), [...(byAccount.get(String(row.discord_id)) || []), String(row.origin)]);
+  const changed = new Set([...eligible, ...byAccount.keys()].filter((id) => {
+    const origins = byAccount.get(id) || [];
+    return eligible.has(id)
+      ? origins.length !== 1 || origins[0] !== MANAGEMENT_MEMBERSHIP_ORIGIN
+      : origins.length > 0;
+  }));
+  if (!changed.size) return { eligible: eligible.size, changed: [] };
+  await database.transaction(async (query) => {
+    for (const id of changed) {
+      await query("DELETE FROM ace_memberships WHERE discord_id=? AND group_name=?", [id, MANAGEMENT_MEMBERSHIP_GROUP]);
+      if (eligible.has(id))
+        await query(
+          "INSERT INTO ace_memberships(discord_id,group_name,origin,added_by,added_at) VALUES(?,?,?,?,?)",
+          [id, MANAGEMENT_MEMBERSHIP_GROUP, MANAGEMENT_MEMBERSHIP_ORIGIN, String(addedBy), Date.now()],
+        );
+    }
+  });
+  return { eligible: eligible.size, changed: [...changed] };
+}
 
 let staffRankCache = { at: 0, info: { ranks: new Map(), floor: null } };
 /**
@@ -879,7 +1036,8 @@ function normalizeSyncInput(group, input, existing = null) {
     input.permissions ?? existing?.permissions ?? "0",
   ).toString();
   let color = input.color ?? existing?.color ?? 0;
-  if (typeof color === "string") {
+  if (typeof color === "string" && /^(default|none|discord|0)?$/i.test(color.trim())) color = 0;
+  else if (typeof color === "string") {
     if (!/^#?[0-9a-f]{6}$/i.test(color)) throw new Error("Use a hex color like #43E8D8.");
     color = Number.parseInt(color.replace("#", ""), 16);
   }

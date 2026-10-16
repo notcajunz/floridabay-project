@@ -1,6 +1,7 @@
 import {
   AuditLogEvent,
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
@@ -16,6 +17,7 @@ import { randomInt } from "node:crypto";
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
 import { organizationActivity } from "./investigation.js";
+import { lookupAnyCase, moderationCaseState } from "./case-lookup.js";
 import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
 import { runGithubSync, githubStatus } from "./github-sync.js";
 import {
@@ -66,10 +68,13 @@ import {
   describeDiscordPermissions,
   enforceAllChannelAccess,
   syncUserAcrossNetwork,
+  touchesCoordinationSource,
   invalidateBlacklistCache,
   ROLE_AUTHORITATIVE_GROUPS,
   staffRankInfo,
   staffDisplayGroups,
+  reconcileManagementMembership,
+  reconcileAllManagementMemberships,
 } from "./sync.js";
 import {
   EVENT_LABEL,
@@ -83,6 +88,7 @@ import {
   guardJoin,
   guardMessage,
   handleAuditEntry,
+  invalidateSecurityExemption,
   enforceOffenders,
   listOffenders,
   loadOffenders,
@@ -131,6 +137,7 @@ import { createPersonalImporter } from "./personal-import.js";
 import { createGiveaways } from "./giveaways.js";
 import { createStatusBoard } from "./status-board.js";
 import { createChainOfCommand } from "./chain-of-command.js";
+import { createRoleMembershipCommands } from "./role-membership.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
@@ -161,9 +168,9 @@ const COMMUNITY_JOIN_SERVERS = Object.freeze([
     emoji: "🏷️",
   },
   {
-    id: "1558346587120599184",
-    label: "Respected Civilian",
-    description: "Join the Respected Civilian community server",
+    id: "1519823229106131055",
+    label: "Certified Civilian",
+    description: "Join the Certified Civilian community server",
     emoji: "⭐",
   },
   {
@@ -668,6 +675,7 @@ async function aceCommand(i, sub) {
         "DELETE FROM ace_memberships WHERE discord_id=? AND group_name=? AND origin='manual'",
         [member.id, name],
       );
+    await reconcileManagementMembership(member.id, i.user.id);
     await audit(i.user.id, `ace.member.${add ? "add" : "remove"}`, member.id, {
       group: name,
       ...(groups.length > 1 ? { groups } : {}),
@@ -1006,7 +1014,7 @@ async function organizationCommand(i, sub) {
     }, "organizations");
     return card("Organization created", {
       color: COLORS.success,
-      description: `Eligible members clock in with \`/duty ${slug}\`. Job, gang tag, permissions and hours update automatically.`,
+      description: `Eligible members clock in by running \`/duty\` in game and picking it from the list. Job, gang tag, permissions and hours update automatically.`,
       rows: [["Name", name], ["Slug", `\`${slug}\``], ["Type", type], ["Tag", tagLabel], ["Required role", `${roleRef(accessRoleId)}\n${clean(accessGuild.name)}`]],
     });
   }
@@ -1616,6 +1624,34 @@ async function setStaffTeamRole(discordId, add) {
 }
 
 /** Gives the Staff Team role to every active roster member missing it (startup, every 10 minutes, /roster sync). */
+/** Keeps a roster member's staff jobs in line with the Discord roles the jobs are bound to. */
+async function reconcileRosterJobs(member, jobs = null) {
+  if (!member || member.user.bot) return;
+  const rows = jobs || (await db.query(
+    "SELECT id,discord_role_id FROM staff_roster_jobs WHERE discord_role_id IS NOT NULL AND discord_guild_id=?",
+    [member.guild.id],
+  ));
+  if (!rows.length) return;
+  if (!(await db.one("SELECT 1 ok FROM staff_roster_members WHERE discord_id=? AND status<>'removed'", [member.id]))) return;
+  for (const job of rows) {
+    if (member.roles.cache.has(String(job.discord_role_id)))
+      await db.query("INSERT IGNORE INTO staff_roster_member_jobs(discord_id,job_id,assigned_by,assigned_at) VALUES(?,?,?,?)", [member.id, job.id, "role-sync", Date.now()]);
+    else
+      await db.query("DELETE FROM staff_roster_member_jobs WHERE discord_id=? AND job_id=?", [member.id, job.id]);
+  }
+}
+
+async function reconcileAllRosterJobs() {
+  const jobs = await db.query("SELECT id,discord_role_id,discord_guild_id FROM staff_roster_jobs WHERE discord_role_id IS NOT NULL AND discord_guild_id IS NOT NULL");
+  for (const guildId of new Set(jobs.map((job) => String(job.discord_guild_id)))) {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) continue;
+    const members = await guild.members.fetch().catch(() => guild.members.cache);
+    const here = jobs.filter((job) => String(job.discord_guild_id) === guildId);
+    for (const member of members.values()) await reconcileRosterJobs(member, here);
+  }
+}
+
 async function syncStaffTeamRoles() {
   const roster = await db.query("SELECT discord_id FROM staff_roster_members WHERE status<>'removed'");
   for (const row of roster) await setStaffTeamRole(row.discord_id, true);
@@ -1684,6 +1720,7 @@ async function staffAdd(i, move = false) {
     );
     return old.map((row) => String(row.group_name));
   });
+  await reconcileManagementMembership(user.id, i.user.id);
   // The member keeps every lower rank's ACE group but wears only their own rank role (management also wears Head Administrator).
   const wear = staffDisplayGroups(String(rank.ace_group), await staffRankInfo());
   const wornIds = new Set(ladder.filter((row) => wear.has(String(row.ace_group))).map((row) => Number(row.id)));
@@ -1751,6 +1788,7 @@ async function staffRemove(i) {
       [i.user.id, "Removed from staff", user.id],
     );
   });
+  await reconcileManagementMembership(user.id, i.user.id);
   await setRankRole(roster, user.id, false);
   await setStaffTeamRole(user.id, false);
   await rebalanceStaffCallsigns(i.user.id);
@@ -1889,7 +1927,8 @@ async function protectRoleCommand(i, sub) {
 async function botguardCommand(i, sub) {
   await requireCoOwnerControl(i, "fbrp.security.manage", "manage Bot Guard");
   // Security is configured by the owner alone; Co-Owners may only view the policy.
-  if (sub !== "list") requireOwner(i, "change Bot Guard");
+  if (sub !== "list" && sub !== "exempt-add" && sub !== "exempt-remove")
+    requireOwner(i, "change Bot Guard");
   if (sub === "allow-bot" || sub === "deny-bot") {
     const id = clean(i.options.getString("bot_id", true), 24);
     if (!/^\d{15,24}$/.test(id))
@@ -1943,6 +1982,7 @@ async function botguardCommand(i, sub) {
     });
   }
   if (sub === "exempt-add" || sub === "exempt-remove") {
+    await requirePermission(i, "fbrp.botguard.exemptions");
     requireOwner(i, "manage security exemptions");
     const user = i.options.getUser("member", true),
       add = sub === "exempt-add";
@@ -1956,6 +1996,7 @@ async function botguardCommand(i, sub) {
         "DELETE FROM discord_security_exemption_scopes WHERE discord_id=? AND guild_id='*'",
         [user.id],
       );
+    invalidateSecurityExemption(user.id, "*");
     return card("Security exemptions updated", {
       color: COLORS.warning,
       rows: [["Member", who(user.id)], ["Exempt from enforcement", yesNo(add)]],
@@ -1988,7 +2029,7 @@ async function botguardCommand(i, sub) {
 const securityLog = (guild, entry) => log(guild, entry, "security");
 
 /** Read-only /security views. Everything else changes security and is owner-only. */
-const SECURITY_VIEWS = new Set(["status", "events", "health", "offenders"]);
+const SECURITY_VIEWS = new Set(["status", "events", "health", "offenders", "exempt-list"]);
 /** Co-Owners (with fbrp.security.manage) may still start an emergency lockdown. */
 const SECURITY_COOWNER = new Set([...SECURITY_VIEWS, "lockdown"]);
 
@@ -1999,10 +2040,11 @@ async function securityCommand(i, sub) {
     if (sub === "exempt-list") {
       const rows = await db.query("SELECT * FROM discord_security_exemption_scopes ORDER BY guild_id='*' DESC,added_at DESC");
       return card("Automated-security exemptions", {
-        description: "These bypass anti-nuke, anti-raid/account-age, anti-spam, Bot Guard and protected-role enforcement. They never grant ACE permissions or block manual moderation.",
+        description: "These fully bypass anti-nuke, anti-raid/account-age, anti-spam and Bot Guard detection within their configured scope. They never grant ACE permissions, bypass protected roles, or block manual moderation.",
         rows: [["Accounts", chunkLines(rows.map((row) => `${mention(row.discord_id)} · ${row.guild_id === "*" ? "all network servers" : `\`${row.guild_id}\``}\n${clean(row.reason, 160)}`), 3800)[0] || "None", false]],
       });
     }
+    await requirePermission(i, "fbrp.security.exemptions");
     const user = i.options.getUser("member", true);
     const guildId = i.options.getString("scope", true) === "global" ? "*" : i.guildId;
     const add = sub === "exempt-add";
@@ -2017,6 +2059,7 @@ async function securityCommand(i, sub) {
       await db.query("DELETE FROM discord_security_exemption_scopes WHERE discord_id=? AND guild_id=?", [user.id, guildId]);
       await audit(i.user.id, "security.exempt.remove", user.id, { guildId });
     }
+    invalidateSecurityExemption(user.id, guildId);
     await securityLog(i.guild, {
       title: add ? "Security exemption added" : "Security exemption removed",
       color: add ? COLORS.success : COLORS.warning,
@@ -2102,7 +2145,7 @@ async function securityCommand(i, sub) {
     const rows = await listOffenders(25);
     return card("Anti-nuke offender list", {
       description:
-        "These accounts tripped anti-nuke. They are contained in every network server, any action they take is undone instantly, and they are stopped if they join any network server.\n\n" +
+        "These accounts tripped rapid channel/role creation or deletion protection. They are contained in every network server, repeat channel/role creates or deletes are handled instantly, and they are stopped if they join any network server.\n\n" +
         (chunkLines(
           rows.map((row) => `${mention(row.discord_id)} \`${row.discord_id}\` · ${row.punishment} · ${when(row.created_at)}\nFirst seen in ${clean(client.guilds.cache.get(String(row.origin_guild_id))?.name || row.origin_guild_id, 60)} · ${clean(row.reason, 120)}`),
           3400,
@@ -2143,12 +2186,12 @@ async function securityCommand(i, sub) {
     return state ? `🔒 **${name}** · locked${state.until ? `, lifts ${when(state.until)}` : " until unlocked"}` : `🟢 ${name}`;
   });
   return card("Security status", {
-    description: `These protections scan **every** account on every Florida Bay network server, staff and server owners included. Every human account under ${YOUNG_ACCOUNT_ALERT_DAYS} days old creates an alert, including exempt accounts. The bot and accounts with a \`/security exempt-add\` exemption are skipped only for automated enforcement. Server owners are detected and reported, but Discord does not let a bot act against them.`,
+    description: `These protections scan every non-exempt account on every Florida Bay network server, staff and server owners included. The bot and accounts with a \`/security exempt-add\` exemption are fully skipped by automated detection in the configured scope. Server owners without an exemption are detected and reported, but Discord does not let a bot act against them.`,
     rows: [
-      ["Anti-nuke", `${onOff(s.antinuke)}\n${s.nuke_limit} of a kind or ${s.nuke_total} danger points in ${s.nuke_window}s, per server and${s.nuke_network_scale > 1 ? ` ×${s.nuke_network_scale}` : ""} shared across the network\nPunishment: ${s.nuke_punishment}${s.nuke_network_ban ? " (contained network-wide)" : ""}\nExempt accounts: ${s.nuke_exempt_ceiling ? `quarantined at ${s.nuke_exempt_ceiling}× the limits` : "never stopped"}\nUndo damage: ${onOff(s.nuke_restore)} · Failsafe lockdown: ${onOff(s.nuke_failsafe_lockdown)} · Health watch: ${onOff(s.health_watch)}\nOffender list: ${(await listOffenders(200)).length} account(s)`],
+      ["Anti-nuke", `${onOff(s.antinuke)} · rapid channel/role creation and deletion only\n${s.nuke_limit} of one kind or ${s.nuke_total} structural danger points in ${s.nuke_window}s, per server and${s.nuke_network_scale > 1 ? ` ×${s.nuke_network_scale}` : ""} shared across the network\nPunishment: ${s.nuke_punishment}${s.nuke_network_ban ? " (contained network-wide)" : ""}\nExempt accounts: fully bypassed in their configured scope\nUndo created/deleted roles and channels: ${onOff(s.nuke_restore)} · Failsafe lockdown: ${onOff(s.nuke_failsafe_lockdown)} · Health watch: ${onOff(s.health_watch)}\nOffender list: ${(await listOffenders(200)).length} account(s)`],
       ["Anti-raid", `${onOff(s.antiraid)}\n${s.raid_joins} joins in ${s.raid_window}s · ${s.raid_suspicious_joins} high-risk joins in ${Math.round(s.raid_suspicious_window / 60)} min · ${s.raid_message_accounts} new accounts posting the same message\n${s.raid_lockdown ? `Lockdown${s.lockdown_minutes ? ` for ${s.lockdown_minutes} min` : ""}` : "Alert only"} · raiders: ${s.raid_kick_new ? s.raid_action : "left alone"}`],
       ["Anti-spam", `${onOff(s.antispam)}\n${s.spam_messages} msgs in ${s.spam_window}s · ${s.spam_mentions} mentions · ${s.spam_duplicates} repeats · ${s.spam_channels} channels · ${s.spam_lines} lines\nTimeout: ${s.spam_timeout} min${s.spam_escalate ? ", doubling for repeat offenders" : ""}\nScam links: ${onOff(s.scam_filter)}`],
-      ["Guards", `Permission guard: ${onOff(s.permission_guard)}\nAdmin grant guard: ${onOff(s.admin_grant_guard)}\nWebhook guard: ${onOff(s.webhook_guard)}\nInvite filter: ${onOff(s.invite_filter)}\nBot guard: On`],
+      ["Guards", `Permission guard: ${onOff(s.permission_guard)}\nWebhook guard: ${onOff(s.webhook_guard)}\nInvite filter: ${onOff(s.invite_filter)}\nBot guard: On`],
       ["New accounts", `Alert every join under ${YOUNG_ACCOUNT_ALERT_DAYS}d\nConfigured action: ${s.young_account_days && s.young_account_action !== "off" ? `younger than ${s.young_account_days}d: ${s.young_account_action}` : "none"}\nDuring lockdown: ${s.raid_kick_new ? `act if younger than ${s.raid_account_days}d` : "allowed"}`],
       ["Last 24 hours", counts.map((row) => `${EVENT_LABEL[row.event_type] || humanize(row.event_type)} · ${row.n}`).join("\n") || "No events"],
       ["Servers", chunkLines(lockLines, 1000)[0] || "No network servers", false],
@@ -2599,6 +2642,93 @@ async function userinfoCommand(i) {
     });
   }
   return { embeds: [overview], followUps: [{ embeds: [serverCard, altCard] }] };
+}
+
+const casePerson = (id, fallback = "Unknown") => /^\d{15,24}$/.test(String(id || "")) ? who(id) : `\`${clean(id || fallback, 80)}\``;
+const caseJson = (value) => clean(typeof value === "string" ? value : JSON.stringify(value), 900);
+
+async function caseLookupCommand(i) {
+  await requirePermission(i, "fbrp.investigate");
+  const record = await lookupAnyCase(db, i.options.getString("case_id", true));
+  await audit(i.user.id, "case.lookup", record.publicId, { kind: record.kind, caseId: record.case.id, source: "discord" });
+  const file = new AttachmentBuilder(Buffer.from(JSON.stringify(record, null, 2), "utf8"), {
+    name: `${record.publicId.replace(/[^A-Za-z0-9_-]/g, "_")}.json`,
+    description: `Complete raw record for ${record.publicId}`,
+  });
+  const portal = publicBase() ? `${publicBase()}/portal.html#cases` : null;
+
+  if (record.kind === "internal_affairs") {
+    const row = record.case;
+    const summary = card(`${record.publicId} · Internal Affairs case`, {
+      color: row.status === "closed" ? COLORS.muted : COLORS.warning,
+      description: clean(row.summary, 4000),
+      rows: [
+        ["Status", `${humanize(row.status)} · ${humanize(row.priority)} priority`],
+        ["Type", humanize(row.type)],
+        ["Subject", casePerson(row.subject_id, row.subject_name)],
+        ["Opened by", `${casePerson(row.opened_by)}\n${when(row.opened_at)}`],
+        ["Lead", row.lead_id ? casePerson(row.lead_id) : "Unassigned"],
+        ["Last activity", when(row.last_activity_at)],
+        ["Discord file", `Thread ${row.thread_id ? `<#${row.thread_id}>` : "None"}\nMessage ${row.file_message_id ? `\`${row.file_message_id}\`` : "None"}`],
+        ["Flags", `Subject role: ${yesNo(Number(row.flagged))} · notified: ${yesNo(Number(row.notify_subject))}`],
+        ...(row.status === "closed" ? [
+          ["Disposition", `${humanize(row.verdict || "none")} · ${humanize(row.outcome || "none")}`],
+          ["Closed", `${casePerson(row.closed_by)}\n${when(row.closed_at)}`],
+          ["Findings", clean(row.findings || "None", 1000), false],
+        ] : []),
+        ["Intake intelligence", row.intel ? caseJson(row.intel) : "None", false],
+      ],
+      footer: `Database case #${row.id} · complete JSON attached${portal ? " · full portal view available" : ""}`,
+    });
+    const details = [
+      ...record.entries.map((entry) => `${when(entry.created_at)} · **${humanize(entry.kind)}** · ${casePerson(entry.author_id)}\n${clean(entry.body, 450)}${entry.url ? `\n${entry.url}` : ""}`),
+      ...record.discipline.map((item) => `${when(item.created_at)} · **Discipline #${item.id}: ${humanize(item.kind)}** · ${item.active ? "active" : "inactive"}\n${clean(item.reason, 450)}`),
+    ];
+    const chunks = chunkLines(details, 3600, "\n\n");
+    return {
+      embeds: [summary], files: [file],
+      followUps: chunks.map((description, index) => ({ embeds: [card(`${record.publicId} · case log ${index + 1}/${chunks.length}`, { description, color: COLORS.muted })] })),
+    };
+  }
+
+  const row = record.case;
+  const state = moderationCaseState(row);
+  const summary = card(`${record.publicId} · ${humanize(row.action)}`, {
+    color: state === "active" ? COLORS.danger : state === "recorded" ? COLORS.primary : COLORS.muted,
+    rows: [
+      ["Status", humanize(state)],
+      ["Scope / source", `${row.guild_id ? `Guild \`${row.guild_id}\`` : "Network-wide"}\n${clean(row.source || "discord_bot", 80)}`],
+      ["Target", `${casePerson(row.target_id, row.target_name)}${row.target_name ? `\n${clean(row.target_name, 80)}` : ""}`],
+      ["Moderator", casePerson(row.actor_id)],
+      ["Created", when(row.created_at)],
+      ["Expires", row.expires_at ? when(row.expires_at) : "Never / not applicable"],
+      ["Reason", clean(row.reason, 1000), false],
+      ["Record details", `Database #${row.id} · duration ${row.duration_ms == null ? "none" : `${row.duration_ms} ms`} · game ban ${row.game_ban_id || "none"} · alt scan ${yesNo(Number(row.alt_scan))}`, false],
+      ["Parent case", record.sourceCase ? `\`${record.sourceCase.publicId}\`` : "None"],
+      ["Derived cases", record.derivedCases.length ? record.derivedCases.map((item) => `\`${item.publicId}\` (${item.target_id})`).join("\n") : "None"],
+      ["Appeals / audit", `${record.appeals.length} appeal(s) · ${record.audits.length} audit event(s)`],
+    ],
+    footer: `Complete JSON attached${portal ? " · full portal view available" : ""}`,
+  });
+  const appealLines = record.appeals.map((appeal) => {
+    const parts = [
+      `**Appeal #${appeal.id} · ${humanize(appeal.status)}** · ${when(appeal.created_at)}`,
+      `Author ${casePerson(appeal.author_id)} · ticket ${appeal.ticket_id || "none"}`,
+      `Statement: ${clean(appeal.statement || "None", 500)}`,
+      appeal.answers ? `Answers: ${caseJson(appeal.answers)}` : null,
+      appeal.evidence ? `Evidence: ${caseJson(appeal.evidence)}` : null,
+      appeal.response ? `Response: ${clean(appeal.response, 500)}` : null,
+      appeal.reviewed_by ? `Reviewed by ${casePerson(appeal.reviewed_by)}${appeal.decided_at ? ` ${when(appeal.decided_at)}` : ""}` : null,
+      ...appeal.events.map((event) => `↳ ${humanize(event.kind)} · ${casePerson(event.actor_id)} · ${clean(event.body || caseJson(event.data), 350)}`),
+    ];
+    return parts.filter(Boolean).join("\n");
+  });
+  const auditLines = record.audits.map((item) => `${when(item.created_at)} · **${clean(item.action, 80)}** · ${casePerson(item.actor_id)}\n${caseJson(item.payload)}`);
+  const detailChunks = [
+    ...chunkLines(appealLines, 3600, "\n\n").map((description, index, all) => card(`${record.publicId} · appeals ${index + 1}/${all.length}`, { description, color: COLORS.warning })),
+    ...chunkLines(auditLines, 3600, "\n\n").map((description, index, all) => card(`${record.publicId} · audit trail ${index + 1}/${all.length}`, { description, color: COLORS.muted })),
+  ];
+  return { embeds: [summary], files: [file], followUps: detailChunks.map((item) => ({ embeds: [item] })) };
 }
 
 async function officeCommand(i, sub) {
@@ -3961,11 +4091,13 @@ const COMMAND_PERMISSIONS = {
   server: "`/server status`: Everyone; other actions: `fbrp.ops`",
   staff: "`add`/`move`/`remove`: `fbrp.staff.assign` (ranks below yours only); others: `fbrp.staff.manage`",
   callsign: "Community Director rank or higher",
+  role: "Assistant Community Manager rank or higher in the main server; protected roles keep their stricter policy",
   protectrole: `List: Co-Owner rank or higher and an authorized account (<@${PROTECTED_ROLE_MANAGER_IDS[0]}> or <@${PROTECTED_ROLE_MANAGER_IDS[1]}>). Add/remove: bot owner only (Discord ID 1090083387638812755)`,
   botguard: "View: Co-Owner rank or higher and `fbrp.security.manage`. Changes: bot owner only (Discord ID 1090083387638812755)",
   security: "View and lockdown: Co-Owner rank or higher and `fbrp.security.manage`. Other changes: bot owner only (Discord ID 1090083387638812755)",
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
   userinfo: "`fbrp.investigate`; linked alt accounts also need `fbrp.global.alts`",
+  case: "`fbrp.investigate`",
   office: "Co-Owner rank or higher and `fbrp.office.manage`",
   orgbank: "`balance`/`ledger`/`roster`: organization members; `transfer`: members whose rank can spend; `adjust`/`leader`: Co-Owner rank or higher",
   exam: "Assistant Community Director and above",
@@ -4112,7 +4244,26 @@ async function protectedRoleBoardEmbeds() {
   return embeds;
 }
 
-async function ensureProtectedRoleBoard() {
+/**
+ * Coalesced: one refresh runs at a time, and every call made while it runs shares a single
+ * follow-up run. A role reorder fires roleUpdate for every shifted role; without this each one
+ * queued its own rate-limited edit and replies waiting on the board hung for minutes.
+ */
+let boardRun = null;
+let boardNext = null;
+function ensureProtectedRoleBoard() {
+  if (!boardRun) {
+    boardRun = refreshProtectedRoleBoard().finally(() => { boardRun = null; });
+    return boardRun;
+  }
+  boardNext ??= boardRun.catch(() => {}).then(() => {
+    boardNext = null;
+    return ensureProtectedRoleBoard();
+  });
+  return boardNext;
+}
+
+async function refreshProtectedRoleBoard() {
   const binding = await db.one("SELECT channel_id FROM discord_channel_bindings WHERE purpose='protected_roles'");
   if (!binding) return;
   const channel = await client.channels.fetch(String(binding.channel_id)).catch(() => null);
@@ -4129,6 +4280,17 @@ async function ensureProtectedRoleBoard() {
 }
 
 const ticketSystem = createTicketSystem({ client, db, audit, hasPermission, requireMinimumStaffRank, clean, safeName, embed, card, colors: COLORS, log });
+const roleMembership = createRoleMembershipCommands({
+  db,
+  audit,
+  requireMinimumStaffRank,
+  requireProtectedRoleManagerId,
+  card,
+  colors: COLORS,
+  roleRef,
+  who,
+  log,
+});
 let webPanelServer = null;
 
 /** ACE group autocomplete for /ace unbind-role and /roster rank-upsert ace_group. */
@@ -4745,6 +4907,7 @@ const handlers = {
   server: serverCommand,
   staff: staffCommand,
   callsign: callsignCommand,
+  role: roleMembership.command,
   protectrole: protectRoleCommand,
   botguard: botguardCommand,
   security: securityCommand,
@@ -4757,6 +4920,7 @@ const handlers = {
   blacklistedserver: blacklistedServerCommand,
   acelist: aceListCommand,
   userinfo: userinfoCommand,
+  case: caseLookupCommand,
   office: officeCommand,
   orgbank: orgbankCommand,
   exam: examCommand,
@@ -4842,6 +5006,9 @@ client.once("clientReady", async () => {
       "INSERT IGNORE INTO ace_memberships(discord_id,group_name,origin,added_by,added_at) VALUES(?,'owner','bootstrap',?,?)",
       [ownerId, client.user.id, Date.now()],
     );
+  await reconcileAllManagementMemberships(client.user.id)
+    .then(({ eligible, changed }) => console.log(`[FBRP staff] Management Team ACE: ${eligible} ACM+ account(s), ${changed.length} corrected.`))
+    .catch((error) => console.error("[FBRP staff] Management Team ACE:", error));
   // Bring the public site and portal online before the slower, network-wide
   // role reconciliation so a Discord outage cannot hold the website closed.
   await refreshSiteUrls().catch((error) => console.error("[FBRP bot] site url check:", error));
@@ -4866,6 +5033,8 @@ client.once("clientReady", async () => {
     websiteTicketPriorities: ticketSystem.priorities,
     websiteTicketTranscript: ticketSystem.websiteTranscript,
     ensureProtectedRoleBoard,
+    invalidateSecurityExemption,
+    reconcileManagementMembership,
     rebalanceStaffCallsigns,
     ownerDiscordId: OWNER_DISCORD_ID,
     hasPermission,
@@ -4941,7 +5110,14 @@ client.once("clientReady", async () => {
   // Catches gated roles granted while the bot was offline or disconnected.
   setInterval(() => void serial(() => sweep(client, "sweep")).catch((error) => console.error("[FBRP bot] role sweep:", error)), 600000).unref();
   await syncStaffTeamRoles().catch((error) => console.error("[FBRP staff] Staff Team roles:", error));
-  setInterval(() => void syncStaffTeamRoles().catch((error) => console.error("[FBRP staff] Staff Team roles:", error)), 600000).unref();
+  await reconcileAllRosterJobs().catch((error) => console.error("[FBRP staff] roster jobs:", error));
+  setInterval(() => void reconcileAllRosterJobs().catch((error) => console.error("[FBRP staff] roster jobs:", error)), 600000).unref();
+  setInterval(() => void reconcileAllManagementMemberships(client.user.id)
+    .then(async ({ changed }) => {
+      for (const id of changed) await syncUserAcrossNetwork(client, id);
+      await syncStaffTeamRoles();
+    })
+    .catch((error) => console.error("[FBRP staff] Staff state sync:", error)), 600000).unref();
   client.user.setActivity("Florida Bay Roleplay");
   giveaways.start();
 });
@@ -5016,8 +5192,9 @@ client.on("interactionCreate", async (i) => {
       i.options.getSubcommand(false),
     );
     if (["staff", "roster"].includes(i.commandName)) void chainOfCommand.scheduleRosterRefresh().catch(() => {});
+    // The board refresh can sit behind Discord rate limits, so the reply never waits on it.
     if (["protectrole", "network"].includes(i.commandName))
-      await ensureProtectedRoleBoard().catch(() => {});
+      void ensureProtectedRoleBoard().catch(() => {});
     if (i.commandName === "network" && i.options.getSubcommand(false) === "add")
       void reconcileGlobalCases(i.guild).catch((error) => console.error("[FBRP global] network add reconcile:", error));
     // A handler may return { ...reply, followUps: [message, ...] } for output that will not fit one message.
@@ -5121,6 +5298,11 @@ client.on("guildMemberUpdate", (oldMember, newMember) => {
     .then(() => enforceBlacklistRoles(newMember))
     .then(() => enforceUnverifiedMemberRoles(newMember))
     .then((quarantined) => quarantined || syncMember(client, newMember, { alert: "live" }))
+    // A /coord hire or removal changes a sector coordination group, so push it to the other servers now.
+    .then(async () => {
+      if (await touchesCoordinationSource(oldMember, newMember)) await syncUserAcrossNetwork(client, newMember.id);
+      await reconcileRosterJobs(newMember);
+    })
     .catch((error) => console.error("[FBRP bot] member update:", error));
 });
 client.on("channelCreate", (channel) => {
@@ -5136,17 +5318,24 @@ client.on("channelCreate", (channel) => {
       await ensureCensoredRole(channel.guild, channel);
   })().catch((error) => console.error("[FBRP global] blacklist channel enforcement:", error));
 });
-// Anti-nuke reads every audit-log entry as it is created, so each action is tied to the exact account that made it.
+// The audit stream identifies the exact actor; anti-nuke scores only rapid channel/role creates and deletes.
 client.on("guildAuditLogEntryCreate", (entry, guild) => void handleAuditEntry(entry, guild, securityLog).catch(securityError("audit entry")));
 // Snapshots let anti-nuke rebuild what an attacker deleted.
 client.on("channelDelete", (channel) => rememberChannel(channel));
+// Role events arrive in bursts (a reorder updates every shifted role), so they share one delayed refresh.
+let boardTimer = null;
+const scheduleProtectedRoleBoard = () => {
+  if (boardTimer) return;
+  boardTimer = setTimeout(() => {
+    boardTimer = null;
+    void ensureProtectedRoleBoard().catch(() => {});
+  }, 3000);
+};
 client.on("roleDelete", (role) => {
   rememberRole(role);
-  setTimeout(() => void ensureProtectedRoleBoard().catch(() => {}), 1500);
+  scheduleProtectedRoleBoard();
 });
-client.on("roleUpdate", () => {
-  setTimeout(() => void ensureProtectedRoleBoard().catch(() => {}), 1500);
-});
+client.on("roleUpdate", scheduleProtectedRoleBoard);
 client.on("guildBanAdd", (ban) => void recordNativeDiscordBan(ban).catch(securityError("ban record")));
 client.on("guildUpdate", (oldGuild, newGuild) => void guardGuildUpdate(oldGuild, newGuild, securityLog).catch(securityError("guild update")));
 client.on("messageCreate", (message) => {

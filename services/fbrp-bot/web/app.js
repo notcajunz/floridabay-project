@@ -35,11 +35,82 @@ const ICON = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   up: '<path d="m6 15 6-6 6 6"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
+  right: '<path d="m9 6 6 6-6 6"/>',
   sync: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
   layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+  car: '<path d="M5 16h14M3 16v-4l2-5h14l2 5v4h-2M3 16h2"/><circle cx="7.5" cy="16.5" r="1.8"/><circle cx="16.5" cy="16.5" r="1.8"/>',
+  tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
+  building: '<path d="M4 21V5l8-3v19M12 9h8v12M8 8h.01M8 12h.01M8 16h.01M16 13h.01M16 17h.01M2 21h20"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.3 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v12"/>',
+  alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  radio: '<path d="M4 9h16v11H4zM8 9l9-5"/><circle cx="9" cy="14.5" r="2"/><path d="M14 13h3M14 16h3"/>',
+  gamepad: '<path d="M6 8h12a4 4 0 0 1 3.7 5.5l-1.3 3.3a2 2 0 0 1-3.4.5L15 15H9l-2 2.3a2 2 0 0 1-3.4-.5l-1.3-3.3A4 4 0 0 1 6 8z"/><path d="M8 10.5v3M6.5 12h3M15.5 11h.01M17.5 13h.01"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[name] || ICON.layers}</svg>`;
-const GROUP_ICON = { Access: "key", Network: "globe", Discord: "chat", Tickets: "ticket", Community: "users", "Staff roster": "badge", Security: "lock", FiveM: "server", Advanced: "cog" };
+
+/* Plain-language areas the sidebar and home page are organised into; each collects one or more resource groups. */
+const AREAS = [
+  { id: "staff", title: "Staff team", icon: "badge", blurb: "Staff ranks, members, callsigns, warnings and promotion exams.", groups: ["Staff roster", "Staff"] },
+  { id: "access", title: "Permissions", icon: "key", blurb: "Decide who can do what, in Discord and in game.", groups: ["Access"] },
+  { id: "tickets", title: "Tickets & support", icon: "ticket", blurb: "What members can open tickets about, and who answers them.", groups: ["Tickets"] },
+  { id: "community", title: "Community & roleplay", icon: "users", blurb: "Headtags, personal vehicles, organizations and radio channels.", groups: ["Community"] },
+  { id: "economy", title: "Organization money", icon: "coin", blurb: "The organization shop and organization balances.", groups: ["Economy"] },
+  { id: "discord", title: "Discord servers", icon: "chat", blurb: "Connected servers, shared roles, log channels and voice offices.", groups: ["Network", "Discord"] },
+  { id: "game", title: "Game server", icon: "gamepad", blurb: "Live in-game state like AOP, peacetime and priority.", groups: ["FiveM"] },
+  { id: "security", title: "Security", icon: "lock", blurb: "Protected roles, approved bots and security exemptions.", groups: ["Security"] },
+  { id: "advanced", title: "Advanced", icon: "cog", blurb: "Low-level bot settings. Only change these if you know exactly what they do.", groups: ["Advanced"], advanced: true },
+];
+
+/* Friendly names and one-line explanations for every section (the server's own description is shown as "Good to know"). */
+const FRIENDLY = {
+  "ace-groups": ["All permission groups", "The full list of permission groups. To tick what a group can do, use “Edit a permission group” instead."],
+  "ace-entries": ["Individual permissions", "Every single permission given to (or taken from) a group, one per row. Bundles at the top add common sets in one go."],
+  "ace-memberships": ["Who is in each group", "People placed directly into a permission group. Shared Discord roles follow this list."],
+  "role-bindings": ["Roles linked to groups", "A Discord role that should only be worn by members of a permission group. Anyone else is removed from it automatically."],
+  "network-guilds": ["Connected servers", "The Discord servers that are part of the Florida Bay network and what kind of server each one is."],
+  "channel-bindings": ["Log & panel channels", "Which Discord channel each log, panel and board is posted in."],
+  offices: ["Voice offices", "Private voice channels and who owns them."],
+  "ticket-settings": ["Ticket settings", "Limits, categories and the text on the ticket panel for each server."],
+  "ticket-types": ["Ticket categories", "The options members pick from when opening a ticket, and the questions they’re asked."],
+  "ticket-priorities": ["Priority levels", "How urgent a ticket can be and how quickly staff should respond."],
+  "ticket-support-roles": ["Who handles tickets", "Which roles can see and manage each kind of ticket."],
+  headtags: ["Headtags", "The tags that can show above players’ heads in game."],
+  "headtag-grants": ["Who has which headtag", "Headtags given directly to someone. Tags that come from Discord roles update on their own."],
+  personals: ["Personal vehicles", "Cars reserved for one owner. Only they, people they trust and tag holders can spawn them."],
+  "personal-trust": ["Trusted drivers", "People a vehicle’s owner lets spawn and drive their personal vehicle."],
+  "personal-tags": ["Vehicle tag locks", "Lock a personal vehicle to a headtag so everyone with that tag can use it."],
+  organizations: ["Organizations", "Gangs, businesses and departments, and their in-game duty access."],
+  "organization-requirements": ["Joining requirements", "The Discord roles someone needs before they can join an organization."],
+  "radio-channels": ["Radio channels", "Reserved radio frequencies and who is allowed on them."],
+  "roster-categories": ["Callsign ranges", "The callsign number range given to each group of staff ranks."],
+  "roster-ranks": ["Staff ranks", "Every staff rank, its Discord role, its permission group and its activity requirement."],
+  "roster-jobs": ["Secondary jobs", "Extra staff roles someone can hold alongside their rank."],
+  "roster-members": ["Staff members", "Everyone on the staff team. Callsigns are handed out automatically."],
+  "roster-member-jobs": ["Who has which secondary job", "Which staff members hold each secondary job."],
+  "roster-discipline": ["Warnings & strikes", "Staff warnings and strikes. Add a revoke time to lift one."],
+  "staff-exams": ["Promotion exams", "The exams staff take on the member portal to be promoted."],
+  "protected-roles": ["Protected roles", "Important roles the bot guards. Unapproved changes to them are undone."],
+  "allowed-bots": ["Approved bots", "Bots that are allowed to join. A bot needs to be approved here and added by a trusted person."],
+  "trusted-bot-adders": ["Who can add bots", "People allowed to add an approved bot to a server."],
+  "security-exemptions": ["Security exemptions", "People the automatic security checks should leave alone."],
+  "server-state": ["Live game state", "AOP, peacetime, priority and similar settings. Saving updates the game straight away."],
+  "org-shop": ["Organization shop", "What organizations can buy with their organization money."],
+  "org-wallets": ["Organization balances", "Raw organization balances. It’s safer to use /orgbank adjust so the change is recorded."],
+  "bot-config": ["Bot internals", "Low-level bot settings stored in the database."],
+};
+
+/* Shortcuts on the home page for the things people change most. */
+const TASKS = [
+  ["resource:roster-members", "users", "Add or update staff", "Ranks, callsigns and status"],
+  ["acegroups", "key", "Change what a rank can do", "Tick permissions for a group"],
+  ["resource:roster-discipline", "alert", "Warn or strike staff", "Record or lift a warning"],
+  ["resource:ticket-types", "ticket", "Edit ticket categories", "What members can open tickets about"],
+  ["resource:headtags", "tag", "Manage headtags", "Tags shown above players"],
+  ["resource:personals", "car", "Personal vehicles", "Reserve a car for one owner"],
+  ["resource:organizations", "building", "Organizations", "Gangs, businesses and departments"],
+  ["resource:server-state", "gamepad", "Live game state", "AOP, peacetime and priority"],
+];
 
 const state = {
   data: null,
@@ -49,6 +120,8 @@ const state = {
   lastResult: null,
   aceEditor: { mode: "edit", group: "" },
   navFilter: "",
+  homeFilter: "",
+  openAreas: new Set(),
 };
 
 const toLocalInput = (ms) => {
@@ -58,25 +131,45 @@ const toLocalInput = (ms) => {
 };
 const guildName = (id) => state.data.guilds.find((guild) => guild.id === String(id))?.name || id;
 const allRoles = () => state.data.guilds.flatMap((guild) => guild.roles.map((role) => ({ ...role, guild: guild.id, guildName: guild.name })));
+const isScoped = () => Boolean(state.data?.scope && state.data.scope !== "full");
 
 function toast(message, bad = false) {
   const node = $("#toast");
-  node.textContent = message;
+  node.innerHTML = `${icon(bad ? "alert" : "check")}<span>${esc(message)}</span>`;
   node.className = `toast show${bad ? " bad" : ""}`;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => node.className = "toast", 3500);
+  toast.timer = setTimeout(() => node.className = `toast${bad ? " bad" : ""}`, bad ? 6000 : 3500);
 }
 
-function saved(message = "Saved and applied live", mode = "done") {
+function saved(message = "Saved, and it’s live", mode = "done") {
   const node = $("#saved-state");
   node.textContent = message;
   node.className = `saved-state ${mode}`;
   clearTimeout(saved.timer);
   saved.timer = setTimeout(() => {
-    node.textContent = "All changes apply live";
+    node.textContent = "Changes go live when you save";
     node.className = "saved-state";
   }, 3200);
 }
+
+/**
+ * In-page confirmation. `actions` are buttons ({ label, value, kind }); resolves to the clicked
+ * button's value, or null when the dialog is cancelled or dismissed.
+ */
+function ask({ title, body = "", tone = "danger", actions }) {
+  const dialog = $("#ask");
+  $("#ask-icon").className = `ask-icon${tone === "danger" ? "" : " info"}`;
+  $("#ask-icon").innerHTML = icon(tone === "danger" ? "alert" : "info");
+  $("#ask-title").textContent = title;
+  $("#ask-body").textContent = body;
+  $("#ask-actions").innerHTML = actions.map((action) => `<button value="${esc(action.value)}" class="btn ${esc(action.kind || "")}">${esc(action.label)}</button>`).join("");
+  dialog.returnValue = "";
+  dialog.showModal();
+  $("#ask-actions .btn:not(.danger)")?.focus();
+  return new Promise((resolve) => dialog.addEventListener("close", () => resolve(dialog.returnValue || null), { once: true }));
+}
+const confirmDanger = async (title, body, label = "Delete") =>
+  (await ask({ title, body, actions: [{ label: "Cancel", value: "", kind: "ghost" }, { label, value: "yes", kind: "danger" }] })) === "yes";
 
 async function api(path, options = {}) {
   const response = await fetch(`api/${path}`, {
@@ -94,12 +187,12 @@ async function api(path, options = {}) {
 }
 
 async function load({ silent = false } = {}) {
-  if (!silent) saved("Loading live configuration…", "working");
+  if (!silent) saved("Loading the latest settings…", "working");
   state.data = await api("bootstrap");
-  // Co-Owners get only the organization sections; open on the organization list instead of the overview.
-  const scoped = state.data.scope && state.data.scope !== "full";
-  document.body.classList.toggle("scoped", Boolean(scoped));
-  $("#reconcile").hidden = Boolean(scoped);
+  // Co-Owners get only the organization sections; open on the organization list instead of the home page.
+  const scoped = isScoped();
+  document.body.classList.toggle("scoped", scoped);
+  $("#reconcile").hidden = scoped;
   if (scoped && !state.view.startsWith("resource:") && state.view !== "audit") state.view = "resource:organizations";
   // "New sync" leaves nothing selected on purpose; only default to the first sync when not creating one.
   if (!state.selectedSync && !state.creatingSync && state.data.globalSyncs.length)
@@ -107,11 +200,12 @@ async function load({ silent = false } = {}) {
   if (state.selectedSync && !state.data.globalSyncs.some((sync) => sync.group_name === state.selectedSync))
     state.selectedSync = state.data.globalSyncs[0]?.group_name || null;
   renderNav();
-  // A background refresh never redraws a page with unsaved form edits.
-  if (!(silent && state.dirty)) render();
+  // A background refresh never redraws a page with unsaved form edits or while someone is typing.
+  const typing = $("#content").contains(document.activeElement) && document.activeElement.matches("input, textarea, select");
+  if (!(silent && (state.dirty || typing))) render();
   $("#connection-dot").classList.toggle("live", state.data.online);
-  $("#connection-label").textContent = state.data.online ? `${state.data.bot?.tag || "Bot"} online` : "Bot offline";
-  if (!silent) saved("Live configuration loaded");
+  $("#connection-label").textContent = state.data.online ? `${state.data.bot?.tag || "Bot"} is online` : "Bot is offline";
+  if (!silent) saved("Up to date");
 }
 
 /** Shows a save is in progress on its button; returns a function that restores the button. */
@@ -119,7 +213,7 @@ function busy(button) {
   if (!button) return () => {};
   const label = button.innerHTML;
   button.disabled = true;
-  button.textContent = "Saving…";
+  button.innerHTML = `<span class="spinner"></span>Saving…`;
   return () => {
     if (!button.isConnected) return;
     button.disabled = false;
@@ -128,7 +222,7 @@ function busy(button) {
 }
 
 async function post(path, body) {
-  saved("Applying changes…", "working");
+  saved("Saving and applying…", "working");
   try {
     const result = await api(path, { method: "POST", body: JSON.stringify(body) });
     state.data = result.data;
@@ -138,95 +232,128 @@ async function post(path, body) {
     saved();
     return result;
   } catch (error) {
-    saved("Change failed", "working");
+    saved("Couldn’t save that change", "failed");
     throw error;
   }
 }
 
 const resource = (id) => state.data.resources.find((item) => item.id === id);
 const records = (id) => state.data.records[id] || [];
+const friendly = (id) => FRIENDLY[id] || [resource(id)?.label || id, resource(id)?.description || ""];
 
 function go(view) {
   state.view = view;
+  document.body.classList.remove("menu");
   renderNav();
   render();
   window.scrollTo({ top: 0 });
 }
 
+/* --------------------------------- sections --------------------------------- */
+/** Every page the signed-in user can open, grouped into areas, with friendly names. */
+function sections() {
+  const areas = AREAS.map((area) => ({ ...area, items: [] }));
+  const byGroup = new Map();
+  for (const area of areas) for (const group of area.groups) byGroup.set(group, area);
+  if (!isScoped()) {
+    areas.find((area) => area.id === "access").items.push({ view: "acegroups", label: "Edit a permission group", blurb: "Tick exactly what each group can do, with a plain description of every permission.", count: null, special: true });
+    areas.find((area) => area.id === "discord").items.push({ view: "globalsync", label: "Shared roles", blurb: "Roles that follow a permission group into every network server.", count: state.data.globalSyncs.length, special: true });
+  }
+  for (const item of state.data.resources) {
+    let area = byGroup.get(item.group);
+    if (!area) {
+      area = { id: `group:${item.group}`, title: item.group, icon: "layers", blurb: "", groups: [item.group], items: [] };
+      areas.splice(areas.length - 1, 0, area);
+      byGroup.set(item.group, area);
+    }
+    const [label, blurb] = friendly(item.id);
+    area.items.push({ view: `resource:${item.id}`, label, blurb, count: records(item.id).length });
+  }
+  return areas.filter((area) => area.items.length);
+}
+
+const areaOf = (view) => sections().find((area) => area.items.some((item) => item.view === view));
+
+function matches(item, area, needle) {
+  if (!needle) return true;
+  const spec = item.view.startsWith("resource:") ? resource(item.view.slice(9)) : null;
+  return `${item.label} ${item.blurb} ${area.title} ${spec?.label || ""}`.toLowerCase().includes(needle);
+}
+
 /* --------------------------------- navigation --------------------------------- */
-function navButton(view, label, count, iconName = null) {
-  return `<button data-view="${esc(view)}" class="${state.view === view ? "active" : ""}"><span class="label">${iconName ? icon(iconName) : ""}${esc(label)}</span>${count === null ? "" : `<span class="count">${fmt(count)}</span>`}</button>`;
+function navLink(view, label, count, iconName = null) {
+  return `<button class="nav-link ${state.view === view ? "active" : ""}" data-view="${esc(view)}">${iconName ? icon(iconName) : ""}<span class="label">${esc(label)}</span>${count === null || count === undefined ? "" : `<span class="count">${fmt(count)}</span>`}</button>`;
 }
 
 function renderNav() {
   const needle = state.navFilter.toLowerCase();
-  const match = (label) => !needle || label.toLowerCase().includes(needle);
-  const grouped = new Map();
-  for (const item of state.data.resources) {
-    if (!match(`${item.label} ${item.group}`)) continue;
-    if (!grouped.has(item.group)) grouped.set(item.group, []);
-    grouped.get(item.group).push(item);
-  }
+  const active = areaOf(state.view);
+  if (active) state.openAreas.add(active.id);
   let html = "";
-  const top = (state.data.scope && state.data.scope !== "full" ? [] : [
-    ["overview", "Overview", null, "home"],
-    ["acegroups", "Permission groups", records("ace-groups").length, "key"],
-    ["globalsync", "Global roles", state.data.globalSyncs.length, "globe"],
-  ]).filter(([, label]) => match(label));
-  html += top.map(([view, label, count, iconName]) => navButton(view, label, count, iconName)).join("");
-  for (const [group, items] of grouped) {
-    html += `<div class="nav-group">${icon(GROUP_ICON[group] || "layers")}${esc(group)}</div>`;
-    html += items.map((item) => navButton(`resource:${item.id}`, item.label, records(item.id).length)).join("");
+  const top = isScoped() ? [["audit", "Activity log", "clock"]] : [["overview", "Home", "home"], ["audit", "Activity log", "clock"]];
+  html += top.filter(([, label]) => !needle || label.toLowerCase().includes(needle)).map(([view, label, ic]) => navLink(view, label, null, ic)).join("");
+  let any = Boolean(html);
+  for (const area of sections()) {
+    const items = area.items.filter((item) => matches(item, area, needle));
+    if (!items.length) continue;
+    any = true;
+    const open = needle || state.openAreas.has(area.id);
+    html += `<details class="nav-area${area.advanced ? " advanced" : ""}${active?.id === area.id ? " has-active" : ""}" data-area="${esc(area.id)}" ${open ? "open" : ""}><summary>${icon(area.icon)}<span class="label">${esc(area.title)}</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true">${ICON.right}</svg></summary><div>${items.map((item) => navLink(item.view, item.label, item.count)).join("")}</div></details>`;
   }
-  if (match("Audit trail")) html += `<div class="nav-group">${icon("clock")}System</div>${navButton("audit", "Audit trail", state.data.audit.length)}`;
-  $("#nav").innerHTML = html || `<p class="faint" style="padding:8px 10px;font-size:.82rem">No section matches.</p>`;
+  $("#nav").innerHTML = any ? html : `<p class="faint" style="padding:8px 10px;font-size:.86rem">Nothing matches “${esc(state.navFilter)}”.</p>`;
 }
 
 function setTitle(kicker, title) {
   $("#section-kicker").textContent = kicker;
   $("#section-title").textContent = title;
-  document.title = `${title} · Florida Bay`;
+  document.title = `${title} · Florida Bay settings`;
 }
 
-/* --------------------------------- overview --------------------------------- */
+/* --------------------------------- home --------------------------------- */
 function renderOverview() {
-  setTitle("Florida Bay Roleplay", "Overview");
+  setTitle("Florida Bay Roleplay", "Home");
   const d = state.data;
-  const metrics = [
-    ["Discord servers", d.guilds.length, "resource:network-guilds"],
-    ["Global roles", d.globalSyncs.length, "globalsync"],
-    ["ACE groups", records("ace-groups").length, "acegroups"],
-    ["ACE permissions", records("ace-entries").length, "resource:ace-entries"],
-    ["Staff on roster", records("roster-members").filter((row) => row.status !== "removed").length, "resource:roster-members"],
-    ["Ticket types", records("ticket-types").length, "resource:ticket-types"],
-  ];
-  const network = new Map(records("network-guilds").map((row) => [String(row.guild_id), row.kind]));
-  const quick = [
-    ["acegroups", "key", "Build permission groups", "Tick exactly what each rank can do"],
-    ["resource:roster-ranks", "badge", "Staff ranks", "Map ranks to roles and ACE groups"],
-    ["resource:roster-members", "users", "Staff roster", "Members, callsigns and statuses"],
-    ["resource:channel-bindings", "chat", "Log channels", "Where audit entries are posted"],
-  ];
   $("#content").innerHTML = `
-    <section class="welcome">
-      <div><h2>Everything here applies live</h2><p>Saves write to MariaDB and reconcile Discord roles and the FiveM server before the panel reports success.</p></div>
-      <span class="chip ${d.online ? "on" : "warn"}"><span class="swatch" style="background:currentColor"></span>${d.online ? `${esc(d.bot?.tag || "Bot")} online` : "Bot offline"}</span>
-    </section>
-    <section class="metrics">${metrics.map(([label, value, view]) => `<button class="metric" data-go="${view}"><span>${esc(label)}</span><strong>${fmt(value)}</strong></button>`).join("")}</section>
-    <section class="grid-2">
-      <div class="card">
-        <div class="card-head"><div><h2>Quick actions</h2><p>The pages you will use most.</p></div></div>
-        <div class="quick">${quick.map(([view, ic, title, sub]) => `<button data-go="${view}">${icon(ic)}<span><strong>${esc(title)}</strong><small>${esc(sub)}</small></span></button>`).join("")}</div>
+    <section class="hero">
+      <div>
+        <h2>What would you like to change?</h2>
+        <p>Pick a shortcut, browse by area, or search. Nothing changes until you press <strong>Save</strong>, and every change is recorded in the Activity log.</p>
+        <label class="search">${icon("search")}<input id="home-search" type="search" placeholder="Search settings, e.g. “callsign”, “ticket”, “headtag”" value="${esc(state.homeFilter)}" autocomplete="off"></label>
       </div>
-      <div class="card">
-        <div class="card-head"><div><h2>Discord servers</h2><p>Servers the bot is in. Only network servers receive global roles and bans.</p></div></div>
-        <div class="list">${d.guilds.map((guild) => `<div class="list-row"><div><div class="primary-text">${esc(guild.name)}</div><div class="secondary-text mono">${esc(guild.id)}</div></div><div style="display:flex;gap:6px">${network.has(guild.id) ? `<span class="chip accent">${esc(network.get(guild.id))}</span>` : `<span class="chip" title="Run /network add in this server">not in network</span>`}<span class="chip">${fmt(guild.memberCount)} members</span></div></div>`).join("") || `<div class="empty">No connected Discord servers.</div>`}</div>
+      <div class="hero-status">
+        <span class="chip ${d.online ? "on" : "warn"}"><span class="swatch" style="background:currentColor"></span>${d.online ? `${esc(d.bot?.tag || "Bot")} is online` : "Bot is offline"}</span>
+        <span class="faint" style="font-size:.82rem">${fmt(d.guilds.length)} Discord server${d.guilds.length === 1 ? "" : "s"} connected</span>
       </div>
     </section>
-    <section class="card" style="margin-top:16px">
-      <div class="card-head"><div><h2>Recent activity</h2><p>Latest changes from Discord commands, the game and this panel.</p></div><button class="btn sm" data-go="audit">View all</button></div>
-      <div class="list">${auditRows(d.audit.slice(0, 8)) || `<div class="empty">No activity yet.</div>`}</div>
-    </section>`;
+    <div id="home-body">${homeBody()}</div>`;
+}
+
+function homeBody() {
+  const needle = state.homeFilter.trim().toLowerCase();
+  const areas = sections();
+  if (needle) {
+    const hits = areas.flatMap((area) => area.items.filter((item) => matches(item, area, needle)).map((item) => ({ ...item, area })));
+    if (!hits.length) return `<div class="card"><div class="empty"><strong>No settings match “${esc(state.homeFilter)}”</strong>Try a shorter word, or browse the areas in the menu.</div></div>`;
+    return `<h3 class="section-title">${fmt(hits.length)} result${hits.length === 1 ? "" : "s"}</h3><div class="tasks">${hits.map((hit) => `<button class="task" data-go="${esc(hit.view)}"><span class="task-icon">${icon(hit.area.icon)}</span><span><strong>${esc(hit.label)}</strong><small>${esc(hit.area.title)} · ${esc(hit.blurb)}</small></span></button>`).join("")}</div>`;
+  }
+  const d = state.data;
+  const network = new Map(records("network-guilds").map((row) => [String(row.guild_id), row.kind]));
+  const tasks = TASKS.filter(([view]) => view === "acegroups" || resource(view.slice(9)));
+  return `
+    <h3 class="section-title">Common tasks</h3>
+    <div class="tasks">${tasks.map(([view, ic, title, sub]) => `<button class="task" data-go="${esc(view)}"><span class="task-icon">${icon(ic)}</span><span><strong>${esc(title)}</strong><small>${esc(sub)}</small></span></button>`).join("")}</div>
+    <h3 class="section-title">Browse by area</h3>
+    <div class="areas">${areas.map((area) => `<section class="area${area.advanced ? " advanced" : ""}"><div class="area-head"><span class="task-icon">${icon(area.icon)}</span><h3>${esc(area.title)}</h3></div>${area.blurb ? `<p>${esc(area.blurb)}</p>` : ""}<div class="area-links">${area.items.map((item) => `<button data-go="${esc(item.view)}"><span>${esc(item.label)}</span>${item.count === null || item.count === undefined ? icon("right") : `<span class="count">${fmt(item.count)}</span>`}</button>`).join("")}</div></section>`).join("")}</div>
+    <div class="home-cols">
+      <section class="card">
+        <div class="card-head"><div><h2>Discord servers</h2><p>Servers the bot is in. Only servers in the network get shared roles and network bans.</p></div></div>
+        <div class="list">${d.guilds.map((guild) => `<div class="list-row"><div><div class="primary-text">${esc(guild.name)}</div><div class="secondary-text">${fmt(guild.memberCount)} members</div></div>${network.has(guild.id) ? `<span class="chip accent">${esc(KIND_LABELS[network.get(guild.id)] || network.get(guild.id))} server</span>` : `<span class="chip" title="Run /network add in this server to add it">Not in the network</span>`}</div>`).join("") || `<div class="empty">No connected Discord servers.</div>`}</div>
+      </section>
+      <section class="card">
+        <div class="card-head"><div><h2>Recent changes</h2><p>The latest changes from Discord commands, the game and this page.</p></div><button class="btn sm" data-go="audit">See all</button></div>
+        <div class="list">${auditRows(d.audit.slice(0, 6), true) || `<div class="empty">No activity yet.</div>`}</div>
+      </section>
+    </div>`;
 }
 
 /* --------------------------------- resources --------------------------------- */
@@ -269,71 +396,77 @@ function searchText(spec, row) {
   }).join(" ").toLowerCase();
 }
 
+function goodToKnow(text, warn = false) {
+  return text ? `<div class="tip${warn ? " warn" : ""}">${icon(warn ? "alert" : "info")}<div><strong>Good to know:</strong> ${esc(text)}</div></div>` : "";
+}
+
 function renderResource(id) {
   const spec = resource(id);
-  if (!spec) return go("overview");
+  if (!spec) return go(isScoped() ? "audit" : "overview");
   const rows = records(id);
-  setTitle(spec.group, spec.label);
-  const fields = spec.fields.filter((item) => !item.advanced && item.type !== "textarea").slice(0, 6);
+  const [label, blurb] = friendly(id);
+  const area = areaOf(`resource:${id}`);
+  setTitle(area?.title || spec.group, label);
+  const fields = spec.fields.filter((item) => !item.advanced && item.type !== "textarea").slice(0, 5);
   const editExisting = spec.editExisting !== false;
   $("#content").innerHTML = `
-    <section class="page-head">
-      <p class="lede">${esc(spec.description)}</p>
-      <div class="page-actions">
-        <label class="search">${icon("search")}<input id="resource-search" type="search" placeholder="Search ${esc(spec.label.toLowerCase())}…"></label>
-        <button class="btn primary" data-create="${esc(id)}">${icon("plus")}Add</button>
-      </div>
-    </section>
+    <section class="page-intro"><span class="page-icon">${icon(area?.icon || "layers")}</span><div><h2>${esc(label)}</h2><p>${esc(blurb)}</p></div></section>
+    ${goodToKnow(spec.description !== blurb ? spec.description : "", Boolean(area?.advanced) || id === "org-wallets")}
     ${id === "ace-entries" ? bundleCard() : ""}
+    <section class="page-head">
+      <label class="search">${icon("search")}<input id="resource-search" type="search" placeholder="Search ${esc(label.toLowerCase())}…"></label>
+      <div class="page-actions"><button class="btn primary" data-create="${esc(id)}">${icon("plus")}Add new</button></div>
+    </section>
     <div class="table-card">
       <div class="table-scroll"><table><thead><tr>${fields.map((item) => `<th>${esc(item.label)}</th>`).join("")}<th></th></tr></thead><tbody id="resource-rows">${resourceRows(id, rows, fields)}</tbody></table></div>
-      <div class="table-foot"><span id="resource-count">${fmt(rows.length)} record${rows.length === 1 ? "" : "s"}</span><span>${editExisting ? "Click a row to edit" : "Existing records are Owner-group only"}</span></div>
+      <div class="table-foot"><span id="resource-count">${fmt(rows.length)} ${rows.length === 1 ? "entry" : "entries"}</span><span>${editExisting ? "Click any row to view or change it" : "Existing entries can only be changed by the Owner group"}</span></div>
     </div>`;
   $("#resource-search").addEventListener("input", (event) => {
     const needle = event.target.value.toLowerCase().trim();
     const filtered = rows.filter((row) => !needle || searchText(spec, row).includes(needle));
-    $("#resource-rows").innerHTML = resourceRows(id, filtered, fields);
-    $("#resource-count").textContent = `${fmt(filtered.length)} of ${fmt(rows.length)} records`;
+    $("#resource-rows").innerHTML = resourceRows(id, filtered, fields, Boolean(needle));
+    $("#resource-count").textContent = `${fmt(filtered.length)} of ${fmt(rows.length)} entries`;
   });
 }
 
 function bundleCard() {
-  return `<form id="bundle-form" class="card" style="margin-bottom:16px">
-    <div class="card-head"><div><h2>Permission bundles</h2><p>Grant or revoke a curated set in one step (same as <code>/ace bundle</code> and <code>/vmenu bundle</code>). For full control use Permission groups.</p></div></div>
+  return `<form id="bundle-form" class="card" style="margin-bottom:18px">
+    <div class="card-head"><div><h2>Add a set of permissions at once</h2><p>Bundles are ready-made sets (the same as <code>/ace bundle</code> and <code>/vmenu bundle</code>). For full control, use Edit a permission group.</p></div></div>
     <div class="inline-form">
-      <label class="field">ACE group<select name="group" required>${records("ace-groups").map((g) => `<option value="${esc(g.name)}">${esc(g.label)} · ${esc(g.name)}</option>`).join("")}</select></label>
-      <label class="field">Bundle<select name="bundle" required>${state.data.bundles.map((b) => `<option value="${esc(b.name)}" title="${esc(b.objects.join(", "))}">${esc(b.name)} (${b.objects.length})</option>`).join("")}</select></label>
-      <label class="field">Action<select name="mode"><option value="grant">Grant</option><option value="revoke">Revoke</option></select></label>
+      <label class="field">Permission group<select name="group" required>${records("ace-groups").map((g) => `<option value="${esc(g.name)}">${esc(g.label)} (${esc(g.name)})</option>`).join("")}</select></label>
+      <label class="field">Bundle<select name="bundle" required>${state.data.bundles.map((b) => `<option value="${esc(b.name)}" title="${esc(b.objects.join(", "))}">${esc(b.name)} (${b.objects.length} permissions)</option>`).join("")}</select></label>
+      <label class="field">Action<select name="mode"><option value="grant">Give</option><option value="revoke">Take away</option></select></label>
       <button type="submit" class="btn">Apply</button>
     </div>
   </form>`;
 }
 
-function resourceRows(id, rows, fields) {
-  if (!rows.length) return `<tr><td colspan="${fields.length + 1}"><div class="empty"><strong>Nothing here yet</strong>Use Add to create the first record.</div></td></tr>`;
+function resourceRows(id, rows, fields, filtered = false) {
+  if (!rows.length) return `<tr><td colspan="${fields.length + 1}"><div class="empty">${filtered ? "<strong>No matches</strong>Try a different search." : `<strong>Nothing here yet</strong>Add the first entry to get started.<br><button type="button" class="btn primary sm" data-create="${esc(id)}">${icon("plus")}Add new</button>`}</div></td></tr>`;
   const all = records(id);
   const editExisting = resource(id)?.editExisting !== false;
   return rows.map((row) => {
     const index = all.indexOf(row);
-    const actions = editExisting
-      ? `<span class="row-actions"><button type="button" class="btn ghost sm icon" data-edit="${esc(id)}" data-index="${index}" title="Edit">${icon("edit")}</button><button type="button" class="btn ghost sm icon" data-delete="${esc(id)}" data-index="${index}" title="Delete" style="color:var(--danger)">${icon("trash")}</button></span>`
-      : "";
+    const actions = editExisting ? `<button type="button" class="btn ghost sm" data-edit="${esc(id)}" data-index="${index}">${icon("edit")}Edit</button>` : "";
     return `<tr${editExisting ? ` data-edit="${esc(id)}" data-index="${index}" tabindex="0"` : ""}>${fields.map((meta) => `<td>${displayValue(meta, row[meta.name])}</td>`).join("")}<td class="actions">${actions}</td></tr>`;
   }).join("");
 }
+
+const SNOWFLAKE_HELP = "A Discord ID. In Discord, turn on Developer Mode, then right-click the person, role or channel and choose Copy ID.";
 
 function inputFor(meta, value) {
   const required = meta.required ? "required" : "";
   const disabled = meta.readonly ? "disabled" : "";
   const raw = value ?? (meta.default === "now" ? Date.now() : meta.default ?? "");
   const current = meta.type === "number" && meta.multiplier && raw !== "" ? Number(raw) / Number(meta.multiplier) : raw;
-  const help = meta.help ? `<small>${esc(meta.help)}</small>` : "";
-  const label = `<span>${esc(meta.label)}${meta.required ? "" : ` <span class="opt">(optional)</span>`}</span>`;
+  const helpText = meta.help || (meta.type === "snowflake" ? SNOWFLAKE_HELP : meta.type === "json" ? "Written as JSON. Keep the brackets and quotes as they are." : "");
+  const help = helpText ? `<small>${esc(helpText)}</small>` : "";
+  const label = `<span>${esc(meta.label)}${meta.required ? "" : ` <span class="opt">optional</span>`}</span>`;
   if (meta.type === "boolean") return `<label class="toggle"><input name="${esc(meta.name)}" type="checkbox" ${current ? "checked" : ""} ${disabled}> ${esc(meta.label)}</label>`;
   if (meta.type === "textarea" || meta.type === "json")
     return `<label class="field">${label}<textarea name="${esc(meta.name)}" ${required} ${disabled} ${meta.type === "json" ? 'spellcheck="false" class="code"' : ""}>${esc(meta.type === "json" && typeof current !== "string" ? JSON.stringify(current, null, 2) : meta.type === "json" ? JSON.stringify(current) : current)}</textarea>${help}</label>`;
   if (meta.type === "timestamp")
-    return `<label class="field">${label}<input name="${esc(meta.name)}" type="datetime-local" value="${esc(toLocalInput(value ?? (meta.default === "now" ? Date.now() : null)))}" ${required} ${disabled}></label>`;
+    return `<label class="field">${label}<input name="${esc(meta.name)}" type="datetime-local" value="${esc(toLocalInput(value ?? (meta.default === "now" ? Date.now() : null)))}" ${required} ${disabled}>${help}</label>`;
   let options = null;
   if (meta.type === "select") options = (meta.options || []).map((item) => ({ value: item, label: item }));
   if (meta.type === "relation") options = records(meta.source).map((item) => ({ value: item[meta.value], label: item[meta.display] ?? item[meta.value] }));
@@ -342,14 +475,15 @@ function inputFor(meta, value) {
   if (meta.type === "channel") options = state.data.guilds.flatMap((guild) => guild.channels.map((channel) => ({ value: channel.id, label: `${channel.type === 4 ? "▸ " : "#"}${channel.name}`, guild: guild.id })));
   if (options) {
     const known = options.some((item) => String(item.value) === String(current));
-    const stale = current !== "" && current !== null && !known ? `<option value="${esc(current)}" selected>${esc(current)} (not found)</option>` : "";
-    return `<label class="field">${label}<select name="${esc(meta.name)}" ${meta.guildField ? `data-guild-field="${esc(meta.guildField)}"` : ""} ${required} ${disabled}><option value="">${meta.required ? "Choose…" : "Not set"}</option>${stale}${options.map((item) => `<option value="${esc(item.value)}" ${item.guild ? `data-guild="${esc(item.guild)}"` : ""} ${String(item.value) === String(current) ? "selected" : ""}>${esc(item.label)}</option>`).join("")}</select>${help}</label>`;
+    const stale = current !== "" && current !== null && !known ? `<option value="${esc(current)}" selected>${esc(current)} (no longer exists)</option>` : "";
+    return `<label class="field">${label}<select name="${esc(meta.name)}" ${meta.guildField ? `data-guild-field="${esc(meta.guildField)}"` : ""} ${required} ${disabled}><option value="">${meta.required ? "Choose one…" : "None"}</option>${stale}${options.map((item) => `<option value="${esc(item.value)}" ${item.guild ? `data-guild="${esc(item.guild)}"` : ""} ${String(item.value) === String(current) ? "selected" : ""}>${esc(item.label)}</option>`).join("")}</select>${help}</label>`;
   }
   const type = meta.type === "number" ? "number" : meta.type === "color" ? "color" : "text";
   const list = meta.suggestions?.length ? `list="dl-${esc(meta.name)}"` : "";
   const datalist = meta.suggestions?.length ? `<datalist id="dl-${esc(meta.name)}">${meta.suggestions.map((item) => `<option value="${esc(item.value)}">${esc(item.label || "")}</option>`).join("")}</datalist>` : "";
   const limits = meta.type === "number" ? `${meta.min !== undefined ? `min="${esc(meta.min)}"` : ""} ${meta.max !== undefined ? `max="${esc(meta.max)}"` : ""} ${meta.step !== undefined ? `step="${esc(meta.step)}"` : ""}` : "";
-  return `<label class="field">${label}<input name="${esc(meta.name)}" type="${type}" value="${esc(current)}" ${list} ${limits} ${required} ${disabled}>${datalist}${help}</label>`;
+  const extra = meta.type === "snowflake" ? 'inputmode="numeric" placeholder="e.g. 123456789012345678" autocomplete="off"' : "";
+  return `<label class="field">${label}<input name="${esc(meta.name)}" type="${type}" value="${esc(current)}" ${list} ${limits} ${extra} ${required} ${disabled}>${datalist}${help}</label>`;
 }
 
 /** Role and channel pickers only list entries from the server picked in the same form. */
@@ -366,21 +500,23 @@ function filterByGuild(form) {
 
 function openEditor(id, row = null) {
   const spec = resource(id);
+  const [label, blurb] = friendly(id);
   state.editor = { resource: id, original: row ? structuredClone(row) : null };
-  $("#editor-kicker").textContent = `${spec.group} · ${spec.label}`;
+  $("#editor-kicker").textContent = label;
   const auto = spec.fields.find((meta) => meta.auto && row?.[meta.name]);
-  $("#editor-title").textContent = row ? `Edit record${auto ? ` #${row[auto.name]}` : ""}` : "New record";
+  $("#editor-title").textContent = row ? `Edit entry${auto ? ` #${row[auto.name]}` : ""}` : "Add new entry";
   // Auto-numbered IDs are shown in the title, never edited.
   const visible = spec.fields.filter((meta) => !meta.advanced && !meta.auto);
   const advanced = spec.fields.filter((meta) => meta.advanced);
-  $("#editor-fields").innerHTML = `<p class="muted" style="font-size:.86rem">${esc(spec.description)}</p>` +
+  $("#editor-fields").innerHTML = `<p class="muted">${esc(blurb)}</p>` +
     visible.map((meta) => inputFor(meta, row?.[meta.name])).join("") +
-    (advanced.length ? `<details class="advanced"><summary>Advanced fields</summary><div>${advanced.map((meta) => inputFor(meta, row?.[meta.name])).join("")}</div></details>` : "");
+    (advanced.length ? `<details class="more"><summary>${icon("right")}More options</summary><div>${advanced.map((meta) => inputFor(meta, row?.[meta.name])).join("")}</div></details>` : "");
+  $("#editor-delete").hidden = !row || spec.editExisting === false;
   filterByGuild($("#editor-form"));
   $("#editor").showModal();
 }
 
-/* -------------------------------- global roles -------------------------------- */
+/* -------------------------------- shared roles -------------------------------- */
 const KIND_LABELS = { main: "Main", staff: "Staff", gang: "Gang", department: "Department", community: "Community", business: "Business", partner: "Partner", other: "Other" };
 const SCOPES = {
   all: "Every network server",
@@ -409,34 +545,36 @@ function syncForm(sync = null) {
     const roles = (guild?.roles || []).filter((role) => !role.managed);
     return `<div class="list-row server-row" data-server-row data-kind="${esc(row.kind)}" data-guild="${esc(id)}">
       <label class="toggle" data-pick-only><input type="checkbox" name="guild_ids" value="${esc(id)}" ${chosen.has(id) || linked.has(id) ? "checked" : ""}></label>
-      <div class="server-name"><div class="primary-text">${esc(guildName(id))}</div><div class="secondary-text">${esc(KIND_LABELS[row.kind] || row.kind)}<span data-excluded-note> · not included</span></div></div>
-      <select data-role-for="${esc(id)}" aria-label="Role in ${esc(guildName(id))}"><option value="">Create a new role</option>${roles.map((role) => `<option value="${esc(role.id)}" ${linked.get(id) === role.id ? "selected" : ""}>Use existing: ${esc(role.name)}${role.editable ? "" : " (above bot)"}</option>`).join("")}</select>
+      <div class="server-name"><div class="primary-text">${esc(guildName(id))}</div><div class="secondary-text">${esc(KIND_LABELS[row.kind] || row.kind)} server<span data-excluded-note> · not included</span></div></div>
+      <select data-role-for="${esc(id)}" aria-label="Role in ${esc(guildName(id))}"><option value="">Let the bot create the role</option>${roles.map((role) => `<option value="${esc(role.id)}" ${linked.get(id) === role.id ? "selected" : ""}>Use existing role: ${esc(role.name)}${role.editable ? "" : " (above the bot)"}</option>`).join("")}</select>
     </div>`;
   }).join("");
   return `<form id="sync-form" class="form-grid">
-    <label class="field">ACE group<select name="group" required ${sync ? "disabled" : ""}><option value="">Choose a group</option>${groups.map((item) => `<option value="${esc(item.name)}" ${sync?.group_name === item.name ? "selected" : ""}>${esc(item.label)} · ${esc(item.name)}</option>`).join("")}</select></label>
-    <label class="field">Discord role name<input name="role_name" maxlength="100" placeholder="Defaults to the group name" value="${esc(sync?.role_name || "")}"><small>Used for roles the bot creates. Existing roles keep their own name.</small></label>
-    <label class="field">Permissions integer<input name="permissions" inputmode="numeric" pattern="[0-9]{1,20}" value="${esc(sync?.permissions || "0")}" required><small>0 = no base permissions. Dangerous bits need a bot owner.</small></label>
-    <label class="field">Role color<input name="color" type="color" value="${colorHex(sync?.color)}"></label>
+    <label class="field">Permission group<select name="group" required ${sync ? "disabled" : ""}><option value="">Choose a group…</option>${groups.map((item) => `<option value="${esc(item.name)}" ${sync?.group_name === item.name ? "selected" : ""}>${esc(item.label)} (${esc(item.name)})</option>`).join("")}</select><small>Everyone directly in this group gets the role.</small></label>
+    <label class="field"><span>Role name <span class="opt">optional</span></span><input name="role_name" maxlength="100" placeholder="Same as the group name" value="${esc(sync?.role_name || "")}"><small>Only used for roles the bot creates. Existing roles keep their name.</small></label>
+    <div class="field">Role color<input name="color" type="color" value="${colorHex(sync?.color)}" ${sync && !Number(sync.color) ? "disabled" : ""}><label class="toggle"><input name="color_default" type="checkbox" data-color-default ${!sync || !Number(sync.color) ? "checked" : ""}> Use the default Discord role color (no color)</label></div>
     <div class="stack" style="gap:8px">
-      <label class="toggle"><input name="hoist" type="checkbox" ${sync?.hoist ? "checked" : ""}> Show separately in member list</label>
-      <label class="toggle"><input name="mentionable" type="checkbox" ${sync?.mentionable ? "checked" : ""}> Mentionable</label>
+      <label class="toggle"><input name="hoist" type="checkbox" ${sync?.hoist ? "checked" : ""}> Show members separately in the member list</label>
+      <label class="toggle"><input name="mentionable" type="checkbox" ${sync?.mentionable ? "checked" : ""}> Anyone can @mention this role</label>
     </div>
-    <label class="toggle"><input name="all_channels" type="checkbox" ${sync?.all_channels ? "checked" : ""}> Can see and chat in every text channel and join every voice channel</label>
+    <label class="toggle wide"><input name="all_channels" type="checkbox" ${sync?.all_channels ? "checked" : ""}> Can see and chat in every text channel and join every voice channel</label>
+    <details class="more wide"><summary>${icon("right")}More options</summary><div>
+      <label class="field">Discord permissions number<input name="permissions" inputmode="numeric" pattern="[0-9]{1,20}" value="${esc(sync?.permissions || "0")}" required><small>Leave at 0 for no extra Discord permissions (recommended). Dangerous permissions need a bot owner.</small></label>
+    </div></details>
     <div class="wide">
-      <p class="section-label">Which servers</p>
+      <p class="section-label">Which servers?</p>
       <div class="mode-switch">
         <label class="toggle"><input type="radio" name="server_mode" value="type" ${pick ? "" : "checked"}> By server type</label>
-        <label class="toggle"><input type="radio" name="server_mode" value="pick" ${pick ? "checked" : ""}> Pick individual servers</label>
+        <label class="toggle"><input type="radio" name="server_mode" value="pick" ${pick ? "checked" : ""}> Let me pick servers</label>
       </div>
       <label class="field" data-type-only>Server type<select name="scope">${Object.entries(SCOPES).filter(([value]) => value !== "custom").map(([value, label]) => `<option value="${value}" ${(pick ? "all" : sync?.scope || "all") === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
     </div>
     <div class="wide">
-      <p class="section-label">Servers &amp; roles</p>
-      <p class="muted" style="font-size:.86rem;margin:0 0 10px">For each included server, let the bot create the role or pick a role that already exists there. Existing roles are used as-is (never renamed or recolored).</p>
-      <div class="list server-list">${serverRows || `<div class="empty">No network servers yet. Add one under Network servers.</div>`}</div>
+      <p class="section-label">Role in each server</p>
+      <p class="muted">For each included server, let the bot create the role or use one that already exists there. Existing roles are used as they are (never renamed or recolored).</p>
+      <div class="list server-list">${serverRows || `<div class="empty">No network servers yet. Add one under Connected servers.</div>`}</div>
     </div>
-    <div class="wide" style="display:flex;gap:8px;justify-content:flex-end">${sync ? `<button type="button" class="btn danger" data-sync-delete="${esc(sync.group_name)}">Remove sync</button>` : ""}<button type="submit" class="btn primary">${sync ? "Save & apply everywhere" : "Create global sync"}</button></div>
+    <div class="wide" style="display:flex;gap:8px;justify-content:flex-end">${sync ? `<button type="button" class="btn danger-text" data-sync-delete="${esc(sync.group_name)}">${icon("trash")}Stop sharing this role</button>` : ""}<button type="submit" class="btn primary">${sync ? "Save and apply everywhere" : "Create shared role"}</button></div>
   </form>`;
 }
 
@@ -458,38 +596,39 @@ function updateServerRows(form) {
 
 function linkedRoles(sync) {
   if (!sync?.roles.length) return `<p class="muted">Not created in any server yet.</p>`;
-  return `<div class="list" style="border:1px solid var(--border);border-radius:var(--radius)">${sync.roles.map((link) => {
+  return `<div class="list server-list">${sync.roles.map((link) => {
     const guild = state.data.guilds.find((item) => item.id === String(link.guild_id));
     const role = guild?.roles.find((item) => item.id === String(link.role_id));
-    return `<div class="list-row"><div><div class="primary-text">${esc(guild?.name || link.guild_id)}</div><div class="secondary-text">${esc(role?.name || link.role_id)}${role && !role.editable ? " · above the bot's role" : ""}</div></div><span class="chip ${link.managed ? "accent" : ""}">${link.managed ? "bot-managed" : "linked existing"}</span></div>`;
+    return `<div class="list-row"><div><div class="primary-text">${esc(guild?.name || link.guild_id)}</div><div class="secondary-text">${esc(role?.name || link.role_id)}${role && !role.editable ? " · above the bot’s role" : ""}</div></div><span class="chip ${link.managed ? "accent" : ""}">${link.managed ? "Created by the bot" : "Existing role"}</span></div>`;
   }).join("")}</div>`;
 }
 
 function resultBox() {
   const r = state.lastResult;
   if (!r || (!r.lines?.length && !r.swept)) return "";
-  return `<div class="result-box"><strong>Last change applied</strong>${r.swept ? `<p class="muted" style="margin-top:4px">Members: +${r.swept.added} granted · −${r.swept.removed} removed</p>` : ""}${r.lines?.length ? `<ul>${r.lines.map((line) => `<li>${esc(line.replace(/\*\*|`/g, ""))}</li>`).join("")}</ul>` : ""}</div>`;
+  return `<div class="result-box"><strong>Saved. Here’s what changed:</strong>${r.swept ? `<p class="muted" style="margin-top:4px">Members: ${r.swept.added} given the role · ${r.swept.removed} removed from it</p>` : ""}${r.lines?.length ? `<ul>${r.lines.map((line) => `<li>${esc(line.replace(/\*\*|`/g, ""))}</li>`).join("")}</ul>` : ""}</div>`;
 }
 
 function renderGlobalSync() {
-  setTitle("Discord network", "Global roles");
+  setTitle("Discord servers", "Shared roles");
   const syncs = state.data.globalSyncs;
   const selected = syncs.find((item) => item.group_name === state.selectedSync) || null;
   $("#content").innerHTML = `
     ${resultBox()}
-    <section class="page-head"><p class="lede">Direct members of an ACE group wear its role in every matching network server. Anyone else who gets the role is stripped and reported.</p><div class="page-actions"><button class="btn" data-sync-push>${icon("sync")}Push all</button><button class="btn primary" data-sync-new>${icon("plus")}New sync</button></div></section>
+    <section class="page-intro"><span class="page-icon">${icon("globe")}</span><div><h2>Shared roles</h2><p>A shared role follows a permission group into every matching network server: members of the group get it automatically, and anyone else who is given it has it removed (and it’s reported).</p></div></section>
+    <section class="page-head"><span></span><div class="page-actions"><button class="btn" data-sync-push title="Re-apply every shared role in every server">${icon("sync")}Re-apply all</button><button class="btn primary" data-sync-new>${icon("plus")}New shared role</button></div></section>
     <section class="sync-layout">
       <div class="card">
-        <div class="card-head"><div><h2>Synced roles</h2><p>Top of the list sits highest in every server.</p></div></div>
-        <div class="sync-list">${syncs.map((item, index) => `<button class="sync-item ${selected?.group_name === item.group_name ? "active" : ""}" data-sync-select="${esc(item.group_name)}"><span><strong>${esc(item.role_name)}</strong><small>${esc(item.group_name)} · ${esc(SCOPES[item.scope] || item.scope)}${item.all_channels ? " · all channels" : ""}</small></span><span style="display:flex;gap:2px">
+        <div class="card-head"><div><h2>Your shared roles</h2><p>Higher in this list sits higher in every server. Use the arrows to reorder.</p></div></div>
+        <div class="sync-list">${syncs.map((item, index) => `<button class="sync-item ${selected?.group_name === item.group_name ? "active" : ""}" data-sync-select="${esc(item.group_name)}"><span><strong>${esc(item.role_name)}</strong><small>${esc(SCOPES[item.scope] || item.scope)}${item.all_channels ? " · all channels" : ""}</small></span><span style="display:flex;gap:2px">
           <span class="btn ghost sm icon" role="button" data-sync-up="${esc(item.group_name)}" ${index === 0 ? 'aria-disabled="true" style="visibility:hidden"' : ""} title="Move up">${icon("up")}</span>
-          <span class="btn ghost sm icon" role="button" data-sync-down="${esc(item.group_name)}" ${index === syncs.length - 1 ? 'aria-disabled="true" style="visibility:hidden"' : ""} title="Move down">${icon("down")}</span></span></button>`).join("") || `<div class="empty"><strong>No global roles yet</strong>Create one with New sync.</div>`}</div>
+          <span class="btn ghost sm icon" role="button" data-sync-down="${esc(item.group_name)}" ${index === syncs.length - 1 ? 'aria-disabled="true" style="visibility:hidden"' : ""} title="Move down">${icon("down")}</span></span></button>`).join("") || `<div class="empty"><strong>No shared roles yet</strong>Create one with New shared role.</div>`}</div>
       </div>
       <div class="card">
-        <div class="card-head"><div><h2>${selected ? esc(selected.role_name) : "New global sync"}</h2><p>${selected ? `ACE group <code>${esc(selected.group_name)}</code> · changes are pushed to Discord before saving finishes.` : "Pick the ACE group whose members should wear the role."}</p></div></div>
+        <div class="card-head"><div><h2>${selected ? esc(selected.role_name) : "New shared role"}</h2><p>${selected ? `For the <strong>${esc(selected.group_name)}</strong> permission group. Saving updates Discord straight away.` : "Pick the permission group whose members should wear the role."}</p></div></div>
         <div class="card-body">
           ${syncForm(selected)}
-          ${selected ? `<div class="divider"></div><p class="section-label">Where it lives</p>${linkedRoles(selected)}` : ""}
+          ${selected ? `<div class="divider"></div><p class="section-label">Where this role exists now</p>${linkedRoles(selected)}` : ""}
           <div class="divider"></div>
           ${bindForm(selected)}
         </div>
@@ -503,30 +642,32 @@ function renderGlobalSync() {
 function bindForm(sync) {
   const network = records("network-guilds");
   const groups = records("ace-groups");
-  return `<p class="section-label">Use an existing role</p><p class="muted" style="font-size:.86rem;margin-bottom:12px">Same as <code>/globalsync bind</code>: the role becomes this group's role in that server and is left visually unchanged.</p>
+  return `<details class="more"><summary>${icon("right")}Link a role that already exists in one server</summary><div>
+    <p class="muted" style="font-size:.86rem">Same as <code>/globalsync bind</code>: the role becomes this group’s role in that server and is left looking exactly as it is.</p>
     <form id="bind-form" class="form-grid">
-    <label class="field">ACE group<select name="group" required ${sync ? "disabled" : ""}>${sync ? `<option value="${esc(sync.group_name)}">${esc(sync.group_name)}</option>` : `<option value="">Choose a group</option>${groups.map((g) => `<option value="${esc(g.name)}">${esc(g.label)} · ${esc(g.name)}</option>`).join("")}`}</select></label>
+    <label class="field">Permission group<select name="group" required ${sync ? "disabled" : ""}>${sync ? `<option value="${esc(sync.group_name)}">${esc(sync.group_name)}</option>` : `<option value="">Choose a group…</option>${groups.map((g) => `<option value="${esc(g.name)}">${esc(g.label)} (${esc(g.name)})</option>`).join("")}`}</select></label>
     <label class="field">Discord server<select name="guild_id" required>${network.map((row) => `<option value="${esc(row.guild_id)}">${esc(guildName(row.guild_id))}</option>`).join("")}</select></label>
-    <label class="field wide">Existing role<select name="role_id" data-guild-field="guild_id" required><option value="">Choose a role</option>${allRoles().map((role) => `<option value="${role.id}" data-guild="${role.guild}">${esc(role.name)}${role.editable ? "" : " (above bot)"}</option>`).join("")}</select></label>
-    <div class="wide" style="display:flex;justify-content:flex-end"><button type="submit" class="btn">Bind role</button></div></form>`;
+    <label class="field wide">Existing role<select name="role_id" data-guild-field="guild_id" required><option value="">Choose a role…</option>${allRoles().map((role) => `<option value="${role.id}" data-guild="${role.guild}">${esc(role.name)}${role.editable ? "" : " (above the bot)"}</option>`).join("")}</select></label>
+    <div class="wide" style="display:flex;justify-content:flex-end"><button type="submit" class="btn">Link role</button></div></form>
+  </div></details>`;
 }
 
 /* ---------------------- permission group editor (checkboxes) ---------------------- */
 function aceSections(selected) {
   const catalog = state.data.catalog || [];
   const known = new Set(catalog.map((entry) => entry.object));
-  const custom = [...selected].filter((object) => !known.has(object)).map((object) => ({ category: "Custom / not in catalog", object, label: object, description: "Already granted to this group but not part of the built-in catalog. Untick to remove it." }));
+  const custom = [...selected].filter((object) => !known.has(object)).map((object) => ({ category: "Other permissions this group has", object, label: object, description: "Given to this group but not in the built-in list. Untick to remove it." }));
   const rows = [...catalog, ...custom];
   const categories = [...new Set(rows.map((entry) => entry.category))];
   return categories.map((category) => {
     const items = rows.filter((entry) => entry.category === category);
     const picked = items.filter((entry) => selected.has(entry.object)).length;
-    return `<details class="ace-section" data-ace-section ${picked ? "open" : ""}><summary><span>${esc(category)}</span><small data-section-count>${picked}/${items.length}</small></summary><div class="ace-grid">${items.map((entry) => `<label class="ace-option" data-ace-option data-ace-search="${esc(`${entry.label} ${entry.object} ${entry.description} ${entry.category}`.toLowerCase())}"><input type="checkbox" name="objects" value="${esc(entry.object)}" ${selected.has(entry.object) ? "checked" : ""}><span><strong>${esc(entry.label)}</strong><code>${esc(entry.object)}</code><small>${esc(entry.description)}</small></span></label>`).join("")}</div></details>`;
+    return `<details class="ace-section" data-ace-section ${picked ? "open" : ""}><summary><span>${esc(category)}</span><small data-section-count>${picked}/${items.length}</small></summary><div class="ace-grid">${items.map((entry) => `<label class="ace-option" data-ace-option data-ace-search="${esc(`${entry.label} ${entry.object} ${entry.description} ${entry.category}`.toLowerCase())}"><input type="checkbox" name="objects" value="${esc(entry.object)}" ${selected.has(entry.object) ? "checked" : ""}><span><strong>${esc(entry.label)}</strong><small>${esc(entry.description)}</small><code>${esc(entry.object)}</code></span></label>`).join("")}</div></details>`;
   }).join("");
 }
 
 function renderAceGroups() {
-  setTitle("Access", "Permission groups");
+  setTitle("Permissions", "Edit a permission group");
   const editor = state.aceEditor;
   const groups = records("ace-groups");
   if (editor.mode === "edit" && !groups.some((g) => g.name === editor.group)) editor.group = [...groups].sort((a, b) => b.rank_order - a.rank_order)[0]?.name || "";
@@ -537,28 +678,28 @@ function renderAceGroups() {
   const members = group ? records("ace-memberships").filter((row) => row.group_name === group.name).length : 0;
   const ranks = group ? records("roster-ranks").filter((row) => row.ace_group === group.name).map((row) => row.name) : [];
   const fields = editor.mode === "create"
-    ? `<label class="field">Group name<input name="name" required pattern="[a-z0-9_-]{1,40}" placeholder="senior_moderator"><small>Lowercase letters, numbers, underscores or hyphens.</small></label>
-       <label class="field">Display label<input name="label" required maxlength="80" placeholder="Senior Moderator"></label>
-       <label class="field">Rank order<input name="rank_order" type="number" min="0" max="10000" value="500" required><small>Higher outranks lower. /staff add and /global only act on members below the caller's highest rank.</small></label>
-       <label class="toggle" style="align-self:start;margin-top:22px"><input name="staff_only" type="checkbox" checked> Only active in game while clocked in</label>`
-    : group ? `<label class="field">Display label<input name="label" required maxlength="80" value="${esc(group.label)}"></label>
-       <label class="field">Rank order<input name="rank_order" type="number" min="0" max="10000" value="${esc(group.rank_order)}" required><small>Higher outranks lower.</small></label>
+    ? `<label class="field">Short name<input name="name" required pattern="[a-z0-9_-]{1,40}" placeholder="senior_moderator"><small>Lowercase letters, numbers, _ or -. Used in commands; can’t be changed later.</small></label>
+       <label class="field">Display name<input name="label" required maxlength="80" placeholder="Senior Moderator"></label>
+       <label class="field">Rank level<input name="rank_order" type="number" min="0" max="10000" value="500" required><small>Higher numbers outrank lower ones. Staff can only manage people below their own highest rank.</small></label>
+       <label class="toggle" style="align-self:start;margin-top:26px"><input name="staff_only" type="checkbox" checked> Only active in game while clocked in</label>`
+    : group ? `<label class="field">Display name<input name="label" required maxlength="80" value="${esc(group.label)}"></label>
+       <label class="field">Rank level<input name="rank_order" type="number" min="0" max="10000" value="${esc(group.rank_order)}" required><small>Higher numbers outrank lower ones.</small></label>
        <label class="toggle wide"><input name="staff_only" type="checkbox" ${group.staff_only ? "checked" : ""}> Only active in game while clocked in</label>
-       <div class="wide" style="display:flex;flex-wrap:wrap;gap:6px"><span class="chip accent">${fmt(selected.size)} allowed</span>${denies.length ? `<span class="chip bad" title="${esc(denies.map((d) => d.object).join(", "))}">${fmt(denies.length)} denied (kept)</span>` : ""}<span class="chip">${fmt(members)} direct member${members === 1 ? "" : "s"}</span>${ranks.length ? `<span class="chip">Staff rank: ${esc(ranks.join(", "))}</span>` : ""}</div>`
-      : `<div class="wide empty"><strong>No ACE groups yet</strong>Switch to New group to create one.</div>`;
+       <div class="wide" style="display:flex;flex-wrap:wrap;gap:6px"><span class="chip accent">${fmt(selected.size)} allowed</span>${denies.length ? `<span class="chip bad" title="${esc(denies.map((d) => d.object).join(", "))}">${fmt(denies.length)} blocked (kept as is)</span>` : ""}<span class="chip">${fmt(members)} member${members === 1 ? "" : "s"}</span>${ranks.length ? `<span class="chip">Staff rank: ${esc(ranks.join(", "))}</span>` : ""}</div>`
+      : `<div class="wide empty"><strong>No permission groups yet</strong>Switch to Create a new group to make one.</div>`;
   $("#content").innerHTML = `
     ${resultBox()}
-    <section class="page-head"><p class="lede">Every vMenu, EasyAdmin and Florida Bay ACE is listed with what it does. Saving writes exactly the ticked set, records it in the audit trail and syncs Discord and the game immediately.</p></section>
+    <section class="page-intro"><span class="page-icon">${icon("key")}</span><div><h2>Edit a permission group</h2><p>Pick a group, tick what it should be able to do, then save. Every permission is explained in plain words, and saving updates Discord and the game right away.</p></div></section>
     <section class="card">
       <div class="card-head" style="align-items:center">
-        <div class="mode-tabs" role="tablist"><button type="button" data-ace-mode="edit" class="${editor.mode === "edit" ? "on" : ""}">Edit existing</button><button type="button" data-ace-mode="create" class="${editor.mode === "create" ? "on" : ""}">New group</button></div>
-        ${editor.mode === "edit" && groups.length ? `<select id="ace-group-select" style="max-width:360px">${[...groups].sort((a, b) => b.rank_order - a.rank_order).map((g) => `<option value="${esc(g.name)}" ${g.name === editor.group ? "selected" : ""}>${esc(g.label)} · ${esc(g.name)} · rank ${esc(g.rank_order)}</option>`).join("")}</select>` : ""}
+        <div class="mode-tabs" role="tablist"><button type="button" data-ace-mode="edit" class="${editor.mode === "edit" ? "on" : ""}">Edit a group</button><button type="button" data-ace-mode="create" class="${editor.mode === "create" ? "on" : ""}">Create a new group</button></div>
+        ${editor.mode === "edit" && groups.length ? `<select id="ace-group-select" style="max-width:360px" aria-label="Group to edit">${[...groups].sort((a, b) => b.rank_order - a.rank_order).map((g) => `<option value="${esc(g.name)}" ${g.name === editor.group ? "selected" : ""}>${esc(g.label)} (${esc(g.name)}) · level ${esc(g.rank_order)}</option>`).join("")}</select>` : ""}
       </div>
       <form id="ace-group-form" data-mode="${editor.mode}">
         <div class="card-body form-grid">${fields}</div>
-        ${editor.mode === "create" || group ? `<div class="ace-toolbar"><label class="search">${icon("search")}<input id="ace-filter" type="search" placeholder="Search noclip, bans, tickets, weapons…"></label><div class="actions"><button type="button" class="btn sm" id="ace-select-shown">Select shown</button><button type="button" class="btn sm" id="ace-clear-shown">Clear shown</button><button type="button" class="btn sm ghost" id="ace-collapse">Expand all</button><span class="ace-count" id="ace-count"></span></div></div>
+        ${editor.mode === "create" || group ? `<div class="ace-toolbar"><label class="search">${icon("search")}<input id="ace-filter" type="search" placeholder="Search, e.g. noclip, bans, tickets, weapons…"></label><div class="actions"><button type="button" class="btn sm" id="ace-select-shown">Tick all shown</button><button type="button" class="btn sm" id="ace-clear-shown">Untick all shown</button><button type="button" class="btn sm ghost" id="ace-collapse">Expand all</button><span class="ace-count" id="ace-count"></span></div></div>
         <div id="ace-sections">${aceSections(selected)}</div>
-        <div class="ace-save"><p>${editor.mode === "create" ? "Creates the group with exactly the ticked permissions." : "Unticked permissions are removed from this group; ticked ones are allowed."} Bind a Discord role with <code>/ace bind-role</code>, or map a staff rank to it under Staff roster → Roster ranks.</p><button type="submit" class="btn primary">${icon("check")}${editor.mode === "create" ? "Create group" : "Save group"}</button></div>` : ""}
+        <div class="ace-save"><p>${editor.mode === "create" ? "Creates the group with exactly what’s ticked." : "Ticked permissions are allowed; anything you untick is removed from this group."} To give the group a Discord role, use <code>/ace bind-role</code> or link it to a staff rank under Staff team → Staff ranks.</p><button type="submit" class="btn primary">${icon("check")}${editor.mode === "create" ? "Create group" : "Save group"}</button></div>` : ""}
       </form>
     </section>`;
   refreshAceCount();
@@ -568,10 +709,10 @@ function refreshAceCount() {
   const host = $("#ace-sections");
   if (!host) return;
   const checked = $$("[data-ace-option] input:checked", host).length;
-  $("#ace-count").textContent = `${checked} selected`;
+  $("#ace-count").textContent = `${checked} ticked`;
   for (const section of $$("[data-ace-section]", host)) {
     const inputs = $$("input", section);
-    section.querySelector("[data-section-count]").textContent = `${inputs.filter((input) => input.checked).length}/${inputs.length}`;
+    section.querySelector("[data-section-count]").textContent = `${inputs.filter((input) => input.checked).length} of ${inputs.length}`;
   }
 }
 
@@ -584,29 +725,39 @@ function filterAceOptions() {
   }
 }
 
-/* ------------------------------------ audit ------------------------------------ */
-function auditRows(rows) {
+/* ------------------------------------ activity log ------------------------------------ */
+const ACTION_WORDS = { ace: "permission", coc: "chain of command", botguard: "Bot Guard", orgbank: "organization bank", globalsync: "shared role", aop: "AOP" };
+function actionLabel(action) {
+  const text = String(action || "").split(/[._:]+/).map((word) => ACTION_WORDS[word] || word.replace(/[-_]/g, " ")).join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function auditRows(rows, compact = false) {
   return rows.map((row) => {
     const payload = JSON.stringify(row.payload || {}, null, 2);
-    const actor = row.actor_id === "web-panel" ? "Web panel" : row.actor_id;
-    return `<div class="audit-row"><time title="${esc(time(row.created_at))}">${esc(ago(row.created_at))}</time><div><div style="font-weight:600">${esc(row.action)}</div><div class="mono faint" style="font-size:.78rem">${esc(actor)}${row.target_id ? ` → ${esc(row.target_id)}` : ""}</div></div><details><summary class="mono">${esc((payload === "{}" ? "No details" : JSON.stringify(row.payload)).slice(0, 160))}</summary>${payload === "{}" ? "" : `<pre>${esc(payload)}</pre>`}</details></div>`;
+    const actor = row.actor_id === "web-panel" ? "This settings page" : row.actor_id;
+    const who = `<div class="who">by <span class="${row.actor_id === "web-panel" ? "" : "mono"}">${esc(actor)}</span>${row.target_id ? ` · <span class="mono">${esc(row.target_id)}</span>` : ""}</div>`;
+    if (compact) return `<div class="list-row"><div style="min-width:0"><div class="primary-text" title="${esc(row.action)}">${esc(actionLabel(row.action))}</div><div class="secondary-text">${esc(actor)}</div></div><time class="faint" style="font-size:.8rem;white-space:nowrap" title="${esc(time(row.created_at))}">${esc(ago(row.created_at))}</time></div>`;
+    return `<div class="audit-row"><time title="${esc(time(row.created_at))}">${esc(ago(row.created_at))}</time><div><div class="what" title="${esc(row.action)}">${esc(actionLabel(row.action))}</div>${who}</div><details><summary>${payload === "{}" ? "No extra details" : "Show details"}</summary>${payload === "{}" ? "" : `<pre>${esc(payload)}</pre>`}</details></div>`;
   }).join("");
 }
 
 function renderAudit() {
-  setTitle("System", "Audit trail");
-  $("#content").innerHTML = `<section class="page-head"><p class="lede">The latest 80 events from Discord commands, the game server and this panel. Click details to expand them.</p><div class="page-actions"><label class="search">${icon("search")}<input id="audit-search" type="search" placeholder="Filter by action or ID…"></label></div></section>
-    <section class="card"><div class="list" id="audit-list">${auditRows(state.data.audit) || `<div class="empty">No audit events.</div>`}</div></section>`;
+  setTitle("Settings", "Activity log");
+  $("#content").innerHTML = `
+    <section class="page-intro"><span class="page-icon">${icon("clock")}</span><div><h2>Activity log</h2><p>The latest 80 changes made through Discord commands, the game server and this page.</p></div></section>
+    <section class="page-head"><label class="search">${icon("search")}<input id="audit-search" type="search" placeholder="Filter by action or ID…"></label></section>
+    <section class="card"><div class="list" id="audit-list">${auditRows(state.data.audit) || `<div class="empty">No activity yet.</div>`}</div></section>`;
   $("#audit-search").addEventListener("input", (event) => {
     const needle = event.target.value.toLowerCase().trim();
-    $("#audit-list").innerHTML = auditRows(state.data.audit.filter((row) => !needle || JSON.stringify(row).toLowerCase().includes(needle))) || `<div class="empty">No matching events.</div>`;
+    $("#audit-list").innerHTML = auditRows(state.data.audit.filter((row) => !needle || `${JSON.stringify(row)} ${actionLabel(row.action)}`.toLowerCase().includes(needle))) || `<div class="empty">No matching activity.</div>`;
   });
 }
 
 function render() {
   if (!state.data) return;
   state.dirty = false;
-  if (state.data.scope && state.data.scope !== "full" && !(state.view.startsWith("resource:") && resource(state.view.slice(9))) && state.view !== "audit")
+  if (isScoped() && !(state.view.startsWith("resource:") && resource(state.view.slice(9))) && state.view !== "audit")
     state.view = "resource:organizations";
   if (state.view === "overview") renderOverview();
   else if (state.view === "globalsync") renderGlobalSync();
@@ -623,21 +774,35 @@ $("#login-form").addEventListener("submit", async (event) => {
 
 $("#nav").addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
-  if (button) go(button.dataset.view);
+  if (button) return go(button.dataset.view);
+  const summary = event.target.closest(".nav-area > summary");
+  if (summary) {
+    const area = summary.parentElement;
+    // The <details> toggles after this click handler, so record the state it is about to have.
+    if (area.open) state.openAreas.delete(area.dataset.area);
+    else state.openAreas.add(area.dataset.area);
+  }
 });
 $("#nav-search").addEventListener("input", (event) => {
   state.navFilter = event.target.value.trim();
   renderNav();
 });
+$("#nav-search").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") $("#nav [data-view]")?.click();
+});
+$("#menu-open").addEventListener("click", () => document.body.classList.add("menu"));
+$$("[data-menu-close]").forEach((node) => node.addEventListener("click", () => document.body.classList.remove("menu")));
 
 async function deleteRow(id, index) {
   const spec = resource(id);
   const row = records(id)[Number(index)];
-  if (!confirm(`Delete this ${spec.label.toLowerCase()} record? The change applies immediately.`)) return;
+  const [label] = friendly(id);
+  if (!await confirmDanger("Delete this entry?", `It will be removed from ${label} and the change goes live straight away.`)) return false;
   try {
     await post("record/delete", { resource: id, key: Object.fromEntries(spec.pk.map((key) => [key, row[key]])) });
-    toast("Record deleted and live systems reconciled.");
-  } catch (error) { toast(error.message, true); }
+    toast("Deleted. Discord and the game are up to date.");
+    return true;
+  } catch (error) { toast(error.message, true); return false; }
 }
 
 async function moveSync(key, up) {
@@ -646,17 +811,15 @@ async function moveSync(key, up) {
   const target = up ? index - 1 : index + 1;
   if (target < 0 || target >= order.length) return;
   [order[index], order[target]] = [order[target], order[index]];
-  try { await post("globalsync/order", { groups: order }); toast("Global role order applied."); }
+  try { await post("globalsync/order", { groups: order }); toast("New role order applied."); }
   catch (error) { toast(error.message, true); }
 }
 
 $("#content").addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-go]");
-  if (nav) return go(nav.dataset.go);
+  if (nav) { state.homeFilter = ""; return go(nav.dataset.go); }
   const create = event.target.closest("[data-create]");
   if (create) return openEditor(create.dataset.create);
-  const remove = event.target.closest("[data-delete]");
-  if (remove) return deleteRow(remove.dataset.delete, remove.dataset.index);
   const edit = event.target.closest("[data-edit]");
   if (edit) return openEditor(edit.dataset.edit, records(edit.dataset.edit)[Number(edit.dataset.index)]);
   const aceMode = event.target.closest("[data-ace-mode]");
@@ -681,29 +844,39 @@ $("#content").addEventListener("click", async (event) => {
   if (select) { state.selectedSync = select.dataset.syncSelect; state.creatingSync = false; state.dirty = false; return renderGlobalSync(); }
   if (event.target.closest("[data-sync-new]")) { state.selectedSync = null; state.creatingSync = true; state.lastResult = null; state.dirty = false; return renderGlobalSync(); }
   if (event.target.closest("[data-sync-push]")) {
-    try { await post("globalsync/push", {}); toast("Global roles pushed to every server."); }
+    try { await post("globalsync/push", {}); toast("Shared roles re-applied in every server."); }
     catch (error) { toast(error.message, true); }
     return;
   }
   const del = event.target.closest("[data-sync-delete]");
   if (del) {
-    if (!confirm(`Stop syncing ${del.dataset.syncDelete}? Members will no longer be gated by it.`)) return;
-    const deleteRoles = confirm("Also delete the roles the bot created? (OK = delete them, Cancel = keep them in Discord). Linked existing roles are always kept.");
+    const choice = await ask({
+      title: `Stop sharing the ${del.dataset.syncDelete} role?`,
+      body: "Members will no longer be given or checked for this role. You can also delete the roles the bot created; roles you linked that already existed are always kept.",
+      actions: [
+        { label: "Cancel", value: "", kind: "ghost" },
+        { label: "Stop, keep the roles", value: "keep" },
+        { label: "Stop and delete bot roles", value: "delete", kind: "danger" },
+      ],
+    });
+    if (!choice) return;
     try {
-      await post("globalsync/delete", { group: del.dataset.syncDelete, delete_roles: deleteRoles });
+      await post("globalsync/delete", { group: del.dataset.syncDelete, delete_roles: choice === "delete" });
       state.selectedSync = state.data.globalSyncs[0]?.group_name || null;
       renderGlobalSync();
-      toast("Global sync removed.");
+      toast("Shared role removed.");
     } catch (error) { toast(error.message, true); }
   }
 });
 
 $("#content").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && event.target.matches("tr[data-edit]")) openEditor(event.target.dataset.edit, records(event.target.dataset.edit)[Number(event.target.dataset.index)]);
+  if (event.key === "Enter" && event.target.id === "home-search") $("#home-body [data-go]")?.click();
 });
 
 $("#content").addEventListener("input", (event) => {
   if (event.target.id === "ace-filter") filterAceOptions();
+  if (event.target.id === "home-search") { state.homeFilter = event.target.value; $("#home-body").innerHTML = homeBody(); }
 });
 
 $("#content").addEventListener("change", (event) => {
@@ -711,6 +884,7 @@ $("#content").addEventListener("change", (event) => {
   if (event.target.name === "objects") return refreshAceCount();
   const form = event.target.form;
   if (!form) return;
+  if (event.target.name === "color_default") form.elements.color.disabled = event.target.checked;
   if (form.id === "sync-form") return updateServerRows(form);
   filterByGuild(form);
 });
@@ -721,18 +895,22 @@ $("#content").addEventListener("submit", async (event) => {
   const form = event.target;
   const submit = form.querySelector("button[type=submit]");
   const values = new FormData(form);
+  if (form.id === "sync-form") {
+    const pick = values.get("server_mode") === "pick";
+    const included = $$("[data-server-row]", form).filter((row) => !row.classList.contains("excluded"));
+    if (pick && !included.length && !await confirmDanger("No servers picked", "With no servers picked, this role will be removed from every server. Continue?", "Remove everywhere")) return;
+  }
   const restore = busy(submit);
   try {
     if (form.id === "sync-form") {
       const pick = values.get("server_mode") === "pick";
       const included = $$("[data-server-row]", form).filter((row) => !row.classList.contains("excluded"));
-      if (pick && !included.length && !confirm("No servers are picked, so this role will be removed from every server. Continue?")) return;
       const body = {
         group: values.get("group") || state.selectedSync,
         role_name: values.get("role_name") || undefined,
         scope: pick ? "custom" : values.get("scope"),
         permissions: values.get("permissions"),
-        color: values.get("color"),
+        color: values.has("color_default") ? "default" : values.get("color"),
         hoist: values.has("hoist"),
         mentionable: values.has("mentionable"),
         all_channels: values.has("all_channels"),
@@ -743,17 +921,17 @@ $("#content").addEventListener("submit", async (event) => {
       state.selectedSync = body.group;
       state.creatingSync = false;
       renderGlobalSync();
-      toast("Global sync saved and reconciled.");
+      toast("Shared role saved and applied in every server.");
     } else if (form.id === "bundle-form") {
       await post("ace/bundle", { group: values.get("group"), bundle: values.get("bundle"), mode: values.get("mode") });
-      toast(`Bundle ${values.get("mode") === "revoke" ? "revoked" : "granted"} and applied live.`);
+      toast(`Bundle ${values.get("mode") === "revoke" ? "taken away" : "given"}. It’s live now.`);
     } else if (form.id === "bind-form") {
       const group = values.get("group") || state.selectedSync;
       const result = await post("globalsync/bind", { group, guild_id: values.get("guild_id"), role_id: values.get("role_id") });
       state.selectedSync = group;
       state.creatingSync = false;
       renderGlobalSync();
-      toast(result.result?.created ? "Global sync created from the existing role." : "Existing role bound to the ACE sync.");
+      toast(result.result?.created ? "Shared role created from the existing role." : "Existing role linked.");
     } else if (form.id === "ace-group-form") {
       const creating = form.dataset.mode === "create";
       const body = {
@@ -768,7 +946,7 @@ $("#content").addEventListener("submit", async (event) => {
       state.aceEditor = { mode: "edit", group: result.result?.group || body.name };
       renderNav();
       renderAceGroups();
-      toast(`${body.name} saved and applied live.`);
+      toast(`${body.label || body.name} saved. It’s live now.`);
     }
   } catch (error) {
     toast(error.message, true);
@@ -794,23 +972,36 @@ $("#editor-form").addEventListener("submit", async (event) => {
   try {
     await post("record/save", { resource: state.editor.resource, record, original: state.editor.original });
     $("#editor").close();
-    toast("Saved and applied live.");
+    toast("Saved. It’s live now.");
   } catch (error) { toast(error.message, true); }
   finally { restore(); }
 });
 
+$("#editor-delete").addEventListener("click", async () => {
+  if (!state.editor?.original) return;
+  const index = records(state.editor.resource).findIndex((row) => JSON.stringify(row) === JSON.stringify(state.editor.original));
+  if (index < 0) return toast("That entry has changed since you opened it. Reload and try again.", true);
+  if (await deleteRow(state.editor.resource, index)) $("#editor").close();
+});
+
 $$("[data-close]").forEach((button) => button.addEventListener("click", () => $("#editor").close()));
 $("#editor").addEventListener("click", (event) => { if (event.target === $("#editor")) $("#editor").close(); });
+$("#ask").addEventListener("click", (event) => { if (event.target === $("#ask")) $("#ask").close(); });
 $("#refresh").addEventListener("click", () => load().catch((error) => toast(error.message, true)));
 $("#reconcile").addEventListener("click", async () => {
-  try { await post("reconcile", {}); toast("Discord roles and FiveM permissions reconciled."); }
+  const button = $("#reconcile");
+  button.disabled = true;
+  try { await post("reconcile", {}); toast("Everything re-synced: Discord roles and in-game permissions match these settings."); }
   catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && !event.target.closest("input, textarea, select") && !$("#app").hidden) {
     event.preventDefault();
-    $("#nav-search").focus();
+    const home = $("#home-search");
+    (home || $("#nav-search")).focus();
   }
+  if (event.key === "Escape") document.body.classList.remove("menu");
 });
 
 load().then(() => {
@@ -830,6 +1021,6 @@ for (const type of ["input", "change"])
 
 setInterval(() => {
   // The permission editor holds unsaved ticks, so it is never refreshed underneath the user.
-  if (state.data && !$("#editor").open && !document.hidden && state.view !== "acegroups")
+  if (state.data && !$("#editor").open && !$("#ask").open && !document.hidden && state.view !== "acegroups")
     load({ silent: true }).catch(() => {});
 }, 30000);

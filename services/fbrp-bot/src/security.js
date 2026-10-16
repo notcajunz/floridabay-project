@@ -10,18 +10,16 @@ import { COLORS, card, clip, roleRef, serverRef, when, who } from "./ui.js";
 
 export const SECURITY_SETTINGS = {
   antinuke: { type: "bool", label: "Anti-nuke", default: true },
-  nuke_limit: { type: "int", label: "Anti-nuke: actions of one kind", default: 3, min: 1, max: 50 },
-  nuke_total: { type: "int", label: "Anti-nuke: danger points of any kind", default: 6, min: 2, max: 100 },
+  nuke_limit: { type: "int", label: "Anti-nuke: rapid creates/deletes of one kind", default: 3, min: 1, max: 50 },
+  nuke_total: { type: "int", label: "Anti-nuke: channel/role create-delete danger points", default: 6, min: 2, max: 100 },
   nuke_window: { type: "int", label: "Anti-nuke: window (seconds)", default: 20, min: 5, max: 300 },
   // Strip (all roles removed plus a 7-day timeout) in every network server, instead of a network-wide ban.
   nuke_punishment: { type: "enum", label: "Anti-nuke: punishment", default: "strip", values: ["strip", "kick", "ban"] },
-  nuke_restore: { type: "bool", label: "Anti-nuke: undo the damage (restore deleted, remove created)", default: true },
+  nuke_restore: { type: "bool", label: "Anti-nuke: restore/remove rapidly deleted/created roles and channels", default: true },
   nuke_network_ban: { type: "bool", label: "Anti-nuke: contain the attacker in every network server", default: true },
   nuke_network_scale: { type: "int", label: "Anti-nuke: network budget (× per-server limits, shared by all servers)", default: 1, min: 1, max: 10 },
-  nuke_exempt_ceiling: { type: "int", label: "Anti-nuke: still quarantine exempt accounts at this many × the limits (0 = never)", default: 3, min: 0, max: 20 },
   nuke_failsafe_lockdown: { type: "bool", label: "Anti-nuke: lock the server down if the attacker cannot be stopped", default: true },
   permission_guard: { type: "bool", label: "Permission guard (dangerous role permissions)", default: true },
-  admin_grant_guard: { type: "bool", label: "Admin grant guard (dangerous roles given out)", default: true },
   webhook_guard: { type: "bool", label: "Webhook guard (lockdown and webhook spam)", default: true },
   // Opt in to recurring health alerts. Manual `/security health` checks remain available when this is off.
   health_watch: { type: "bool", label: "Health watch: alert when the bot loses the power to stop a nuke", default: false },
@@ -174,10 +172,13 @@ async function exempt(guildId, discordId) {
   return value;
 }
 
+/** Public exemption check for diagnostics and regression tests. */
+export const isSecurityExempt = (guildId, discordId) => exempt(String(guildId), String(discordId));
+
 /**
- * Everyone is scanned. Only this bot, scoped first-party automation and accounts with a /security
- * exemption are trusted. Server owners and bot superusers are scanned too: grant them an exemption
- * if they need one.
+ * Only this bot, scoped first-party automation and accounts with a /security exemption are trusted.
+ * Trusted accounts are removed before automated detection. Server owners and bot superusers are
+ * otherwise scanned too: grant them an exemption if they need one.
  */
 async function trusted(guild, userId) {
   if (!userId) return false;
@@ -232,13 +233,12 @@ export const YOUNG_ACCOUNT_ALERT_DAYS = 14;
 export const requiresYoungAccountAlert = (user, at = Date.now()) =>
   (at - Number(user.createdTimestamp)) / 86400000 < YOUNG_ACCOUNT_ALERT_DAYS;
 
-/** This alert is unconditional: exemptions disable enforcement, not visibility of a new account joining. */
-async function alertYoungAccount(member, log, { age, risk = null, flags = [], action = "Alert only", exempted = false } = {}) {
+/** Dedicated visibility for young, non-exempt accounts. */
+async function alertYoungAccount(member, log, { age, risk = null, flags = [], action = "Alert only" } = {}) {
   await securityEvent(member.guild.id, "young_account", null, member.id, action === "Alert only" ? "alerted" : action.toLowerCase(), {
     age,
     alertDays: YOUNG_ACCOUNT_ALERT_DAYS,
     ...(risk === null ? {} : { risk, flags }),
-    exempted,
   });
   await log(member.guild, {
     title: "Young account joined",
@@ -249,7 +249,6 @@ async function alertYoungAccount(member, log, { age, risk = null, flags = [], ac
       ["Account age", `${ageText(member.user)}\nCreated ${when(member.user.createdTimestamp)}`],
       ["Alert rule", `Account is under ${YOUNG_ACCOUNT_ALERT_DAYS} days old`],
       ...(risk === null ? [] : [["Risk", `${risk} · ${flags.join(", ") || "none"}`]]),
-      ...(exempted ? [["Security exemption", "Exempt from automated action; alert still sent"]] : []),
       ["Action", action],
     ],
   });
@@ -281,6 +280,7 @@ async function trustedBotAdder(guild, userId) {
 export async function guardBot(member, log) {
   if (!member.user.bot) return;
   if (!(await registered(member.guild.id))) return;
+  if (await trusted(member.guild, member.id)) return;
   const entry = await auditEntry(member.guild, AuditLogEvent.BotAdd, member.id, 20000, 1200);
   const actor = entry?.executorId || null;
   const appAllowed = Boolean(await db.one("SELECT 1 FROM network_allowed_bots WHERE bot_id=?", [member.id]));
@@ -307,7 +307,6 @@ export async function guardBot(member, log) {
       ["Adder approved", adderAllowed ? "Yes" : "No"],
     ],
   });
-  if (actor && !adderAllowed) await nukeAction(member.guild, "bot_add", actor, member.id, log, { label: member.user.tag });
 }
 
 export async function sweepBots(guild) {
@@ -376,46 +375,20 @@ export async function enforceProtectedRoles(oldMember, newMember, log) {
 }
 
 /* ------------------------------------------------------------------------------------------------
- * Anti-nuke. Every audit-log entry in a network server is scored against the account that made
- * it. Each kind of action has its own limit and a weight toward a shared danger budget, and the
- * budget is shared by the whole network: an attacker who spreads the damage over several servers
- * is caught just like one who hits a single server. Crossing a limit stops the account in every
- * network server at once, undoes the damage everywhere it acted, and puts the account on the
- * offender list: from then on any action it makes, and any server it joins, is handled instantly.
+ * Anti-nuke. Only rapid channel/role creation and deletion is scored. Each of those four actions
+ * has its own limit and a weight toward a shared danger budget, and the budget is shared by the
+ * whole network. Other moderation and configuration audit events remain available to their
+ * dedicated guards, but never consume an anti-nuke threshold.
  * ---------------------------------------------------------------------------------------------- */
 
 /** scale multiplies nuke_limit for that kind; weight counts toward nuke_total; log records each one below the limit. */
 const NUKE_RULES = {
   channel_delete: { label: "Channel deleted", scale: 1, weight: 2, log: true },
   role_delete: { label: "Role deleted", scale: 1, weight: 2, log: true },
-  member_ban: { label: "Member banned", scale: 1, weight: 2, log: true },
-  member_kick: { label: "Member kicked", scale: 1.5, weight: 1.5, log: true },
-  member_prune: { label: "Members pruned", scale: 1, weight: 3, log: true },
-  member_unban: { label: "Member unbanned", scale: 2, weight: 1, log: true },
-  member_timeout: { label: "Member timed out", scale: 3, weight: 1 },
-  member_roles: { label: "Roles removed from a member", scale: 3, weight: 0.5 },
-  voice_disconnect: { label: "Voice members disconnected or moved", scale: 4, weight: 0.5 },
   channel_create: { label: "Channel created", scale: 2, weight: 1 },
   role_create: { label: "Role created", scale: 2, weight: 1 },
-  channel_update: { label: "Channel edited", scale: 3, weight: 0.5 },
-  channel_permissions: { label: "Channel permissions edited", scale: 3, weight: 0.5 },
-  role_update: { label: "Role edited", scale: 3, weight: 0.5 },
-  thread_delete: { label: "Thread deleted", scale: 2, weight: 1 },
-  message_purge: { label: "Messages bulk-deleted", scale: 2, weight: 1 },
-  emoji_delete: { label: "Emoji or sticker deleted", scale: 1.5, weight: 1, log: true },
-  webhook_create: { label: "Webhook created", scale: 1, weight: 1.5, log: true },
-  webhook_update: { label: "Webhook edited", scale: 2, weight: 1 },
-  webhook_delete: { label: "Webhook deleted", scale: 2, weight: 1 },
-  webhook_spam: { label: "Webhook spam", scale: 1, weight: 3, log: true },
-  integration_create: { label: "Integration added", scale: 1, weight: 2, log: true },
-  integration_delete: { label: "Integration removed", scale: 1.5, weight: 1, log: true },
-  invite_create: { label: "Invite created", scale: 5, weight: 0.25 },
-  automod_change: { label: "AutoMod rule removed or edited", scale: 1, weight: 2, log: true },
-  guild_update: { label: "Server settings changed", scale: 1, weight: 2, log: true },
-  permission_escalation: { label: "Dangerous permissions added to a role", scale: 1, weight: 2 },
-  dangerous_grant: { label: "Dangerous role granted", scale: 1, weight: 2 },
-  bot_add: { label: "Unapproved bot added", scale: 1, weight: 3 },
 };
+export const isAntiNukeAction = (type) => Object.hasOwn(NUKE_RULES, String(type));
 const ACTION_LABEL = Object.fromEntries(Object.entries(NUKE_RULES).map(([key, rule]) => [key, rule.label]));
 const NUKE_REASON = "Florida Bay anti-nuke";
 const QUARANTINE_MS = 7 * 86400000;
@@ -469,10 +442,16 @@ function actorWindows(actorId, windowMs) {
 }
 
 async function nukeAction(guild, type, actorId, targetId, log, detail = {}) {
+  // Keep this boundary defensive: callers may classify other audit events for
+  // permission, webhook or Bot Guard handling, but those never touch anti-nuke.
+  if (!isAntiNukeAction(type)) return null;
   const s = await getSecuritySettings();
   if (!s.antinuke) return null;
   actorId = String(actorId);
-  const rule = NUKE_RULES[type] || { scale: 1, weight: 1 };
+  // This is the common boundary for every anti-nuke producer. An exemption is a
+  // complete bypass in its configured scope, including known-offender handling.
+  if (isInternalAutomation(guild, actorId) || (await trusted(guild, actorId))) return null;
+  const rule = NUKE_RULES[type];
   const item = {
     type,
     at: Date.now(),
@@ -483,19 +462,16 @@ async function nukeAction(guild, type, actorId, targetId, log, detail = {}) {
     changes: detail.changes || null,
     extra: detail.extra || null,
   };
-  // A known attacker gets no second window: contain and undo on the first action, in any server.
+  // A known, non-exempt attacker gets no second window: contain and undo on the first action.
   if (offenders.has(actorId)) return zeroTolerance(guild, actorId, item, log);
-  // Exempt accounts are trusted, not unlimited: a compromised staff account is the most common nuke.
-  const scale = detail.exempt ? s.nuke_exempt_ceiling : 1;
-  if (!scale) return null;
   const windowMs = s.nuke_window * 1000;
   const key = `${guild.id}:${actorId}`;
   const recent = (destructive.get(key) || []).filter((entry) => Date.now() - entry.at < windowMs);
   recent.push(item);
   destructive.set(key, recent);
   const count = recent.filter((entry) => entry.type === type).length;
-  const limit = Math.max(1, Math.round(s.nuke_limit * rule.scale * scale));
-  const total = s.nuke_total * scale;
+  const limit = Math.max(1, Math.round(s.nuke_limit * rule.scale));
+  const total = s.nuke_total;
   const points = recent.reduce((sum, entry) => sum + entry.weight, 0);
   // Network view: one budget for every server the account touched. Acting on the same target in
   // several servers (banning one troll everywhere) counts once.
@@ -514,10 +490,9 @@ async function nukeAction(guild, type, actorId, targetId, log, detail = {}) {
   const local = count >= limit || points >= total;
   const network = groups.size > 1 && (netCount >= netLimit || netPoints >= netTotal);
   const tripped = local || network;
-  if (!detail.exempt)
-    void securityEvent(guild.id, type, actorId, targetId, tripped ? "threshold" : "observed", { count, points, netPoints, servers: groups.size, label: detail.label || null });
+  void securityEvent(guild.id, type, actorId, targetId, tripped ? "threshold" : "observed", { count, points, netPoints, servers: groups.size, label: detail.label || null });
   if (!tripped) {
-    if (rule.log && !detail.exempt)
+    if (rule.log)
       await log(guild, {
         title: rule.label || type,
         color: COLORS.muted,
@@ -535,10 +510,10 @@ async function nukeAction(guild, type, actorId, targetId, log, detail = {}) {
   }
   // Mark the account before anything is awaited so every entry still in flight meets zero tolerance.
   const ownsAttacked = [...groups.keys()].some((id) => isOwner(guild.client.guilds.cache.get(id) || guild, actorId));
-  const mode = detail.exempt || ownsAttacked ? "strip" : s.nuke_punishment;
+  const mode = ownsAttacked ? "strip" : s.nuke_punishment;
   offenders.set(actorId, { at: Date.now(), punishment: mode });
   for (const id of groups.keys()) destructive.delete(`${id}:${actorId}`);
-  await punish(guild, actorId, groups, { mode, exempt: Boolean(detail.exempt), network: network && !local }, log);
+  await punish(guild, actorId, groups, { mode, network: network && !local }, log);
   return { count, limit, punished: true };
 }
 
@@ -581,7 +556,7 @@ async function punish(origin, actorId, groups, ctx, log) {
   const client = origin.client;
   const total = [...groups.values()].reduce((n, list) => n + list.length, 0);
   const across = groups.size > 1 ? ` across ${groups.size} servers` : "";
-  const reason = `${NUKE_REASON}: ${total} destructive actions in ${s.nuke_window}s${across}`;
+  const reason = `${NUKE_REASON}: ${total} rapid channel/role create-delete actions in ${s.nuke_window}s${across}`;
   const attacked = [...groups.keys()].map((id) => client.guilds.cache.get(id)).filter(Boolean);
   const others = s.nuke_network_ban ? (await networkGuilds(client)).filter((g) => !groups.has(g.id)) : [];
 
@@ -590,7 +565,7 @@ async function punish(origin, actorId, groups, ctx, log) {
   await Promise.all([
     ...attacked.map(async (g) => outcomes.set(g.id, await containOnce(g, actorId, ctx.mode, reason))),
     ...others.map(async (g) => {
-      if (!ctx.exempt && (await exempt(g.id, actorId))) return outcomes.set(g.id, { result: "Exempt in this server", stopped: false, skipped: true, stripped: [] });
+      if (await exempt(g.id, actorId)) return outcomes.set(g.id, { result: "Exempt in this server", stopped: false, skipped: true, stripped: [] });
       outcomes.set(g.id, await containOnce(g, actorId, ctx.mode, `${reason} (network containment)`));
     }),
   ]);
@@ -601,11 +576,6 @@ async function punish(origin, actorId, groups, ctx, log) {
     attacked.map(async (g) => {
       const owner = isOwner(g, actorId);
       const recovery = await recover(g, groups.get(g.id), reason, s.nuke_restore && !owner);
-      if (!owner) {
-        const left = await purgeLeftovers(g, actorId, `${reason} · recovery`);
-        if (left.webhooks) recovery.lines.push(`✅ Deleted ${left.webhooks} other webhook(s) the attacker owned`);
-        if (left.invites) recovery.lines.push(`✅ Revoked ${left.invites} invite(s) the attacker created`);
-      }
       recoveries.set(g.id, recovery);
     }),
   );
@@ -628,7 +598,7 @@ async function punish(origin, actorId, groups, ctx, log) {
       `INSERT INTO network_nuke_offenders(discord_id,origin_guild_id,reason,punishment,details,active,created_at,cleared_by,cleared_at)
        VALUES(?,?,?,?,?,TRUE,?,NULL,NULL)
        ON DUPLICATE KEY UPDATE origin_guild_id=VALUES(origin_guild_id),reason=VALUES(reason),punishment=VALUES(punishment),details=VALUES(details),active=TRUE,created_at=VALUES(created_at),cleared_by=NULL,cleared_at=NULL`,
-      [actorId, origin.id, clip(reason, 300), ctx.mode, JSON.stringify({ counts, servers: [...groups.keys()], stripped, timedOut, exempt: ctx.exempt }), Date.now()],
+      [actorId, origin.id, clip(reason, 300), ctx.mode, JSON.stringify({ counts, servers: [...groups.keys()], stripped, timedOut }), Date.now()],
     )
     .catch((error) => console.error("[FBRP security] offender record:", error.message || error));
 
@@ -661,10 +631,10 @@ async function punish(origin, actorId, groups, ctx, log) {
       title: out.stopped && !owner ? "Anti-nuke triggered" : owner ? "Anti-nuke triggered · server owner" : "Anti-nuke triggered · action failed",
       color: COLORS.danger,
       description: owner
-        ? `The server owner <@${actorId}> made ${items.length} destructive actions here${across ? ` (${total}${across})` : ""}. If this was not them, **their account is compromised**: reset its password and 2FA now. They have been quarantined in every other network server.`
+        ? `The server owner <@${actorId}> rapidly created or deleted ${items.length} channels/roles here${across ? ` (${total}${across})` : ""}. If this was not them, **their account is compromised**: reset its password and 2FA now. They have been quarantined in every other network server.`
         : out.stopped
-          ? `<@${actorId}> was stopped after ${total} destructive actions in ${s.nuke_window} seconds${across}.${ctx.network ? " No single server crossed its limit: the **network-wide** budget caught them." : ""}${ctx.exempt ? " This account has a security exemption, but crossed the exempt ceiling, so it was quarantined rather than banned." : ""}`
-          : `<@${actorId}> made ${items.length} destructive actions here and the bot could not fully stop them.\n**Check the role hierarchy immediately:** the Florida Bay bot role must sit above every staff role. Run \`/security health\`.`,
+          ? `<@${actorId}> was stopped after ${total} rapid channel/role create-delete actions in ${s.nuke_window} seconds${across}.${ctx.network ? " No single server crossed its limit: the **network-wide** budget caught them." : ""}`
+          : `<@${actorId}> rapidly created or deleted ${items.length} channels/roles here and the bot could not fully stop them.\n**Check the role hierarchy immediately:** the Florida Bay bot role must sit above every staff role. Run \`/security health\`.`,
       fields: [
         ["Account", who(actorId)],
         ["Result here", out.result],
@@ -674,7 +644,7 @@ async function punish(origin, actorId, groups, ctx, log) {
         ...(groups.size > 1 ? [["Also attacked", attacked.filter((x) => x.id !== g.id).map((x) => clip(x.name, 60)).join("\n") || "Unknown", false]] : []),
         ["Network", networkLine, false],
         ...(locked.has(g.id) ? [["Failsafe", "Server locked down until `/security unlock`"]] : []),
-        ["Offender list", "Any further action or join anywhere in the network is stopped instantly. Lift with `/security pardon`."],
+        ["Offender list", "Any further channel/role create or delete, or a join anywhere in the network, is stopped instantly. Lift with `/security pardon`."],
       ],
     });
   }
@@ -691,7 +661,7 @@ async function punish(origin, actorId, groups, ctx, log) {
     attacked,
     card(`Anti-nuke triggered${across ? across : ` in ${origin.name}`}`, {
       color: COLORS.danger,
-      description: `<@${actorId}> made ${total} destructive actions in ${s.nuke_window} seconds${across}.${ctx.network ? " Caught by the network-wide budget." : ""}`,
+      description: `<@${actorId}> made ${total} rapid channel/role create-delete actions in ${s.nuke_window} seconds${across}.${ctx.network ? " Caught by the network-wide budget." : ""}`,
       rows: [
         ["Account", who(actorId)],
         ["Punishment", ctx.mode],
@@ -704,8 +674,9 @@ async function punish(origin, actorId, groups, ctx, log) {
   );
 }
 
-/** A known attacker acted again: contain them in this server and undo the action straight away. */
+/** A known attacker repeated a structural action: contain them and undo it straight away. */
 async function zeroTolerance(guild, actorId, item, log) {
+  if (await trusted(guild, actorId)) return { punished: false, exempt: true };
   // The owner of this server cannot be acted against here; they are quarantined everywhere else.
   if (isOwner(guild, actorId)) return { punished: false };
   const s = await getSecuritySettings();
@@ -735,22 +706,10 @@ function queueZeroLog(guild, actorId, line, outcome, log) {
     void log(guild, {
       title: "Known attacker stopped",
       color: COLORS.danger,
-      description: `<@${actorId}> is on the anti-nuke offender list, so their actions here were handled instantly without waiting for a limit.`,
+      description: `<@${actorId}> is on the anti-nuke offender list, so their channel/role create-delete actions here were handled instantly without waiting for a limit.`,
       fields: [["Account", who(actorId)], ["Result", entry.outcome.result], ["Actions", entry.lines.slice(0, 15).join("\n").slice(0, 1024), false]],
     }).catch(() => {});
   }, 4000).unref?.();
-}
-
-/** Deletes every webhook the attacker owns and every invite they created, not just those in the window. */
-async function purgeLeftovers(guild, actorId, why) {
-  const out = { webhooks: 0, invites: 0 };
-  const hooks = await guild.fetchWebhooks().catch(() => null);
-  for (const hook of hooks?.values() || [])
-    if (String(hook.owner?.id) === actorId && (await hook.delete(why).then(() => true, () => false))) out.webhooks++;
-  const invites = await guild.invites.fetch().catch(() => null);
-  for (const invite of invites?.values() || [])
-    if (String(invite.inviterId) === actorId && (await invite.delete(why).then(() => true, () => false))) out.invites++;
-  return out;
 }
 
 /** Re-applies the offender list in one server (or all): a join, a restart, or a server joining the network. */
@@ -1096,7 +1055,7 @@ function classify(entry) {
       const removed = Number(entry.extra?.removed ?? 0);
       return { type: "member_prune", target, label: `${removed} member(s) pruned`, weight: removed >= 5 ? 1000 : 3 };
     }
-    // Role grants are only interesting when dangerous (checked in handleAuditEntry); removals are scored.
+    // Role grants are never acted on; only removals are scored.
     case A.MemberRoleUpdate: return { type: "member_roles", target, label: entry.target?.tag, unscored: !change(entry, "$remove") };
     case A.MemberUpdate: {
       const timeout = change(entry, "communication_disabled_until");
@@ -1134,13 +1093,13 @@ export async function handleAuditEntry(entry, guild, log) {
   const kind = classify(entry);
   if (!kind || !(await registered(guild.id))) return;
   const detail = { label: kind.label, weight: kind.weight, changes: entry.changes || null, extra: kind.extra || null };
-  // Known attackers skip every check: their first action anywhere is undone.
-  if (offenders.has(String(actor))) return nukeAction(guild, kind.type, actor, kind.target, log, detail);
-  if (await trusted(guild, actor)) {
-    // Exempt accounts are not reverted or logged, only counted against the (much higher) exempt ceiling.
-    if (entry.action === AuditLogEvent.MemberRoleUpdate && kind.unscored) return;
-    return nukeAction(guild, kind.type, actor, kind.target, log, { ...detail, exempt: true });
-  }
+  // Exempt accounts are fully outside automated detection in this server, even
+  // if they were previously placed on the network offender list elsewhere.
+  if (await trusted(guild, actor)) return;
+  // Known non-exempt attackers are handled immediately when they repeat one of
+  // the four structural anti-nuke actions. Other events still reach their own guards.
+  if (offenders.has(String(actor)) && isAntiNukeAction(kind.type))
+    return nukeAction(guild, kind.type, actor, kind.target, log, detail);
   const owner = isOwner(guild, actor);
   const s = await getSecuritySettings();
 
@@ -1151,20 +1110,13 @@ export async function handleAuditEntry(entry, guild, log) {
     if (added.length) {
       if (owner) await reportOwnerChange(guild, actor, "Dangerous permissions added to a role", kind.label, perms(added).join("\n"), log);
       else if (s.permission_guard) await revertRolePermissions(guild, kind.target, added, actor, log);
-      return nukeAction(guild, "permission_escalation", actor, kind.target, log, detail);
+      if (entry.action === AuditLogEvent.RoleCreate)
+        return nukeAction(guild, "role_create", actor, kind.target, log, detail);
+      return;
     }
   }
-  if (entry.action === AuditLogEvent.MemberRoleUpdate) {
-    const granted = (change(entry, "$add")?.new || [])
-      .map((r) => guild.roles.cache.get(String(r.id)))
-      .filter((role) => role && GRANT_DANGEROUS.some((flag) => role.permissions.has(flag, false)));
-    if (granted.length && !isOwner(guild, kind.target) && !(await trusted(guild, kind.target))) {
-      if (owner) await reportOwnerChange(guild, actor, "Dangerous role granted", `<@${kind.target}>`, granted.map((r) => roleRef(r.id)).join(" "), log);
-      else if (s.admin_grant_guard) await revertDangerousGrant(guild, kind.target, granted, actor, log);
-      await nukeAction(guild, "dangerous_grant", actor, kind.target, log, { label: granted.map((role) => role.name).join(", ") });
-    }
-    if (kind.unscored) return;
-  }
+  // Role grants are not policed: staff may hand out any role, dangerous or not. Only removals are scored.
+  if (entry.action === AuditLogEvent.MemberRoleUpdate && kind.unscored) return;
   if (entry.action === AuditLogEvent.WebhookCreate && s.webhook_guard && !owner && (await lockdownStates())[guild.id] && kind.target) {
     const hook = await guild.client.fetchWebhook(kind.target).catch(() => null);
     const deleted = hook ? await hook.delete("Florida Bay webhook guard: server is locked down").then(() => true, () => false) : false;
@@ -1201,26 +1153,6 @@ async function revertRolePermissions(guild, roleId, added, actor, log) {
       ["Changed by", who(actor)],
       ["Role", role.id === guild.id ? "@everyone" : `${roleRef(role.id)}\n${clip(role.name, 100)}`],
       ["Permissions added", perms(added).join("\n")],
-    ],
-  });
-}
-
-async function revertDangerousGrant(guild, memberId, granted, actor, log) {
-  const member = await guild.members.fetch(String(memberId)).catch(() => null);
-  if (!member) return;
-  const removable = granted.filter((role) => role.editable && !role.managed && member.roles.cache.has(role.id));
-  const removed = removable.length
-    ? await member.roles.remove(removable.map((role) => role.id), "Florida Bay admin grant guard").then(() => true, () => false)
-    : false;
-  await securityEvent(guild.id, "dangerous_grant", actor, member.id, removed ? "reverted" : "failed", { roles: granted.map((role) => role.id) });
-  await log(guild, {
-    title: removed ? "Dangerous role grant reverted" : "Dangerous role grant not reverted",
-    color: removed ? COLORS.warning : COLORS.danger,
-    description: `An account without a security exemption gave <@${member.id}> a role with dangerous permissions.\n${removed ? "The bot removed it again." : "The bot could not remove it. Move the bot role above it."}\nTrusted staff can be exempted with \`/security exempt-add\`.`,
-    fields: [
-      ["Member", who(member.id)],
-      ["Granted by", who(actor)],
-      ["Roles", granted.map((role) => roleRef(role.id)).join(" ")],
     ],
   });
 }
@@ -1431,7 +1363,10 @@ export async function guardJoin(member, log) {
     if (shouldAlert) await alertYoungAccount(member, log, { age });
     return false;
   }
-  // Anti-nuke offenders are stopped on arrival in every network server and never re-synced.
+  // A scoped exemption bypasses offender containment, raid accounting, account-age
+  // alerts/actions and every other automated join check in this server.
+  if (await trusted(guild, member.id)) return false;
+  // Non-exempt anti-nuke offenders are stopped on arrival and never re-synced.
   const offender = offenders.get(String(member.id));
   if (offender && !isOwner(guild, member.id)) {
     const out = await containOnce(guild, String(member.id), offender.punishment, `${NUKE_REASON}: known attacker joined`);
@@ -1443,10 +1378,6 @@ export async function guardJoin(member, log) {
       fields: [["Member", who(member.id)], ["Result", out.result]],
     });
     return true;
-  }
-  if (await trusted(guild, member.id)) {
-    if (shouldAlert) await alertYoungAccount(member, log, { age, exempted: true });
-    return false;
   }
   const s = await getSecuritySettings();
   const keep = Math.max(s.raid_window, s.raid_suspicious_window) * 1000;
@@ -1476,11 +1407,10 @@ export async function guardJoin(member, log) {
     const burst = recent.filter((item) => Date.now() - item.at < s.raid_window * 1000);
     const risky = recent.filter((item) => item.score >= HIGH_RISK && Date.now() - item.at < s.raid_suspicious_window * 1000);
     let cause = null;
-    if (burst.length >= s.raid_joins) cause = { participants: burst, text: `${burst.length} accounts joined in ${s.raid_window} seconds` };
+    if (burst.length >= s.raid_joins) cause = { kind: "burst", participants: burst, text: `${burst.length} accounts joined in ${s.raid_window} seconds` };
     else if (risky.length >= s.raid_suspicious_joins)
-      cause = { participants: risky, text: `${risky.length} high-risk accounts joined in ${Math.round(s.raid_suspicious_window / 60)} min` };
+      cause = { kind: "risky", participants: risky, text: `${risky.length} high-risk accounts joined in ${Math.round(s.raid_suspicious_window / 60)} min` };
     if (cause) {
-      raidUntil.set(guild.id, Date.now() + s.raid_window * 1000);
       const removed = await raidDetected(guild, cause, s, log);
       if (removed.has(member.id)) return true;
     }
@@ -1511,21 +1441,33 @@ export async function guardJoin(member, log) {
 
 /** Locks down and removes the raiders. Returns the IDs that were removed. */
 async function raidDetected(guild, cause, s, log) {
-  const participants = cause.participants;
+  // Re-check exemptions at action time: a member may have been exempted after
+  // joining but before the raid threshold was reached.
+  const participants = [];
+  for (const item of cause.participants)
+    if (!(await trusted(guild, item.id))) participants.push(item);
+  const threshold = cause.kind === "message" ? s.raid_message_accounts : cause.kind === "risky" ? s.raid_suspicious_joins : s.raid_joins;
+  if (participants.length < threshold) return new Set();
+  raidUntil.set(guild.id, Date.now() + s.raid_window * 1000);
+  const causeText = cause.kind === "message"
+    ? `${participants.length} new accounts posted the same message within a minute`
+    : cause.kind === "risky"
+      ? `${participants.length} high-risk accounts joined in ${Math.round(s.raid_suspicious_window / 60)} min`
+      : `${participants.length} accounts joined in ${s.raid_window} seconds`;
   const targets = participants.filter((item) => item.age < s.raid_account_days || item.score >= HIGH_RISK || cause.message);
-  await securityEvent(guild.id, "raid", null, null, "detected", { cause: cause.text, accounts: participants.length, targets: targets.length });
-  const description = `**${cause.text}.** ${targets.length} of them are new or high-risk accounts.`;
+  await securityEvent(guild.id, "raid", null, null, "detected", { cause: causeText, accounts: participants.length, targets: targets.length });
+  const description = `**${causeText}.** ${targets.length} of them are new or high-risk accounts.`;
   const joiners = participants
     .slice(-15)
     .map((item) => `<@${item.id}> · ${item.age < 1 ? "<1" : Math.floor(item.age)}d${item.score !== undefined ? ` · risk ${item.score}` : ""}`)
     .join("\n");
   let locked = null;
   if (s.raid_lockdown)
-    locked = await lockdown(guild, { reason: `Raid detected: ${cause.text}`, actorId: guild.client.user.id, minutes: s.lockdown_minutes, log }).catch(() => null);
+    locked = await lockdown(guild, { reason: `Raid detected: ${causeText}`, actorId: guild.client.user.id, minutes: s.lockdown_minutes, log }).catch(() => null);
   const removed = new Set();
   if (s.raid_kick_new)
     for (const item of targets)
-      if (await actOnRaider(guild, item.id, s, `Florida Bay anti-raid: ${cause.text}`)) removed.add(item.id);
+      if (await actOnRaider(guild, item.id, s, `Florida Bay anti-raid: ${causeText}`)) removed.add(item.id);
   const entry = {
     title: "🚨 Raid detected",
     color: COLORS.danger,
@@ -1551,6 +1493,38 @@ const recentlyPunished = new Map();
 const offenses = new Map();
 const webhookFlood = new Map();
 const newcomerPosts = new Map();
+
+/**
+ * Makes exemption changes effective immediately and removes any detector state
+ * accumulated before the exemption was added. `*` clears the member everywhere;
+ * a guild ID clears only that server's state.
+ */
+export function invalidateSecurityExemption(discordId, guildId = "*") {
+  const id = String(discordId);
+  const scope = String(guildId || "*");
+  const everyGuild = scope === "*";
+  const scopedKey = (key) => key.endsWith(`:${id}`) && (everyGuild || key.startsWith(`${scope}:`));
+
+  for (const key of exemptCache.keys()) if (scopedKey(key)) exemptCache.delete(key);
+  for (const key of destructive.keys()) if (scopedKey(key)) destructive.delete(key);
+  for (const key of containing.keys()) if (scopedKey(key)) containing.delete(key);
+  for (const key of messages.keys()) if (scopedKey(key)) messages.delete(key);
+  for (const key of recentlyPunished.keys()) if (scopedKey(key)) recentlyPunished.delete(key);
+  for (const key of offenses.keys()) if (scopedKey(key)) offenses.delete(key);
+
+  for (const [key, list] of joins) {
+    if (!everyGuild && String(key) !== scope) continue;
+    const kept = list.filter((item) => String(item.id) !== id);
+    if (kept.length) joins.set(key, kept);
+    else joins.delete(key);
+  }
+  for (const [key, list] of newcomerPosts) {
+    if (!everyGuild && !key.startsWith(`${scope}:`)) continue;
+    const kept = list.filter((item) => String(item.id) !== id);
+    if (kept.length) newcomerPosts.set(key, kept);
+    else newcomerPosts.delete(key);
+  }
+}
 const INVITE = /(discord\.gg|discord(?:app)?\.com\/invite)\/[a-z0-9-]+/i;
 const URL_HOST = /https?:\/\/([^/\s<>"')]+)/gi;
 const OFFICIAL = /(^|\.)(discord\.com|discord\.gg|discordapp\.com|discordapp\.net|discord\.media|discord\.new|discord\.gift|discord\.gifts|discord\.dev|discordstatus\.com|steampowered\.com|steamcommunity\.com|steamstatic\.com)$/i;
@@ -1671,12 +1645,11 @@ async function trackNewcomerPost(message, member, content, s, log) {
   if (!posts.some((item) => item.id === member.id)) posts.push({ id: member.id, at: Date.now(), age: accountAge(member.user), score: undefined });
   newcomerPosts.set(key, posts);
   if (posts.length < s.raid_message_accounts || Date.now() < (raidUntil.get(guild.id) || 0)) return;
-  raidUntil.set(guild.id, Date.now() + s.raid_window * 1000);
   newcomerPosts.delete(key);
-  await raidDetected(guild, { participants: posts, message: true, text: `${posts.length} new accounts posted the same message within a minute` }, s, log);
+  await raidDetected(guild, { kind: "message", participants: posts, message: true, text: `${posts.length} new accounts posted the same message within a minute` }, s, log);
 }
 
-/** Webhooks have no member to time out: a flooding webhook is deleted and its creator scored for anti-nuke. */
+/** Webhooks have no member to time out, so a flooding webhook is deleted directly. */
 async function guardWebhookMessage(message, s, log) {
   if (!s.webhook_guard) return;
   const key = message.webhookId;
@@ -1701,7 +1674,6 @@ async function guardWebhookMessage(message, s, log) {
       ["Trigger", `${list.length} messages in ${s.spam_window}s${list.some((item) => item.everyone) ? " with @everyone" : ""}`],
     ],
   });
-  if (creator && creator !== message.client.user.id) await nukeAction(message.guild, "webhook_spam", creator, key, log, { label: hook?.name });
 }
 
 // Keep the sliding-window maps small.

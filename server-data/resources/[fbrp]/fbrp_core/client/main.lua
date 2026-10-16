@@ -2,6 +2,7 @@ local menuOpen = false
 local menuLocked = false
 local menuView = nil
 local radialOpen = false
+local dutyOpen = false
 local sessionInfo = {}
 
 local function ui(message)
@@ -30,6 +31,7 @@ local function resetCoreUi()
     menuLocked = false
     menuView = nil
     radialOpen = false
+    dutyOpen = false
     clearStuckScreen()
     ui({ type='reset' })
 end
@@ -92,6 +94,35 @@ end
 
 RegisterNUICallback('close', function(_, cb)
     FBRP.CloseMenu()
+    cb({ ok=true })
+end)
+
+-- /duty: centered organization picker (gangs, businesses, departments and every other org).
+local function closeDuty()
+    if not dutyOpen then return end
+    dutyOpen = false
+    SetNuiFocus(false, false)
+    ui({ type='duty',open=false })
+end
+
+RegisterNetEvent('fbrp:duty:open', function(payload)
+    if menuOpen or (FBRP.IsDowned and FBRP.IsDowned()) then return end
+    closeRadial()
+    dutyOpen = true
+    SetNuiFocus(true, true)
+    ui({ type='duty',open=true,data=payload or {} })
+end)
+
+RegisterNUICallback('dutyChoose', function(data, cb)
+    closeDuty()
+    if type(data) == 'table' and type(data.slug) == 'string' then
+        TriggerServerEvent('fbrp:duty:choose', data.slug)
+    end
+    cb({ ok=true })
+end)
+
+RegisterNUICallback('closeDuty', function(_, cb)
+    closeDuty()
     cb({ ok=true })
 end)
 

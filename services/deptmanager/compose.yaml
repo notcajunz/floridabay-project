@@ -1,0 +1,11 @@
+services:
+  department-manager:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - department-data:/data
+
+volumes:
+  department-data:
+

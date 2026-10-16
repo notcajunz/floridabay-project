@@ -7,6 +7,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .tickets import TicketSettings, parse_tickets
+
 
 @dataclass(frozen=True, slots=True)
 class AccessRule:
@@ -25,6 +27,7 @@ class Config:
     command_access: dict[str, AccessRule] = field(default_factory=dict)
     administrators_bypass: bool = True
     owners_bypass: bool = True
+    tickets: TicketSettings = field(default_factory=TicketSettings)
     launch_channel_id: int = 1559683475148112043
     role_action_channel_id: int = 1559683682594455654
     role_conflict_channel_id: int = 1559683822600061051
@@ -207,6 +210,7 @@ class Config:
             command_access=rules,
             administrators_bypass=bool(access_config.get("administrators_bypass", True)),
             owners_bypass=bool(access_config.get("owners_bypass", True)),
+            tickets=parse_tickets(raw.get("tickets")),
             launch_channel_id=int(bot_config.get("launch_channel_id", 1559683475148112043)),
             role_action_channel_id=int(bot_config.get("role_action_channel_id", 1559683682594455654)),
             role_conflict_channel_id=int(bot_config.get("role_conflict_channel_id", 1559683822600061051)),

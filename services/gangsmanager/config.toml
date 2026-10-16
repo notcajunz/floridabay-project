@@ -342,3 +342,103 @@ mode = "inherit"
 users = []
 roles = []
 commands = ["help"]
+
+[access.categories.tickets]
+# Ticket staff checks run inside the commands; the roles come from [tickets] below.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "ticket add", "ticket claim", "ticket close", "ticket list",
+  "ticket panel", "ticket remove", "ticket rename", "ticket transcript",
+]
+
+# Support tickets. Every type opens a private channel in its Discord category. Staff of a type
+# are its staff_role_ids plus admin_role_ids; ping_role_ids are mentioned when a ticket opens.
+# transcript_channel_id also receives that type's open/close log unless log_channel_id is set.
+[tickets]
+panel_channel_id = 1559683530265460786        # Tickets / ticket-selection
+log_channel_id = 0
+max_open = 3
+cooldown_seconds = 60
+delete_closed_after_hours = 24                # closed channels are removed after this long; 0 keeps them
+admin_role_ids = [
+  1559682494364647524,                        # Gang Director
+  1559682496549879808,                        # Assistant Gang Director
+  1558976247038484561,                        # FBRP | Management Team
+]
+blacklist_role_ids = []
+panel_title = "FBRP | Gangs Support"
+panel_description = "Pick the kind of ticket you need. A private channel opens for you and the right staff."
+
+[[tickets.types]]
+key = "creation"
+preset = "gang_creation"
+label = "Creation Tickets"
+description = "Apply to create a new gang."
+category_id = 1559683329886916648
+transcript_channel_id = 1559683546971513043   # creation-transcripts
+staff_role_ids = [1559682499251146772, 1559682506033209404]   # Gang Manager, Lead Gang Coordinator
+ping_role_ids = [1559682540938207342]         # Ticket Notified
+
+[[tickets.types]]
+key = "merge"
+label = "Merge/Rebrand Tickets"
+description = "Merge gangs or rebrand an existing gang."
+category_id = 1559683336262258730
+transcript_channel_id = 1559683538163601479   # ticket-transcripts
+staff_role_ids = [1559682499251146772, 1559682506033209404]
+ping_role_ids = [1559682540938207342]
+
+[[tickets.types]]
+key = "coord_report"
+label = "Coordination Reports"
+description = "Report a Gang Coordinator for misconduct."
+category_id = 1559683342507581440
+transcript_channel_id = 1559683534569078814   # report-transcripts
+staff_role_ids = []
+
+[[tickets.types]]
+key = "economy"
+label = "Economy"
+description = "Bank, market, tax and other gang economy requests."
+category_id = 1559683357531570276
+transcript_channel_id = 1559683538163601479
+staff_role_ids = [1559682499251146772, 1559682506033209404]
+ping_role_ids = [1559682540938207342]
+
+[[tickets.types]]
+key = "location"
+label = "Location Tickets"
+description = "Add, remove or move gang locations."
+category_id = 1559683368336097410
+transcript_channel_id = 1559683538163601479
+staff_role_ids = [1559682499251146772, 1559682506033209404]
+ping_role_ids = [1559682540938207342]
+
+[[tickets.types]]
+key = "appeal"
+label = "Punishment Appeal"
+description = "Appeal a gang punishment or suspension."
+category_id = 1559683374585487383
+transcript_channel_id = 1559683538163601479
+staff_role_ids = [1559682499251146772, 1559682506033209404]
+ping_role_ids = [1559682540938207342]
+
+[[tickets.types]]
+key = "support"
+label = "Gang Support Tickets"
+description = "General questions and help with gangs."
+category_id = 1559683381766262874
+transcript_channel_id = 1559683538163601479
+staff_role_ids = [1559682517659943033, 1559682536425398273]   # Gang Coordination Team, Ticket Coordinator
+ping_role_ids = [1559682540938207342]
+
+[[tickets.types]]
+key = "report"
+label = "Report Tickets"
+description = "Report a gang, member or rule violation."
+category_id = 1559683391904022641
+transcript_channel_id = 1559683534569078814   # report-transcripts
+staff_role_ids = [1559682517659943033, 1559682536425398273]
+ping_role_ids = [1559682540938207342]

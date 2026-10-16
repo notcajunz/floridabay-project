@@ -17,6 +17,8 @@ const FLORIDA_BAY = [
   ace("Florida Bay · Discord", "fbrp.discord.mod.kick", "Discord kick", "Kick a member from one server with /mod kick."),
   ace("Florida Bay · Discord", "fbrp.roles.protect", "Protected roles", "Legacy ACE object; /protectrole requires Co-Owner or higher and an authorized account ID."),
   ace("Florida Bay · Discord", "fbrp.security.manage", "Bot Guard & anti-nuke", "Approve bots, trusted adders and exemptions (/botguard); anti-nuke, anti-raid, anti-spam and lockdowns (/security)."),
+  ace("Florida Bay · Discord", "fbrp.botguard.exemptions", "Bot Guard exemptions", "Add or remove global Bot Guard security exemptions. This remains owner-only in addition to requiring this ACE."),
+  ace("Florida Bay · Discord", "fbrp.security.exemptions", "Security exemptions", "Add or remove server-specific or network-wide automated-security exemptions. This remains owner-only in addition to requiring this ACE."),
   ace("Florida Bay · Discord", "fbrp.office.manage", "Office management", "Assign and clear voice-office owners (/office)."),
   ace("Florida Bay · Global moderation", "fbrp.global", "All global moderation", "Use every /global command across every Florida Bay server."),
   ace("Florida Bay · Global moderation", "fbrp.global.warn", "Global warn", "Warn a member on their network-wide record with /global warn."),

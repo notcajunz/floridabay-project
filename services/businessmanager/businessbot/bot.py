@@ -60,11 +60,12 @@ class BusinessManagerBot(commands.Bot):
         from .cogs.events import EventsCog
         from .cogs.businesses import BusinessesCog
         from .cogs.panels import PanelsCog
+        from .tickets import TicketsCog
 
         # Businesses use the shared role, coordination, discipline, location and
         # FBRP-hours systems. Gang-only laundering, turf-war and contraband
         # economy commands are intentionally not registered here.
-        for cog in (CoreCog(self), BusinessesCog(self), EventsCog(self), PanelsCog(self)):
+        for cog in (CoreCog(self), BusinessesCog(self), EventsCog(self), PanelsCog(self), TicketsCog(self)):
             await self.add_cog(cog)
 
         self.tree.on_error = self.on_tree_error

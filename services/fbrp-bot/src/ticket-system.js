@@ -153,6 +153,16 @@ export function createTicketSystem(ctx) {
   };
   const ticketById = (guildId, id) => db.one("SELECT * FROM support_tickets WHERE guild_id=? AND id=?", [guildId, id]);
   const fetchChannel = (row) => (row?.channel_id ? client.channels.fetch(String(row.channel_id)).catch(() => null) : null);
+  /** The opener, support staff, and anyone Discord currently lets view this ticket may invite participants. */
+  const canAddTicketMembers = async (i, row, isStaff = null) => {
+    if (String(row.author_id) === String(i.user.id)) return true;
+    if (isStaff ?? await ticketAccess(i, row.type)) return true;
+    const [channel, member] = await Promise.all([
+      fetchChannel(row),
+      i.guild.members.fetch(i.user.id).catch(() => null),
+    ]);
+    return Boolean(channel && member && channel.permissionsFor(member)?.has(PermissionFlagsBits.ViewChannel));
+  };
   /** Compact description-only embed posted in the ticket channel so the member sees what staff did. */
   const notice = (channel, text, color = colors.primary, extra = {}) =>
     channel?.send({ embeds: [new EmbedBuilder().setColor(color).setDescription(clip(text, 4096))], allowedMentions: { parse: [] }, ...extra }).catch(() => null);
@@ -483,10 +493,11 @@ export function createTicketSystem(ctx) {
   }
 
   async function removeMember(guild, row, actorId, userId) {
-    if (String(userId) === String(row.author_id)) throw new Error("The ticket owner cannot be removed.");
     const channel = await fetchChannel(row);
     await db.query("DELETE FROM ticket_participants WHERE ticket_id=? AND user_id=?",[row.id,userId]);
-    await channel?.permissionOverwrites.delete(userId,"Ticket participant removed").catch(()=>{});
+    // Deleting the overwrite falls back to role access, which leaves support and
+    // management members in the channel. A member deny overrides those role allows.
+    await channel?.permissionOverwrites.edit(userId,{ViewChannel:false},"Ticket participant removed");
     await addEvent(row,"participant_remove",actorId,{user:userId});
     await notice(channel, `➖ ${mention(userId)} was removed from this ticket by ${mention(actorId)}.`, colors.warning);
     return card("Member removed", { color: colors.warning, description: `${mention(userId)} no longer has access to ticket **#${row.id}**.` });
@@ -542,7 +553,7 @@ export function createTicketSystem(ctx) {
     const id=i.options.getInteger("id");
     const row=id?await ticketById(i.guildId,id):await db.one(`SELECT * FROM support_tickets WHERE guild_id=? AND channel_id=?${sub==="transcript"?"":" AND status<>'closed'"}`,[i.guildId,i.channelId]);
     if(!row) throw new Error("This is not an active ticket channel.");
-    const owner=row.author_id===i.user.id, isStaff=await ticketAccess(i,row.type);
+    const owner=String(row.author_id)===String(i.user.id), isStaff=await ticketAccess(i,row.type);
     if(sub==="request-close"){
       if(!owner&&!isStaff)throw new Error("Only the ticket owner or support staff may request closure.");
       const reason=clean(i.options.getString("reason",true),300);
@@ -561,6 +572,10 @@ export function createTicketSystem(ctx) {
       if(!owner&&!isStaff)throw new Error("Only the ticket owner or support staff may close it.");
       return close(i.guild,row,i.user.id,i.options.getString("reason",true));
     }
+    if(sub==="add"){
+      if(!(await canAddTicketMembers(i,row,isStaff)))throw new Error("You need access to this ticket to add members.");
+      return addMembers(i.guild,row,i.user.id,[i.options.getUser("member",true).id]);
+    }
     if(!isStaff)throw new Error("You need ticket support access.");
     if(sub==="claim") return claim(i.guild,row,i.user.id,i.options.getBoolean("claimed")??row.claimed_by!==i.user.id);
     if(sub==="transfer"){
@@ -572,7 +587,6 @@ export function createTicketSystem(ctx) {
       await ticketLog(i.guild,row,{title:"Ticket transferred",actor:i.user.id,target:user.id,fields:[["Ticket",`**#${row.id}** · ${i.channel}`]]});
       return card("Ticket transferred",{color:colors.success,description:`Ticket **#${row.id}** is now assigned to ${mention(user.id)}.`});
     }
-    if(sub==="add") return addMembers(i.guild,row,i.user.id,[i.options.getUser("member",true).id]);
     if(sub==="remove") return removeMember(i.guild,row,i.user.id,i.options.getUser("member",true).id);
     if(sub==="priority") return setPriority(i.guild,row,i.user.id,Number(i.options.getString("level",true)),clean(i.options.getString("reason",true),300));
     if(sub==="move"){
@@ -649,6 +663,9 @@ export function createTicketSystem(ctx) {
     const ownerOrStaff = async () => {
       if (!owner && !(await ticketAccess(i, row.type))) throw new Error("Only the ticket owner or support staff can do that.");
     };
+    const memberAdder = async () => {
+      if (!(await canAddTicketMembers(i, row))) throw new Error("You need access to this ticket to add members.");
+    };
     const staffOnly = async () => {
       if (!(await ticketAccess(i, row.type))) throw new Error("Only support staff can do that.");
     };
@@ -673,7 +690,7 @@ export function createTicketSystem(ctx) {
         return i.editReply({ embeds: [await addNote(row, i.user.id, i.fields.getTextInputValue("note"))] });
       }
       if (action === "add") {
-        await staffOnly();
+        await memberAdder();
         return i.reply({
           ephemeral: true,
           embeds: [card("Add members", { description: `Pick up to five people to add to ticket **#${row.id}**.` })],
@@ -690,7 +707,7 @@ export function createTicketSystem(ctx) {
         });
       }
       await i.deferReply({ ephemeral: true });
-      if (action === "addpick") { await staffOnly(); return i.editReply({ embeds: [await addMembers(i.guild, row, i.user.id, i.values)], components: [] }); }
+      if (action === "addpick") { await memberAdder(); return i.editReply({ embeds: [await addMembers(i.guild, row, i.user.id, i.values)], components: [] }); }
       if (action === "prioritypick") { await staffOnly(); return i.editReply({ embeds: [await setPriority(i.guild, row, i.user.id, Number(i.values[0]))], components: [] }); }
       if (action === "claim") { await staffOnly(); return i.editReply({ embeds: [await claim(i.guild, row, i.user.id)] }); }
       if (action === "notes") { await staffOnly(); return i.editReply({ embeds: [await notesEmbed(row)] }); }

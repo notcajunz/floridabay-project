@@ -160,3 +160,85 @@ mode = "inherit"
 users = []
 roles = []
 commands = ["help"]
+
+[access.categories.tickets]
+# Ticket staff checks run inside the commands; the roles come from [tickets] below.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "ticket add", "ticket claim", "ticket close", "ticket list",
+  "ticket panel", "ticket remove", "ticket rename", "ticket transcript",
+]
+
+# Support tickets. Every type opens a private channel in its Discord category. Staff of a type
+# are its staff_role_ids plus admin_role_ids; ping_role_ids are mentioned when a ticket opens.
+# transcript_channel_id also receives that type's open/close log unless log_channel_id is set.
+[tickets]
+panel_channel_id = 1559701738213212263        # Support & Requests / ticket-selection
+log_channel_id = 0
+max_open = 3
+cooldown_seconds = 60
+delete_closed_after_hours = 24                # closed channels are removed after this long; 0 keeps them
+admin_role_ids = [
+  1559701131905728532,                        # Head of Businesses
+  1559701134686556190,                        # Business Director
+  1559701141053513798,                        # Assistant Business Director
+  1559769987470729370,                        # FBRP | Management Team
+]
+blacklist_role_ids = [1559701193893220404]    # Blacklisted From Tickets
+panel_title = "FBRP | Businesses Support"
+panel_description = "Pick the kind of ticket you need. A private channel opens for you and the right staff."
+
+[[tickets.types]]
+key = "executive"
+label = "Executive Tickets"
+description = "Escalations and requests for Business Directors."
+category_id = 1559701586270486630
+transcript_channel_id = 1559702147149340672   # executive-archives
+staff_role_ids = []
+
+[[tickets.types]]
+key = "coord_report"
+label = "Coordinator Report Tickets"
+description = "Report a Business Coordinator for misconduct."
+category_id = 1559701593572769942
+transcript_channel_id = 1559702151897423932   # coord-report-transcripts
+staff_role_ids = []
+
+[[tickets.types]]
+key = "report"
+label = "Report Tickets"
+description = "Report a business, member or rule violation."
+category_id = 1559701600338182194
+transcript_channel_id = 1559702155924082798   # report-transcripts
+staff_role_ids = [1559701149475536947, 1559701151723692174, 1559701155603423242, 1559701157994307676, 1559701161248821318, 1559701166261141534]
+ping_role_ids = [1559701181750845451]         # Ticket Notified
+
+[[tickets.types]]
+key = "support"
+label = "Support Tickets"
+description = "General questions and help with businesses."
+category_id = 1559701606897815612
+transcript_channel_id = 1560434184244437106   # support-transcripts
+staff_role_ids = [1559701149475536947, 1559701151723692174, 1559701155603423242, 1559701157994307676, 1559701161248821318, 1559701163459354735, 1559701166261141534]
+ping_role_ids = [1559701181750845451]
+
+[[tickets.types]]
+key = "recruitment"
+label = "Recruitment Tickets"
+description = "Recruitment help and approvals for your business."
+category_id = 1559701613332009031
+transcript_channel_id = 1559702160378298448   # recruitment-transcripts
+staff_role_ids = [1559701149475536947, 1559701151723692174, 1559701155603423242, 1559701157994307676, 1559701161248821318, 1559701163459354735, 1559701166261141534]
+ping_role_ids = [1559701181750845451]
+
+[[tickets.types]]
+key = "creation"
+preset = "business_creation"
+label = "Creation Tickets"
+description = "Apply to create a new business."
+category_id = 1559701625826836571
+transcript_channel_id = 1559702166543794236   # creation-transcripts
+staff_role_ids = [1559701170644328558, 1559701149475536947, 1559701151723692174]  # BCT | Creation Coordinator, Business Manager, Assistant Business Manager
+ping_role_ids = [1559701181750845451]

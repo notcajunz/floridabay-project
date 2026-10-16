@@ -27,6 +27,8 @@ let currentPayload = {};
 let menuLocked = false;
 let lastHud = {};
 let thirdEyePayload = null;
+let dutyPayload = null;
+let dutyChoice = null;
 const ui = { garageCategory: null, showCharacterForm: false };
 
 /* ───────── Icons ───────── */
@@ -53,6 +55,7 @@ const ICONS = {
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   check: '<path d="M20 6L9 17l-5-5"/>',
   x: '<path d="M18 6L6 18M6 6l12 12"/>',
+  chevron: '<path d="M6 9l6 6 6-6"/>',
   back: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
   alert: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
@@ -554,6 +557,69 @@ function renderThirdEye(data) {
       }).join("")}`).join("")
     : '<div class="third-eye-empty">No interactions are available for this player.</div>';
   hydrate($("#third-eye-actions"));
+}
+
+/* ───────── /duty organization picker ───────── */
+const DUTY_TYPES = {
+  leo: "Law enforcement",
+  fire: "Fire & EMS",
+  government: "Government",
+  gang: "Gangs",
+  business: "Businesses",
+  other: "Other",
+};
+
+function setDutyList(open) {
+  $("#duty-list").classList.toggle("hidden", !open);
+  $("#duty-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  $(".duty-select").classList.toggle("open", open);
+}
+
+function renderDuty(data) {
+  dutyPayload = data || {};
+  dutyChoice = null;
+  const orgs = Array.isArray(dutyPayload.orgs) ? dutyPayload.orgs : [];
+  const groups = new Map();
+  orgs.forEach((org) => {
+    const key = DUTY_TYPES[org.type] ? org.type : "other";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(org);
+  });
+  $("#duty-list").innerHTML = Object.keys(DUTY_TYPES)
+    .filter((key) => groups.has(key))
+    .map((key) => `<div class="duty-group">${esc(DUTY_TYPES[key])}</div>${groups.get(key).map((org) => `
+      <button class="duty-option${org.active ? " is-active" : ""}" type="button" role="option" data-duty-slug="${esc(org.slug)}" style="--c:${safeColor(org.color)}">
+        <i class="duty-dot"></i><strong>${esc(org.name)}</strong>${org.active ? "<em>On duty</em>" : org.tag ? `<small>${esc(org.tag)}</small>` : ""}
+      </button>`).join("")}`)
+    .join("");
+  const current = orgs.find((org) => org.active);
+  $("#duty-title").textContent = current ? "Switch duty" : "Clock in";
+  $("#duty-off").classList.toggle("hidden", !current);
+  $("#duty-status").textContent = current ? `Currently on duty as ${current.name}. Pick another organization to switch.` : "";
+  $("#duty-confirm").disabled = true;
+  $("#duty-confirm").textContent = current ? "Switch" : "Clock in";
+  setText("#duty-value", orgs.length ? "Select an organization" : "No organizations");
+  $("#duty-value").classList.remove("chosen");
+  setDutyList(orgs.length > 0);
+}
+
+function chooseDutyOrg(slug) {
+  const org = (dutyPayload?.orgs || []).find((entry) => entry.slug === slug);
+  if (!org || org.active) return;
+  dutyChoice = slug;
+  setText("#duty-value", org.name);
+  $("#duty-value").classList.add("chosen");
+  $$("#duty-list .duty-option").forEach((button) => button.classList.toggle("is-picked", button.dataset.dutySlug === slug));
+  $("#duty-confirm").disabled = false;
+  setDutyList(false);
+  $("#duty-confirm").focus();
+}
+
+function closeDutyPicker() {
+  $("#duty").classList.add("hidden");
+  $("#duty").setAttribute("aria-hidden", "true");
+  dutyPayload = null;
+  dutyChoice = null;
 }
 
 function renderInteractions(data) {
@@ -1946,11 +2012,13 @@ function updateContraband(d) {
 
 /* ───────── Messages ───────── */
 function resetCoreUi() {
-  ["#radial-menu", "#menu", "#third-eye", "#blindfold", "#downed", "#car-controls"].forEach((selector) => $(selector)?.classList.add("hidden"));
+  ["#radial-menu", "#menu", "#duty", "#third-eye", "#blindfold", "#downed", "#car-controls"].forEach((selector) => $(selector)?.classList.add("hidden"));
   document.body.classList.remove("menu-locked");
   currentView = null;
   currentPayload = {};
   thirdEyePayload = null;
+  dutyPayload = null;
+  dutyChoice = null;
   radialCategory = null;
   closeRadialDispatch();
 }
@@ -1998,6 +2066,15 @@ window.addEventListener("message", ({ data }) => {
       clearInterval(ui.mdtPoll);
     }
   }
+  if (data.type === "duty") {
+    if (data.open) {
+      renderDuty(data.data || {});
+      $("#duty").classList.remove("hidden");
+      $("#duty").setAttribute("aria-hidden", "false");
+    } else {
+      closeDutyPicker();
+    }
+  }
   if (data.type === "thirdEye") {
     if (data.open) {
       renderThirdEye(data.data || {});
@@ -2042,6 +2119,19 @@ window.addEventListener("message", ({ data }) => {
 $("#close").addEventListener("click", () => post("close"));
 $("#car-close").addEventListener("click", () => post("closeCarControls"));
 $("#third-eye-close").addEventListener("click", () => post("closeThirdEye"));
+$("#duty-close").addEventListener("click", () => post("closeDuty"));
+$("#duty-toggle").addEventListener("click", () => setDutyList($("#duty-list").classList.contains("hidden")));
+$("#duty-list").addEventListener("click", (event) => {
+  const option = event.target.closest("[data-duty-slug]");
+  if (option) chooseDutyOrg(option.dataset.dutySlug);
+});
+$("#duty-confirm").addEventListener("click", () => {
+  if (dutyChoice) post("dutyChoose", { slug: dutyChoice });
+});
+$("#duty-off").addEventListener("click", () => post("dutyChoose", { slug: "off" }));
+$("#duty").addEventListener("mousedown", (event) => {
+  if (event.target === $("#duty")) post("closeDuty");
+});
 $("#radial-center").addEventListener("click", () => {
   if (!$("#radial-dispatch").classList.contains("hidden")) {
     closeRadialDispatch();
@@ -2274,6 +2364,11 @@ document.addEventListener("keyup", (event) => {
   if (event.key === "Escape") {
     if (!$("#radial-menu").classList.contains("hidden")) post("closeRadial");
     if (thirdEyePayload) post("closeThirdEye");
+    if (dutyPayload) {
+      if (!$("#duty-list").classList.contains("hidden")) setDutyList(false);
+      else post("closeDuty");
+      return;
+    }
     if (!menuLocked) post("close");
     post("closeCarControls");
     return;

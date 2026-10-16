@@ -8,6 +8,7 @@ import discord
 from businessbot.bot import BusinessManagerBot
 from businessbot.cogs.core import CoreCog
 from businessbot.cogs.businesses import BusinessesCog, coordinator_ranks_at_or_below
+from businessbot.tickets import TicketsCog
 from businessbot.config import Config
 from businessbot.constants import (
     CATEGORY_COORDINATOR_RANKS,
@@ -31,7 +32,7 @@ async def test_all_requested_commands_are_registered(tmp_path: Path):
     bot = BusinessManagerBot(
         Config("unused", tmp_path / "commands.db", None, frozenset(), 0)
     )
-    for cog in (CoreCog(bot), BusinessesCog(bot)):
+    for cog in (CoreCog(bot), BusinessesCog(bot), TicketsCog(bot)):
         await bot.add_cog(cog)
 
     names = {name for command in bot.tree.get_commands() for name in walk(command)}
@@ -49,6 +50,8 @@ async def test_all_requested_commands_are_registered(tmp_path: Path):
         "reward give", "reward manage", "reward refresh", "reward remove", "reward slots",
         "role protection",
         "role add", "role remove", "rolewipe", "useradd", "userdel",
+        "ticket add", "ticket claim", "ticket close", "ticket list",
+        "ticket panel", "ticket remove", "ticket rename", "ticket transcript",
     }
     assert names == expected
 

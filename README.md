@@ -10,7 +10,7 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 - Three-line overhead identity: role-gated headtag on top, server ID/name always visible, role-gated or on-duty organization tag on the bottom.
 - F6 tag wardrobe with two independently selected slots. Players can only select tags granted by synchronized Discord roles or direct bot grants. Tags may also be locked to one organization's duty and replace its normal duty tag while worn.
 - Staff `/clockin` and `/clockout`. Staff-only ACE principals - and therefore EasyAdmin/vMenu staff permissions - exist only during an open shift. Every shift has a MariaDB heartbeat and duration.
-- Bot-created organizations for gangs, businesses, LEO, fire/rescue, government, and other groups. Every organization is gated by a required role in any registered network Discord. `/duty <slug>` applies its job, ACEs, and organization tag; `/offduty` removes them. Shift hours are reportable from Discord.
+- Bot-created organizations for gangs, businesses, LEO, fire/rescue, government, and other groups. Every organization is gated by a required role in any registered network Discord. `/duty` opens a dropdown of every organization you can clock in as and applies its job, ACEs, and organization tag; the same menu clocks you out. Shift hours are reportable from Discord.
 - F7 vehicle garage with server-side model validation and per-section ACE rules, plus engine, locks, seatbelt/ejection, cruise control, doors, and a K-key control panel.
 - Vehicle fuel consumption, empty-tank engine cutoff, synchronized tank levels, and free refuelling at map-marked gas stations.
 - Original HUD for AOP, priority status, peacetime, road/zone, heading, voice/radio, selected tags, organization duty, staff duty, speed, gear, RPM, fuel, locks, belt, and cruise.
@@ -46,16 +46,18 @@ One bot owns the Discord-facing control plane:
 - `/network`: register and remove network servers (global roles live in `/globalsync`).
 - `/mod`: ban, unban, kick, timeout, warn, and purge with case/audit records.
 - `/server`: live status, AOP, peacetime, and in-game announcements.
-- `/staff`: `add` puts a member in a staff rank's ACE group, assigns their callsign, and DMs their assignment plus a one-use staff-server invite; `move` promotes or demotes existing staff to another rank (keeping their callsign when it fits, no welcome DM); `remove` takes access away (all three need `fbrp.staff.assign` and only work on ranks below your own). Also individual hours, leaderboard, and forced clock-out.
+- `/staff`: `add` puts a member in a staff rank's ACE group, assigns their callsign, and DMs their assignment plus a one-use staff-server invite; `move` promotes or demotes existing staff to another rank (keeping their callsign when it fits, no welcome DM); `remove` takes access away (all three need `fbrp.staff.assign` and only work on ranks below your own). Assistant Community Manager and higher automatically receive the derived `mgmt_team` ACE group, which is removed on demotion below ACM or staff removal. Also individual hours, leaderboard, and forced clock-out.
+- `/role assign|unassign`: Assistant Community Manager and above can change ordinary role membership in the main server; protected roles keep the stricter protected-role authorization policy.
 - `/global`: Ascent-style network moderation (`warn`, `timeout`, `untimeout`, `kick`, `ban` with optional EasyAdmin game ban, `blacklist`, `unblacklist`, `unban`, `lookup`), plus ACM+ self-service network nicknames with `/global nick`; moderation actions are gated by `fbrp.global.<action>` and the rank hierarchy.
 - `/protectrole`: protect sensitive roles and choose the users/roles allowed to manage them.
 - `/botguard`: two-key bot admission, trusted adders, security exemptions, policy inspection, and sweeps.
-- `/security exempt-add|exempt-remove|exempt-list`: owner-only automated-security bypasses. An exemption can apply across the network or only in the server where the command is run; it bypasses anti-nuke, raid/account-age, spam, Bot Guard, and protected-role automation without granting permissions or bypassing manual moderation.
+- `/security exempt-add|exempt-remove|exempt-list`: owner-only automated-security bypasses. An exemption can apply across the network or only in the server where the command is run; it fully excludes the account from anti-nuke, raid/account-age, spam, and Bot Guard detection in that scope without granting permissions or bypassing manual moderation. Protected roles retain their separate authorization policy.
 - `/ticket`: button/modal panel, private support-channel creation, claiming, queue listing, ticket-count tracking, and audited closure.
 - `/roster`: categorized callsign ranges, rank/role/ACE-group mappings, automatic callsigns (posted to the staff callsign channel as `@member --> 123`; the bot never changes nicknames), secondary jobs, weekly requirements, statuses, notes, history, warnings/strikes, discipline revocation, profiles, and role reconciliation. All configuration is available through subcommands.
 - `/callsign sync`: Community Director and above can republish every current staff member's callsign to the staff callsign channel, including callsigns that have not changed.
 - `/coc`: a live, multi-card chain-of-command board for Assistant Community Manager and above, backed by the staff roster. Management can publish or relocate it, add/update/remove people, set positions and assistants, and reorder the chain; listed members can update their own positions and assistants. The board edits in place and refreshes after roster changes.
 - `/userinfo`: linked game identities, ACE groups, organizations, hours, cases, and discipline in one investigation view.
+- `/case lookup`: complete lookup for any `FB-...` moderation or `IA-...` Internal Affairs case, also available in the staff website workspace.
 - `/office`: assign and clear managed staff/organization voice offices.
 - `/globalsync`: Ascent's ACE-backed global roles: add/edit/remove/list/push,
   per-server scopes, Discord permission integers, all-channel access, an
@@ -167,7 +169,7 @@ Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11
 | F9 | Voice proximity |
 | F11 | EasyAdmin menu (staff) |
 
-Useful commands include `/clockin`, `/clockout`, `/staffhours`, `/duty [organization]`, `/offduty`, `/aop`, `/peacetime`, `/priority`, `/announce`, `/911`, `/panic`, `/me`, `/do`, and `/ooc`.
+Useful commands include `/clockin`, `/clockout`, `/staffhours`, `/duty`, `/aop`, `/peacetime`, `/priority`, `/announce`, `/911`, `/panic`, `/me`, `/do`, and `/ooc`.
 
 ## Permission design
 
@@ -185,7 +187,7 @@ The stock vMenu vehicle spawner is not granted. Players use the F7 garage; edit 
 - Gameplay actions are checked server-side for permission, target validity, and distance.
 - Vehicle models and categories are checked server-side before the client receives spawn approval.
 - Protected role enforcement uses Discord audit logs to identify the actor and revert unauthorized changes.
-- Bot Guard requires both an approved bot ID and a trusted adder. Rapid destructive actions are recorded and trigger anti-nuke enforcement.
+- Bot Guard requires both an approved bot ID and a trusted adder. Anti-nuke thresholds apply only to rapid/mass channel creation or deletion and role creation or deletion; other guards operate independently.
 
 ## Key paths
 

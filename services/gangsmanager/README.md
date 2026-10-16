@@ -207,3 +207,18 @@ can be changed once your server's exact economy and workflow rules are known.
 
 The tests verify database transactions, overdraft protection, command coverage,
 Discord command nesting, and option serialization.
+
+## Tickets
+
+Each type in `[[tickets.types]]` of `config.toml` is a button on the ticket panel and opens a private
+channel in its own Discord category. Staff for a ticket are the type's `staff_role_ids` plus the
+`[tickets] admin_role_ids`; the opener, anyone staff adds, and the bot are the only other viewers.
+
+- Panel: posted to `panel_channel_id` on startup (edited in place afterwards); `/ticket panel` re-posts it.
+- In a ticket: Claim, Close (with reason), Add/Remove member and Transcript buttons, plus
+  `/ticket close|claim|add|remove|rename|transcript|list`.
+- Closing locks the opener out of sending, writes an HTML transcript to the type's
+  `transcript_channel_id` (and DMs it to the opener), and offers Reopen / Delete.
+  Closed channels are removed after `delete_closed_after_hours`.
+- Limits: `max_open` per member, `cooldown_seconds` between tickets, `blacklist_role_ids` cannot open.
+- Tables `tickets` and `ticket_participants` live in the bot's own SQLite database.

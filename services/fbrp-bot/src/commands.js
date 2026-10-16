@@ -421,7 +421,7 @@ const syncOptions = (subcommand, editing = false) =>
         .setDescription("See/chat in every text channel and see/join every voice channel"),
     )
     .addStringOption((o) =>
-      o.setName("color").setDescription("Hex color, e.g. #43E8D8").setMaxLength(7),
+      o.setName("color").setDescription("Hex color, e.g. #43E8D8, or \"default\" for the Discord default (no color)").setMaxLength(7),
     )
     .addBooleanOption((o) =>
       o.setName("hoist").setDescription("Show separately in the member list"),
@@ -721,6 +721,32 @@ const protectrole = new SlashCommandBuilder()
   )
   .addSubcommand((s) =>
     s.setName("list").setDescription("List protected roles"),
+  );
+
+const role = new SlashCommandBuilder()
+  .setName("role")
+  .setDescription("Assign or unassign Discord roles in the main server")
+  .addSubcommand((s) =>
+    s
+      .setName("assign")
+      .setDescription("Assign a role to a main-server member")
+      .addUserOption((o) =>
+        o.setName("member").setDescription("Member receiving the role").setRequired(true),
+      )
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Role to assign").setRequired(true),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("unassign")
+      .setDescription("Remove a role from a main-server member")
+      .addUserOption((o) =>
+        o.setName("member").setDescription("Member losing the role").setRequired(true),
+      )
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Role to remove").setRequired(true),
+      ),
   );
 
 const botguard = new SlashCommandBuilder()
@@ -1144,6 +1170,14 @@ const userinfo = new SlashCommandBuilder()
   .setDescription("Investigate a member: game and Discord records, servers and roles, and linked alt accounts")
   .addUserOption(user);
 
+const caseLookup = new SlashCommandBuilder()
+  .setName("case")
+  .setDescription("Look up any Florida Bay case ID")
+  .addSubcommand((s) =>
+    s.setName("lookup").setDescription("Display the complete record for a moderation or Internal Affairs case")
+      .addStringOption((o) => o.setName("case_id").setDescription("Case ID, e.g. FB-123456 or IA-2026-0001").setRequired(true).setMaxLength(32)),
+  );
+
 const blacklistedserver = new SlashCommandBuilder()
   .setName("blacklistedserver")
   .setDescription("Manage Discord servers that should be flagged during member investigations")
@@ -1465,6 +1499,7 @@ export const commands = [
   server,
   staff,
   callsign,
+  role,
   protectrole,
   botguard,
   security,
@@ -1478,6 +1513,7 @@ export const commands = [
   blacklistedserver,
   acelist,
   userinfo,
+  caseLookup,
   office,
   join,
   invite,

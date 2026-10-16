@@ -3,74 +3,98 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#08131f">
-    <title>Live configuration · Florida Bay</title>
-    <link rel="stylesheet" href="styles.css?v=20261012">
+    <meta name="theme-color" content="#0a111b">
+    <title>Settings · Florida Bay</title>
+    <link rel="stylesheet" href="styles.css?v=20261015">
   </head>
   <body>
     <div id="login" class="login">
       <form id="login-form" class="login-card">
         <div class="logo" aria-hidden="true"><img src="logo-128.webp" alt=""></div>
-        <h1>Configuration access required</h1>
-        <p class="muted">Sign in through the member portal to continue to Florida Bay’s live control center.</p>
-        <button type="submit" class="btn primary block" style="margin-top:22px">Verify in the portal</button>
+        <h1>Sign in to continue</h1>
+        <p class="muted">Server settings are for Co-Owners and above. Sign in through the member portal and you’ll come straight back here.</p>
+        <button type="submit" class="btn primary block" style="margin-top:22px">Sign in with the portal</button>
         <p id="login-error" class="error" role="alert"></p>
       </form>
     </div>
 
     <div id="app" class="shell" hidden>
-      <aside class="sidebar">
+      <aside class="sidebar" id="sidebar">
         <div class="brand">
           <div class="logo"><img src="logo-128.webp" alt=""></div>
-          <div><strong>Florida Bay</strong><span>Live configuration</span></div>
+          <div><strong>Florida Bay</strong><span>Server settings</span></div>
+          <button type="button" class="btn ghost icon menu-close" data-menu-close aria-label="Close menu">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
         </div>
         <label class="nav-search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="nav-search" type="search" placeholder="Jump to…" aria-label="Filter sections">
+          <input id="nav-search" type="search" placeholder="Find a setting…" aria-label="Find a setting">
+          <kbd>/</kbd>
         </label>
-        <nav id="nav" aria-label="Configuration"></nav>
+        <nav id="nav" aria-label="Settings"></nav>
+        <a href="portal.html" class="portal-link">&larr; Back to the member portal</a>
         <div class="sidebar-foot">
           <span id="connection-dot" class="dot"></span>
           <span id="connection-label">Connecting…</span>
         </div>
       </aside>
+      <div class="scrim" data-menu-close></div>
 
       <main>
         <header class="topbar">
+          <button type="button" class="btn ghost icon menu-open" id="menu-open" aria-label="Open menu">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
           <div class="topbar-title">
-            <p class="crumb" id="section-kicker">Live configuration</p>
-            <h1 id="section-title">Overview</h1>
+            <p class="crumb" id="section-kicker">Settings</p>
+            <h1 id="section-title">Home</h1>
           </div>
           <div class="top-actions">
-            <a href="portal.html" class="btn ghost">Portal</a>
-            <span id="saved-state" class="saved-state">All changes apply live</span>
-            <button id="reconcile" class="btn ghost" title="Re-sync Discord roles and FiveM permissions now">Reconcile</button>
-            <button id="refresh" class="btn ghost icon" aria-label="Reload data" title="Reload data">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+            <span id="saved-state" class="saved-state">Changes go live when you save</span>
+            <a href="portal.html" class="btn ghost">Back to portal</a>
+            <button id="reconcile" class="btn ghost" title="Re-check every Discord role and in-game permission against these settings right now. Safe to run any time.">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Re-sync everything</span>
+            </button>
+            <button id="refresh" class="btn ghost icon" aria-label="Reload" title="Reload the latest settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/></svg>
             </button>
           </div>
         </header>
-        <div id="content" class="content"><div class="loading">Loading…</div></div>
+        <div id="content" class="content"><div class="loading"><span class="spinner"></span>Loading your settings…</div></div>
       </main>
     </div>
 
     <dialog id="editor" class="sheet">
       <form id="editor-form" method="dialog">
         <header class="sheet-head">
-          <div><p class="crumb" id="editor-kicker">Configuration</p><h2 id="editor-title">Edit record</h2></div>
+          <div><p class="crumb" id="editor-kicker">Settings</p><h2 id="editor-title">Edit</h2></div>
           <button type="button" class="btn ghost icon" data-close aria-label="Close">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
         </header>
         <div id="editor-fields" class="sheet-body"></div>
         <footer class="sheet-foot">
+          <button type="button" class="btn danger-text" id="editor-delete" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>Delete
+          </button>
+          <span class="spacer"></span>
           <button type="button" class="btn ghost" data-close>Cancel</button>
-          <button type="submit" class="btn primary">Save &amp; apply</button>
+          <button type="submit" class="btn primary">Save changes</button>
         </footer>
       </form>
     </dialog>
 
+    <dialog id="ask" class="ask">
+      <form method="dialog">
+        <div class="ask-icon" id="ask-icon"></div>
+        <h2 id="ask-title">Are you sure?</h2>
+        <p id="ask-body" class="muted"></p>
+        <div id="ask-actions" class="ask-actions"></div>
+      </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="app.js?v=20261012"></script>
+    <script type="module" src="app.js?v=20261015"></script>
   </body>
 </html>

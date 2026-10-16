@@ -1,6 +1,6 @@
 # Florida Bay bot command reference
 
-This file documents every command registered by the Florida Bay Discord bots: **41 top-level slash commands**, **184 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-13.
+This file documents every command registered by the Florida Bay Discord bots: **46 top-level slash commands**, **199 slash-command forms**, and the **`!f8` message command**. It is based on the command builders and the actual permission checks in `services/fbrp-bot/src` as of 2026-10-15.
 
 ## How permissions work
 
@@ -14,7 +14,7 @@ This file documents every command registered by the Florida Bay Discord bots: **
 
 ## Command index
 
-[`/addrole`](#role-manager) · [`/removerole`](#role-manager) · [`/wiperole`](#role-manager) · [`/useradd`](#role-manager) · [`/setowner`](#role-manager) · [`/userdel`](#role-manager) · [`/mgrwipe`](#role-manager) · [`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/personal`](#personal) · [`/coc`](#coc) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/callsign`](#callsign) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
+[`/addrole`](#role-manager) · [`/removerole`](#role-manager) · [`/wiperole`](#role-manager) · [`/useradd`](#role-manager) · [`/setowner`](#role-manager) · [`/userdel`](#role-manager) · [`/mgrwipe`](#role-manager) · [`/role`](#role) · [`/exam`](#exam) · [`/orgbank`](#orgbank) · [`/welcome`](#welcome) · [`/github`](#github) · [`/verification`](#verification) · [`/backup`](#backup) · [`/ace`](#ace) · [`/headtag`](#headtag) · [`/personal`](#personal) · [`/coc`](#coc) · [`/organization`](#organization) · [`/radio`](#radio) · [`/network`](#network) · [`/globalsync`](#globalsync) · [`/mod`](#mod) · [`/server`](#server) · [`/staff`](#staff) · [`/callsign`](#callsign) · [`/protectrole`](#protectrole) · [`/botguard`](#botguard) · [`/security`](#security) · [`/ticket`](#ticket) · [`/support`](#support) · [`/vmenu`](#vmenu) · [`/help`](#help) · [`/roster`](#roster) · [`/global`](#global) · [`/blacklist`](#blacklist) · [`/blacklistedserver`](#blacklistedserver) · [`/acelist`](#acelist) · [`/userinfo`](#userinfo) · [`/case`](#case) · [`/office`](#office) · [`/join`](#join) · [`/invite`](#invite)
 
 ## Role manager
 
@@ -36,6 +36,17 @@ Important behavior:
 - `/wiperole` fetches the complete server member list before removing the role and reports any failed removals.
 - Ownership and manager assignments are stored in MariaDB and are deleted automatically when the Discord role is deleted.
 - The role-manager application needs the **Server Members Intent** and the bot needs **Manage Roles**. Its bot role must be above every role it will manage.
+
+## /role
+
+Assign or unassign Discord roles in the main server.
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/role assign <member> <role>` | Assign a role to a main-server member<br><small>Arguments: `member` (required user) — Member receiving the role. `role` (required role) — Role to assign.</small> | Assistant Community Manager rank or higher |
+| `/role unassign <member> <role>` | Remove a role from a main-server member<br><small>Arguments: `member` (required user) — Member losing the role. `role` (required role) — Role to remove.</small> | Assistant Community Manager rank or higher |
+
+These commands only work in the server registered as `main`. Protected roles retain the stricter protected-role policy: the caller must also be Co-Owner rank or higher and one of the authorized protected-role accounts. The bot also refuses `@everyone`, Discord-managed roles, and roles at or above its highest role.
 
 ## /exam
 
@@ -319,6 +330,7 @@ Staff ranks and duty tracking
 Important behavior:
 
 - `add`, `move`, and `remove` enforce strict rank hierarchy. `forceout` closes an active game/staff shift but does not remove the member's staff rank.
+- Assistant Community Manager and every higher staff rank automatically receive the `mgmt_team` ACE group. It is derived from the member's highest staff ACE rank and is removed automatically when they are demoted below ACM or removed from staff.
 
 ## /protectrole
 
@@ -344,8 +356,8 @@ Network bot admission and anti-nuke controls
 | `/botguard trust-role <role>` | Allow a role to add approved bots<br><small>Arguments: `role` (required role) — Trusted role.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
 | `/botguard untrust-user <member>` | Remove a trusted bot adder<br><small>Arguments: `member` (required user) — Discord member.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
 | `/botguard untrust-role <role>` | Remove a trusted bot-adder role<br><small>Arguments: `role` (required role) — Trusted role.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
-| `/botguard exempt-add <member> <reason>` | Exempt an account from automated security<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
-| `/botguard exempt-remove <member>` | Remove a security exemption<br><small>Arguments: `member` (required user) — Discord member.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/botguard exempt-add <member> <reason>` | Exempt an account from automated security<br><small>Arguments: `member` (required user) — Discord member. `reason` (required text) — Reason recorded in the audit log.</small> | Co-Owner rank or higher, `fbrp.security.manage`, `fbrp.botguard.exemptions`, and the hard-coded owner account |
+| `/botguard exempt-remove <member>` | Remove a security exemption<br><small>Arguments: `member` (required user) — Discord member.</small> | Co-Owner rank or higher, `fbrp.security.manage`, `fbrp.botguard.exemptions`, and the hard-coded owner account |
 | `/botguard sweep` | Remove unapproved bots from this server | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
 | `/botguard list` | Show Bot Guard policy | Co-Owner rank or higher and `fbrp.security.manage` |
 
@@ -360,9 +372,9 @@ Anti-nuke, anti-raid, anti-spam and lockdown controls
 | Command | What it does | Permission required |
 |---|---|---|
 | `/security status` | Show protections, lockdowns and the last 24 hours of events | Co-Owner rank or higher and `fbrp.security.manage` |
-| `/security exempt-add <member> <scope> <reason>` | Owner-only: bypass automated security globally or in this server<br><small>Arguments: `member` (required user) — Trusted account. `scope` (required text) — Where the bypass applies. Choices: `Every network server`, `This server only`. `reason` (required text) — Why this account is trusted.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
-| `/security exempt-remove <member> <scope>` | Owner-only: remove an automated-security bypass<br><small>Arguments: `member` (required user) — Account to remove. `scope` (required text) — Bypass to remove. Choices: `Every network server`, `This server only`.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
-| `/security exempt-list` | Owner-only: list global and server-specific bypasses | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
+| `/security exempt-add <member> <scope> <reason>` | Owner-only: bypass automated security globally or in this server<br><small>Arguments: `member` (required user) — Trusted account. `scope` (required text) — Where the bypass applies. Choices: `Every network server`, `This server only`. `reason` (required text) — Why this account is trusted.</small> | Co-Owner rank or higher, `fbrp.security.manage`, `fbrp.security.exemptions`, and the hard-coded owner account |
+| `/security exempt-remove <member> <scope>` | Owner-only: remove an automated-security bypass<br><small>Arguments: `member` (required user) — Account to remove. `scope` (required text) — Bypass to remove. Choices: `Every network server`, `This server only`.</small> | Co-Owner rank or higher, `fbrp.security.manage`, `fbrp.security.exemptions`, and the hard-coded owner account |
+| `/security exempt-list` | List global and server-specific bypasses | Co-Owner rank or higher and `fbrp.security.manage` |
 | `/security config <setting> [value]` | Change a network-wide security setting<br><small>Arguments: `setting` (required text) — Setting to change. Autocomplete is provided. `value` (optional text) — on/off, a number, or an option; leave blank to see the current value.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
 | `/security lockdown <reason> [minutes] [network]` | Lock this server (or the whole network) down<br><small>Arguments: `reason` (required text) — Reason recorded in the audit log. `minutes` (optional integer) — Auto-unlock after this many minutes (0 = manual). `network` (optional true/false) — Lock every network server down.</small> | Co-Owner rank or higher and `fbrp.security.manage` |
 | `/security unlock [reason] [network]` | Lift a lockdown<br><small>Arguments: `reason` (optional text) — Reason recorded in the audit log. `network` (optional true/false) — Unlock every network server.</small> | Co-Owner rank or higher and `fbrp.security.manage` and the hard-coded owner account |
@@ -373,9 +385,9 @@ Anti-nuke, anti-raid, anti-spam and lockdown controls
 
 Important behavior:
 
-- Exemptions bypass raid/account-age, spam, Bot Guard, and protected-role automation. For anti-nuke they raise the limits rather than remove them: an exempt account that crosses `nuke_exempt_ceiling` × the limits (default 3×) is quarantined network-wide (roles stripped, 7-day timeout), not banned. The hard-coded owner account is never scanned. Lockdown can target the current server or every network server.
-- Anti-nuke shares one danger budget across the whole network (`nuke_network_scale`), so damage spread over several servers trips it too. Acting on the same target in several servers counts once.
-- When anti-nuke trips, the account is role-stripped (every role the bot can reach, plus a 7-day timeout) in every network server at once instead of being banned (`nuke_punishment`, default `strip`), the damage is undone everywhere it acted (deleted roles/channels rebuilt; created ones removed; role, channel, permission, server-setting and AutoMod edits reverted; bans, unbans, timeouts and role removals reversed; its webhooks and invites deleted), and it goes on the offender list. Offenders are stopped on their first action or join anywhere in the network, survive restarts, and are never given roles back by role sync until `/security pardon`.
+- Exemptions fully bypass anti-nuke, raid/account-age, spam, and Bot Guard detection in their configured server or across the network. Changes take effect immediately and clear any in-progress detector counters for that account. They do not bypass manual moderation or the separate protected-role authorization policy. The hard-coded owner account is never scanned. Lockdown can target the current server or every network server.
+- Anti-nuke scores only rapid/mass channel creation or deletion and role creation or deletion. Those four actions share one danger budget across the whole network (`nuke_network_scale`), so structural damage spread over several servers trips it too. Other moderation, permission, webhook, Bot Guard and server-setting events never consume this budget and continue through their separate guards.
+- When anti-nuke trips, the account is role-stripped (every role the bot can reach, plus a 7-day timeout) in every network server at once instead of being banned (`nuke_punishment`, default `strip`), deleted roles/channels are rebuilt, created roles/channels are removed, and the account goes on the offender list. Offenders are stopped on a repeat role/channel create or delete, or when joining any network server, survive restarts, and are never given roles back by role sync until `/security pardon`.
 - Server owners cannot be acted against in their own server; if one trips anti-nuke they are quarantined in every other network server.
 - Health watch checks every network server every 10 minutes and logs (and DMs owners) when the bot loses the power to stop a nuke.
 
@@ -544,6 +556,16 @@ Investigate a member: game and Discord records, servers and roles, and linked al
 | Command | What it does | Permission required |
 |---|---|---|
 | `/userinfo <member>` | Investigate a member: game and Discord records, organization duty hours, servers and roles, blacklisted-server matches, and linked alt accounts<br><small>Arguments: `member` (required user) — Discord member. Organization activity shows current or former membership plus 7-day, 30-day, and all-time hours. Also lists every server the bot shares with them and their roles there, the other servers from their last website sign-in, and linked alt accounts (the alt section needs `fbrp.global.alts`).</small> | `fbrp.investigate`; linked alt accounts also need `fbrp.global.alts` |
+
+## /case
+
+Look up a complete moderation or Internal Affairs case by its public case ID.
+
+| Command | What it does | Permission required |
+|---|---|---|
+| `/case lookup <case_id>` | Display the case's complete record, linked parent/alt cases, appeals and appeal events, discipline records, and matching audit trail. A complete JSON copy is attached when Discord's embed limits would otherwise truncate the record.<br><small>Arguments: `case_id` (required text) — An `FB-...` moderation case or `IA-YYYY-....` Internal Affairs reference. A bare database ID is also accepted.</small> | `fbrp.investigate` |
+
+The same lookup is available in the member portal under **Staff workspace → Case lookup**. Every lookup is audited.
 
 ## /office
 

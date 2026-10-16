@@ -8,6 +8,7 @@ from gangbot.cogs.core import CoreCog
 from gangbot.cogs.economy import EconomyCog
 from gangbot.cogs.gangs import GangsCog, coordinator_ranks_at_or_below
 from gangbot.cogs.operations import OperationsCog
+from gangbot.tickets import TicketsCog
 from gangbot.config import Config
 from gangbot.common import require_gang_type
 from gangbot.constants import (
@@ -32,7 +33,7 @@ async def test_all_requested_commands_are_registered(tmp_path: Path):
     bot = GangManagerBot(
         Config("unused", tmp_path / "commands.db", None, frozenset(), 0)
     )
-    for cog in (CoreCog(bot), GangsCog(bot), EconomyCog(bot), OperationsCog(bot)):
+    for cog in (CoreCog(bot), GangsCog(bot), EconomyCog(bot), OperationsCog(bot), TicketsCog(bot)):
         await bot.add_cog(cog)
 
     names = {name for command in bot.tree.get_commands() for name in walk(command)}
@@ -58,6 +59,8 @@ async def test_all_requested_commands_are_registered(tmp_path: Path):
         "temprole delete", "temprole extend", "temprole list",
         "trade give", "trade history", "trade offer",
         "turfwar action", "turfwar history", "turfwar invest", "turfwar stage",
+        "ticket add", "ticket claim", "ticket close", "ticket list",
+        "ticket panel", "ticket remove", "ticket rename", "ticket transcript",
     }
     assert names == expected
 

@@ -62,8 +62,9 @@ class GangManagerBot(commands.Bot):
         from .cogs.gangs import GangsCog
         from .cogs.operations import OperationsCog
         from .cogs.panels import PanelsCog
+        from .tickets import TicketsCog
 
-        for cog in (CoreCog(self), GangsCog(self), EconomyCog(self), OperationsCog(self), EventsCog(self), PanelsCog(self)):
+        for cog in (CoreCog(self), GangsCog(self), EconomyCog(self), OperationsCog(self), EventsCog(self), PanelsCog(self), TicketsCog(self)):
             await self.add_cog(cog)
 
         self.tree.on_error = self.on_tree_error

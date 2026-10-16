@@ -812,15 +812,11 @@ RegisterCommand('staffhours', function(source)
     chat(source, 'STAFF HOURS', ('Last 7 days: %.1f hours across %d shifts.'):format((tonumber(row.seconds) or 0)/3600, tonumber(row.shifts) or 0))
 end, false)
 
-local function dutyCommand(source, args)
-    if source <= 0 then return end
-    local s = sessions[source]
-    if not s or not s.discord then return notify(source, 'Link Discord before using organization duty.', 'error') end
-    local requested = clean(args[1], 40):lower()
-    if s.org and (requested == '' or requested == s.org.slug or requested == 'off') then return clockOutOrg(source, 'clockout') end
-    if s.org then clockOutOrg(source, 'switch') end
-    -- Membership is simply holding the organization's Discord role.
-    local rows = MySQL.query.await([[
+-- Every active organization the player may clock into (gangs, businesses, departments and the
+-- rest). Membership is simply holding the organization's Discord role. A slug narrows it to one.
+local function dutyOrganizations(discord, slug)
+    slug = slug or ''
+    return MySQL.query.await([[
         SELECT DISTINCT o.*,t.label tag_label,t.color tag_color,t.kind tag_kind
         FROM organizations o
         JOIN headtags t ON t.id=o.tag_id
@@ -835,14 +831,32 @@ local function dutyCommand(source, args)
             )
           )
         ORDER BY o.name
-    ]], { requested, requested, s.discord, s.discord })
-    if #rows == 0 then return notify(source, requested == '' and 'You do not belong to an organization.' or 'You are not a member of that organization.', 'error') end
-    if #rows > 1 then
-        local names = {}
-        for _, row in ipairs(rows) do names[#names+1] = row.slug end
-        return chat(source, 'ORGANIZATIONS', 'Choose one: /duty ' .. table.concat(names, ', /duty '))
+    ]], { slug, slug, discord, discord }) or {}
+end
+
+local dutyLastChoice = {}
+
+-- /duty: send the organizations this player can clock in as to the client's
+-- centered dropdown. The choice comes back through fbrp:duty:choose and is re-validated there.
+local function openDutyMenu(source, s)
+    local rows = dutyOrganizations(s.discord)
+    if #rows == 0 then return notify(source, 'You do not belong to an organization.', 'error') end
+    local orgs = {}
+    for _, row in ipairs(rows) do
+        orgs[#orgs+1] = {
+            slug=row.slug, name=row.name, type=row.type,
+            color=row.color or row.tag_color, tag=row.tag_label,
+            active=s.org ~= nil and tonumber(s.org.id) == tonumber(row.id)
+        }
     end
+    TriggerClientEvent('fbrp:duty:open', source, { current=s.org and s.org.slug or nil, orgs=orgs })
+end
+
+local function clockInOrganization(source, s, requested)
+    local rows = dutyOrganizations(s.discord, requested)
+    if #rows == 0 then return notify(source, 'You are not a member of that organization.', 'error') end
     local org = rows[1]
+    if s.org then clockOutOrg(source, 'switch') end
     local started = now()
     local id = MySQL.insert.await('INSERT INTO organization_shifts(org_id,discord_id,player_id,name,started_at,heartbeat_at) VALUES(?,?,?,?,?,?)', {
         org.id,s.discord,s.playerId,s.name,started,started
@@ -859,9 +873,40 @@ local function dutyCommand(source, args)
     TriggerEvent('fbrp:organizationDutyChanged', source, org.id)
 end
 
+-- requested: an organization slug, or 'off' to clock out.
+local function chooseDuty(source, requested)
+    local s = sessions[source]
+    if not s or not s.discord then return notify(source, 'Link Discord before using organization duty.', 'error') end
+    if requested == 'off' then
+        if not clockOutOrg(source, 'clockout') then notify(source, 'You are not on organization duty.', 'info') end
+        return
+    end
+    if s.org and requested == s.org.slug then return clockOutOrg(source, 'clockout') end
+    clockInOrganization(source, s, requested)
+end
+
+-- /duty is the only duty command: it always opens the picker, there are no per-organization arguments.
+local function dutyCommand(source)
+    if source <= 0 then return end
+    local s = sessions[source]
+    if not s or not s.discord then return notify(source, 'Link Discord before using organization duty.', 'error') end
+    openDutyMenu(source, s)
+end
+
+RegisterNetEvent('fbrp:duty:choose', function(slug)
+    local src = source
+    if type(slug) ~= 'string' then return end
+    local t = GetGameTimer()
+    if dutyLastChoice[src] and t - dutyLastChoice[src] < 1500 then return end
+    dutyLastChoice[src] = t
+    local requested = clean(slug, 40):lower()
+    if requested == '' then return end
+    chooseDuty(src, requested)
+end)
+
+AddEventHandler('playerDropped', function() dutyLastChoice[source] = nil end)
+
 RegisterCommand('duty', dutyCommand, false)
-RegisterCommand('job', dutyCommand, false)
-RegisterCommand('offduty', function(source) if not clockOutOrg(source, 'clockout') then notify(source, 'You are not on organization duty.', 'info') end end, false)
 
 local function deny(source, object)
     local gate = departmentTool(object)

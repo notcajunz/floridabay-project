@@ -211,6 +211,30 @@
       </main>
     </div>
 
+    <div id="duty" class="duty-backdrop hidden" aria-hidden="true">
+      <section class="duty-card" role="dialog" aria-labelledby="duty-title">
+        <header>
+          <div><small>ORGANIZATION DUTY</small><strong id="duty-title">Clock in</strong></div>
+          <button id="duty-close" class="icon-button" aria-label="Close" data-icon="x"></button>
+        </header>
+        <div class="duty-body">
+          <label class="duty-label" for="duty-toggle">Clock in as</label>
+          <div class="duty-select">
+            <button id="duty-toggle" class="duty-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="duty-value" class="duty-value">Select an organization</span>
+              <span class="duty-caret" data-icon="chevron"></span>
+            </button>
+            <div id="duty-list" class="duty-list hidden" role="listbox"></div>
+          </div>
+          <p id="duty-status" class="duty-status"></p>
+        </div>
+        <footer>
+          <button id="duty-off" class="ghost-action hidden" type="button">Clock out</button>
+          <button id="duty-confirm" class="primary-action" type="button" disabled>Clock in</button>
+        </footer>
+      </section>
+    </div>
+
     <div id="third-eye" class="third-eye scaled hidden">
       <div class="third-eye-mark"><span data-icon="eye"></span></div>
       <section class="third-eye-panel">

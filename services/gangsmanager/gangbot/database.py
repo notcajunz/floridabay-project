@@ -6,6 +6,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from .tickets import TICKET_SCHEMA
+
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -246,6 +248,9 @@ CREATE INDEX IF NOT EXISTS idx_gangs_guild ON gangs(guild_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_gang ON ledger(gang_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_activity_guild ON activity_log(guild_id, created_at);
 """
+
+
+SCHEMA += ";\n".join(statement.strip() for statement in TICKET_SCHEMA) + ";\n"
 
 
 class Database:
