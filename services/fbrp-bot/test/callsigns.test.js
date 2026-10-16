@@ -33,11 +33,12 @@ const member = (discordId, rankOrder, callsign, overrides = {}) => ({
   ...overrides,
 });
 
-test("callsigns are assigned only above Senior Administrator", async () => {
+test("callsigns include Trial Head Administrator but exclude Senior Administrator and below", async () => {
   const database = fakeDatabase([
     member("head", 900, 301),
-    member("senior", 850, 300, { rank_sort: 2 }),
-    member("admin", 800, 302, { rank_sort: 3 }),
+    member("trial-head", 875, 302, { rank_sort: 2 }),
+    member("senior", 850, 300, { rank_sort: 3 }),
+    member("admin", 800, 303, { rank_sort: 4 }),
   ]);
 
   const result = await rebalanceCallsigns(database, "tester");
@@ -46,6 +47,7 @@ test("callsigns are assigned only above Senior Administrator", async () => {
     result.assignments.map(({ discordId, callsign, eligible }) => ({ discordId, callsign, eligible })),
     [
       { discordId: "head", callsign: 300, eligible: true },
+      { discordId: "trial-head", callsign: 301, eligible: true },
       { discordId: "senior", callsign: null, eligible: false },
       { discordId: "admin", callsign: null, eligible: false },
     ],
@@ -54,6 +56,7 @@ test("callsigns are assigned only above Senior Administrator", async () => {
     result.changes.map(({ discordId, callsign }) => ({ discordId, callsign })),
     [
       { discordId: "head", callsign: 300 },
+      { discordId: "trial-head", callsign: 301 },
       { discordId: "senior", callsign: null },
       { discordId: "admin", callsign: null },
     ],
@@ -70,7 +73,8 @@ test("callsigns are assigned only above Senior Administrator", async () => {
 test("the leadership callsign policy is idempotent", async () => {
   const database = fakeDatabase([
     member("head", 900, 300),
-    member("senior", 850, null, { rank_sort: 2 }),
+    member("trial-head", 875, 301, { rank_sort: 2 }),
+    member("senior", 850, null, { rank_sort: 3 }),
   ]);
 
   const result = await rebalanceCallsigns(database);

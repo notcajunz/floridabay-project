@@ -142,7 +142,7 @@ async function requireCoOwnerControl(i, permission, action) {
   await requirePermission(i, permission);
 }
 
-/** Community Director and above: republish every Head Administrator+ callsign, including unchanged ones. */
+/** Community Director and above: republish every Trial Head Administrator+ callsign, including unchanged ones. */
 async function callsignCommand(i, sub) {
   if (sub !== "sync") throw new Error("Unknown callsign action.");
   await requireMinimumStaffRank(i, "Community Director", "synchronize callsigns");
@@ -384,7 +384,7 @@ async function staffAdd(i, move = false) {
     ["Rank", `${clean(rank.name)}\n${clean(rank.category_name)}`],
     ["ACE group", `\`${rank.ace_group}\` (rank ${rank.group_rank})`],
     ...(groups.length > 1 ? [["Lower ranks included", groups.filter((g) => g !== rank.ace_group).map((g) => `\`${g}\``).join(" ")]] : []),
-    ["Callsign", callsign === null ? "Not assigned (Head Administrator and above only)" : String(callsign)],
+    ["Callsign", callsign === null ? "Not assigned (Trial Head Administrator and above only)" : String(callsign)],
     ...(active && previous.rank_name && Number(previous.rank_id) !== Number(rank.id) ? [["Previous rank", clean(previous.rank_name)]] : []),
     ...(removedGroups.length ? [["Left groups", removedGroups.map((g) => `\`${g}\``).join(" ")]] : []),
     ...(welcome ? [["Welcome DM", "Queued: the main bot sends it with a single-use staff-server invite, and the result is posted in the staff audit log"]] : []),
@@ -765,11 +765,11 @@ async function rosterCommand(i, sub) {
       color: COLORS.success,
       actor: i.user.id,
       target: user.id,
-      fields: [["Rank", rank.name], ["Callsign", callsign === null ? "Not assigned (Head Administrator and above only)" : String(callsign)]],
+      fields: [["Rank", rank.name], ["Callsign", callsign === null ? "Not assigned (Trial Head Administrator and above only)" : String(callsign)]],
     }, "roster");
     return card("Roster member saved", {
       color: COLORS.success,
-      rows: [["Member", who(user.id)], ["Rank", rank.name], ["Callsign", callsign === null ? "Not assigned (Head Administrator and above only)" : String(callsign)]],
+      rows: [["Member", who(user.id)], ["Rank", rank.name], ["Callsign", callsign === null ? "Not assigned (Trial Head Administrator and above only)" : String(callsign)]],
     });
   }
   if (sub === "remove") {
@@ -801,7 +801,7 @@ async function rosterCommand(i, sub) {
     const callsign = assignment.callsign;
     return card("Callsigns rank-ordered", {
       color: COLORS.success,
-      rows: [["Member", who(user.id)], ["Callsign", callsign === null ? "Not eligible (Head Administrator and above only)" : String(callsign)], ["Changed assignments", String(rebalance.changes.length)]],
+      rows: [["Member", who(user.id)], ["Callsign", callsign === null ? "Not eligible (Trial Head Administrator and above only)" : String(callsign)], ["Changed assignments", String(rebalance.changes.length)]],
     });
   }
   if (sub === "note") {

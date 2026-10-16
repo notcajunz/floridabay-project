@@ -88,7 +88,7 @@ const callsign = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("sync")
-      .setDescription("Rebalance and republish Head Administrator+ callsigns"),
+      .setDescription("Rebalance and republish Trial Head Administrator+ callsigns"),
   );
 
 const coordall = new SlashCommandBuilder()
