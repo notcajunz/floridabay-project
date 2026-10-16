@@ -137,9 +137,8 @@ class EmailCog(DeptCog):
         guild = require_guild(interaction)
         row = await self.service.department(guild.id, department)
         member = interaction.user
-        if not has_bypass(interaction) and not (
-            isinstance(member, discord.Member) and any(role.id == row["base_role_id"] for role in member.roles)
-        ):
+        # No staff bypass here: only people who hold the department's own role can register in it.
+        if not (isinstance(member, discord.Member) and any(role.id == row["base_role_id"] for role in member.roles)):
             raise ValueError(f"You need the <@&{row['base_role_id']}> role to register in **{row['name']}**.")
         data = await self.dept_call(
             row, "register",
@@ -154,7 +153,10 @@ class EmailCog(DeptCog):
         await self.service.log(guild.id, "email", "registrar", member.id, row["name"])
         note = " Your registration was updated." if data.get("updated") else ""
         status = data.get("status", "Active")
-        waiting = "" if status == "Active" else f" Your status is **{status}** until you hold the department role."
+        waiting = "" if status == "Active" else (
+            f" Your status is **{status}**: the email database does not see the department role on you yet. "
+            "Ask coordination to check the department's Member Role ID on the sheet."
+        )
         await email_log(
             self.bot, guild, "Registered" if not data.get("updated") else "Registration updated",
             f"{member.mention} saved their email for **{row['name']}**.",
