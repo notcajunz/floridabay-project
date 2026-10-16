@@ -70,6 +70,7 @@ import {
   describeDiscordPermissions,
   enforceAllChannelAccess,
   syncUserAcrossNetwork,
+  syncNetworkGuildName,
   touchesCoordinationSource,
   invalidateBlacklistCache,
   invalidateRoleStripCache,
@@ -4906,7 +4907,11 @@ client.on("roleDelete", (role) => {
 });
 client.on("roleUpdate", scheduleProtectedRoleBoard);
 client.on("guildBanAdd", (ban) => void recordNativeDiscordBan(ban).catch(securityError("ban record")));
-client.on("guildUpdate", (oldGuild, newGuild) => void guardGuildUpdate(oldGuild, newGuild, securityLog).catch(securityError("guild update")));
+client.on("guildUpdate", (oldGuild, newGuild) => {
+  if (oldGuild.name !== newGuild.name)
+    void syncNetworkGuildName(newGuild).catch((error) => console.error("[FBRP bot] network server rename:", error));
+  void guardGuildUpdate(oldGuild, newGuild, securityLog).catch(securityError("guild update"));
+});
 client.on("messageCreate", (message) => {
   void guardMessage(message, securityLog).catch(securityError("message"));
   void replyWithF8Command(message).catch((error) =>

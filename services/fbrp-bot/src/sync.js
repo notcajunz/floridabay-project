@@ -292,8 +292,8 @@ async function unlinkRole(client, guildId, syncId, deleteManaged = true) {
  * (sort_order, top first). Every other role below the bot keeps its relative order underneath them.
  * Roles at or above the bot's highest role cannot be moved by the bot and stay where they are.
  */
-async function applyRoleOrder(guild) {
-  const rows = await db.query(
+export async function applyRoleOrder(guild, database = db) {
+  const rows = await database.query(
     `SELECT r.role_id FROM network_sync_roles r
      JOIN network_syncs s ON s.id=r.sync_id
      WHERE r.guild_id=? AND s.placement='top' ORDER BY s.sort_order,s.id`,
@@ -325,11 +325,21 @@ async function applyRoleOrder(guild) {
     .map((role, index) => ({ role, position: slots[index] }))
     .filter((change) => change.role.position !== change.position);
   if (!changes.length) return result;
-  // When Discord stores several roles at the same raw position (common in new servers) there is no room
-  // below the bot to separate them, and every reorder is rejected. A manual drag renumbers them all.
+  // Discord sometimes leaves newly-created roles sharing a raw position. Its bulk reorder endpoint rejects
+  // those lists, but moving the synced roles individually renumbers the hierarchy and repairs the condition.
   const raw = below.map((role) => role.rawPosition);
-  if (new Set(raw).size < raw.length || raw.some((value) => value >= me.roles.highest.rawPosition))
-    throw new Error("Discord has several roles stuck at the same position in this server. Drag any role once in Server Settings → Roles, then press Push all");
+  if (new Set(raw).size < raw.length || raw.some((value) => value >= me.roles.highest.rawPosition)) {
+    for (let index = movable.length - 1; index >= 0; index--) {
+      const role = movable[index];
+      const position = slots[index];
+      if (role.position === position) continue;
+      const moved = await role
+        .setPosition(position, { reason: "Florida Bay global role sync: repair network order" })
+        .then(() => true, () => false);
+      if (moved) result.moved += 1;
+    }
+    return result;
+  }
   await guild.roles.setPositions(changes.map((change) => ({ role: change.role.id, position: change.position })));
   result.moved = changes.filter((change) => syncedIds.has(change.role.id)).length;
   return result;
@@ -998,7 +1008,19 @@ export async function syncUserAcrossNetwork(client, discordId) {
   return synced;
 }
 
+/** Keeps the network directory aligned with the current Discord server name. */
+export async function syncNetworkGuildName(guild, database = db) {
+  const name = String(guild?.name || "").trim().slice(0, 100);
+  if (!guild?.id || !name) return false;
+  const result = await database.query(
+    "UPDATE network_guilds SET name=? WHERE guild_id=? AND name<>?",
+    [name, String(guild.id), name],
+  );
+  return Number(result?.affectedRows || 0) > 0;
+}
+
 export async function syncGuild(client, guild, options = {}) {
+  await syncNetworkGuildName(guild);
   await db.query("DELETE FROM discord_guild_roles WHERE guild_id=?", [guild.id]);
   await guild.roles.fetch().catch(() => {});
   for (const role of guild.roles.cache.values())
