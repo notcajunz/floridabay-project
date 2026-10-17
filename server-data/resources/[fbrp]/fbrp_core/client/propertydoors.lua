@@ -1,13 +1,13 @@
--- Property door locks, client side. Doors near each organization property are found by
--- shape (a tall, thin panel, or a wide thin garage door), registered with the game's door
--- system and held locked unless the player holds the keys, the owner opened the property
--- to the public, or the player is staff on duty. Nothing teleports anyone; a locked door
--- simply will not open. Staff fix mistakes with /propdoors.
+-- Property door locks, client side. Doors near each organization property (and near any
+-- door spot staff placed with /propset) are found by shape, registered with the game's door
+-- system and held shut until someone with the keys unlocks the property: press E at a door.
+-- Nothing teleports anyone; a locked door simply will not open. Staff fix mistakes with
+-- /propdoors.
 
 local props, manualDoors, keys, openNow = {}, {}, {}, {}
 local doors = {}            -- door hash -> { key, model, x, y, z, locked, manual }
-local nearestLocked = nil   -- distance to the closest locked door, for the help text
-local lastScan = {}         -- property key -> game time of its last pool scan
+local nearestDoor = nil     -- { key, locked, distance } of the closest door, for the prompt
+local lastScan = 0           -- game time of the last pool scan
 local showUntil = 0
 
 local function toSet(list)
@@ -26,8 +26,8 @@ local function doorShapeTest(model)
     local minimum, maximum = GetModelDimensions(model)
     local sx, sy, sz = maximum.x - minimum.x, maximum.y - minimum.y, maximum.z - minimum.z
     local wide, thin = math.max(sx, sy), math.min(sx, sy)
-    if thin > 0.45 then return false end
-    if wide >= 0.8 and wide <= 3.2 and sz >= 1.8 and sz <= 3.2 then return true end
+    if thin > 0.55 then return false end
+    if wide >= 0.6 and wide <= 3.5 and sz >= 1.6 and sz <= 3.5 then return true end
     return wide > 3.2 and wide <= 8.0 and sz >= 2.0 and sz <= 5.0
 end
 
@@ -56,7 +56,7 @@ local function register(key, model, x, y, z, isManual)
 end
 
 local function allowed(key)
-    return keys[key] == true or openNow[key] == true
+    return openNow[key] == true
 end
 
 local function applyStates()
@@ -81,20 +81,38 @@ local function nearestProp(x, y, z)
     return best
 end
 
-local function scanProperty(prop)
+-- A door belongs to the property whose door spot is within 12 metres, else to the property
+-- whose radius holds it.
+local function ownerOf(at)
+    for _, prop in ipairs(props) do
+        for _, point in ipairs(prop.doorPoints or {}) do
+            local dx, dy = at.x - point.x, at.y - point.y
+            if dx * dx + dy * dy <= 144.0 and math.abs(at.z - point.z) < 12.0 then return prop end
+        end
+    end
+    return nearestProp(at.x, at.y, at.z)
+end
+
+local function scanAll(near)
+    local found = 0
     for _, object in ipairs(GetGamePool('CObject')) do
         if DoesEntityExist(object) and not NetworkGetEntityIsNetworked(object) then
             local at = GetEntityCoords(object)
-            local dx, dy = at.x - prop.x, at.y - prop.y
-            if dx * dx + dy * dy <= prop.radius * prop.radius and nearestProp(at.x, at.y, at.z) == prop then
-                local model = GetEntityModel(object)
-                local x, y, z = at.x, at.y, at.z
-                if doorShaped(model) and not excluded(model, x, y, z, manualDoors[prop.key]) then
-                    register(prop.key, model, x, y, z, false)
+            local dx, dy = at.x - near.x, at.y - near.y
+            if dx * dx + dy * dy <= 40000.0 then
+                local prop = ownerOf(at)
+                if prop then
+                    local model = GetEntityModel(object)
+                    if doorShaped(model) and not excluded(model, at.x, at.y, at.z, manualDoors[prop.key]) then
+                        local before = next(doors)
+                        register(prop.key, model, at.x, at.y, at.z, false)
+                        found = found + 1
+                    end
                 end
             end
         end
     end
+    return found
 end
 
 RegisterNetEvent('fbrp:doors:data', function(data)
@@ -132,20 +150,35 @@ CreateThread(function()
         end
         local at = GetEntityCoords(PlayerPedId())
         local now = GetGameTimer()
+        local close = false
         for _, prop in ipairs(props) do
             local dx, dy = at.x - prop.x, at.y - prop.y
-            if math.sqrt(dx * dx + dy * dy) <= prop.radius + 60.0 and now - (lastScan[prop.key] or 0) > 6000 then
-                lastScan[prop.key] = now
-                scanProperty(prop)
+            if math.sqrt(dx * dx + dy * dy) <= prop.radius + 60.0 then close = true break end
+            for _, point in ipairs(prop.doorPoints or {}) do
+                if #(at - vector3(point.x, point.y, point.z)) <= 80.0 then close = true break end
             end
+            if close then break end
+        end
+        if close and now - lastScan > 5000 then
+            lastScan = now
+            scanAll(at)
         end
         applyStates()
 
-        nearestLocked = nil
+        nearestDoor = nil
         for _, door in pairs(doors) do
-            if door.locked then
-                local distance = #(at - vector3(door.x, door.y, door.z))
-                if distance < 2.2 and (not nearestLocked or distance < nearestLocked) then nearestLocked = distance end
+            local distance = #(at - vector3(door.x, door.y, door.z))
+            if distance < 2.6 and (not nearestDoor or distance < nearestDoor.distance) then
+                nearestDoor = { distance = distance, key = door.key, locked = door.locked }
+            end
+        end
+        if not nearestDoor then
+            -- A door spot staff placed counts even when the scan found no door object there.
+            for _, prop in ipairs(props) do
+                for _, point in ipairs(prop.doorPoints or {}) do
+                    local distance = #(at - vector3(point.x, point.y, point.z))
+                    if distance < 2.6 then nearestDoor = { distance = distance, key = prop.key, locked = not allowed(prop.key) } end
+                end
             end
         end
     end
@@ -153,10 +186,21 @@ end)
 
 CreateThread(function()
     while true do
-        if nearestLocked then
+        local door = nearestDoor
+        if door then
+            local text
+            if keys[door.key] then
+                text = door.locked and '~INPUT_CONTEXT~ Unlock the property doors' or '~INPUT_CONTEXT~ Lock the property doors'
+            else
+                text = door.locked and '~r~Locked.~s~ Only the property owner can unlock this door.' or 'Unlocked.'
+            end
             BeginTextCommandDisplayHelp('STRING')
-            AddTextComponentSubstringPlayerName('~r~Locked.~s~ Only the property owner can open this door.')
+            AddTextComponentSubstringPlayerName(text)
             EndTextCommandDisplayHelp(0, false, false, 100)
+            if keys[door.key] and IsControlJustReleased(0, 38) then
+                TriggerServerEvent('fbrp:doors:toggle', door.key)
+                Wait(600)
+            end
             Wait(0)
         else
             Wait(300)
@@ -188,6 +232,14 @@ RegisterCommand('propdoors', function(_, args)
     if action == 'show' then
         showUntil = GetGameTimer() + 20000
         return TriggerEvent('fbrp:notify', 'Locked doors are marked red and unlocked green for 20 seconds.', 'info')
+    elseif action == 'info' then
+        local at = GetEntityCoords(PlayerPedId())
+        local count, nearCount = 0, 0
+        for _, door in pairs(doors) do
+            count = count + 1
+            if #(at - vector3(door.x, door.y, door.z)) < 60.0 then nearCount = nearCount + 1 end
+        end
+        return TriggerEvent('fbrp:notify', ('Properties known: %d. Doors registered: %d (%d within 60 m). Your keys: %d.'):format(#props, count, nearCount, (function() local n = 0 for _ in pairs(keys) do n = n + 1 end return n end)()), 'info')
     elseif action == 'exclude' then
         local _, door = nearestRegistered(4.0)
         if not door or door.manual then return TriggerEvent('fbrp:notify', 'No scanned door within 4 metres.', 'error') end
@@ -215,7 +267,7 @@ RegisterCommand('propdoors', function(_, args)
         end
         TriggerEvent('fbrp:notify', 'No saved correction within 4 metres.', 'error')
     else
-        TriggerEvent('fbrp:notify', 'Staff: /propdoors show | add | exclude | remove', 'info')
+        TriggerEvent('fbrp:notify', 'Staff: /propdoors info | show | add | exclude | remove, and /propset to place spots', 'info')
     end
 end, false)
 

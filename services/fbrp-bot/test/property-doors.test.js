@@ -27,3 +27,16 @@ test('door locks are only editable by staff on duty and honour ownership', () =>
   assert.match(client, /AddDoorToSystem/);
   assert.ok(!/SetEntityCoords|StartPlayerTeleport/.test(client), 'no teleports');
 });
+
+test('property spots and unlock-to-enter are wired through economy and doors', () => {
+  const economy = read('server/economy.lua');
+  assert.match(economy, /property_points/);
+  assert.match(economy, /workPoint\(property\)/);
+  assert.ok(read('server/database.lua').includes('migrations/076_property_points.sql'));
+  const doors = read('server/propertydoors.lua');
+  assert.match(doors, /fbrp:doors:toggle/);
+  assert.match(doors, /RegisterCommand\('propset'/);
+  const client = read('client/propertydoors.lua');
+  assert.match(client, /Unlock the property doors/);
+  assert.ok(!/keys\[key\] == true or openNow/.test(client), 'keys must not bypass the lock');
+});

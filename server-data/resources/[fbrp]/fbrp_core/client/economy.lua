@@ -164,6 +164,31 @@ RegisterNetEvent('fbrp:economy:taskApproved', function(key, ms, scenario, label)
     end
 end)
 
+-- Where a property's prompts are drawn. Spots staff placed with /propset are used; a property
+-- with none keeps one combined spot at its listed coordinates.
+local SPOT_STYLE = {
+    terminal = { color = { 63, 227, 210 }, icon = 21 },
+    stash = { color = { 63, 227, 210 }, icon = 21 },
+    armory = { color = { 255, 181, 71 }, icon = 20 },
+    wardrobe = { color = { 196, 139, 255 }, icon = 20 },
+    all = { color = { 63, 227, 210 }, icon = 21 },
+}
+
+local function propertySpots(property)
+    local points = property.points or {}
+    local spots = {}
+    for _, kind in ipairs({ 'terminal', 'stash', 'armory', 'wardrobe' }) do
+        local point = points[kind]
+        if point then
+            spots[#spots + 1] = { kind = kind, x = point.x, y = point.y, z = point.z, color = SPOT_STYLE[kind].color, icon = SPOT_STYLE[kind].icon }
+        end
+    end
+    if #spots == 0 then
+        spots[1] = { kind = 'all', x = property.x, y = property.y, z = property.z, color = SPOT_STYLE.all.color, icon = SPOT_STYLE.all.icon }
+    end
+    return spots
+end
+
 -- Markers and prompts.
 CreateThread(function()
     while true do
@@ -185,17 +210,28 @@ CreateThread(function()
                 end
             end
             for _, property in ipairs(state.properties or {}) do
-                local z = ground('prop:' .. property.key, property.x, property.y, property.z)
-                local distance = #(here - vector3(property.x, property.y, z))
-                if distance < 45.0 then
-                    sleep = 0
-                    DrawMarker(1, property.x, property.y, z - 0.05, 0, 0, 0, 0, 0, 0, 1.2, 1.2, 0.4, 63, 227, 210, 120, false, false, 2, false, nil, nil, false)
-                    DrawMarker(21, property.x, property.y, z + 1.1, 0, 0, 0, 0, 180.0, 0, 0.5, 0.5, 0.5, 63, 227, 210, 190, true, true, 2, false, nil, nil, false)
-                    if distance < 1.8 and not busy then
-                        local extra = property.service == 'repair' and ' · /mechanic repair' or property.service == 'serve' and ' · /serve' or ''
-                        help(('~INPUT_CONTEXT~ %s · ~INPUT_DETONATE~ armory & wardrobe%s'):format(property.task or 'Work a shift', extra))
-                        if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:taskStart', property.key) end
-                        if IsControlJustReleased(0, 47) then TriggerServerEvent('fbrp:economy:hub') end
+                for _, spot in ipairs(propertySpots(property)) do
+                    local z = ground('prop:' .. property.key .. ':' .. spot.kind, spot.x, spot.y, spot.z)
+                    local distance = #(here - vector3(spot.x, spot.y, z))
+                    if distance < 45.0 then
+                        sleep = 0
+                        local c = spot.color
+                        DrawMarker(1, spot.x, spot.y, z - 0.05, 0, 0, 0, 0, 0, 0, 1.2, 1.2, 0.4, c[1], c[2], c[3], 120, false, false, 2, false, nil, nil, false)
+                        DrawMarker(spot.icon, spot.x, spot.y, z + 1.1, 0, 0, 0, 0, 180.0, 0, 0.5, 0.5, 0.5, c[1], c[2], c[3], 190, true, true, 2, false, nil, nil, false)
+                        if distance < 1.8 and not busy then
+                            local extra = property.service == 'repair' and ' · /mechanic repair' or property.service == 'serve' and ' · /serve' or ''
+                            if spot.kind == 'all' then
+                                help(('~INPUT_CONTEXT~ %s · ~INPUT_DETONATE~ armory & wardrobe%s'):format(property.task or 'Work a shift', extra))
+                                if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:taskStart', property.key) end
+                                if IsControlJustReleased(0, 47) then TriggerServerEvent('fbrp:economy:hub') end
+                            elseif spot.kind == 'terminal' or spot.kind == 'stash' then
+                                help(('~INPUT_CONTEXT~ %s%s'):format(property.task or 'Work a shift', extra))
+                                if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:taskStart', property.key) end
+                            else
+                                help(('~INPUT_CONTEXT~ Open the organization %s'):format(spot.kind))
+                                if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:hub') end
+                            end
+                        end
                     end
                 end
             end

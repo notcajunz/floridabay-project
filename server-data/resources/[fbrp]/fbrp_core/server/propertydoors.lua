@@ -1,16 +1,20 @@
 -- Property door locks. Every door at every organization property (the shop items of
--- kind property) is locked. Members of the organization that owns a property hold its
--- keys and walk straight through; so does staff on duty. Everyone else meets a locked
--- door. An unowned property stays locked. A member can open the property to the public
--- with /propopen (a bar or club taking customers) and close it again. Doors are found
--- and locked on the client (client/propertydoors.lua); this file decides who may pass.
+-- kind property) starts locked. Members of the owning organization and staff on duty hold
+-- the keys: standing at a door they press E to unlock it (for everyone) and again to lock
+-- it. An unlocked property relocks by itself after RELOCK_MS, on a restart, or when it
+-- changes owner. A property nobody owns can only be unlocked by staff. Doors are found and
+-- held shut on the client (client/propertydoors.lua); this file decides who may unlock.
+-- Staff also place exact spots with /propset (door, terminal, stash, armory, wardrobe).
 
 local S = FBRP.Server
 local sessions = S.sessions
 
 local props = {}        -- key -> { key, label, x, y, z, radius, owner }
 local manual = {}       -- key -> list of { id, kind, model, x, y, z }
-local open = {}         -- key -> true while the owner has opened it to the public
+local open = {}         -- key -> game time it was unlocked
+local RELOCK_MS = 20 * 60 * 1000
+local POINTS = { door=true, door2=true, door3=true, terminal=true, stash=true, armory=true, wardrobe=true }
+local points = {}       -- key -> { [point] = { x, y, z } }
 local memberships = {}  -- source -> { at, orgs = { [orgId] = true } }
 
 local function decode(value)
@@ -45,7 +49,12 @@ local function loadAll()
         list[#list + 1] = { id=tonumber(row.id), kind=row.kind, model=tonumber(row.model), x=tonumber(row.x), y=tonumber(row.y), z=tonumber(row.z) }
         nextManual[row.property_key] = list
     end
-    props, manual = nextProps, nextManual
+    local nextPoints = {}
+    for _, row in ipairs(MySQL.query.await('SELECT property_key,point,x,y,z FROM property_points') or {}) do
+        nextPoints[row.property_key] = nextPoints[row.property_key] or {}
+        nextPoints[row.property_key][row.point] = { x=tonumber(row.x), y=tonumber(row.y), z=tonumber(row.z) }
+    end
+    props, manual, points = nextProps, nextManual, nextPoints
     memberships = {}
 end
 
@@ -72,7 +81,11 @@ end
 local function payloadFor(source)
     local list, keys = {}, {}
     for key, prop in pairs(props) do
-        list[#list + 1] = { key=key, label=prop.label, x=prop.x, y=prop.y, z=prop.z, radius=prop.radius, owned=prop.owner ~= nil }
+        local doorPoints = {}
+        for name, point in pairs(points[key] or {}) do
+            if name:sub(1, 4) == 'door' then doorPoints[#doorPoints + 1] = point end
+        end
+        list[#list + 1] = { key=key, label=prop.label, x=prop.x, y=prop.y, z=prop.z, radius=prop.radius, owned=prop.owner ~= nil, doorPoints=doorPoints }
         if hasKey(source, prop) then keys[#keys + 1] = key end
     end
     local openList = {}
@@ -112,23 +125,100 @@ CreateThread(function()
     end
 end)
 
--- /propopen: a member standing at their property opens it to everyone, or locks it again.
-RegisterCommand('propopen', function(src)
-    if src == 0 then return end
-    local ped = GetPlayerPed(src)
+local function nearProperty(source)
+    local ped = GetPlayerPed(source)
     local at = ped > 0 and GetEntityCoords(ped) or nil
-    local found
-    if at then
+    if not at then return nil end
+    local best, bestDistance
+    for _, prop in pairs(props) do
+        local dx, dy = at.x - prop.x, at.y - prop.y
+        local distance = math.sqrt(dx * dx + dy * dy)
+        local reach = prop.radius
+        for name, point in pairs(points[prop.key] or {}) do
+            if name:sub(1, 4) == 'door' then
+                local ex, ey = at.x - point.x, at.y - point.y
+                local d = math.sqrt(ex * ex + ey * ey)
+                if d <= 15.0 and d < distance then distance, reach = d, math.max(reach, d) end
+            end
+        end
+        if distance <= reach and (not bestDistance or distance < bestDistance) then best, bestDistance = prop, distance end
+    end
+    return best
+end
+
+local function toggle(src, key)
+    local prop = props[key] or nearProperty(src)
+    if not prop then return S.notify(src, 'Stand at a property door to lock or unlock it.', 'error') end
+    if nearProperty(src) ~= prop then return S.notify(src, 'You are too far from that property.', 'error') end
+    if not hasKey(src, prop) then return S.notify(src, 'You do not have the keys to this property.', 'error') end
+    if open[prop.key] then open[prop.key] = nil else open[prop.key] = GetGameTimer() end
+    S.notify(src, ('%s is now %s.'):format(prop.label, open[prop.key] and 'unlocked' or 'locked'), 'success')
+    FBRP.DB.audit((sessions[src] and sessions[src].discord) or tostring(src), 'property.door_toggle', prop.key, { unlocked=open[prop.key] ~= nil })
+    pushAll()
+end
+
+RegisterNetEvent('fbrp:doors:toggle', function(key)
+    if sessions[source] then toggle(source, type(key) == 'string' and key or nil) end
+end)
+RegisterCommand('proplock', function(src) if src ~= 0 then toggle(src, nil) end end, false)
+RegisterCommand('propopen', function(src) if src ~= 0 then toggle(src, nil) end end, false)
+
+CreateThread(function()
+    while true do
+        Wait(30000)
+        local changed = false
+        for key, since in pairs(open) do
+            if GetGameTimer() - since > RELOCK_MS then open[key] = nil; changed = true end
+        end
+        if changed then pushAll() end
+    end
+end)
+
+-- /propset <point> [property key], /propset list, /propset clear <point>: staff on duty stand
+-- where the spot belongs. Without a key the nearest property within 150 metres is used.
+RegisterCommand('propset', function(src, args)
+    if src == 0 then return end
+    local s = sessions[src]
+    if not (s and s.staffDuty) then return S.notify(src, 'Staff on duty only.', 'error') end
+    local ped = GetPlayerPed(src)
+    local at = GetEntityCoords(ped)
+    local action = tostring(args[1] or ''):lower()
+    local function nearest(keyArg)
+        if keyArg and props[keyArg] then return props[keyArg] end
+        local best, bestDistance
         for _, prop in pairs(props) do
             local dx, dy = at.x - prop.x, at.y - prop.y
-            if prop.owner and math.sqrt(dx * dx + dy * dy) <= prop.radius and hasKey(src, prop) then found = prop break end
+            local distance = math.sqrt(dx * dx + dy * dy)
+            if distance <= 150.0 and (not bestDistance or distance < bestDistance) then best, bestDistance = prop, distance end
         end
+        return best
     end
-    if not found then return S.notify(src, 'Stand at a property you own to open or lock it.', 'error') end
-    if open[found.key] then open[found.key] = nil else open[found.key] = true end
-    S.notify(src, ('%s is now %s.'):format(found.label, open[found.key] and 'open to the public' or 'locked'), 'success')
-    FBRP.DB.audit((sessions[src] and sessions[src].discord) or tostring(src), 'property.door_toggle', found.key, { open=open[found.key] == true })
-    pushAll()
+    if action == 'list' then
+        local prop = nearest(args[2])
+        if not prop then return S.notify(src, 'No property within 150 metres.', 'error') end
+        local parts = {}
+        for name in pairs(points[prop.key] or {}) do parts[#parts + 1] = name end
+        table.sort(parts)
+        return S.notify(src, ('%s (%s): %s'):format(prop.label, prop.key, #parts > 0 and table.concat(parts, ', ') or 'no spots set'), 'info')
+    end
+    local clearing = action == 'clear'
+    local point = clearing and tostring(args[2] or ''):lower() or action
+    if not POINTS[point] then
+        return S.notify(src, 'Use /propset door|door2|door3|terminal|stash|armory|wardrobe [key], /propset list, or /propset clear <point>.', 'info')
+    end
+    local prop = nearest(clearing and args[3] or args[2])
+    if not prop then return S.notify(src, 'No property within 150 metres.', 'error') end
+    if clearing then
+        MySQL.query.await('DELETE FROM property_points WHERE property_key=? AND point=?', { prop.key, point })
+    else
+        MySQL.query.await([[
+            INSERT INTO property_points(property_key,point,x,y,z,set_by,set_at) VALUES(?,?,?,?,?,?,?)
+            ON DUPLICATE KEY UPDATE x=VALUES(x),y=VALUES(y),z=VALUES(z),set_by=VALUES(set_by),set_at=VALUES(set_at)
+        ]], { prop.key, point, at.x, at.y, at.z - 1.0, s.discord or tostring(src), S.now() })
+    end
+    FBRP.DB.audit(s.discord or tostring(src), 'property.point_set', prop.key, { point=point, cleared=clearing, x=at.x, y=at.y, z=at.z })
+    S.notify(src, ('%s %s for %s.'):format(point, clearing and 'cleared' or 'set here', prop.label), 'success')
+    TriggerEvent('fbrp:economy:reload')
 end, false)
 
 -- Staff corrections: include a door the scan missed, exclude an object it wrongly locked,

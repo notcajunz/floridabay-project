@@ -138,6 +138,11 @@ local function loadCatalog()
             end
         end
     end
+    local pointRows = {}
+    for _, row in ipairs(MySQL.query.await('SELECT property_key,point,x,y,z FROM property_points') or {}) do
+        pointRows[row.property_key] = pointRows[row.property_key] or {}
+        pointRows[row.property_key][row.point] = { x=tonumber(row.x), y=tonumber(row.y), z=tonumber(row.z) }
+    end
     for _, row in ipairs(MySQL.query.await('SELECT item_key,org_id FROM org_properties')) do
         local item = nextCatalog[row.item_key]
         if item and item.data and tonumber(item.data.x) then
@@ -146,6 +151,7 @@ local function loadCatalog()
             b.properties[#b.properties + 1] = {
                 key=item.item_key, label=item.label, business=d.business or 'warehouse', drug=d.drug, area=d.area,
                 x=tonumber(d.x), y=tonumber(d.y), z=tonumber(d.z) or 30.0, radius=tonumber(d.radius) or 35.0,
+                points=pointRows[item.item_key] or {},
             }
         end
     end
@@ -165,10 +171,31 @@ local function propertyByKey(orgId, key)
     end
 end
 
+-- Spots staff placed at a property (terminal, stash, armory, wardrobe). With none placed the
+-- whole property radius counts, as before; once any exist only those spots count.
+local function atPropertySpot(coords, property, radius)
+    local any = false
+    for _, kind in ipairs({ 'terminal', 'stash', 'armory', 'wardrobe' }) do
+        local point = property.points and property.points[kind]
+        if point then
+            any = true
+            if near(coords, point, radius or 10.0) then return true end
+        end
+    end
+    if any then return false end
+    return near(coords, property, property.radius)
+end
+
+-- Where the work shift happens: the stash at a hideout, else the terminal, else the property itself.
+local function workPoint(property)
+    local points = property.points or {}
+    return (property.business == 'hideout' and points.stash) or points.terminal or points.stash or property
+end
+
 local function nearOwnedProperty(source, orgId, radius)
     local coords = pedCoords(source)
     for _, property in ipairs(owned[orgId] and owned[orgId].properties or {}) do
-        if near(coords, property, radius or property.radius) then return property end
+        if atPropertySpot(coords, property, radius) then return property end
     end
 end
 
@@ -303,7 +330,7 @@ local function stateFor(source)
             local spec = E.business.types[property.business] or {}
             state.properties[#state.properties + 1] = {
                 key=property.key, label=property.label, business=property.business, businessLabel=spec.label or property.business,
-                task=spec.task, service=spec.service, x=property.x, y=property.y, z=property.z,
+                task=spec.task, service=spec.service, x=property.x, y=property.y, z=property.z, points=property.points,
             }
         end
     end
@@ -610,7 +637,7 @@ RegisterNetEvent('fbrp:economy:taskStart', function(key)
     if not org then return notify(src, 'Clock in with /duty to work your business.', 'error') end
     local property = propertyByKey(org.id, clean(key, 40))
     if not property then return end
-    if not near(pedCoords(src), property, 6.0) then return notify(src, 'Stand at the business terminal.', 'error') end
+    if not near(pedCoords(src), workPoint(property), 6.0) then return notify(src, 'Stand at the business terminal.', 'error') end
     if (lastTask[src] or 0) + E.business.taskCooldownSeconds * 1000 > now() then
         return notify(src, ('Take a breather - next shift task in %ds.'):format(math.ceil(((lastTask[src] or 0) + E.business.taskCooldownSeconds * 1000 - now()) / 1000)), 'info')
     end
@@ -631,7 +658,7 @@ RegisterNetEvent('fbrp:economy:taskDone', function()
     if not task or not org then return end
     if now() - task.started < task.ms - 700 then return end
     local property = propertyByKey(org.id, task.key)
-    if not property or not near(pedCoords(src), property, 7.0) then return notify(src, 'You left the job.', 'error') end
+    if not property or not near(pedCoords(src), workPoint(property), 7.0) then return notify(src, 'You left the job.', 'error') end
     lastTask[src] = now()
     local spec = E.business.types[property.business] or E.business.types.warehouse
     local pay = math.floor(spec.pay * (1 + (perksOf(org.id).pay or 0) / 100))

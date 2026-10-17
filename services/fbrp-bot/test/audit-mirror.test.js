@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { describeInteraction, recordInteraction } from "../src/audit-trail.js";
-import { keyForAction } from "../src/audit-mirror.js";
+import { channelName, keyForAction } from "../src/audit-mirror.js";
 
 const fakeCommand = () => ({
   isChatInputCommand: () => true,
@@ -52,4 +52,13 @@ test("actions route to the right audit channel", () => {
   assert.equal(keyForAction("cmd.iaa.iaa.case"), "commands-iaa");
   assert.equal(keyForAction("cmd.main.mod.ban"), "commands-main");
   assert.equal(keyForAction("economy.purchase"), "audit-economy");
+});
+
+test("mirror channels use the emoji, bar and -logs style of the other log channels", () => {
+  assert.equal(channelName("all-activity"), "📜│all-activity-logs");
+  assert.equal(channelName("global-commands"), "🌍│global-command-logs");
+  assert.equal(channelName("commands-iaa"), "⌨️│iaa-command-logs");
+  assert.equal(channelName("audit-economy"), "💰│economy-event-logs");
+  assert.equal(channelName("log-staff_duty"), "⏱️│staff-duty-audit-logs");
+  for (const key of ["audit-zzz", "log-weird kind!"]) assert.match(channelName(key), /^.│[a-z0-9-]+-logs$/u);
 });
