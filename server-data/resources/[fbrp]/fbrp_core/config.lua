@@ -328,6 +328,8 @@ FBRP.Interactions = {
     { id = 'search', label = 'Search person', ace = FBRP.Ace.policeSearch },
     { id = 'checkid', label = 'Check identification', aceAny = { FBRP.Ace.police, FBRP.Ace.civRestrain } },
     { id = 'ziptie', label = 'Apply zip tie', ace = FBRP.Ace.civRestrain },
+    { id = 'cutziptie', label = 'Cut zip tie with knife', public = true },
+    { id = 'shootcuffs', label = 'Shoot cuffs off', public = true },
     { id = 'blindfold', label = 'Apply blindfold', aceAny = { FBRP.Ace.policeCuff, FBRP.Ace.civRestrain } },
     { id = 'unblindfold', label = 'Remove blindfold', aceAny = { FBRP.Ace.policeCuff, FBRP.Ace.civRestrain } },
     { id = 'gsr', label = 'Gunshot residue test', ace = FBRP.Ace.policeSearch },

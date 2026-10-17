@@ -159,7 +159,8 @@ Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11
 | F1 | vMenu |
 | M | Florida Bay interaction menu |
 | F4 | Coastal Passport and daily field notes |
-| F5 | Third-eye player interactions (look at a nearby player) |
+| Hold Left Alt | Third-eye player interactions (hover the eye over a nearby player) |
+| Caps Lock | Radio push-to-talk |
 | F6 | Headtag/gang-tag wardrobe |
 | F7 | Custom vehicle garage |
 | K | Vehicle control panel |

@@ -27,6 +27,7 @@ let currentPayload = {};
 let menuLocked = false;
 let lastHud = {};
 let thirdEyePayload = null;
+let thirdEyeTargeting = false;
 let dutyPayload = null;
 let dutyChoice = null;
 const ui = { garageCategory: null, showCharacterForm: false };
@@ -45,6 +46,7 @@ const ICONS = {
   door: '<path d="M5 21V8l6-5h8v18zM5 21h14M5 11h14M15 15h2"/>',
   cuffs: '<circle cx="7" cy="15" r="4"/><circle cx="17" cy="15" r="4"/><path d="M7 11V8a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v3"/>',
   zip: '<path d="M4 15c0-4.4 3.6-8 8-8s8 3.6 8 8-3.6 4-8 4"/><path d="M12 16v6M9 19h6"/>',
+  knife: '<path d="M4 20l5-5M7 22l-3-3 3-3 3 3zM9 15 20 4c1-1 2 0 1 1L12 18z"/>',
   gavel: '<path d="M14 13l-7.5 7.5a2.1 2.1 0 0 1-3-3L11 10M16 16l6-6M8 8l6-6M9 7l8 8M21 11l-8-8"/>',
   walk: '<circle cx="13" cy="4" r="2"/><path d="M7 21l3-6 3 2v6M13 17l-2-5 3-3 3 3 3 1M10 12l-3 1-1 3"/>',
   seat: '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>',
@@ -401,6 +403,11 @@ function updateHud(data) {
     setText("#fuel", fuel);
     $("#fuel-bar").style.width = `${fuel}%`;
     $(".fuel").classList.toggle("low", fuel <= 15);
+    const engineHealth = clamp(Number(car.engineHealth) || 0, 0, 100);
+    setText("#engine-health", engineHealth);
+    $("#engine-health-bar").style.width = `${engineHealth}%`;
+    $(".engine-health").classList.toggle("warn", engineHealth > 20 && engineHealth <= 45);
+    $(".engine-health").classList.toggle("critical", engineHealth <= 20);
     const flag = (id, cls) => {
       const n = $(id);
       n.classList.remove("on", "bad", "warn");
@@ -527,6 +534,8 @@ const ACTION_META = {
   softcuff: ["Restraints", "cuffs"],
   hardcuff: ["Restraints", "cuffs", "red"],
   ziptie: ["Restraints", "zip"],
+  cutziptie: ["Restraints", "knife"],
+  shootcuffs: ["Restraints", "target", "red"],
   uncuff: ["Restraints", "unlock"],
   arrest: ["Custody", "gavel", "red"],
   escort: ["Custody", "walk"],
@@ -673,7 +682,7 @@ function renderRadio(data) {
     </form>
     <div class="radio-speaker" aria-hidden="true"></div>
     <label class="radio-volume"><span>Volume <b id="radio-volume-value">${volume}%</b></span><input id="radio-volume" type="range" min="0" max="100" value="${volume}"></label>
-    <div class="radio-footer"><span><kbd>Left Alt</kbd> Push to talk</span><button type="button" data-radio-leave ${current ? "" : "disabled"}>Off</button></div>
+    <div class="radio-footer"><span><kbd>Caps Lock</kbd> Push to talk</span><button type="button" data-radio-leave ${current ? "" : "disabled"}>Off</button></div>
     <p class="radio-access">All two-decimal frequencies are public unless organization locked.</p>
   </div>`;
 }
@@ -2439,10 +2448,13 @@ function sendCarRadioAction(action, value = carRadioPosition()) {
 /* ───────── Messages ───────── */
 function resetCoreUi() {
   ["#radial-menu", "#menu", "#duty", "#third-eye", "#blindfold", "#downed", "#car-controls", "#car-radio-panel"].forEach((selector) => $(selector)?.classList.add("hidden"));
+  $("#third-eye-panel")?.classList.add("hidden");
+  $("#third-eye")?.classList.remove("target-active");
   document.body.classList.remove("menu-locked");
   currentView = null;
   currentPayload = {};
   thirdEyePayload = null;
+  thirdEyeTargeting = false;
   dutyPayload = null;
   dutyChoice = null;
   radialCategory = null;
@@ -2506,10 +2518,17 @@ window.addEventListener("message", ({ data }) => {
     if (data.open) {
       renderThirdEye(data.data || {});
       $("#third-eye").classList.remove("hidden");
+      $("#third-eye-panel").classList.remove("hidden");
     } else {
-      $("#third-eye").classList.add("hidden");
+      $("#third-eye-panel").classList.add("hidden");
+      if (!thirdEyeTargeting) $("#third-eye").classList.add("hidden");
       thirdEyePayload = null;
     }
+  }
+  if (data.type === "thirdEyeTarget") {
+    thirdEyeTargeting = !!data.open;
+    $("#third-eye").classList.toggle("hidden", !thirdEyeTargeting && !thirdEyePayload);
+    $("#third-eye").classList.toggle("target-active", !!data.active);
   }
   if (data.type === "controlUpdate" && currentView === "control") {
     currentPayload = { ...currentPayload, ...(data.data || {}), focus: currentPayload.focus };

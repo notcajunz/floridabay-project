@@ -220,7 +220,11 @@ local function putInJail(source, sentence)
     jobs[source] = nil
     escapes[source] = nil
     local player = Player(source)
-    if player then player.state:set('fbrp:jailed', true, true) end
+    if player then
+        player.state:set('fbrp:restrained', nil, true)
+        player.state:set('fbrp:jailed', true, true)
+    end
+    TriggerClientEvent('fbrp:restraints:clear', source)
     local spawn = J.prison.spawns[math.random(#J.prison.spawns)]
     TriggerClientEvent('fbrp:jail:enter', source, spawn, jailInfo(source))
 end
@@ -342,7 +346,11 @@ local function putInService(source, row)
         lastTick=now(), lastActive=now(), lastPickup=0, lastPersist=now(), lastUpdate=0, state='working', enteredAt=now(),
     }
     local player = Player(source)
-    if player then player.state:set('fbrp:communityService', true, true) end
+    if player then
+        player.state:set('fbrp:restrained', nil, true)
+        player.state:set('fbrp:communityService', true, true)
+    end
+    TriggerClientEvent('fbrp:restraints:clear', source)
     TriggerClientEvent('fbrp:service:enter', source, CS.spawn, serviceInfo(source))
 end
 

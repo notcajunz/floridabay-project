@@ -201,6 +201,7 @@ end
 RegisterNetEvent('fbrp:jail:enter', function(spawn, info)
     local ped = PlayerPedId()
     TriggerEvent('fbrp:cancelActivities')
+    TriggerEvent('fbrp:restraints:clear')
     local wasJailed = jail ~= nil
     jail = info or {}
     if not wasJailed then
@@ -406,6 +407,7 @@ end
 
 RegisterNetEvent('fbrp:service:enter', function(spawn, info)
     TriggerEvent('fbrp:cancelActivities')
+    TriggerEvent('fbrp:restraints:clear')
     local fresh = service == nil
     service = info or { active=true }
     local ped = PlayerPedId()

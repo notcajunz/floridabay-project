@@ -70,6 +70,11 @@
           <div class="fuel-bar"><i id="fuel-bar"></i></div>
           <b id="fuel">100</b>
         </div>
+        <div class="engine-health">
+          <span data-icon="power"></span>
+          <div class="engine-health-bar"><i id="engine-health-bar"></i></div>
+          <b id="engine-health">100</b>
+        </div>
         <div class="vflags">
           <span id="engine-flag" data-icon="power" title="Engine"></span>
           <span id="belt-flag" data-icon="belt" title="Seatbelt"></span>
@@ -237,13 +242,13 @@
 
     <div id="third-eye" class="third-eye scaled hidden">
       <div class="third-eye-mark"><span data-icon="eye"></span></div>
-      <section class="third-eye-panel">
+      <section id="third-eye-panel" class="third-eye-panel hidden">
         <header>
           <div><small>THIRD EYE</small><strong id="third-eye-name">Player</strong></div>
           <button id="third-eye-close" class="icon-button" aria-label="Close" data-icon="x"></button>
         </header>
         <div id="third-eye-actions" class="third-eye-actions"></div>
-        <footer><kbd>F5</kbd> Look at a nearby player · <kbd>ESC</kbd> Close</footer>
+        <footer><kbd>LEFT ALT</kbd> Hover over a nearby player · <kbd>ESC</kbd> Close</footer>
       </section>
     </div>
 

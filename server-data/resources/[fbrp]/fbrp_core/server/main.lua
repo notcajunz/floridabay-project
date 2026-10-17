@@ -598,6 +598,59 @@ local function playersNear(a, b, maxDistance)
     return #(ac - bc) <= maxDistance
 end
 
+local BLADED_WEAPONS = {
+    [joaat('WEAPON_KNIFE')] = true,
+    [joaat('WEAPON_DAGGER')] = true,
+    [joaat('WEAPON_SWITCHBLADE')] = true,
+    [joaat('WEAPON_MACHETE')] = true,
+}
+
+local function selectedWeapon(source, evidence)
+    local ped = GetPlayerPed(source)
+    if ped <= 0 then return joaat('WEAPON_UNARMED'), ped end
+    local ok, weapon = pcall(GetSelectedPedWeapon, ped)
+    if not ok or not weapon or weapon == joaat('WEAPON_UNARMED') then
+        weapon = type(evidence) == 'table' and tonumber(evidence.weapon) or joaat('WEAPON_UNARMED')
+    end
+    return weapon or joaat('WEAPON_UNARMED'), ped
+end
+
+FBRP.InteractionVisible.uncuff = function(_, target)
+    return Player(target).state['fbrp:restrained'] ~= nil
+end
+FBRP.InteractionVisible.cutziptie = function(_, target)
+    return Player(target).state['fbrp:restrained'] == 'ziptie'
+end
+FBRP.InteractionVisible.shootcuffs = function(_, target)
+    return Player(target).state['fbrp:restrained'] == 'cuffs'
+end
+FBRP.InteractionHandlers.cutziptie = function(source, target, evidence)
+    if Player(target).state['fbrp:restrained'] ~= 'ziptie' then return false end
+    local weapon = selectedWeapon(source, evidence)
+    if not BLADED_WEAPONS[weapon] then
+        notify(source, 'Hold a knife or another blade to cut the zip tie.', 'error')
+        return false
+    end
+    TriggerClientEvent('fbrp:interaction:apply', target, 'cutziptie', source)
+    TriggerClientEvent('fbrp:interaction:actor', source, 'cutziptie', target)
+    return true
+end
+FBRP.InteractionHandlers.shootcuffs = function(source, target, evidence)
+    if Player(target).state['fbrp:restrained'] ~= 'cuffs' then return false end
+    local weapon, ped = selectedWeapon(source, evidence)
+    local ok, armed = pcall(IsPedArmed, ped, 4)
+    if not ok then armed = type(evidence) == 'table' and evidence.firearm == true end
+    local ammoOk, ammo = pcall(GetAmmoInPedWeapon, ped, weapon)
+    if not ammoOk then ammo = type(evidence) == 'table' and tonumber(evidence.ammo) or 0 end
+    if weapon == joaat('WEAPON_UNARMED') or (ok and not armed) or BLADED_WEAPONS[weapon] or tonumber(ammo or 0) <= 0 then
+        notify(source, 'Hold a firearm to shoot the cuffs off.', 'error')
+        return false
+    end
+    TriggerClientEvent('fbrp:interaction:apply', target, 'shootcuffs', source)
+    TriggerClientEvent('fbrp:interaction:actor', source, 'shootcuffs', target)
+    return true
+end
+
 local function banDiscordId(ban)
     for _, value in ipairs(type(ban.identifiers) == 'table' and ban.identifiers or {}) do
         local direct = tostring(value):match('^discord:(%d+)$')
@@ -1349,14 +1402,14 @@ RegisterNetEvent('fbrp:interactions:request', function(target)
     TriggerClientEvent('fbrp:interactions:data',src,{target=target,name=GetPlayerName(target),actions=actions})
 end)
 
-RegisterNetEvent('fbrp:interactions:use', function(target, action)
+RegisterNetEvent('fbrp:interactions:use', function(target, action, evidence)
     local src=source; target=tonumber(target); action=clean(action,24)
     local spec=interactionSpec(action)
     if not spec or not target or target==src or not sessions[target] or not playersNear(src,target,FBRP.Config.interactionDistance) then return notify(src,'Interaction rejected: target moved away.','error') end
     if not interactionAllowed(src,spec) then return notify(src,'You do not have permission for that interaction.','error') end
     local handler=FBRP.InteractionHandlers[action]
     if handler then
-        if handler(src,target)~=false then FBRP.DB.audit(sessions[src].discord or src,'interaction.'..action,sessions[target].discord or target,{source=src,target=target}) end
+        if handler(src,target,evidence)~=false then FBRP.DB.audit(sessions[src].discord or src,'interaction.'..action,sessions[target].discord or target,{source=src,target=target}) end
         return
     end
     if action=='checkid' then
@@ -1364,7 +1417,7 @@ RegisterNetEvent('fbrp:interactions:use', function(target, action)
     end
     if action=='search' then pendingSearches[target]={actor=src,expires=GetGameTimer()+5000}; return TriggerClientEvent('fbrp:interaction:search',target) end
     TriggerClientEvent('fbrp:interaction:apply',target,action,src)
-    if action=='escort' or action=='seat' or action=='unseat' then TriggerClientEvent('fbrp:interaction:actor',src,action,target) end
+    TriggerClientEvent('fbrp:interaction:actor',src,action,target)
     FBRP.DB.audit(sessions[src].discord or src,'interaction.'..action,sessions[target].discord or target,{source=src,target=target})
 end)
 

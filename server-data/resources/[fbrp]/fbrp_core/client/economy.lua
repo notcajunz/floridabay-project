@@ -192,7 +192,7 @@ CreateThread(function()
                     DrawMarker(1, property.x, property.y, z - 0.05, 0, 0, 0, 0, 0, 0, 1.2, 1.2, 0.4, 63, 227, 210, 120, false, false, 2, false, nil, nil, false)
                     DrawMarker(21, property.x, property.y, z + 1.1, 0, 0, 0, 0, 180.0, 0, 0.5, 0.5, 0.5, 63, 227, 210, 190, true, true, 2, false, nil, nil, false)
                     if distance < 1.8 and not busy then
-                        local extra = property.service == 'repair' and ' · /repair' or property.service == 'serve' and ' · /serve' or ''
+                        local extra = property.service == 'repair' and ' · /mechanicrepair' or property.service == 'serve' and ' · /serve' or ''
                         help(('~INPUT_CONTEXT~ %s · ~INPUT_DETONATE~ armory & wardrobe%s'):format(property.task or 'Work a shift', extra))
                         if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:taskStart', property.key) end
                         if IsControlJustReleased(0, 47) then TriggerServerEvent('fbrp:economy:hub') end
@@ -253,7 +253,7 @@ local function nearestVehicle(radius)
     return best
 end
 
-RegisterCommand('repair', function()
+RegisterCommand('mechanicrepair', function()
     if blocked() then return end
     local ped = PlayerPedId()
     if IsPedInAnyVehicle(ped, false) then return notify('Step out to work on the vehicle.', 'error') end
@@ -295,6 +295,7 @@ RegisterNetEvent('fbrp:economy:fixVehicle', function(netId)
     SetVehicleFixed(vehicle)
     SetVehicleDeformationFixed(vehicle)
     SetVehicleEngineHealth(vehicle, 1000.0)
+    SetVehicleUndriveable(vehicle, false)
     SetVehicleBodyHealth(vehicle, 1000.0)
     SetVehiclePetrolTankHealth(vehicle, 1000.0)
     SetVehicleDirtLevel(vehicle, 0.0)

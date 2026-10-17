@@ -7,6 +7,8 @@ local fuelVehicle=0
 local lastRefuelAt=0
 local lastFuelReplicateAt=0
 local emptyFuelWarned=false
+local deadEngines={}
+local warnedEngine={}
 
 local MPH_TO_METERS_PER_SECOND=0.44704
 
@@ -220,6 +222,9 @@ RegisterCommand('engine',function()
     if FBRP.IsDowned and FBRP.IsDowned() then return end
     local vehicle=myVehicle(true); if not vehicle then return end
     local on=GetIsVehicleEngineRunning(vehicle)
+    if not on and GetVehicleEngineHealth(vehicle)<=0.0 then
+        return TriggerEvent('fbrp:notify','The engine is dead. Use /repair for a small roadside repair or get a full vMenu/mechanic repair.','error')
+    end
     if not on and usesFuel(vehicle) and readFuel(vehicle)<=0.05 then
         return TriggerEvent('fbrp:notify','The tank is empty. Find a gas station to refuel for free.','error')
     end
@@ -264,6 +269,41 @@ RegisterCommand('carcontrols',function()
     SendNUIMessage({type='carControls',open=true})
 end,false)
 RegisterKeyMapping('carcontrols','Open vehicle control panel','keyboard','K')
+
+RegisterCommand('repair',function()
+    if FBRP.IsDowned and FBRP.IsDowned() then return end
+    local ped=PlayerPedId()
+    if IsPedInAnyVehicle(ped,false) then return TriggerEvent('fbrp:notify','Step out to work on the engine.','error') end
+    local coords=GetEntityCoords(ped)
+    local vehicle=GetClosestVehicle(coords.x,coords.y,coords.z,5.0,0,70)
+    if vehicle==0 or not DoesEntityExist(vehicle) then return TriggerEvent('fbrp:notify','No vehicle close enough.','error') end
+    if GetIsVehicleEngineRunning(vehicle) then return TriggerEvent('fbrp:notify','Switch the engine off before repairing it.','error') end
+    local before=GetVehicleEngineHealth(vehicle)
+    if before>=850.0 then return TriggerEvent('fbrp:notify','This engine is already as healthy as a roadside repair can make it.','info') end
+    TaskStartScenarioInPlace(ped,'PROP_HUMAN_BUM_BIN',0,true)
+    SendNUIMessage({type='progress',label='Making a roadside engine repair',ms=6000})
+    Wait(6000)
+    ClearPedTasks(ped)
+    if not DoesEntityExist(vehicle) or #(GetEntityCoords(ped)-GetEntityCoords(vehicle))>6.0 then
+        return TriggerEvent('fbrp:notify','The vehicle is no longer close enough.','error')
+    end
+    NetworkRequestControlOfEntity(vehicle)
+    local timeout=GetGameTimer()+800
+    while NetworkGetEntityIsNetworked(vehicle) and not NetworkHasControlOfEntity(vehicle) and GetGameTimer()<timeout do
+        Wait(0)
+        NetworkRequestControlOfEntity(vehicle)
+    end
+    if NetworkGetEntityIsNetworked(vehicle) and not NetworkHasControlOfEntity(vehicle) then
+        return TriggerEvent('fbrp:notify','Could not get control of that vehicle. Try again beside the driver.','error')
+    end
+    local health=GetVehicleEngineHealth(vehicle)
+    local repaired=math.min(850.0,math.max(125.0,health+175.0))
+    SetVehicleEngineHealth(vehicle,repaired)
+    SetVehicleUndriveable(vehicle,false)
+    deadEngines[vehicle]=nil
+    warnedEngine[vehicle]=nil
+    TriggerEvent('fbrp:notify',('Roadside repair complete: engine %d%%. This is only a temporary repair.'):format(math.floor(math.max(0.0,repaired)/10.0+0.5)),'success')
+end,false)
 
 RegisterNUICallback('vehicleControl',function(data,cb)
     local action=tostring(data.action or '')
@@ -316,6 +356,67 @@ CreateThread(function()
             Wait(0)
         else
             seatbelt=false; cruise=false; Wait(250)
+        end
+    end
+end)
+
+-- Native engine damage already reacts to impacts. This layer makes repeated
+-- hard crashes meaningfully compound that damage and enforces failure at zero.
+CreateThread(function()
+    local tracked=0
+    local previousSpeed=0.0
+    local previousBody=1000.0
+    local lastImpact=0
+    while true do
+        local ped=PlayerPedId()
+        local vehicle=GetVehiclePedIsIn(ped,false)
+        if vehicle~=0 and GetPedInVehicleSeat(vehicle,-1)==ped then
+            local speed=GetEntitySpeed(vehicle)
+            local body=GetVehicleBodyHealth(vehicle)
+            local health=GetVehicleEngineHealth(vehicle)
+            if tracked~=vehicle then
+                tracked=vehicle
+                previousSpeed=speed
+                previousBody=body
+                lastImpact=0
+            else
+                local speedLoss=previousSpeed-speed
+                local bodyLoss=math.max(0.0,previousBody-body)
+                if previousSpeed>10.0 and speedLoss>5.5 and (HasEntityCollidedWithAnything(vehicle) or bodyLoss>2.0) and GetGameTimer()-lastImpact>650 then
+                    lastImpact=GetGameTimer()
+                    local extra=(speedLoss-5.5)*15.0+bodyLoss*0.35
+                    health=math.max(-400.0,health-extra)
+                    SetVehicleEngineHealth(vehicle,health)
+                end
+            end
+            if health<=0.0 then
+                SetVehicleEngineOn(vehicle,false,true,true)
+                SetVehicleUndriveable(vehicle,true)
+                if not deadEngines[vehicle] then
+                    deadEngines[vehicle]=true
+                    TriggerEvent('fbrp:notify','The engine has failed. Use /repair for a small roadside repair.','error')
+                end
+            elseif deadEngines[vehicle] then
+                -- A vMenu or full mechanic repair raises native health; honour it immediately.
+                deadEngines[vehicle]=nil
+                SetVehicleUndriveable(vehicle,false)
+            end
+            local percent=math.max(0,math.min(100,math.floor(health/10.0+0.5)))
+            local tier=percent<=20 and 2 or percent<=45 and 1 or 0
+            if tier>0 and (warnedEngine[vehicle] or 0)<tier then
+                warnedEngine[vehicle]=tier
+                TriggerEvent('fbrp:notify',tier==2 and 'Engine critical. Another hard crash may kill it.' or 'Engine damaged. Drive carefully or repair it.','warning')
+            elseif tier==0 then
+                warnedEngine[vehicle]=nil
+            end
+            previousSpeed=speed
+            previousBody=body
+            Wait(100)
+        else
+            tracked=0
+            previousSpeed=0.0
+            previousBody=1000.0
+            Wait(300)
         end
     end
 end)
@@ -440,6 +541,7 @@ end)
 function FBRP.VehicleStatus()
     local vehicle=myVehicle(false)
     if not vehicle then return {inVehicle=false,seatbelt=false,cruise=false} end
+    local engineHealth=math.max(0,math.min(100,math.floor(GetVehicleEngineHealth(vehicle)/10.0+0.5)))
     return {
         inVehicle=true,
         speed=math.floor(GetEntitySpeed(vehicle)*2.236936+0.5),
@@ -447,6 +549,7 @@ function FBRP.VehicleStatus()
         gear=GetVehicleCurrentGear(vehicle),
         fuel=math.floor(readFuel(vehicle)+0.5),
         engine=GetIsVehicleEngineRunning(vehicle),
+        engineHealth=engineHealth,
         seatbelt=seatbelt,
         cruise=cruise,
         locked=GetVehicleDoorLockStatus(vehicle)>=2

@@ -643,7 +643,7 @@ RegisterNetEvent('fbrp:economy:taskDone', function()
     end
 end)
 
--- /repair and /serve: real services for other players, paid to the wallet.
+-- /mechanicrepair and /serve: full business services for other players, paid to the wallet.
 local function serviceProperty(src, kind)
     local org = orgOf(src)
     if not org then return nil, 'Clock in with /duty first.' end
