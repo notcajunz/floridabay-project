@@ -118,9 +118,8 @@ end)
 
 -- A noclipping staff member must leave nothing behind: not the vehicle they are driving
 -- (or riding in), not a slung gun, not the weapon in hand. vMenu only alpha-fades the
--- entity for its owner, so every other client hides those entities locally each frame,
--- and the noclipping client also switches its own vehicle's visibility off.
-local ownVehicleHidden = 0
+-- entity for its owner, so every other client hides those entities locally each frame.
+local wasNoclipActive = false
 
 local function hideEntity(entity)
     if entity and entity ~= 0 and DoesEntityExist(entity) then SetEntityLocallyInvisible(entity) end
@@ -166,16 +165,22 @@ CreateThread(function()
             if DoesEntityExist(ped) then hideNoclipper(ped, row.bag) end
         end
 
-        -- Own vehicle: invisible to the network while noclip is on, restored after.
-        local vehicle = GetVehiclePedIsIn(PlayerPedId(), false)
-        if noclipActive and vehicle ~= 0 then
-            if ownVehicleHidden ~= vehicle then ownVehicleHidden = vehicle end
-            SetEntityVisible(vehicle, false, false)
-        elseif ownVehicleHidden ~= 0 then
-            if DoesEntityExist(ownVehicleHidden) then SetEntityVisible(ownVehicleHidden, true, false) end
-            ownVehicleHidden = 0
+        -- When noclip ends, make sure nothing stays hidden. vMenu resets its own entity, but the
+        -- ped and the vehicle are restored here too so a missed reset can never leave anyone
+        -- invisible. Nothing is forced invisible on this client, which would keep the noclip
+        -- detection above latched on.
+        if wasNoclipActive and not noclipActive then
+            local ped = PlayerPedId()
+            SetEntityVisible(ped, true, false)
+            ResetEntityAlpha(ped)
+            local vehicle = GetVehiclePedIsIn(ped, true)
+            if vehicle ~= 0 and DoesEntityExist(vehicle) then
+                SetEntityVisible(vehicle, true, false)
+                ResetEntityAlpha(vehicle)
+            end
         end
-        Wait(#active > 0 and 0 or (ownVehicleHidden ~= 0 and 0 or 100))
+        wasNoclipActive = noclipActive
+        Wait(#active > 0 and 0 or 100)
     end
 end)
 

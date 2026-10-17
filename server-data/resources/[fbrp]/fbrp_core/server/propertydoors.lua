@@ -125,6 +125,26 @@ CreateThread(function()
     end
 end)
 
+-- The command of an organization: its leader, or a rank allowed to manage the roster. Both are
+-- set in the database when the gang or business is made.
+local function isCommand(source, orgId)
+    local s = sessions[source]
+    if not (s and s.discord and orgId) then return false end
+    local row = MySQL.single.await([[
+        SELECT m.manager,r.can_roster FROM organization_members m
+          LEFT JOIN org_ranks r ON r.id=m.rank_id AND r.org_id=m.org_id
+         WHERE m.org_id=? AND m.discord_id=?
+    ]], { orgId, s.discord })
+    return row ~= nil and (row.manager == 1 or row.manager == true or row.can_roster == 1 or row.can_roster == true)
+end
+
+-- Staff on duty may edit any property, the command of the owning organization its own.
+local function canEdit(source, prop)
+    local s = sessions[source]
+    if s and s.staffDuty then return true end
+    return prop ~= nil and prop.owner ~= nil and isCommand(source, prop.owner)
+end
+
 local function nearProperty(source)
     local ped = GetPlayerPed(source)
     local at = ped > 0 and GetEntityCoords(ped) or nil
@@ -174,28 +194,29 @@ CreateThread(function()
     end
 end)
 
--- /propset <point> [property key], /propset list, /propset clear <point>: staff on duty stand
--- where the spot belongs. Without a key the nearest property within 150 metres is used.
+-- /propset <point> [property key], /propset list, /propset clear <point>: staff on duty, or the
+-- command of the owning gang or business, stand where the spot belongs. Without a key the
+-- nearest property within 150 metres that the player may edit is used.
 RegisterCommand('propset', function(src, args)
     if src == 0 then return end
     local s = sessions[src]
-    if not (s and s.staffDuty) then return S.notify(src, 'Staff on duty only.', 'error') end
+    if not s then return end
     local ped = GetPlayerPed(src)
     local at = GetEntityCoords(ped)
     local action = tostring(args[1] or ''):lower()
     local function nearest(keyArg)
-        if keyArg and props[keyArg] then return props[keyArg] end
+        if keyArg and props[keyArg] then return canEdit(src, props[keyArg]) and props[keyArg] or nil end
         local best, bestDistance
         for _, prop in pairs(props) do
             local dx, dy = at.x - prop.x, at.y - prop.y
             local distance = math.sqrt(dx * dx + dy * dy)
-            if distance <= 150.0 and (not bestDistance or distance < bestDistance) then best, bestDistance = prop, distance end
+            if distance <= 150.0 and (not bestDistance or distance < bestDistance) and canEdit(src, prop) then best, bestDistance = prop, distance end
         end
         return best
     end
     if action == 'list' then
         local prop = nearest(args[2])
-        if not prop then return S.notify(src, 'No property within 150 metres.', 'error') end
+        if not prop then return S.notify(src, 'No property you can edit within 150 metres. Staff on duty or the command of the owning gang or business only.', 'error') end
         local parts = {}
         for name in pairs(points[prop.key] or {}) do parts[#parts + 1] = name end
         table.sort(parts)
@@ -207,7 +228,7 @@ RegisterCommand('propset', function(src, args)
         return S.notify(src, 'Use /propset door|door2|door3|terminal|stash|armory|wardrobe [key], /propset list, or /propset clear <point>.', 'info')
     end
     local prop = nearest(clearing and args[3] or args[2])
-    if not prop then return S.notify(src, 'No property within 150 metres.', 'error') end
+    if not prop then return S.notify(src, 'No property you can edit within 150 metres. Staff on duty or the command of the owning gang or business only.', 'error') end
     if clearing then
         MySQL.query.await('DELETE FROM property_points WHERE property_key=? AND point=?', { prop.key, point })
     else
@@ -226,12 +247,14 @@ end, false)
 RegisterNetEvent('fbrp:doors:edit', function(action, model, x, y, z, id)
     local src = source
     local s = sessions[src]
-    if not (s and s.staffDuty) then return end
+    if not s then return end
     model, x, y, z = tonumber(model), tonumber(x), tonumber(y), tonumber(z)
     local by = s.discord or tostring(src)
     if action == 'remove' then
         id = tonumber(id)
         if not id then return end
+        local row = MySQL.single.await('SELECT property_key FROM property_doors WHERE id=?', { id })
+        if not row or not canEdit(src, props[row.property_key]) then return S.notify(src, 'You cannot edit that door.', 'error') end
         MySQL.query.await('DELETE FROM property_doors WHERE id=?', { id })
     elseif action == 'include' or action == 'exclude' then
         if not (model and x and y and z) then return end
@@ -239,9 +262,9 @@ RegisterNetEvent('fbrp:doors:edit', function(action, model, x, y, z, id)
         for _, prop in pairs(props) do
             local dx, dy = x - prop.x, y - prop.y
             local distance = math.sqrt(dx * dx + dy * dy)
-            if distance <= prop.radius + 25.0 and (not best or distance < best) then nearest, best = prop, distance end
+            if distance <= prop.radius + 25.0 and (not best or distance < best) and canEdit(src, prop) then nearest, best = prop, distance end
         end
-        if not nearest then return S.notify(src, 'That is not near any property.', 'error') end
+        if not nearest then return S.notify(src, 'That is not near a property you can edit.', 'error') end
         MySQL.insert.await('INSERT INTO property_doors(property_key,kind,model,x,y,z,added_by,created_at) VALUES(?,?,?,?,?,?,?,?)',
             { nearest.key, action, math.floor(model), x, y, z, by, S.now() })
         S.notify(src, ('Door %s for %s.'):format(action == 'include' and 'added' or 'excluded', nearest.label), 'success')

@@ -8,6 +8,9 @@ local thirdEyeHeld = false
 local thirdEyePending = false
 local thirdEyeTarget = nil
 local thirdEyeHoverAt = 0
+local thirdEyeWorld = nil      -- non-player target: { id, name, actions, run }
+local thirdEyeWorldKey = nil
+local thirdEyeWorldAt = 0
 local restraintProps = {}
 local lastCuffShotAt = 0
 local restraintKind
@@ -73,6 +76,114 @@ local function targetedPlayer(maxDistance)
     return best
 end
 
+-- ─────────────── third eye on the world: vehicles, bars, terminals, doors ───────────────
+-- Holding the third eye key and aiming at a vehicle or standing at a business spot offers the
+-- same actions the chat commands did (/mechanic repair, /serve, /runplate, /impound, the
+-- armory and the property doors). The server still checks every permission itself.
+
+local function vehicleLabel(vehicle)
+    local model = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle))
+    local label = GetLabelText(model)
+    return (label ~= 'NULL' and label or model) .. ' [' .. ((GetVehicleNumberPlateText(vehicle) or ''):gsub('^%s+', ''):gsub('%s+$', '')) .. ']'
+end
+
+local function aimedVehicle(maxDistance)
+    local ped = PlayerPedId()
+    local origin = GetGameplayCamCoord()
+    local target = origin + cameraDirection(GetGameplayCamRot(2)) * (maxDistance + 4.0)
+    local _, hit, _, _, entity = GetShapeTestResult(StartExpensiveSynchronousShapeTestLosProbe(
+        origin.x, origin.y, origin.z, target.x, target.y, target.z, 2, ped, 4))
+    if hit == 1 and entity ~= 0 and DoesEntityExist(entity) and GetEntityType(entity) == 2
+        and #(GetEntityCoords(ped) - GetEntityCoords(entity)) <= maxDistance then
+        return entity
+    end
+    return nil
+end
+
+local function worldTarget()
+    local ped = PlayerPedId()
+    if IsPedInAnyVehicle(ped, false) then return nil end
+    local here = GetEntityCoords(ped)
+
+    -- A business, armory, wardrobe or stash spot of the organization on duty.
+    local bestSpot, bestDistance = nil, 3.2
+    if FBRP.PropertySpots then
+        for _, spot in ipairs(FBRP.PropertySpots()) do
+            local distance = #(here - vector3(spot.x, spot.y, spot.z))
+            if distance < bestDistance then bestSpot, bestDistance = spot, distance end
+        end
+    end
+    if bestSpot then
+        local actions = {}
+        if bestSpot.kind == 'all' or bestSpot.kind == 'terminal' or bestSpot.kind == 'stash' then
+            actions[#actions + 1] = { id = 'w_work', label = bestSpot.task or 'Work a shift' }
+        end
+        if bestSpot.kind == 'all' or bestSpot.kind == 'armory' or bestSpot.kind == 'wardrobe' then
+            actions[#actions + 1] = { id = 'w_hub', label = 'Armory and wardrobe' }
+        end
+        if bestSpot.service == 'serve' and (bestSpot.kind == 'all' or bestSpot.kind == 'terminal') then
+            actions[#actions + 1] = { id = 'w_serve', label = 'Serve the nearest customer' }
+        end
+        return {
+            id = 'spot:' .. bestSpot.key .. ':' .. bestSpot.kind, name = bestSpot.label, actions = actions,
+            run = function(action)
+                if action == 'w_work' then TriggerServerEvent('fbrp:economy:taskStart', bestSpot.key)
+                elseif action == 'w_hub' then TriggerServerEvent('fbrp:economy:hub')
+                elseif action == 'w_serve' then ExecuteCommand('serve') end
+            end,
+        }
+    end
+
+    -- A property door.
+    local door = FBRP.NearestPropertyDoor and FBRP.NearestPropertyDoor() or nil
+    if door and door.hasKeys then
+        return {
+            id = 'door:' .. door.key, name = 'Property doors',
+            actions = { { id = 'w_door', label = door.locked and 'Unlock the doors' or 'Lock the doors' } },
+            run = function() TriggerServerEvent('fbrp:doors:toggle', door.key) end,
+        }
+    end
+
+    -- A vehicle in front of the crosshair.
+    local vehicle = aimedVehicle(6.0)
+    if vehicle then
+        return {
+            id = 'veh:' .. vehicle, name = vehicleLabel(vehicle),
+            actions = {
+                { id = 'w_repair', label = 'Repair the vehicle' },
+                { id = 'w_lock', label = GetVehicleDoorLockStatus(vehicle) >= 2 and 'Unlock the vehicle' or 'Lock the vehicle' },
+                { id = 'w_plate', label = 'Run the plate' },
+                { id = 'w_impound', label = 'Impound the vehicle' },
+            },
+            run = function(action)
+                if not DoesEntityExist(vehicle) then return end
+                if action == 'w_repair' then
+                    CreateThread(function() FBRP.MechanicRepair(vehicle) end)
+                elseif action == 'w_lock' then
+                    local locked = GetVehicleDoorLockStatus(vehicle) >= 2
+                    SetVehicleDoorsLocked(vehicle, locked and 1 or 2)
+                    SetVehicleLights(vehicle, 2); Wait(120); SetVehicleLights(vehicle, 0)
+                    TriggerEvent('fbrp:notify', locked and 'Vehicle unlocked.' or 'Vehicle locked.', 'info')
+                elseif action == 'w_plate' then
+                    ExecuteCommand('runplate ' .. ((GetVehicleNumberPlateText(vehicle) or ''):gsub('^%s+', ''):gsub('%s+$', '')))
+                elseif action == 'w_impound' then
+                    ExecuteCommand('impound')
+                end
+            end,
+        }
+    end
+    return nil
+end
+
+local function openWorldEye(world)
+    thirdEyeWorld = world
+    thirdEyeOpen = true
+    thirdEyeHeld = false
+    SetNuiFocus(true, true)
+    SendNUIMessage({type='thirdEyeTarget',open=true,active=true})
+    SendNUIMessage({type='thirdEye',open=true,data={target=0,name=world.name,actions=world.actions}})
+end
+
 local function closeThirdEye()
     if not thirdEyeOpen and not thirdEyeHeld and not thirdEyePending then return end
     thirdEyeOpen = false
@@ -80,6 +191,9 @@ local function closeThirdEye()
     thirdEyePending = false
     thirdEyeTarget = nil
     thirdEyeHoverAt = 0
+    thirdEyeWorld = nil
+    thirdEyeWorldKey = nil
+    thirdEyeWorldAt = 0
     SetNuiFocus(false, false)
     SendNUIMessage({type='thirdEye',open=false})
     SendNUIMessage({type='thirdEyeTarget',open=false,active=false})
@@ -179,6 +293,8 @@ RegisterCommand('-thirdEye', function()
     thirdEyePending = false
     thirdEyeTarget = nil
     thirdEyeHoverAt = 0
+    thirdEyeWorldKey = nil
+    thirdEyeWorldAt = 0
     if not thirdEyeOpen then SendNUIMessage({type='thirdEyeTarget',open=false,active=false}) end
 end, false)
 RegisterKeyMapping('+thirdEye', 'Hold third eye player targeting', 'keyboard', 'LMENU')
@@ -193,17 +309,26 @@ CreateThread(function()
     while true do
         if thirdEyeHeld and not thirdEyeOpen then
             local target = targetedPlayer(FBRP.Config.interactionDistance)
+            local world = (not target) and worldTarget() or nil
+            local worldKey = world and world.id or nil
+            if worldKey ~= thirdEyeWorldKey then
+                thirdEyeWorldKey = worldKey
+                thirdEyeWorldAt = worldKey and GetGameTimer() or 0
+            end
             if target ~= thirdEyeTarget then
                 thirdEyeTarget = target
                 thirdEyeHoverAt = target and GetGameTimer() or 0
                 thirdEyePending = false
-                SendNUIMessage({type='thirdEyeTarget',open=true,active=target ~= nil})
-            elseif target and not thirdEyePending and GetGameTimer() - thirdEyeHoverAt >= 180 then
+            end
+            SendNUIMessage({type='thirdEyeTarget',open=true,active=(target ~= nil) or (world ~= nil)})
+            if target and not thirdEyePending and GetGameTimer() - thirdEyeHoverAt >= 180 then
                 thirdEyePending = true
                 TriggerServerEvent('fbrp:interactions:request', target)
                 SetTimeout(1200, function()
                     if not thirdEyeOpen then thirdEyePending = false end
                 end)
+            elseif world and #world.actions > 0 and GetGameTimer() - thirdEyeWorldAt >= 180 then
+                openWorldEye(world)
             end
             Wait(45)
         else
@@ -218,11 +343,25 @@ RegisterNetEvent('fbrp:interactions:data', function(data)
     thirdEyeOpen = true
     thirdEyeHeld = false
     SetNuiFocus(true, true)
+    data.actions = data.actions or {}
+    if FBRP.CanServe and FBRP.CanServe() then data.actions[#data.actions + 1] = { id = 'w_serve', label = 'Serve a drink or meal' } end
     SendNUIMessage({type='thirdEyeTarget',open=true,active=true})
     SendNUIMessage({type='thirdEye',open=true,data=data})
 end)
 
 RegisterNUICallback('thirdEyeAction', function(data, cb)
+    local action = tostring(data.action or '')
+    if action:sub(1, 2) == 'w_' then
+        local world = thirdEyeWorld
+        closeThirdEye()
+        cb({ok=true})
+        if world and world.run then
+            world.run(action)
+        elseif action == 'w_serve' then
+            ExecuteCommand('serve')
+        end
+        return
+    end
     local ped = PlayerPedId()
     local weapon = GetSelectedPedWeapon(ped)
     TriggerServerEvent('fbrp:interactions:use', tonumber(data.target), tostring(data.action or ''), {

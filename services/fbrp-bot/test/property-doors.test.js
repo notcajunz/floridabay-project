@@ -40,3 +40,21 @@ test('property spots and unlock-to-enter are wired through economy and doors', (
   assert.match(client, /Unlock the property doors/);
   assert.ok(!/keys\[key\] == true or openNow/.test(client), 'keys must not bypass the lock');
 });
+
+test('the command of a gang or business can place spots, and the third eye offers world actions', () => {
+  const doors = read('server/propertydoors.lua');
+  assert.match(doors, /local function isCommand/);
+  assert.match(doors, /m\.manager,r\.can_roster/);
+  assert.match(doors, /canEdit\(src, prop\)/);
+  const eye = read('client/interactions.lua');
+  for (const id of ['w_repair', 'w_work', 'w_hub', 'w_serve', 'w_door', 'w_plate']) assert.ok(eye.includes(id), id);
+  const ui = fs.readFileSync(path.join(core, 'web/app.js'), 'utf8');
+  assert.ok(ui.includes('w_repair:'));
+});
+
+test('leaving noclip never forces anyone invisible', () => {
+  const tags = read('client/tags.lua');
+  assert.ok(!/SetEntityVisible\(vehicle, false/.test(tags), 'own vehicle must not be hidden by fbrp');
+  assert.match(tags, /wasNoclipActive and not noclipActive/);
+  assert.match(tags, /ResetEntityAlpha\(ped\)/);
+});

@@ -208,6 +208,13 @@ CreateThread(function()
     end
 end)
 
+-- Third eye reads the door the player stands at.
+function FBRP.NearestPropertyDoor()
+    local door = nearestDoor
+    if not door then return nil end
+    return { key = door.key, locked = door.locked, hasKeys = keys[door.key] == true }
+end
+
 -- Refresh the keys after clocking in, since duty can change who holds them.
 AddStateBagChangeHandler('fbrp:staffDuty', ('player:%d'):format(GetPlayerServerId(PlayerId())), function()
     TriggerServerEvent('fbrp:doors:request')

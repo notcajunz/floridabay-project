@@ -289,11 +289,11 @@ local function nearestVehicle(radius)
     return best
 end
 
-local function mechanicRepair()
+local function mechanicRepair(aimed)
     if blocked() then return end
     local ped = PlayerPedId()
     if IsPedInAnyVehicle(ped, false) then return notify('Step out to work on the vehicle.', 'error') end
-    local vehicle = nearestVehicle(5.0)
+    local vehicle = (type(aimed) == 'number' and aimed > 1000 and DoesEntityExist(aimed) and #(GetEntityCoords(ped) - GetEntityCoords(aimed)) < 7.0) and aimed or nearestVehicle(5.0)
     if not vehicle or not NetworkGetEntityIsNetworked(vehicle) then return notify('No vehicle close enough.', 'error') end
     TaskStartScenarioInPlace(ped, 'PROP_HUMAN_BUM_BIN', 0, true)
     ui({ type='progress', label='Repairing vehicle', ms=7000 })
@@ -315,6 +315,32 @@ RegisterCommand('mechanic', function(_, args)
     end
     mechanicRepair()
 end, false)
+
+-- Third eye (client/interactions.lua) reads these instead of players typing chat commands.
+FBRP.MechanicRepair = mechanicRepair
+
+-- Owned property spots for the organization the player is on duty with.
+function FBRP.PropertySpots()
+    local out = {}
+    for _, property in ipairs(state.properties or {}) do
+        for _, spot in ipairs(propertySpots(property)) do
+            out[#out + 1] = { kind = spot.kind, x = spot.x, y = spot.y, z = spot.z, key = property.key, label = property.label, task = property.task, service = property.service }
+        end
+    end
+    return out
+end
+
+-- True while on duty with an organization whose property here serves customers.
+function FBRP.CanServe()
+    local here = GetEntityCoords(PlayerPedId())
+    for _, property in ipairs(state.properties or {}) do
+        if property.service == 'serve' and #(here - vector3(property.x, property.y, property.z)) < 60.0 then return true end
+        for _, spot in ipairs(propertySpots(property)) do
+            if property.service == 'serve' and #(here - vector3(spot.x, spot.y, spot.z)) < 25.0 then return true end
+        end
+    end
+    return false
+end
 
 RegisterCommand('serve', function()
     if blocked() then return end

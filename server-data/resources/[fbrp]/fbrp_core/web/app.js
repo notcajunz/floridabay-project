@@ -552,10 +552,18 @@ const ACTION_META = {
   heal: ["Medical", "heart-pulse"],
   diagnose: ["Medical", "info"],
   showid: ["Identity", "id"],
+  w_repair: ["Vehicle", "hood"],
+  w_lock: ["Vehicle", "lock"],
+  w_plate: ["Vehicle", "search"],
+  w_impound: ["Vehicle", "car", "red"],
+  w_work: ["Business", "clock"],
+  w_hub: ["Business", "building"],
+  w_serve: ["Business", "users"],
+  w_door: ["Property", "door"],
 };
 function renderThirdEye(data) {
   thirdEyePayload = data || {};
-  setText("#third-eye-name", `${data?.name || "Player"} [${Number(data?.target) || 0}]`);
+  setText("#third-eye-name", Number(data?.target) > 0 ? `${data?.name || "Player"} [${Number(data.target)}]` : (data?.name || "Interact"));
   const rows = data?.actions || [];
   const groups = new Map();
   rows.forEach((action) => {
