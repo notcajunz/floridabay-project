@@ -80,7 +80,7 @@ rm -f "$config_dir/db.sql.tmp" "$config_dir/db.sql.gz.tmp"
 
 # ---- private files (secrets, txAdmin state, KVP store, old backups, service tokens + databases) ---
 private_paths=()
-for item in .env services/fbrp-bot/.env services/gangsmanager/.env services/gangsmanager/gang_manager.db* services/businessmanager/.env services/businessmanager/business_manager.db* services/deptmanager/.env services/deptmanager/department_manager.db* services/dohsbot/.env services/dohsbot/service_account.json services/dohsbot/data server-data/secrets.cfg server-data/server.cfg server-data/server.cfg.* txData server-data/db backups; do
+for item in .env services/fbrp-bot/.env services/gangsmanager/.env services/gangsmanager/gang_manager.db* services/businessmanager/.env services/businessmanager/business_manager.db* services/deptmanager/.env services/deptmanager/department_manager.db* services/deptmanager/department_manager_armedforces.db* services/dohsbot/.env services/dohsbot/service_account.json services/dohsbot/data server-data/secrets.cfg server-data/server.cfg server-data/server.cfg.* txData server-data/db backups; do
   [[ -e "$item" ]] && private_paths+=("$item")
 done
 if ((${#private_paths[@]})); then

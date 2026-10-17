@@ -1,0 +1,191 @@
+# FBRP | Armed Forces. The Discord token stays in .env. IDs must be unquoted integers; 0 disables.
+[bot]
+guild_id = 1561065294615544019
+owner_ids = [1090083387638812755, 1099651002208104488]
+database_path = "department_manager_armedforces.db"
+# Network management passes every rank check: FBRP | Management Team, FBRP | Owner, FBRP | Co-Owner.
+bypass_role_ids = [1561080070263537745, 1561065637999018025, 1561065642101186581]
+
+movement_channel_id = 1561084126042525796
+member_movement_channel_id = 1561084129150373968
+coord_movement_channel_id = 1561084153947103384
+status_channel_id = 1561084183860875427
+chain_of_command_channel_id = 1561066405779083284    # existing chain-of-command
+hours_channel_id = 1561084187824365648
+transfer_log_channel_id = 1561084171437351013
+transfer_blacklist_log_channel_id = 1561084174557782086
+role_conflict_channel_id = 1561084140676194395
+email_channel_id = 0
+email_log_channel_id = 0
+punishment_channel_ids = [1561084165632561373]
+custom_message_log_channel_id = 1561084144082227301
+member_log_channel_id = 1561084209362243729
+join_leave_log_channel_id = 1561066995263471687      # existing join-leave-logs
+channel_log_channel_id = 1561084212516225207
+server_log_channel_id = 1561084215209103482
+message_log_channel_id = 0
+
+member_role_id = 0
+transfer_blacklist_role_id = 1561084005145903197
+suspension_role_id = 0
+launch_group_role_id = 1561083983213756577
+email_approver_rank = "Senior Department Coordinator"
+coord_team_role_id = 1561083999588454495
+multi_department_bypass_role_ids = []
+restricted_role_ids = []
+restricted_role_manager_role_ids = [1561083955506192414, 1561083958492397649]
+
+transfer_cooldown_days = 7
+resignation_cooldown_days = 3
+hours_days = 7
+base_role_format = "{initials}"
+command_role_format = "{initials} | Command"
+
+[bot.level_ranks]
+coordinator = "Probationary Department Coordinator"
+manager = "Assistant Department Manager"
+director = "Assistant Department Director"
+
+[bot.coordinator_role_ids]
+"Department Overseer" = 1561083955506192414
+"Department Director" = 1561083958492397649
+"Assistant Department Director" = 1561083961692782594
+"Department Manager" = 1561083964259700797
+"Assistant Department Manager" = 1561083967015485543
+"Lead Department Coordinator" = 1561083972732321792
+"Senior Department Coordinator" = 1561083974871158840
+"Department Coordinator" = 1561083999588454495
+"Probationary Department Coordinator" = 1561084002587386028
+
+[bot.coordinator_job_role_ids]
+"CAD Administrator" = 1561083980399509536
+"Department Launch Group" = 1561083983213756577
+"Document Creation Coordinator" = 1561083985948319896
+"Recruitment Coordinator" = 1561083989463146597
+"In-Game Coordinator" = 1561083994421071902
+"Transfer Coordinator" = 1561083991904227449
+"Community Engagement" = 1561083996870410291
+
+[bot.category_member_role_ids]
+"Armed Forces" = 1561065818513743923                  # Mains divider
+
+[bot.transfer_cooldown_role_ids]
+"Armed Forces" = 1561084010963144768
+
+[bot.resignation_cooldown_role_ids]
+"Armed Forces" = 1561084014385954846
+
+[access]
+# When true, these two groups bypass command allowlists/denylists.
+administrators_bypass = true
+owners_bypass = true
+
+# Modes:
+#   inherit   = use the command's built-in rank checks (see [bot.level_ranks])
+#   allowlist = only the listed users/roles (plus configured bypasses)
+#   denylist  = everyone except the listed users/roles
+# Exact command rules override category rules, for example:
+# [access.commands."transfer member"]
+# mode = "allowlist"
+# roles = [1561083991904227449]
+
+[access.categories.departments]
+mode = "inherit"
+users = []
+roles = []
+commands = ["dept add", "dept create", "dept hours", "dept info", "dept list", "dept remove", "dept role", "dept status", "dept update"]
+
+[access.categories.email]
+mode = "inherit"
+users = []
+roles = []
+commands = ["email adduser", "email list", "email registrar", "email removeuser", "email wipe"]
+
+[access.categories.coordination]
+mode = "inherit"
+users = []
+roles = []
+commands = ["coord activity", "coord add", "coord job", "coord remove", "coord update"]
+
+[access.categories.members]
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "member deletepunishment", "member editpunishment", "member history", "member logpunishment",
+  "role add", "role remove", "rolewipe",
+  "cooldown apply", "cooldown clear", "cooldown view",
+  "transfer blacklist", "transfer member",
+  "temprole delete", "temprole extend", "temprole list",
+]
+
+[access.categories.administration]
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "admin avatar", "admin info", "admin nick", "admin rolecheck", "admin username",
+  "dm send", "embed edit", "embed get", "embed post",
+  "permissions set", "permissions view", "role protection", "useradd", "userdel",
+]
+
+[access.categories.public_help]
+mode = "inherit"
+users = []
+roles = []
+commands = ["help"]
+
+[access.categories.tickets]
+# Ticket staff checks run inside the commands; the roles come from [tickets] below.
+mode = "inherit"
+users = []
+roles = []
+commands = [
+  "ticket add", "ticket claim", "ticket close", "ticket list",
+  "ticket panel", "ticket remove", "ticket rename", "ticket transcript",
+]
+
+# Support tickets. Staff of a type are its staff_role_ids plus admin_role_ids.
+[tickets]
+panel_channel_id = 1561084190760505364
+log_channel_id = 1561084162973368460
+max_open = 3
+cooldown_seconds = 60
+delete_closed_after_hours = 24
+admin_role_ids = [1561083955506192414, 1561083958492397649, 1561083961692782594, 1561083970022801519, 1561080070263537745, 1561065637999018025, 1561065642101186581]
+blacklist_role_ids = [1561084008631111770]
+panel_title = "FBRP | Armed Forces Support"
+panel_description = "Pick the kind of ticket you need. A private channel opens for you and the right staff."
+
+[[tickets.types]]
+key = "cad"
+label = "CAD Tickets"
+description = "CAD access, setup and problems."
+category_id = 1561084193671348234
+transcript_channel_id = 1561084218174603264
+staff_role_ids = [1561083980399509536, 1561083964259700797, 1561083967015485543]
+
+[[tickets.types]]
+key = "hub_request"
+label = "Department Requests"
+description = "Department launches, registrations and other requests."
+category_id = 1561084196649177221
+transcript_channel_id = 1561084221617868850
+staff_role_ids = [1561083983213756577, 1561083964259700797, 1561083967015485543]
+
+[[tickets.types]]
+key = "support"
+label = "Support Tickets"
+description = "General questions and help with departments."
+category_id = 1561084200029782116
+transcript_channel_id = 1561084224532906015
+staff_role_ids = [1561083964259700797, 1561083967015485543, 1561083972732321792, 1561083974871158840, 1561083999588454495, 1561084002587386028]
+
+[[tickets.types]]
+key = "report"
+label = "Report Tickets"
+description = "Report a department, member or rule violation."
+category_id = 1561084202957414400
+transcript_channel_id = 1561084227532103720
+staff_role_ids = [1561083964259700797, 1561083967015485543, 1561083972732321792]
+

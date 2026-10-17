@@ -41,9 +41,35 @@ class DepartmentManagerBot(commands.Bot):
         )
         self.config = config
         self.db = Database(config.database_path)
+        self._limit_to_guild(config.guild_id)
         # Role changes the bot made itself after its own checks; the member-update
         # listener skips cooldowns and conflict checks for these.
         self._managed: set[tuple[str, int, int, int]] = set()
+
+    def _limit_to_guild(self, guild_id: int | None) -> None:
+        """Drop gateway events of other servers.
+
+        One bot application runs one instance per Discord server (Department Hub,
+        Armed Forces), each with its own config and database. Every instance
+        receives every event of the application, so each ignores the servers that
+        are not its own, including interactions for buttons and modals.
+        """
+        if not guild_id:
+            return
+        guild_events = {"GUILD_CREATE", "GUILD_UPDATE", "GUILD_DELETE"}
+        parsers = self._connection.parsers
+
+        def guarded(name: str, parser):
+            def parse(data):
+                raw = data.get("id") if name in guild_events else data.get("guild_id")
+                if raw is not None and int(raw) != guild_id:
+                    return None
+                return parser(data)
+
+            return parse
+
+        for name, parser in list(parsers.items()):
+            parsers[name] = guarded(name, parser)
 
     def mark_managed(self, kind: str, guild_id: int, member_id: int, role_id: int) -> None:
         self._managed.add((kind, guild_id, member_id, role_id))
