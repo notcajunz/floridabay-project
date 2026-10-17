@@ -9,6 +9,7 @@ local doors = {}            -- door hash -> { key, model, x, y, z, locked, manua
 local nearestDoor = nil     -- { key, locked, distance } of the closest door, for the prompt
 local lastScan = 0           -- game time of the last pool scan
 local showUntil = 0
+local preview = nil          -- /propset placement being previewed, see the end of the file
 
 local function toSet(list)
     local out = {}
@@ -184,7 +185,7 @@ end)
 
 CreateThread(function()
     while true do
-        local door = nearestDoor
+        local door = (not preview) and nearestDoor or nil
         if door then
             local text
             if keys[door.key] then
@@ -326,6 +327,79 @@ CreateThread(function()
             Wait(0)
         else
             Wait(500)
+        end
+    end
+end)
+
+local function DrawText3D(x, y, z, text)
+    local onScreen, sx, sy = GetScreenCoordFromWorldCoord(x, y, z)
+    if not onScreen then return end
+    SetTextScale(0.32, 0.32)
+    SetTextFont(4)
+    SetTextProportional(true)
+    SetTextColour(255, 255, 255, 230)
+    SetTextOutline()
+    SetTextCentre(true)
+    BeginTextCommandDisplayText('STRING')
+    AddTextComponentSubstringPlayerName(text)
+    EndTextCommandDisplayText(sx, sy)
+end
+
+-- ─────────────────────── /propset preview ───────────────────────
+-- /propset <point> shows the spot where the player stands, with the property's other spots in
+-- grey, until it is confirmed with E or cancelled with Backspace. Nothing is saved before that.
+
+RegisterNetEvent('fbrp:propset:preview', function(data)
+    preview = data
+    preview.until_ = GetGameTimer() + 5 * 60 * 1000
+    TriggerEvent('fbrp:notify', ('Placing %s for %s. Walk to the spot, then press E to confirm or Backspace to cancel.'):format(data.point, data.label), 'info')
+end)
+
+local function endPreview(confirmed)
+    if not preview then return end
+    preview = nil
+    TriggerServerEvent(confirmed and 'fbrp:propset:confirm' or 'fbrp:propset:cancel')
+end
+
+local POINT_COLORS = {
+    door = { 255, 120, 60 }, terminal = { 63, 227, 210 }, stash = { 63, 227, 210 },
+    armory = { 255, 181, 71 }, wardrobe = { 196, 139, 255 },
+}
+
+CreateThread(function()
+    while true do
+        if preview then
+            local ped = PlayerPedId()
+            local at = GetEntityCoords(ped)
+            local floor = at.z - 1.0
+            local base = (preview.point:gsub('%d+$', ''))
+            local color = POINT_COLORS[base] or { 255, 255, 255 }
+
+            -- The spot being placed: a disc on the floor and a tall beam, following the player.
+            DrawMarker(1, at.x, at.y, floor, 0, 0, 0, 0, 0, 0, 1.4, 1.4, 0.35, color[1], color[2], color[3], 150, false, false, 2, false, nil, nil, false)
+            DrawMarker(1, at.x, at.y, floor, 0, 0, 0, 0, 0, 0, 0.12, 0.12, 4.0, color[1], color[2], color[3], 120, false, false, 2, false, nil, nil, false)
+            -- Spots already placed on this property, so the new one can be lined up with them.
+            for name, spot in pairs(preview.existing or {}) do
+                if name ~= preview.point then
+                    DrawMarker(1, spot.x, spot.y, spot.z, 0, 0, 0, 0, 0, 0, 0.9, 0.9, 0.25, 160, 160, 160, 110, false, false, 2, false, nil, nil, false)
+                    DrawText3D(spot.x, spot.y, spot.z + 1.1, name)
+                end
+            end
+            DrawText3D(at.x, at.y, floor + 1.4, ('%s · %s'):format(preview.point, preview.label))
+
+            BeginTextCommandDisplayHelp('STRING')
+            AddTextComponentSubstringPlayerName(('Placing ~y~%s~s~ here · ~INPUT_CONTEXT~ Confirm · ~INPUT_FRONTEND_RRIGHT~ Cancel'):format(preview.point))
+            EndTextCommandDisplayHelp(0, false, false, 100)
+
+            if IsControlJustReleased(0, 38) then
+                endPreview(true)
+            elseif IsControlJustReleased(0, 177) or IsControlJustReleased(0, 194) or GetGameTimer() > preview.until_ then
+                endPreview(false)
+                TriggerEvent('fbrp:notify', 'Placement cancelled.', 'info')
+            end
+            Wait(0)
+        else
+            Wait(400)
         end
     end
 end)

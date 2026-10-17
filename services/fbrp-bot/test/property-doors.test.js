@@ -79,3 +79,12 @@ test('nothing is assumed about a property and locked doors can be breached', () 
   assert.match(server, /property\.breach/);
   assert.match(read('client/interactions.lua'), /w_breach/);
 });
+
+test('/propset previews the spot and only saves after confirmation', () => {
+  const server = read('server/propertydoors.lua');
+  assert.match(server, /fbrp:propset:preview/);
+  const command = server.slice(server.indexOf("RegisterCommand('propset'"), server.indexOf('-- Staff corrections'));
+  assert.ok(!/INSERT INTO property_points/.test(command), 'the command itself must not save');
+  assert.match(server, /RegisterNetEvent\('fbrp:propset:confirm'/);
+  assert.match(read('client/propertydoors.lua'), /Confirm.*Cancel/);
+});

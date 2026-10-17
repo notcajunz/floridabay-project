@@ -163,6 +163,8 @@ local function nearProperty(source)
     return best
 end
 
+local pendingPoint = {}  -- source -> { key, point, at } waiting for the player to confirm
+
 local function toggle(src, key)
     local prop = props[key] or nearProperty(src)
     if not prop then return S.notify(src, 'Stand at a property door to lock or unlock it.', 'error') end
@@ -281,15 +283,16 @@ RegisterCommand('propset', function(src, args)
     if not prop then return S.notify(src, 'No property you can edit within 150 metres. Community Manager+ staff on duty, or the command of the owning gang or business, only.', 'error') end
     if clearing then
         MySQL.query.await('DELETE FROM property_points WHERE property_key=? AND point=?', { prop.key, point })
-    else
-        MySQL.query.await([[
-            INSERT INTO property_points(property_key,point,x,y,z,set_by,set_at) VALUES(?,?,?,?,?,?,?)
-            ON DUPLICATE KEY UPDATE x=VALUES(x),y=VALUES(y),z=VALUES(z),set_by=VALUES(set_by),set_at=VALUES(set_at)
-        ]], { prop.key, point, at.x, at.y, at.z - 1.0, s.discord or tostring(src), S.now() })
+        FBRP.DB.audit(s.discord or tostring(src), 'property.point_set', prop.key, { point=point, cleared=true })
+        S.notify(src, ('%s cleared for %s.'):format(point, prop.label), 'success')
+        TriggerEvent('fbrp:economy:reload')
+        return
     end
-    FBRP.DB.audit(s.discord or tostring(src), 'property.point_set', prop.key, { point=point, cleared=clearing, x=at.x, y=at.y, z=at.z })
-    S.notify(src, ('%s %s for %s.'):format(point, clearing and 'cleared' or 'set here', prop.label), 'success')
-    TriggerEvent('fbrp:economy:reload')
+    -- Placing is a preview first: the client shows where the spot will go and the player confirms.
+    pendingPoint[src] = { key=prop.key, point=point, at=GetGameTimer() }
+    local existing = {}
+    for name, spot in pairs(points[prop.key] or {}) do existing[name] = spot end
+    TriggerClientEvent('fbrp:propset:preview', src, { key=prop.key, label=prop.label, point=point, existing=existing })
 end, false)
 
 -- Staff corrections: include a door the scan missed, exclude an object it wrongly locked,
@@ -325,3 +328,29 @@ RegisterNetEvent('fbrp:doors:edit', function(action, model, x, y, z, id)
     loadAll()
     pushAll()
 end)
+
+-- The player confirmed (or cancelled) the previewed spot. The position is read here, not trusted
+-- from the client, and the right to edit is checked again.
+RegisterNetEvent('fbrp:propset:confirm', function()
+    local src = source
+    local pending = pendingPoint[src]
+    pendingPoint[src] = nil
+    local s = sessions[src]
+    local prop = pending and props[pending.key]
+    if not (s and prop) then return end
+    if GetGameTimer() - pending.at > 5 * 60 * 1000 then return S.notify(src, 'The placement timed out. Run /propset again.', 'error') end
+    if not canEdit(src, prop) then return S.notify(src, 'You cannot edit that property.', 'error') end
+    local ped = GetPlayerPed(src)
+    if ped <= 0 then return end
+    local at = GetEntityCoords(ped)
+    MySQL.query.await([[
+        INSERT INTO property_points(property_key,point,x,y,z,set_by,set_at) VALUES(?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE x=VALUES(x),y=VALUES(y),z=VALUES(z),set_by=VALUES(set_by),set_at=VALUES(set_at)
+    ]], { prop.key, pending.point, at.x, at.y, at.z - 1.0, s.discord or tostring(src), S.now() })
+    FBRP.DB.audit(s.discord or tostring(src), 'property.point_set', prop.key, { point=pending.point, cleared=false, x=at.x, y=at.y, z=at.z })
+    S.notify(src, ('%s placed for %s.'):format(pending.point, prop.label), 'success')
+    TriggerEvent('fbrp:economy:reload')
+end)
+
+RegisterNetEvent('fbrp:propset:cancel', function() pendingPoint[source] = nil end)
+AddEventHandler('playerDropped', function() pendingPoint[source] = nil end)
