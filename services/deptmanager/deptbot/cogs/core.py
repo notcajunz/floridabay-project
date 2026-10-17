@@ -216,10 +216,10 @@ class CoreCog(DeptCog):
             color=discord.Color.blurple(),
         )
         sections = {
-            "Departments": "/dept create, add, update, status, info, list, hours, role, remove",
+            "Departments": "/dept create, add, update, status, info, list, hours, role, remove, join, leave",
             "Members": "/role add, /role remove, /transfer member, /transfer blacklist, /member logpunishment, history",
             "Cooldowns": "/cooldown apply, clear, view · /temprole extend, delete, list",
-            "Coordination": "/coord add, remove, job, update, activity",
+            "Coordination": "/position set, remove · /coord add, remove, job, update, activity",
             "Administration": "/admin, /permissions, /role protection, /useradd, /userdel, /rolewipe, /embed, /dm",
         }
         for name, value in sections.items():
@@ -227,8 +227,12 @@ class CoreCog(DeptCog):
         embed.add_field(
             name="Access",
             value=(
-                f"Coordinator commands need {config.level_ranks['coordinator']}+, management commands "
-                f"{config.level_ranks['manager']}+, and administration {config.level_ranks['director']}+. "
+                (
+                    "Coordinator, management and administration commands need a chain-of-command position or the coordinator role. "
+                    if config.level_roles else
+                    f"Coordinator commands need {config.level_ranks['coordinator']}+, management commands "
+                    f"{config.level_ranks['manager']}+, and administration {config.level_ranks['director']}+. "
+                ) +
                 "Department heads and high command can manage their own department role."
             ),
             inline=False,

@@ -71,9 +71,14 @@ class CoordinationCog(DeptCog):
     @manager_only
     @app_commands.choices(rank=RANK_CHOICES)
     async def coord_add(
-        self, interaction: discord.Interaction, member: discord.Member, rank: app_commands.Choice[str]
+        self, interaction: discord.Interaction, member: discord.Member, rank: app_commands.Choice[str] | None = None
     ) -> None:
         guild = require_guild(interaction)
+        if rank is None:
+            configured = list(self.bot.config.coordinator_role_ids)
+            if len(configured) != 1:
+                raise ValueError("Pick a rank.")
+            rank = app_commands.Choice(name=configured[0], value=configured[0])
         self._require_outranks(interaction, COORDINATOR_RANKS.index(rank.value), "assign ranks")
         self._require_outranks(interaction, self.bot.config.rank_index({role.id for role in member.roles}), "change coordinators")
         ranks = self._rank_roles(guild)

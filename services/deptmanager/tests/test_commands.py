@@ -7,6 +7,7 @@ from deptbot.cogs.core import CoreCog
 from deptbot.cogs.departments import DepartmentsCog
 from deptbot.cogs.email import EmailCog
 from deptbot.cogs.members import MembersCog
+from deptbot.cogs.positions import PositionsCog
 from deptbot.config import Config
 from deptbot.constants import COORDINATOR_RANKS, DEPARTMENT_CATEGORIES
 from deptbot.tickets import TicketsCog
@@ -26,7 +27,7 @@ def walk(command, prefix=""):
 
 async def registered(tmp_path: Path) -> set[str]:
     bot = DepartmentManagerBot(Config("unused", tmp_path / "commands.db", None, frozenset()))
-    for cog in (CoreCog(bot), DepartmentsCog(bot), CoordinationCog(bot), MembersCog(bot), EmailCog(bot), TicketsCog(bot)):
+    for cog in (CoreCog(bot), DepartmentsCog(bot), CoordinationCog(bot), MembersCog(bot), PositionsCog(bot), EmailCog(bot), TicketsCog(bot)):
         await bot.add_cog(cog)
     return {name for command in bot.tree.get_commands() for name in walk(command)}
 
@@ -70,3 +71,11 @@ def test_rank_index_uses_highest_rank():
     roles = {config.coordinator_role_ids["Department Coordinator"], config.coordinator_role_ids["Department Manager"]}
     assert config.rank_index(roles) == COORDINATOR_RANKS.index("Department Manager")
     assert config.rank_index(set()) is None
+
+
+def test_armed_forces_config_loads():
+    raw = tomllib.loads((ROOT / "config.armedforces.toml").read_text())
+    config = Config.from_mapping(raw, token="x")
+    assert list(config.positions)[0] == "Commander in Chief"
+    assert config.level_roles["manager"] == tuple(list(config.positions.values())[:5])
+    assert config.coord_team_role_id in config.coordinator_role_set()

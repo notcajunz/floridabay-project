@@ -77,6 +77,12 @@ class Config:
     transfer_cooldown_role_ids: dict[str, int] = field(default_factory=dict)
     resignation_cooldown_role_ids: dict[str, int] = field(default_factory=dict)
     level_ranks: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_LEVEL_RANKS))
+    # Servers without the coordinator ladder (Armed Forces) list the roles that reach each
+    # permission level instead, and the chain of command is built from `positions`.
+    level_roles: dict[str, tuple[int, ...]] = field(default_factory=dict)
+    positions: dict[str, int] = field(default_factory=dict)
+    # Position names after which the chain of command leaves a gap.
+    position_breaks: tuple[str, ...] = ()
     # Lowest coordination rank that approves or denies email database access requests.
     email_approver_rank: str = "Senior Department Coordinator"
     launch_group_role_id: int = 0
@@ -92,7 +98,17 @@ class Config:
         return {*self.transfer_cooldown_role_ids.values(), *self.resignation_cooldown_role_ids.values()}
 
     def coordinator_role_set(self) -> set[int]:
-        return {*self.coordinator_role_ids.values(), *self.coordinator_job_role_ids.values(), self.coord_team_role_id} - {0}
+        return {
+            *self.coordinator_role_ids.values(), *self.coordinator_job_role_ids.values(),
+            *self.positions.values(), self.coord_team_role_id,
+        } - {0}
+
+    def position_index(self, role_ids: set[int]) -> int | None:
+        """Index of the highest chain-of-command position held (0 is the top), or None."""
+        for index, role_id in enumerate(self.positions.values()):
+            if role_id in role_ids:
+                return index
+        return None
 
     def rank_index(self, role_ids: set[int]) -> int | None:
         """Index of the highest ladder rank held (0 is the top), or None."""
@@ -239,6 +255,9 @@ class Config:
             transfer_cooldown_role_ids=_id_map(bot.get("transfer_cooldown_role_ids")),
             resignation_cooldown_role_ids=_id_map(bot.get("resignation_cooldown_role_ids")),
             level_ranks=level_ranks,
+            level_roles={str(k): _ids(v) for k, v in bot.get("level_roles", {}).items()},
+            positions=_id_map(bot.get("positions")),
+            position_breaks=tuple(str(v) for v in bot.get("position_breaks", [])),
             email_approver_rank=email_approver_rank,
             launch_group_role_id=channel("launch_group_role_id"),
         )

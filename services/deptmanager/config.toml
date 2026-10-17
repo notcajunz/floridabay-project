@@ -113,7 +113,7 @@ owners_bypass = true
 mode = "inherit"
 users = []
 roles = []
-commands = ["dept add", "dept create", "dept hours", "dept info", "dept list", "dept remove", "dept role", "dept status", "dept update"]
+commands = ["dept add", "dept create", "dept hours", "dept info", "dept join", "dept leave", "dept list", "dept remove", "dept role", "dept status", "dept update"]
 
 [access.categories.email]
 mode = "inherit"
@@ -125,7 +125,7 @@ commands = ["email adduser", "email list", "email registrar", "email removeuser"
 mode = "inherit"
 users = []
 roles = []
-commands = ["coord activity", "coord add", "coord job", "coord remove", "coord update"]
+commands = ["coord activity", "coord add", "coord job", "coord remove", "coord update", "position remove", "position set"]
 
 [access.categories.members]
 mode = "inherit"

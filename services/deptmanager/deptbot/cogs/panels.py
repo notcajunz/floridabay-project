@@ -41,6 +41,34 @@ def chunk_lines(lines: list[str], limit: int = FIELD_LIMIT) -> list[str]:
     return chunks
 
 
+def build_position_chain_embed(embed: discord.Embed, guild: discord.Guild, config) -> discord.Embed:
+    """Chain of command from the position roles, in config order, each person under their highest position."""
+    embed.description = "The chain of command, from highest authority down."
+    placed: set[int] = set()
+    names = list(config.positions)
+    for number, (name, role_id) in enumerate(config.positions.items(), start=1):
+        role = guild.get_role(role_id)
+        if role is None:
+            continue
+        holders = sorted(
+            (member for member in role.members if member.id not in placed and not member.bot),
+            key=lambda member: member.display_name.lower(),
+        )
+        placed.update(member.id for member in holders)
+        lines = [f"└ {member.mention}" for member in holders] or ["└ *Vacant*"]
+        for index, chunk in enumerate(chunk_lines([role.mention, *lines])):
+            embed.add_field(name=f"{number:02d}  {name}" if index == 0 else "​", value=chunk, inline=False)
+        if name in config.position_breaks and name != names[-1]:
+            embed.add_field(name="━━━━━━━━━━━━━━━━", value="​", inline=False)
+    team = guild.get_role(config.coord_team_role_id)
+    if team is not None:
+        holders = sorted((m for m in team.members if not m.bot), key=lambda m: m.display_name.lower())
+        for index, chunk in enumerate(chunk_lines([team.mention, *[f"└ {m.mention}" for m in holders]] if holders else [team.mention, "└ *Vacant*"])):
+            embed.add_field(name="Department Coordinators" if index == 0 else "​", value=chunk, inline=False)
+    embed.set_footer(text="Updates automatically")
+    return embed
+
+
 def build_chain_embed(guild: discord.Guild, config) -> discord.Embed:
     """Chain of command from the rank roles themselves. Each person appears once, under their highest rank."""
     embed = discord.Embed(
@@ -51,6 +79,8 @@ def build_chain_embed(guild: discord.Guild, config) -> discord.Embed:
     )
     if guild.icon:
         embed.set_thumbnail(url=guild.icon.url)
+    if config.positions:
+        return build_position_chain_embed(embed, guild, config)
     placed: set[int] = set()
     for position, rank in enumerate(COORDINATOR_RANKS, start=1):
         role = guild.get_role(config.coordinator_role_ids.get(rank, 0))

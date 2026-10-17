@@ -251,6 +251,35 @@ class DepartmentsCog(DeptCog):
         )
         await reply(interaction, f"Registered **{name}** ({base_role.mention} / {command_role.mention}).\n{sheet_line}")
 
+    @dept.command(name="join", description="Put a member into a department")
+    @app_commands.autocomplete(department=department_autocomplete)
+    async def dept_join(self, interaction: discord.Interaction, member: discord.Member, department: str) -> None:
+        guild = require_guild(interaction)
+        row = await self.service.department(guild.id, department)
+        role = guild.get_role(row["base_role_id"] or 0)
+        if role is None:
+            raise ValueError(f"{row['name']} has no department role.")
+        members = self.bot.get_cog("MembersCog")
+        await members.role_add.callback(members, interaction, role, member)
+
+    @dept.command(name="leave", description="Take a member out of a department")
+    @app_commands.autocomplete(department=department_autocomplete)
+    @app_commands.choices(reason=[
+        app_commands.Choice(name="Resigned", value="Resigned"),
+        app_commands.Choice(name="Terminated", value="Terminated"),
+        app_commands.Choice(name="Removed (no cooldown)", value="Removed"),
+    ])
+    async def dept_leave(
+        self, interaction: discord.Interaction, member: discord.Member, department: str, reason: app_commands.Choice[str]
+    ) -> None:
+        guild = require_guild(interaction)
+        row = await self.service.department(guild.id, department)
+        role = guild.get_role(row["base_role_id"] or 0)
+        if role is None:
+            raise ValueError(f"{row['name']} has no department role.")
+        members = self.bot.get_cog("MembersCog")
+        await members.role_remove.callback(members, interaction, role, member, reason)
+
     @dept.command(name="update", description="Update department details")
     @manager_only
     @app_commands.choices(category=CATEGORY_CHOICES)

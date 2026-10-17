@@ -28,43 +28,39 @@ message_log_channel_id = 0
 member_role_id = 0
 transfer_blacklist_role_id = 1561084005145903197
 suspension_role_id = 0
-launch_group_role_id = 1561083983213756577
+launch_group_role_id = 0
 email_approver_rank = "Senior Department Coordinator"
 coord_team_role_id = 1561083999588454495
 multi_department_bypass_role_ids = []
 restricted_role_ids = []
-restricted_role_manager_role_ids = [1561083955506192414, 1561083958492397649]
+restricted_role_manager_role_ids = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808]
 
 transfer_cooldown_days = 7
 resignation_cooldown_days = 3
 hours_days = 7
 base_role_format = "{initials}"
 command_role_format = "{initials} | Command"
+position_breaks = ["Board of Directors"]
 
-[bot.level_ranks]
-coordinator = "Probationary Department Coordinator"
-manager = "Assistant Department Manager"
-director = "Assistant Department Director"
+[bot.level_roles]
+# Armed Forces has no coordinator ladder: the first five positions manage, every position and the coordinator role coordinate.
+coordinator = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808, 1561065693913419836, 1561065698980270192, 1561065704323551422, 1561083999588454495]
+manager = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808]
+director = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808]
+
+# Chain of command, highest first (the order of the server's role list).
+[bot.positions]
+"Commander in Chief" = 1561065664016285696
+"Secretary of Defense" = 1561065669187862568
+"Deputy Secretary of Defense" = 1561065674678472744
+"Chief of Staff" = 1561065680202375218
+"Board of Directors" = 1561065684849655808
+"Chairman of the Joint Chiefs of Staff" = 1561065693913419836
+"Vice Chairman of the Joint Chiefs of Staff" = 1561065698980270192
+"Joint Chief of Staff" = 1561065704323551422
 
 [bot.coordinator_role_ids]
-"Department Overseer" = 1561083955506192414
-"Department Director" = 1561083958492397649
-"Assistant Department Director" = 1561083961692782594
-"Department Manager" = 1561083964259700797
-"Assistant Department Manager" = 1561083967015485543
-"Lead Department Coordinator" = 1561083972732321792
-"Senior Department Coordinator" = 1561083974871158840
 "Department Coordinator" = 1561083999588454495
-"Probationary Department Coordinator" = 1561084002587386028
-
-[bot.coordinator_job_role_ids]
-"CAD Administrator" = 1561083980399509536
-"Department Launch Group" = 1561083983213756577
-"Document Creation Coordinator" = 1561083985948319896
-"Recruitment Coordinator" = 1561083989463146597
-"In-Game Coordinator" = 1561083994421071902
-"Transfer Coordinator" = 1561083991904227449
-"Community Engagement" = 1561083996870410291
 
 [bot.category_member_role_ids]
 "Armed Forces" = 1561065818513743923                  # Mains divider
@@ -87,13 +83,13 @@ owners_bypass = true
 # Exact command rules override category rules, for example:
 # [access.commands."transfer member"]
 # mode = "allowlist"
-# roles = [1561083991904227449]
+# roles = [0]
 
 [access.categories.departments]
 mode = "inherit"
 users = []
 roles = []
-commands = ["dept add", "dept create", "dept hours", "dept info", "dept list", "dept remove", "dept role", "dept status", "dept update"]
+commands = ["dept add", "dept create", "dept hours", "dept info", "dept join", "dept leave", "dept list", "dept remove", "dept role", "dept status", "dept update"]
 
 [access.categories.email]
 mode = "inherit"
@@ -105,7 +101,7 @@ commands = ["email adduser", "email list", "email registrar", "email removeuser"
 mode = "inherit"
 users = []
 roles = []
-commands = ["coord activity", "coord add", "coord job", "coord remove", "coord update"]
+commands = ["coord activity", "coord add", "coord job", "coord remove", "coord update", "position remove", "position set"]
 
 [access.categories.members]
 mode = "inherit"
@@ -152,7 +148,7 @@ log_channel_id = 1561084162973368460
 max_open = 3
 cooldown_seconds = 60
 delete_closed_after_hours = 24
-admin_role_ids = [1561083955506192414, 1561083958492397649, 1561083961692782594, 1561083970022801519, 1561080070263537745, 1561065637999018025, 1561065642101186581]
+admin_role_ids = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808, 1561080070263537745, 1561065637999018025, 1561065642101186581]
 blacklist_role_ids = [1561084008631111770]
 panel_title = "FBRP | Armed Forces Support"
 panel_description = "Pick the kind of ticket you need. A private channel opens for you and the right staff."
@@ -163,7 +159,7 @@ label = "CAD Tickets"
 description = "CAD access, setup and problems."
 category_id = 1561084193671348234
 transcript_channel_id = 1561084218174603264
-staff_role_ids = [1561083980399509536, 1561083964259700797, 1561083967015485543]
+staff_role_ids = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808, 1561083999588454495]
 
 [[tickets.types]]
 key = "hub_request"
@@ -171,7 +167,7 @@ label = "Department Requests"
 description = "Department launches, registrations and other requests."
 category_id = 1561084196649177221
 transcript_channel_id = 1561084221617868850
-staff_role_ids = [1561083983213756577, 1561083964259700797, 1561083967015485543]
+staff_role_ids = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808, 1561083999588454495]
 
 [[tickets.types]]
 key = "support"
@@ -179,7 +175,7 @@ label = "Support Tickets"
 description = "General questions and help with departments."
 category_id = 1561084200029782116
 transcript_channel_id = 1561084224532906015
-staff_role_ids = [1561083964259700797, 1561083967015485543, 1561083972732321792, 1561083974871158840, 1561083999588454495, 1561084002587386028]
+staff_role_ids = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808, 1561083999588454495]
 
 [[tickets.types]]
 key = "report"
@@ -187,5 +183,5 @@ label = "Report Tickets"
 description = "Report a department, member or rule violation."
 category_id = 1561084202957414400
 transcript_channel_id = 1561084227532103720
-staff_role_ids = [1561083964259700797, 1561083967015485543, 1561083972732321792]
+staff_role_ids = [1561065664016285696, 1561065669187862568, 1561065674678472744, 1561065680202375218, 1561065684849655808]
 

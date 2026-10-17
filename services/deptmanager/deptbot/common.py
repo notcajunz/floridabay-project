@@ -194,7 +194,10 @@ def has_bypass(interaction: discord.Interaction) -> bool:
 
 def meets_level(member: discord.Member, config, level: str) -> bool:
     """Whether the member's highest coordination rank is at or above the level's minimum rank."""
-    index = config.rank_index({role.id for role in member.roles})
+    role_ids = {role.id for role in member.roles}
+    if level in config.level_roles:
+        return bool(role_ids.intersection(config.level_roles[level]))
+    index = config.rank_index(role_ids)
     return index is not None and index <= COORDINATOR_RANKS.index(config.level_ranks[level])
 
 
@@ -208,6 +211,9 @@ async def require_level(interaction: discord.Interaction, level: str) -> bool:
         return True
     if await _has_permission_override(interaction, interaction.user):
         return True
+    if level in config.level_roles:
+        mentions = " or ".join(f"<@&{role_id}>" for role_id in config.level_roles[level])
+        raise app_commands.CheckFailure(f"You need one of these roles to use this command: {mentions}.")
     rank = config.level_ranks[level]
     role_id = config.coordinator_role_ids.get(rank)
     raise app_commands.CheckFailure(
