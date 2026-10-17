@@ -16,7 +16,7 @@ import {
 import { randomInt } from "node:crypto";
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
-import { organizationActivity } from "./investigation.js";
+import { organizationActivity, punishmentHistory } from "./investigation.js";
 import { lookupAnyCase, moderationCaseState } from "./case-lookup.js";
 import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
 import { runGithubSync, githubStatus } from "./github-sync.js";
@@ -1902,7 +1902,7 @@ async function userinfoCommand(i) {
   await requirePermission(i, "fbrp.investigate");
   const user = i.options.getUser("member", true),
     cutoff = Date.now() - 30 * 86400000;
-  const [players, groups, orgs, cases, discipline, hours, played] = await Promise.all([
+  const [players, groups, orgs, punishments, hours, played] = await Promise.all([
     db.query(
       "SELECT id,name,license,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 5",
       [user.id],
@@ -1912,14 +1912,7 @@ async function userinfoCommand(i) {
       [user.id],
     ),
     organizationActivity(db, user.id),
-    db.query(
-      "SELECT id,action,reason,created_at FROM moderation_cases WHERE target_id=? ORDER BY id DESC LIMIT 5",
-      [user.id],
-    ),
-    db.query(
-      "SELECT id,kind,reason,created_at FROM staff_roster_discipline WHERE discord_id=? AND revoked_at IS NULL ORDER BY id DESC LIMIT 5",
-      [user.id],
-    ),
+    punishmentHistory(db, user.id),
     db.one(
       "SELECT COALESCE(SUM(CASE WHEN ended_at IS NULL THEN FLOOR((?-started_at)/1000) ELSE seconds END),0) seconds FROM staff_shifts WHERE discord_id=? AND started_at>=?",
       [Date.now(), user.id, cutoff],
@@ -1937,8 +1930,7 @@ async function userinfoCommand(i) {
         const role = row.member ? (row.manager ? "Leader" : row.rank || "Member") : "Former member";
         return `**${clean(row.name, 60)}** · ${clean(role, 40)} · 7d ${(row.weekSeconds / 3600).toFixed(1)}h · 30d ${(row.monthSeconds / 3600).toFixed(1)}h · total ${(row.totalSeconds / 3600).toFixed(1)}h`;
       }))[0] || "None", false],
-      ["Recent cases", chunkLines(cases.map((row) => `\`#${row.id}\` · ${humanize(row.action)} · ${clean(row.reason, 80)}`))[0] || "None", false],
-      ["Active staff discipline", chunkLines(discipline.map((row) => `\`#${row.id}\` · ${humanize(row.kind)} · ${clean(row.reason, 80)}`))[0] || "None", false],
+      ["Punishments", `${punishments.total} on record${punishments.failed.length ? ` (could not read: ${punishments.failed.join(", ")})` : ""} · full list below`, false],
     ],
     footer: "Florida Bay Roleplay · Staff time covers 30 days · organization hours show 7d, 30d and all time",
   });
@@ -1999,6 +1991,16 @@ async function userinfoCommand(i) {
       : "Roles only show in servers the bot is in",
   });
 
+  const punishLine = (row) => `${row.status === "active" ? "🔴" : "⚪"} \`${clean(row.ref, 20)}\` ${new Date(row.at).toISOString().slice(0, 10)} · **${humanize(row.kind)}** · ${humanize(row.status)}${row.actorId && /^\d{15,24}$/.test(row.actorId) ? ` · by ${mention(row.actorId)}` : ""}\n${clean(row.reason || "No reason recorded.", 100)}`;
+  const punishmentCard = card(`Punishment history · ${clean(user.username, 80)}`, {
+    color: punishments.entries.some((row) => row.status === "active") ? COLORS.danger : punishments.total ? COLORS.warning : COLORS.success,
+    description: punishments.total
+      ? `**${punishments.total}** record${punishments.total === 1 ? "" : "s"}: bans, blacklists, mutes, kicks, role strips, restorations, staff/IAA/DevOps discipline and IA investigations. Newest first.`
+      : `No punishments are recorded for ${mention(user.id)}.`,
+    rows: punishments.entries.length ? pageRows("Records", punishments.entries.map(punishLine), 3, "None") : [],
+    footer: punishments.failed.length ? `Could not read: ${punishments.failed.join(", ")}` : "Florida Bay Roleplay · every system, one timeline",
+  });
+
   let altCard;
   if (await hasPermission(i.user.id, "fbrp.global.alts")) {
     const found = await altSearch(user.id).catch((error) => {
@@ -2024,7 +2026,7 @@ async function userinfoCommand(i) {
       description: "Seeing linked alt accounts needs the `fbrp.global.alts` permission.",
     });
   }
-  return { embeds: [overview], followUps: [{ embeds: [serverCard, altCard] }] };
+  return { embeds: [overview], followUps: [{ embeds: [punishmentCard] }, { embeds: [serverCard, altCard] }] };
 }
 
 const casePerson = (id, fallback = "Unknown") => /^\d{15,24}$/.test(String(id || "")) ? who(id) : `\`${clean(id || fallback, 80)}\``;
