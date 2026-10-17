@@ -138,6 +138,7 @@ import { createPersonals } from "./personals.js";
 import { createPersonalImporter } from "./personal-import.js";
 import { createGiveaways } from "./giveaways.js";
 import { createStatusBoard } from "./status-board.js";
+import { enforceRoleBundle, reconcileRoleBundleHolders } from "./role-bundle.js";
 import { createChainOfCommand } from "./chain-of-command.js";
 import { createRoleMembershipCommands } from "./role-membership.js";
 import { createStaffQueue } from "./staff-queue.js";
@@ -4636,6 +4637,14 @@ client.once("clientReady", async () => {
   await reconcileAllManagementMemberships(client.user.id)
     .then(({ eligible, changed }) => console.log(`[FBRP staff] Management Team ACE: ${eligible} ACM+ account(s), ${changed.length} corrected.`))
     .catch((error) => console.error("[FBRP staff] Management Team ACE:", error));
+  for (const guild of client.guilds.cache.values()) {
+    await reconcileRoleBundleHolders(guild)
+      .then(({ members, changed, unavailable }) => {
+        if (members || unavailable.size)
+          console.log(`[FBRP role bundle] ${guild.name}: ${members} holder(s), ${changed} role grant(s), ${unavailable.size} unavailable role(s).`);
+      })
+      .catch((error) => console.error(`[FBRP role bundle] ${guild.name}:`, error.message || error));
+  }
   // Bring the public site and portal online before the slower, network-wide
   // role reconciliation so a Discord outage cannot hold the website closed.
   await refreshSiteUrls().catch((error) => console.error("[FBRP bot] site url check:", error));
@@ -4930,7 +4939,14 @@ client.on("guildMemberUpdate", (oldMember, newMember) => {
     .then(() => enforceBlacklistRoles(newMember))
     .then(() => enforceRoleStripRoles(newMember))
     .then((roleStripped) => roleStripped || enforceUnverifiedMemberRoles(newMember))
-    .then((quarantined) => quarantined || syncMember(client, newMember, { alert: "live" }))
+    .then(async (quarantined) => {
+      if (quarantined) return true;
+      const bundle = await enforceRoleBundle(oldMember, newMember);
+      if (bundle.unavailable.length)
+        console.warn(`[FBRP role bundle] ${newMember.guild.name}: unavailable roles ${bundle.unavailable.join(", ")}`);
+      await syncMember(client, newMember, { alert: "live" });
+      return false;
+    })
     // A /coord hire or removal changes a sector coordination group, so push it to the other servers now.
     .then(async () => {
       if (await touchesCoordinationSource(oldMember, newMember)) await syncUserAcrossNetwork(client, newMember.id);
