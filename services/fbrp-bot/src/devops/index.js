@@ -1,5 +1,6 @@
 import { ActivityType, Client, Events, GatewayIntentBits, MessageFlags, Partials } from "discord.js";
 import { pool } from "../database.js";
+import { recordInteraction } from "../audit-trail.js";
 import { allMembers, authority, config, db, post } from "./store.js";
 import { C, EPHEMERAL, UserError, card, fail, mention, respond, ts } from "./util.js";
 import { definitions } from "./commands.js";
@@ -185,6 +186,7 @@ async function component(i, actor) {
 }
 
 client.on(Events.InteractionCreate, async (i) => {
+  if (!i.isAutocomplete()) void recordInteraction((sql, args) => pool.query(sql, args), "devops", i).catch(() => {});
   if (!i.inGuild() || i.guildId !== GUILD_ID) {
     if (i.isRepliable()) await i.reply({ content: "The DevOps bot only works inside the FBRP | DevOps server.", flags: MessageFlags.Ephemeral }).catch(() => null);
     return;

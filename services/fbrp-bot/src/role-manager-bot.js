@@ -1,5 +1,6 @@
 import { Client, EmbedBuilder, GatewayIntentBits, Partials } from "discord.js";
 import { pool } from "./database.js";
+import { recordInteraction } from "./audit-trail.js";
 import { roleManagerCommand } from "./role-manager.js";
 import { roleManagerCommandNames, roleManagerCommands } from "./role-manager-commands.js";
 
@@ -41,6 +42,7 @@ client.once("clientReady", async () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isAutocomplete()) void recordInteraction((sql, args) => pool.query(sql, args), "roles", interaction).catch(() => {});
   if (!interaction.isChatInputCommand() || !roleManagerCommandNames.has(interaction.commandName)) return;
   await interaction.deferReply();
   try {

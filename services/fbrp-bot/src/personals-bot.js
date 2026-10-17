@@ -1,5 +1,6 @@
 import { Client, EmbedBuilder, GatewayIntentBits } from "discord.js";
 import { audit, db, pool } from "./database.js";
+import { recordInteraction } from "./audit-trail.js";
 import { createPersonalImporter } from "./personal-import.js";
 import { createPersonals } from "./personals.js";
 import { personalsCommandNames, personalsCommands } from "./personals-commands.js";
@@ -158,6 +159,7 @@ client.once("clientReady", async () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isAutocomplete()) void recordInteraction((sql, args) => pool.query(sql, args), "personals", interaction).catch(() => {});
   if (!personalsCommandNames.has(interaction.commandName)) return;
   if (interaction.isAutocomplete()) {
     await personalAutocomplete(interaction).catch((error) => {

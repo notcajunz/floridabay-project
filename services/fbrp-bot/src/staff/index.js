@@ -1,5 +1,6 @@
 import { ActivityType, ChannelType, Client, EmbedBuilder, Events, GatewayIntentBits, Partials, PermissionFlagsBits } from "discord.js";
 import { db, pool } from "../database.js";
+import { recordInteraction } from "../audit-trail.js";
 import { refreshSiteUrls } from "../site-url.js";
 import { COLORS, embed, humanize, roleRef } from "../ui.js";
 import { commandNames, definitions } from "./commands.js";
@@ -103,6 +104,7 @@ const staffHandlers = {
 };
 
 client.on(Events.InteractionCreate, async (i) => {
+  if (!i.isAutocomplete()) void recordInteraction((sql, args) => pool.query(sql, args), "staff", i).catch(() => {});
   if (i.isAutocomplete()) {
     if (!commandNames.has(i.commandName)) return;
     await autocomplete(i).catch((error) => {

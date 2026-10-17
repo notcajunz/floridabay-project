@@ -17,6 +17,8 @@ import { randomInt } from "node:crypto";
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
 import { organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
+import { createAuditMirror, keyForAction } from "./audit-mirror.js";
+import { recordInteraction } from "./audit-trail.js";
 import { lookupAnyCase, moderationCaseState } from "./case-lookup.js";
 import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
 import { runGithubSync, githubStatus } from "./github-sync.js";
@@ -227,13 +229,19 @@ async function log(guild, entry, purpose = "staff_audit") {
         item.isTextBased() &&
         ["staff-audit", "mod-logs", "logs"].includes(item.name),
     );
+  const payload = entry?.content
+    ? null
+    : entry instanceof EmbedBuilder
+      ? entry
+      : logEmbed(purpose, typeof entry === "string" ? { description: entry } : entry, guild);
+  // Everything logged anywhere is also copied into the audit category (unless the entry opts out).
+  if (entry?.noMirror !== true) {
+    const copy = payload || logEmbed(purpose, { description: clean(entry.content, 3500) }, guild);
+    void auditMirror.post(`log-${purpose}`, copy, channel?.id ? new Set([channel.id]) : null).catch(() => {});
+  }
   if (!channel?.isTextBased()) return;
   if (entry?.content)
     return channel.send({ content: entry.content, allowedMentions: { parse: [] } }).catch(() => {});
-  const payload =
-    entry instanceof EmbedBuilder
-      ? entry
-      : logEmbed(purpose, typeof entry === "string" ? { description: entry } : entry, guild);
   await channel
     .send({
       embeds: [payload],
@@ -243,6 +251,8 @@ async function log(guild, entry, purpose = "staff_audit") {
     })
     .catch((error) => console.error(`[FBRP bot] ${purpose} log:`, error.message || error));
 }
+
+const auditMirror = createAuditMirror({ client, db });
 
 const staffExams = createStaffExams({ client, db, audit, log });
 const economy = createEconomy({ client, db, audit, log, hasPermission });
@@ -4570,7 +4580,18 @@ const handlers = {
   coc: chainOfCommand.command,
 };
 
+let forwardingAudit = false;
 async function forwardGameAudit() {
+  if (forwardingAudit) return;
+  forwardingAudit = true;
+  try {
+    await forwardGameAuditRows();
+  } finally {
+    forwardingAudit = false;
+  }
+}
+
+async function forwardGameAuditRows() {
   const stored = await db.one("SELECT value FROM bot_config WHERE `key`='game_audit_cursor'");
   if (!stored) {
     const latest = await db.one("SELECT COALESCE(MAX(id),0) id FROM audit_log");
@@ -4581,7 +4602,7 @@ async function forwardGameAudit() {
     return;
   }
   let cursor = Number(typeof stored.value === "string" ? JSON.parse(stored.value) : stored.value) || 0;
-  const rows = await db.query("SELECT * FROM audit_log WHERE id>? ORDER BY id LIMIT 50", [cursor]);
+  const rows = await db.query("SELECT * FROM audit_log WHERE id>? ORDER BY id LIMIT 200", [cursor]);
   // Joins and leaves use a dedicated connections channel when one is bound, else the game log.
   let connectionsBound = null;
   for (const row of rows) {
@@ -4605,15 +4626,18 @@ async function forwardGameAudit() {
       purpose = connectionsBound ? "connections" : "game";
     }
     else if (String(row.actor_id) === "web-panel") purpose = "staff_audit";
-    if (purpose) {
+    {
       let payload = row.payload || {};
       if (typeof payload === "string") try { payload = JSON.parse(payload); } catch { payload = {}; }
       const isId = (value) => /^\d{15,24}$/.test(String(value));
       const details = Object.entries(payload)
-        .slice(0, 12)
-        .map(([key, value]) => [humanize(key), clip(typeof value === "object" ? JSON.stringify(value) : value, 200) || "None"]);
-      await log(client.guilds.cache.first(), {
-        title: humanize(action),
+        .slice(0, 20)
+        .map(([key, value]) => [humanize(key.replace(/^opt_/, "")), clip(typeof value === "object" ? JSON.stringify(value) : value, 300) || "None"]);
+      const isCommand = action.startsWith("cmd.");
+      const failed = isCommand && payload.result === "failed";
+      const spec = {
+        title: isCommand ? `/${action.split(".").slice(2).join(" ")}${failed ? " failed" : ""}` : humanize(action),
+        color: failed ? COLORS.danger : undefined,
         actor: isId(row.actor_id) ? row.actor_id : undefined,
         fields: [
           ...(!isId(row.actor_id) && row.actor_id ? [["Actor", `\`${clean(row.actor_id, 80)}\``]] : []),
@@ -4622,7 +4646,11 @@ async function forwardGameAudit() {
         ],
         footer: `Florida Bay Roleplay \u00b7 ${action}`,
         server: false,
-      }, purpose);
+      };
+      // Rows with a home channel keep posting there (and are mirrored by log); every other row,
+      // including every command, goes straight into the audit category.
+      if (purpose) await log(client.guilds.cache.first(), spec, purpose);
+      else await auditMirror.mirrorSpec(keyForAction(action), spec, null);
     }
     cursor = Number(row.id);
   }
@@ -4805,6 +4833,7 @@ async function logCommandUse(i, error) {
   if (readOnly && !error) return;
   const data = i.options.data[0]?.type === 1 ? i.options.data[0].options || [] : i.options.data;
   await log(i.guild, {
+    noMirror: true,
     title: `/${i.commandName}${sub ? ` ${sub}` : ""}${error ? " failed" : ""}`,
     color: error ? COLORS.danger : COLORS.primary,
     actor: i.user.id,
@@ -4817,6 +4846,7 @@ async function logCommandUse(i, error) {
 }
 
 client.on("interactionCreate", async (i) => {
+  if (!i.isAutocomplete() && !i.isChatInputCommand()) void recordInteraction((sql, args) => db.query(sql, args), "main", i).catch(() => {});
   if (i.isButton() && i.customId.startsWith("help:")) {
     const [, page, rawFilter = ""] = i.customId.split(":");
     await i.update(helpPayload(Number(page), decodeURIComponent(rawFilter)));
@@ -4839,6 +4869,8 @@ client.on("interactionCreate", async (i) => {
     return;
   }
   if (await ticketSystem.component(i)) return;
+  if (i.isChatInputCommand() && (i.commandName === "help" || (i.commandName === "ticket" && i.options.getSubcommand() === "open")))
+    void recordInteraction((sql, args) => db.query(sql, args), "main", i).catch(() => {});
   if (i.isChatInputCommand() && i.commandName === "ticket" && i.options.getSubcommand() === "open") {
     try {
       await i.showModal(await ticketSystem.modal(i.options.getString("type", true)));
@@ -4869,8 +4901,10 @@ client.on("interactionCreate", async (i) => {
     await i.editReply(followUps.length ? { ...payload, followUps: undefined } : payload);
     for (const extra of followUps) await i.followUp({ ...extra, ephemeral: true }).catch((error) => console.error(`[FBRP bot] /${i.commandName} follow-up:`, error.message));
     void logCommandUse(i, null).catch(() => {});
+    void recordInteraction((sql, args) => db.query(sql, args), "main", i).catch(() => {});
   } catch (error) {
     void logCommandUse(i, error).catch(() => {});
+    void recordInteraction((sql, args) => db.query(sql, args), "main", i, error).catch(() => {});
     console.error(`[FBRP bot] /${i.commandName}:`, error);
     await i
       .editReply({
