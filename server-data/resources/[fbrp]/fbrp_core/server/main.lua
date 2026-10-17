@@ -122,6 +122,20 @@ local function offDutyVmenuObject(object)
     return not acePatternMatches(object, 'vMenu.NoClip')
 end
 
+-- vMenu.Everything is never applied as a wildcard (see config_vmenu.lua): it is the
+-- parent of NoClip and of the voice chat permissions in vMenu's client. A row granting
+-- it is replaced by the concrete permissions it stands for.
+local function effectiveAceRows(row)
+    if row.object == 'vMenu.Everything' and row.mode == 'allow' then
+        local out = {}
+        for _, object in ipairs(FBRP.VmenuEverything) do
+            out[#out + 1] = { group_name=row.group_name, object=object, mode='allow' }
+        end
+        return out
+    end
+    return { row }
+end
+
 local function membershipRows(discord)
     if not discord then return {} end
     return MySQL.query.await([[
@@ -287,27 +301,40 @@ local function reconcilePrincipals(source)
     for key, parent in pairs(wanted) do addPrincipal(source, key, parent) end
 end
 
+local wildcardCleared = {}
+
 local function loadPermissionModel()
-    local nextRows = {}
+    local nextRows = {}      -- rows exactly as stored, used for permission lookups
+    local effective = {}     -- rows actually applied as ACEs, after vMenu.Everything expansion
     for _, row in ipairs(MySQL.query.await('SELECT group_name,object,mode FROM ace_entries')) do
         nextRows[row.group_name] = nextRows[row.group_name] or {}
         nextRows[row.group_name][#nextRows[row.group_name] + 1] = row
-        local key = row.group_name .. '|' .. row.object
-        if not appliedAces[key] or appliedAces[key] ~= row.mode then
-            if appliedAces[key] then
-                ExecuteCommand(('remove_ace %s %s %s'):format(groupPrincipal(row.group_name), row.object, appliedAces[key]))
-            end
-            ExecuteCommand(('add_ace %s %s %s'):format(groupPrincipal(row.group_name), row.object, row.mode))
-            appliedAces[key] = row.mode
+        effective[row.group_name] = effective[row.group_name] or {}
+        -- A resource restart keeps ACEs an older run added, so make sure the wildcard is gone.
+        if row.object == 'vMenu.Everything' and not wildcardCleared[row.group_name] then
+            wildcardCleared[row.group_name] = true
+            ExecuteCommand(('remove_ace %s vMenu.Everything allow'):format(groupPrincipal(row.group_name)))
+            ExecuteCommand(('remove_ace %s vMenu.Everything allow'):format(vmenuPrincipal(row.group_name)))
         end
-        if offDutyVmenuObject(row.object) then
-            local vmenuKey = row.group_name .. '|vmenu|' .. row.object
-            if not appliedAces[vmenuKey] or appliedAces[vmenuKey] ~= row.mode then
-                if appliedAces[vmenuKey] then
-                    ExecuteCommand(('remove_ace %s %s %s'):format(vmenuPrincipal(row.group_name), row.object, appliedAces[vmenuKey]))
+        for _, applied in ipairs(effectiveAceRows(row)) do
+            effective[row.group_name][#effective[row.group_name] + 1] = applied
+            local key = applied.group_name .. '|' .. applied.object
+            if not appliedAces[key] or appliedAces[key] ~= applied.mode then
+                if appliedAces[key] then
+                    ExecuteCommand(('remove_ace %s %s %s'):format(groupPrincipal(applied.group_name), applied.object, appliedAces[key]))
                 end
-                ExecuteCommand(('add_ace %s %s %s'):format(vmenuPrincipal(row.group_name), row.object, row.mode))
-                appliedAces[vmenuKey] = row.mode
+                ExecuteCommand(('add_ace %s %s %s'):format(groupPrincipal(applied.group_name), applied.object, applied.mode))
+                appliedAces[key] = applied.mode
+            end
+            if offDutyVmenuObject(applied.object) then
+                local vmenuKey = applied.group_name .. '|vmenu|' .. applied.object
+                if not appliedAces[vmenuKey] or appliedAces[vmenuKey] ~= applied.mode then
+                    if appliedAces[vmenuKey] then
+                        ExecuteCommand(('remove_ace %s %s %s'):format(vmenuPrincipal(applied.group_name), applied.object, appliedAces[vmenuKey]))
+                    end
+                    ExecuteCommand(('add_ace %s %s %s'):format(vmenuPrincipal(applied.group_name), applied.object, applied.mode))
+                    appliedAces[vmenuKey] = applied.mode
+                end
             end
         end
     end
@@ -316,7 +343,7 @@ local function loadPermissionModel()
         local scopedObject = object and object:match('^vmenu|(.+)$')
         if scopedObject then object = scopedObject end
         local keep = false
-        for _, row in ipairs(nextRows[group] or {}) do
+        for _, row in ipairs(effective[group] or {}) do
             if row.object == object and row.mode == mode and (not scopedObject or offDutyVmenuObject(row.object)) then keep = true break end
         end
         if not keep then
@@ -784,6 +811,22 @@ RegisterNetEvent('fbrp:requestSession', function()
     local src = source
     if ready then refreshPlayer(src) end
 end)
+
+-- A client reports the vMenu noclip footprint while the server has not authorized it
+-- (vMenu caches permissions, so the client switches it off itself). Logged for review.
+local lastNoclipReport = {}
+RegisterNetEvent('fbrp:vmenu:unauthorizedNoclip', function()
+    local src = source
+    local s = sessions[src]
+    if not s then return end
+    local player = Player(src)
+    if s.staffDuty and player and player.state['fbrp:staffNoclip'] == true then return end
+    local stamp = now()
+    if lastNoclipReport[src] and stamp - lastNoclipReport[src] < 30000 then return end
+    lastNoclipReport[src] = stamp
+    FBRP.DB.audit(s.discord or tostring(src), 'security.noclip_blocked', s.discord, { source=src, staffDuty=s.staffDuty == true })
+end)
+AddEventHandler('playerDropped', function() lastNoclipReport[source] = nil end)
 
 RegisterCommand('clockin', function(source)
     if source <= 0 then return end

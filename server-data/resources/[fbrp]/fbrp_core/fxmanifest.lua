@@ -10,6 +10,7 @@ lua54 'yes'
 shared_scripts {
     'config.lua',
     'config_systems.lua',
+    'config_vmenu.lua',
     'config_pastimes.lua'
 }
 
