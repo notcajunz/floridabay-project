@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
+import { deflateRawSync } from "node:zlib";
 
 const run = promisify(execFile);
 const dir = await mkdtemp(path.join(tmpdir(), "fbrp-replace-pack-"));
@@ -25,7 +26,14 @@ globalThis.fetch = async (url, options) => {
 
 const vehiclesMeta = (model) => `<CVehicleModelInfo__InitDataList><Item><modelName>${model}</modelName><txdName>${model}</txdName><handlingId>${model}</handlingId><gameName>${model}</gameName></Item></CVehicleModelInfo__InitDataList>`;
 const handlingMeta = (model) => `<CHandlingDataMgr><HandlingData><Item type="CHandlingData"><handlingName>${model}</handlingName><fMass value="1500.0"/></Item></HandlingData></CHandlingDataMgr>`;
-const yft = (fill) => Buffer.concat([Buffer.from("RSC7"), Buffer.alloc(64, fill)]);
+const yft = (fill) => {
+  const header = Buffer.alloc(16);
+  header.write("RSC7");
+  header.writeUInt32LE(162, 4);
+  header.writeUInt32LE(0xa8000000, 8); // one 512-byte system page, resource version 0xA2
+  header.writeUInt32LE(0x20000000, 12);
+  return Buffer.concat([header, deflateRawSync(Buffer.alloc(512, fill))]);
+};
 
 /** Builds a pack zip for `model` and stages it as an upload through the importer's chunk endpoint. */
 async function stagePack(importer, model) {

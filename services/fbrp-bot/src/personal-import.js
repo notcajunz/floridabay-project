@@ -1,10 +1,14 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { appendFile, cp, mkdir, mkdtemp, open, readFile, readdir, realpath, rename as rename_, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { createInflateRaw } from "node:zlib";
 import { callGame } from "./sync.js";
 import { shrinkYtd } from "./ytd-shrink.js";
 import { PERSONAL_VEHICLES_DIR, deletePersonalResource, personalResourceName } from "./personal-resources.js";
@@ -79,6 +83,60 @@ export function renamedStreamName(fileName, from, to) {
   if (!lower.startsWith(from)) return null;
   const rest = fileName.slice(from.length);
   return /^[._+]/.test(rest) ? `${to}${rest}` : null;
+}
+
+/** Expanded byte count encoded by one RSC7 system/graphics page-flags word. */
+function resourceSize(flags) {
+  const pages =
+    (((flags >>> 27) & 1) << 0) +
+    (((flags >>> 26) & 1) << 1) +
+    (((flags >>> 25) & 1) << 2) +
+    (((flags >>> 24) & 1) << 3) +
+    (((flags >>> 17) & 0x7f) << 4) +
+    (((flags >>> 11) & 0x3f) << 5) +
+    (((flags >>> 7) & 0xf) << 6) +
+    (((flags >>> 5) & 0x3) << 7) +
+    (((flags >>> 4) & 1) << 8);
+  return (0x200 * 2 ** (flags & 0xf)) * pages;
+}
+
+/**
+ * FiveM streams these extensions as compiled RAGE resources. CodeWalker XML exports often keep
+ * the original .yft name, but sending that XML to a client causes the fatal "Invalid fixup"
+ * dialog. Require an RSC7 header and a complete raw-deflate payload before installing a pack.
+ */
+export async function validateStreamAsset(file) {
+  const handle = await open(file.full, "r");
+  const header = Buffer.alloc(16);
+  try {
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    if (bytesRead !== header.length || header.toString("ascii", 0, 4) !== "RSC7") {
+      const prefix = header.toString("utf8", 0, bytesRead).trimStart();
+      const detail = prefix.startsWith("<?xml") || prefix.startsWith("<Fragment")
+        ? "It is a CodeWalker XML export, not a compiled vehicle model. Export or save it as a binary YFT first."
+        : "It is not a compiled RSC7 resource.";
+      throw new Error(`${file.rel}: ${detail}`);
+    }
+  } finally {
+    await handle.close();
+  }
+
+  const expected = resourceSize(header.readUInt32LE(8)) + resourceSize(header.readUInt32LE(12));
+  if (!expected) throw new Error(`${file.rel}: its RSC7 header declares an empty resource.`);
+  let expanded = 0;
+  const sink = new Writable({
+    write(chunk, _encoding, done) {
+      expanded += chunk.length;
+      done(expanded > expected ? new Error("expanded data exceeds the RSC7 page sizes") : null);
+    },
+  });
+  try {
+    await pipeline(createReadStream(file.full, { start: 16 }), createInflateRaw(), sink);
+  } catch (error) {
+    throw new Error(`${file.rel}: its RSC7 data is corrupt (${error.message}).`);
+  }
+  if (expanded !== expected)
+    throw new Error(`${file.rel}: its RSC7 header declares ${expected} expanded bytes but contains ${expanded}.`);
 }
 
 const AI_SCHEMA = {
@@ -667,6 +725,7 @@ export function createPersonalImporter({ personals, audit, db }) {
         if (stream.has(key)) { notes.push(`Two files are named ${file.name}; kept ${stream.get(key).rel}.`); continue; }
         stream.set(key, file);
       }
+      for (const file of stream.values()) await validateStreamAsset(file);
       if (![...stream.keys()].some((name) => name.startsWith(`${model}.`) || name.startsWith(`${model}_hi.`)))
         throw new Error(`No ${model}.yft model file found in the pack.`);
       const shrink = truthy(input.shrink);

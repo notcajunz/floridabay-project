@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
+import { deflateRawSync } from "node:zlib";
 
 const run = promisify(execFile);
 const dir = await mkdtemp(path.join(tmpdir(), "fbrp-liveries-"));
@@ -90,7 +91,14 @@ test("converting a pack finds its liveries with the AI and adding the personal l
   await writeFile(path.join(src, "data", "handling.meta"), `<CHandlingDataMgr><HandlingData><Item type="CHandlingData"><handlingName>wagon</handlingName><fMass value="1500.0"/></Item></HandlingData></CHandlingDataMgr>`);
   await writeFile(path.join(src, "data", "carcols.meta"), CARCOLS);
   await writeFile(path.join(src, "data", "carvariations.meta"), VARIATIONS);
-  const rsc = (fill) => Buffer.concat([Buffer.from("RSC7"), Buffer.alloc(48, fill)]);
+  const rsc = (fill) => {
+    const header = Buffer.alloc(16);
+    header.write("RSC7");
+    header.writeUInt32LE(162, 4);
+    header.writeUInt32LE(0xa8000000, 8);
+    header.writeUInt32LE(0x20000000, 12);
+    return Buffer.concat([header, deflateRawSync(Buffer.alloc(512, fill))]);
+  };
   await writeFile(path.join(src, "stream", "wagon.yft"), rsc(1));
   await writeFile(path.join(src, "stream", "wagon.ytd"), rsc(2));
   await writeFile(path.join(src, "stream", "wagon_livery_red.ytd"), rsc(3));
