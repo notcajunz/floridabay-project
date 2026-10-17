@@ -1089,7 +1089,7 @@ function liveryDetails(p) {
 
 function liveryList(list) {
   return list.length
-    ? `<div class="feed">${list.map((l) => `<div class="feed-row"><div><b>${esc(l.label)}</b><br><small>${l.files.length} file${l.files.length === 1 ? "" : "s"}${l.files.some((f) => f.replaced) ? " · replaces some originals" : ""}</small></div><div class="row-end"><button class="btn btn-ghost btn-sm" type="button" data-livery-remove="${l.id}">Remove</button></div></div>`).join("")}</div>`
+    ? `<div class="feed">${list.map((l) => `<div class="feed-row"><div><b>${esc(l.label)}</b>${l.builtin ? ` <span class="pill">In vehicle files</span>` : ""}<br><small>${l.builtin ? esc(l.detail || "Found in the vehicle pack") : `${l.files.length} file${l.files.length === 1 ? "" : "s"}${l.files.some((f) => f.replaced) ? " · replaces some originals" : ""}`}</small></div><div class="row-end"><button class="btn btn-ghost btn-sm" type="button" data-livery-remove="${l.id}">${l.builtin ? "Remove from list" : "Remove"}</button></div></div>`).join("")}</div>`
     : `<p class="personal-none">No liveries added.</p>`;
 }
 
@@ -1138,7 +1138,7 @@ async function liveryAdd(button) {
 async function liveryRemove(button) {
   const id = Number(button.dataset.liveryRemove);
   const livery = state.data.customAssets?.liveries.find((l) => l.id === id);
-  if (!livery || !confirm(`Remove the ${livery.label} livery? Files it replaced are put back.`)) return;
+  if (!livery || !confirm(livery.builtin ? `Remove ${livery.label} from this vehicle's livery list? The vehicle files are not changed.` : `Remove the ${livery.label} livery? Files it replaced are put back.`)) return;
   button.disabled = true;
   try {
     const response = await api("portal/livery/remove", { method: "POST", body: JSON.stringify({ id }) });
@@ -1456,6 +1456,7 @@ async function personalConvert(button) {
     out.innerHTML = `<div class="callout">${icon("check")}<div><b>Security check passed.</b> Installed as <code>${esc(result.resource)}</code>. ${esc(result.summary || "")}
       ${result.started ? (result.restarted ? " It was reloaded live with the new files. Players already online should reconnect to get the new handling." : " It is live now. Players already online should reconnect to see it.") : ""}
       ${result.changes.length ? `<ul class="personal-import-list">${result.changes.map((c) => `<li><code>${esc(c.field)}</code> ${esc(c.from)} → <b>${esc(c.to)}</b>${c.reason ? ` <small>${esc(c.reason)}</small>` : ""}</li>`).join("")}</ul>` : "<p>No handling changes.</p>"}
+      ${(result.liveries || []).length ? `<p><b>Liveries found in the pack</b> (listed on the vehicle when you add it): ${result.liveries.map((l) => esc(l.label)).join(", ")}</p>` : ""}
       ${result.notes.length ? `<ul class="personal-import-list notes">${result.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
       <div class="personal-rename"><label class="field">Spawn name <small>(rename it if you want a different model name)</small>
         <span class="personal-rename-row"><input id="personal-rename-input" value="${esc(result.model)}" minlength="2" maxlength="40" pattern="[A-Za-z0-9_]+" autocapitalize="off"><button class="btn btn-glass" type="button" data-personal-rename>Rename</button></span></label><div id="personal-rename-status" class="muted"></div></div>

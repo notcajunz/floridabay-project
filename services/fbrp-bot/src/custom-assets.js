@@ -29,6 +29,11 @@ const EUP_META_TYPES = [
   { root: "ShopPedApparel", dataFile: "SHOP_PED_APPAREL_META_FILE" },
   { root: "CPedModelInfo__InitDataList", dataFile: "PED_METADATA_FILE" },
 ];
+const liveryRow = (row) => ({
+  id: Number(row.id), personal_id: Number(row.personal_id), label: row.label, added_by: row.added_by, added_at: Number(row.added_at),
+  builtin: Boolean(Number(row.builtin || 0)), detail: row.detail || "",
+  files: (typeof row.files === "string" ? JSON.parse(row.files) : row.files) || [],
+});
 const text = (value, max) => String(value ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
 const eupResourceName = (name) => `fbrp_eup_${name}`;
 
@@ -243,14 +248,11 @@ export function createCustomAssets({ personals, audit, db }) {
     if (!(await personals.canManage(discordId))) return null;
     const [eup, liveries] = await Promise.all([
       db.query("SELECT * FROM custom_eup ORDER BY label,id").catch(() => []),
-      db.query("SELECT id,personal_id,label,files,added_by,added_at FROM personal_liveries ORDER BY label,id").catch(() => []),
+      db.query("SELECT id,personal_id,label,files,builtin,detail,added_by,added_at FROM personal_liveries ORDER BY label,id").catch(() => []),
     ]);
     return {
       eup: eup.map(eupView),
-      liveries: liveries.map((row) => ({
-        id: Number(row.id), personal_id: Number(row.personal_id), label: row.label, added_by: row.added_by, added_at: Number(row.added_at),
-        files: (typeof row.files === "string" ? JSON.parse(row.files) : row.files) || [],
-      })),
+      liveries: liveries.map(liveryRow),
     };
   }
 
@@ -430,11 +432,6 @@ export function createCustomAssets({ personals, audit, db }) {
     return { personal, model, resource, dir };
   }
 
-  const liveryRow = (row) => ({
-    id: Number(row.id), personal_id: Number(row.personal_id), label: row.label, added_by: row.added_by, added_at: Number(row.added_at),
-    files: (typeof row.files === "string" ? JSON.parse(row.files) : row.files) || [],
-  });
-
   async function addLivery(actorId, input) {
     await personals.assertManager(actorId);
     const { personal, model, resource, dir } = await managedPersonal(input.personalId);
@@ -525,6 +522,12 @@ export function createCustomAssets({ personals, audit, db }) {
     await personals.assertManager(actorId);
     const row = await db.one("SELECT * FROM personal_liveries WHERE id=?", [Number(input.id) || 0]);
     if (!row) throw new Error("That livery no longer exists.");
+    if (Number(row.builtin)) {
+      // A livery that came inside the vehicle files has nothing to take out; only the listing goes.
+      await db.query("DELETE FROM personal_liveries WHERE id=?", [row.id]);
+      await audit(actorId, "livery.unlist", String(row.personal_id), { label: row.label });
+      return { id: Number(row.id), label: row.label, notes: ["It is part of the vehicle's own files, so only the listing was removed. Replace the vehicle files to change the livery itself."] };
+    }
     const { model, resource, dir } = await managedPersonal(row.personal_id);
     const livery = liveryRow(row);
     const streamDir = path.join(dir, "stream");

@@ -1,5 +1,6 @@
 import { callGame } from "./sync.js";
 import { deletePersonalResource } from "./personal-resources.js";
+import { registerDetectedLiveries } from "./livery-detect.js";
 import { OWNER_DISCORD_ID } from "./access-control.js";
 
 /**
@@ -167,7 +168,9 @@ export function createPersonals({ db, audit }) {
       "INSERT INTO personal_vehicles(model,label,plate,owner_id,enabled,bulletproof,created_by,created_at) VALUES(?,?,?,?,TRUE,?,?,?)",
       [model, label, plate, ownerId, bulletproof, String(actorId), Date.now()],
     );
-    await audit(actorId, "personal.create", result.insertId, { model, label, plate, ownerId, bulletproof });
+    // Liveries the imported vehicle pack already contains are listed for the new personal.
+    const liveries = await registerDetectedLiveries(db, result.insertId, model).catch((error) => { console.error("[FBRP personals] livery detection:", error.message); return 0; });
+    await audit(actorId, "personal.create", result.insertId, { model, label, plate, ownerId, bulletproof, liveries });
     await notifyGame();
     return find(result.insertId);
   }

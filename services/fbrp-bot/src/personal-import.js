@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { callGame } from "./sync.js";
 import { shrinkYtd } from "./ytd-shrink.js";
 import { PERSONAL_VEHICLES_DIR, deletePersonalResource, personalResourceName } from "./personal-resources.js";
+import { liveryEvidence, registerDetectedLiveries, validateLiveries } from "./livery-detect.js";
 
 /**
  * Personal vehicle importer (website "Convert with AI").
@@ -83,8 +84,21 @@ export function renamedStreamName(fileName, from, to) {
 const AI_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["label", "summary", "notes", "edits"],
+  required: ["label", "summary", "notes", "edits", "liveries"],
   properties: {
+    liveries: {
+      type: "array",
+      description: "Liveries the pack already contains. Empty when there are none or no liveryEvidence was supplied.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "source"],
+        properties: {
+          label: { type: "string", description: "Readable livery name under 60 characters, e.g. Blue Stripe." },
+          source: { type: "string", description: "Exactly one entry of liveryEvidence.names or liveryEvidence.files." },
+        },
+      },
+    },
     label: { type: "string", description: "Display name for the F7 garage, e.g. 'Annis Elegy RH8'. Under 60 characters." },
     summary: { type: "string", description: "One or two sentences on what was done." },
     notes: { type: "array", items: { type: "string" }, description: "Problems found or things the manager should know. Empty if none." },
@@ -155,6 +169,7 @@ Return field edits that:
    - vehicles.meta txdName should match a .ytd in the stream file list.
    - Only when hasCustomAudio is true (the pack shipped its own engine sounds, which are not installed): set audioNameHash to a fitting base game vehicle such as ELEGY, ZENTORNO, BUFFALO, SCHAFTER2, DOMINATOR, KURUMA or BATI. Otherwise never touch audioNameHash.
 3. Never edit modelName or handlingName. Never invent fields that do not exist in GTA V.
+4. Detect liveries the pack already contains from liveryEvidence: names are livery names declared in the vehicle's mod kit (each one is a livery) and files are streamed files whose names hint at liveries. Return each real livery with a short readable label and its source copied exactly from the evidence. Leave out files that are plainly the base texture, a wheel, a part or something else. Never invent a livery that is not in the evidence.
 If no handling changes were asked for and nothing is broken, return an empty edits array.
 The summary must describe only the edits you actually returned.
 Field values must be the final absolute values, not percentages. Use the current values you were given.`;
@@ -675,6 +690,10 @@ export function createPersonalImporter({ personals, audit, db }) {
       const request = handlingRequest(input.handling);
       if (Object.keys(request).length && !handlingItem) throw new Error("The pack has no handling.meta entry for this vehicle, so its handling cannot be changed.");
 
+      const evidence = liveryEvidence({
+        carcols: metas.carcols.map((m) => m.xml), carvariations: metas.carvariations.map((m) => m.xml),
+        vehicleItemText: vehicleItem.text, streamNames: [...stream.values()].map((f) => f.name), model,
+      });
       const fixed = menuEdits(request, handlingItem?.text);
       const ai = await askOpenAI({
         model,
@@ -685,6 +704,7 @@ export function createPersonalImporter({ personals, audit, db }) {
         streamFiles: [...stream.values()].map((f) => `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`),
         otherMetaFiles: Object.entries(metas).flatMap(([key, list]) => list.map((m) => `${m.rel} -> ${key}`)),
         hasCustomAudio: files.some((f) => f.ext === ".awc"),
+        liveryEvidence: evidence,
         sourceNote: "Files outside stream/ and data/ are not installed.",
       });
 
@@ -692,6 +712,8 @@ export function createPersonalImporter({ personals, audit, db }) {
       const blocks = { vehicles: vehicleItem.text, handling: handlingItem?.text ?? null };
       const customAudio = files.some((f) => f.ext === ".awc");
       const changes = applyAiEdits(blocks, ai, fixed, customAudio, notes);
+      const liveries = evidence.names.length || evidence.files.length ? validateLiveries(ai.liveries, evidence, model) : [];
+      if (liveries.length) notes.push(`Found ${liveries.length} ${liveries.length === 1 ? "livery" : "liveries"} already in the vehicle files: ${liveries.slice(0, 6).map((l) => l.label).join(", ")}${liveries.length > 6 ? ", ..." : ""}. They are added to the vehicle's liveries when it is added as a personal.`);
 
       // Build the resource in a temporary folder, then swap it in.
       // installAs puts the pack under another spawn name (a personal keeps its own model when its files are replaced).
@@ -748,7 +770,7 @@ export function createPersonalImporter({ personals, audit, db }) {
           "",
         ].join("\n");
         await writeFile(path.join(build, "fxmanifest.lua"), manifest);
-        await writeFile(path.join(build, MARKER), JSON.stringify({ source: source.label || source.real, model: installModel, ...(renamedPack ? { packModel: model } : {}), by: String(actorId), at: Date.now(), request, changes, security: { verdict: security.verdict, summary: security.summary, findings: security.findings, repairs: security.repairs } }, null, 2));
+        await writeFile(path.join(build, MARKER), JSON.stringify({ source: source.label || source.real, model: installModel, ...(renamedPack ? { packModel: model } : {}), by: String(actorId), at: Date.now(), request, changes, liveries, security: { verdict: security.verdict, summary: security.summary, findings: security.findings, repairs: security.repairs } }, null, 2));
         if (existing && input.keepBackup) await backupResource(target, resource, notes);
         if (existing) await rm(target, { recursive: true, force: true });
         await rename_(build, target);
@@ -774,6 +796,7 @@ export function createPersonalImporter({ personals, audit, db }) {
         changes,
         notes: [...notes, ...(ai.notes || []).map((n) => text(n, 300)).filter(Boolean)].slice(0, 20),
         security: { verdict: security.verdict, summary: security.summary, findings: security.findings, repairs: security.repairs },
+        liveries,
         streamed: [...stream.values()].map((f) => f.name),
         started: live,
         restarted: started?.state === "restarted",
@@ -948,9 +971,10 @@ export function createPersonalImporter({ personals, audit, db }) {
       installAs: model,
       keepBackup: true,
     });
-    // The resource folder was rebuilt, so liveries added to the old files are gone with it.
+    // The resource folder was rebuilt, so liveries added to the old files are gone with it. The new pack's own are registered.
     const dropped = await db.query("DELETE FROM personal_liveries WHERE personal_id=?", [current.id]).catch(() => null);
     if (dropped?.affectedRows) result.notes = [...result.notes, `${dropped.affectedRows} livery bundle${dropped.affectedRows === 1 ? "" : "s"} on the old files ${dropped.affectedRows === 1 ? "was" : "were"} removed with them. Add them again if you still want them.`];
+    if (result.liveries?.length) await registerDetectedLiveries(db, current.id, model).catch(() => null);
     return result;
   }
 
