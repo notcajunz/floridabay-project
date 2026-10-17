@@ -164,8 +164,7 @@ RegisterNetEvent('fbrp:economy:taskApproved', function(key, ms, scenario, label)
     end
 end)
 
--- Where a property's prompts are drawn. Spots staff placed with /propset are used; a property
--- with none keeps one combined spot at its listed coordinates.
+-- Where a property's prompts are drawn: only spots placed by hand with /propset.
 local SPOT_STYLE = {
     terminal = { color = { 63, 227, 210 }, icon = 21 },
     stash = { color = { 63, 227, 210 }, icon = 21 },
@@ -182,9 +181,6 @@ local function propertySpots(property)
         if point then
             spots[#spots + 1] = { kind = kind, x = point.x, y = point.y, z = point.z, color = SPOT_STYLE[kind].color, icon = SPOT_STYLE[kind].icon }
         end
-    end
-    if #spots == 0 then
-        spots[1] = { kind = 'all', x = property.x, y = property.y, z = property.z, color = SPOT_STYLE.all.color, icon = SPOT_STYLE.all.icon }
     end
     return spots
 end
@@ -334,7 +330,6 @@ end
 function FBRP.CanServe()
     local here = GetEntityCoords(PlayerPedId())
     for _, property in ipairs(state.properties or {}) do
-        if property.service == 'serve' and #(here - vector3(property.x, property.y, property.z)) < 60.0 then return true end
         for _, spot in ipairs(propertySpots(property)) do
             if property.service == 'serve' and #(here - vector3(spot.x, spot.y, spot.z)) < 25.0 then return true end
         end

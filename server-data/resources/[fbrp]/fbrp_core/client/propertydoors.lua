@@ -81,8 +81,8 @@ local function nearestProp(x, y, z)
     return best
 end
 
--- A door belongs to the property whose door spot is within 12 metres, else to the property
--- whose radius holds it.
+-- A door belongs to the property whose hand-placed door spot is within 12 metres. A property
+-- with no door spot has no locked doors; nothing is assumed from its listed coordinates.
 local function ownerOf(at)
     for _, prop in ipairs(props) do
         for _, point in ipairs(prop.doorPoints or {}) do
@@ -90,7 +90,7 @@ local function ownerOf(at)
             if dx * dx + dy * dy <= 144.0 and math.abs(at.z - point.z) < 12.0 then return prop end
         end
     end
-    return nearestProp(at.x, at.y, at.z)
+    return nil
 end
 
 local function scanAll(near)
@@ -152,8 +152,6 @@ CreateThread(function()
         local now = GetGameTimer()
         local close = false
         for _, prop in ipairs(props) do
-            local dx, dy = at.x - prop.x, at.y - prop.y
-            if math.sqrt(dx * dx + dy * dy) <= prop.radius + 60.0 then close = true break end
             for _, point in ipairs(prop.doorPoints or {}) do
                 if #(at - vector3(point.x, point.y, point.z)) <= 80.0 then close = true break end
             end
@@ -214,6 +212,46 @@ function FBRP.NearestPropertyDoor()
     if not door then return nil end
     return { key = door.key, locked = door.locked, hasKeys = keys[door.key] == true }
 end
+
+-- ─────────────────────── breaching ───────────────────────
+-- The explosive in the player's hands; one is used up per breach. Third eye offers the action.
+local EXPLOSIVES = { 'WEAPON_STICKYBOMB', 'WEAPON_PIPEBOMB', 'WEAPON_GRENADE', 'WEAPON_PROXMINE' }
+
+function FBRP.BreachExplosive()
+    local ped = PlayerPedId()
+    for _, name in ipairs(EXPLOSIVES) do
+        local hash = joaat(name)
+        if HasPedGotWeapon(ped, hash, false) and GetAmmoInPedWeapon(ped, hash) > 0 then return hash end
+    end
+    return nil
+end
+
+function FBRP.StartBreach(key)
+    if not FBRP.BreachExplosive() then
+        return TriggerEvent('fbrp:notify', 'You need an explosive (sticky bomb, pipe bomb, grenade or proximity mine).', 'error')
+    end
+    TriggerServerEvent('fbrp:doors:breachStart', key)
+end
+
+RegisterNetEvent('fbrp:doors:breachApproved', function(key)
+    local ped = PlayerPedId()
+    local hash = FBRP.BreachExplosive()
+    if not hash then return end
+    if IsPedInAnyVehicle(ped, false) or IsEntityDead(ped) then return end
+    TaskStartScenarioInPlace(ped, 'CODE_HUMAN_MEDIC_KNEEL', 0, true)
+    SendNUIMessage({ type = 'progress', label = 'Planting explosives', ms = 4000 })
+    Wait(4000)
+    ClearPedTasks(ped)
+    if IsEntityDead(ped) or not HasPedGotWeapon(ped, hash, false) then return end
+    local ammo = GetAmmoInPedWeapon(ped, hash)
+    if ammo <= 1 then RemoveWeaponFromPed(ped, hash) else SetPedAmmo(ped, hash, ammo - 1) end
+    TriggerEvent('fbrp:notify', 'Charge planted. Get clear.', 'warning')
+    TriggerServerEvent('fbrp:doors:breachPlanted', key)
+end)
+
+RegisterNetEvent('fbrp:doors:blast', function(x, y, z)
+    AddExplosion(x + 0.0, y + 0.0, z + 0.5, 2, 0.5, true, false, 0.8)
+end)
 
 -- Refresh the keys after clocking in, since duty can change who holds them.
 AddStateBagChangeHandler('fbrp:staffDuty', ('player:%d'):format(GetPlayerServerId(PlayerId())), function()

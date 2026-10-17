@@ -171,25 +171,20 @@ local function propertyByKey(orgId, key)
     end
 end
 
--- Spots staff placed at a property (terminal, stash, armory, wardrobe). With none placed the
--- whole property radius counts, as before; once any exist only those spots count.
+-- Spots placed by hand with /propset (terminal, stash, armory, wardrobe). Nothing is assumed:
+-- a property with no spots has no work spot, armory or wardrobe until someone places them.
 local function atPropertySpot(coords, property, radius)
-    local any = false
     for _, kind in ipairs({ 'terminal', 'stash', 'armory', 'wardrobe' }) do
         local point = property.points and property.points[kind]
-        if point then
-            any = true
-            if near(coords, point, radius or 10.0) then return true end
-        end
+        if point and near(coords, point, radius or 10.0) then return true end
     end
-    if any then return false end
-    return near(coords, property, property.radius)
+    return false
 end
 
--- Where the work shift happens: the stash at a hideout, else the terminal, else the property itself.
+-- Where the work shift happens: the stash at a hideout, else the terminal. Nil until placed.
 local function workPoint(property)
     local points = property.points or {}
-    return (property.business == 'hideout' and points.stash) or points.terminal or points.stash or property
+    return (property.business == 'hideout' and points.stash) or points.terminal or points.stash
 end
 
 local function nearOwnedProperty(source, orgId, radius)
@@ -300,8 +295,9 @@ local function labsFor(org)
         list[#list + 1] = { id=lab.id, label=lab.label, drug=lab.drug, x=lab.x, y=lab.y, z=lab.z, radius=lab.radius, owned=false }
     end
     for _, property in ipairs(owned[org.id] and owned[org.id].properties or {}) do
-        if property.business == 'lab' and property.drug and E.drugs[property.drug] then
-            list[#list + 1] = { id='prop:' .. property.key, label=property.label, drug=property.drug, x=property.x, y=property.y, z=property.z, radius=12.0, owned=true }
+        local spot = property.points and (property.points.terminal or property.points.stash)
+        if property.business == 'lab' and property.drug and E.drugs[property.drug] and spot then
+            list[#list + 1] = { id='prop:' .. property.key, label=property.label, drug=property.drug, x=spot.x, y=spot.y, z=spot.z, radius=12.0, owned=true }
         end
     end
     return list
@@ -678,7 +674,7 @@ local function serviceProperty(src, kind)
     local coords = pedCoords(src)
     for _, property in ipairs(owned[org.id] and owned[org.id].properties or {}) do
         local spec = E.business.types[property.business]
-        if spec and spec.service == kind and near(coords, property, property.radius) then return property, spec, org end
+        if spec and spec.service == kind and atPropertySpot(coords, property, 15.0) then return property, spec, org end
     end
     return nil, kind == 'repair' and 'You must be at a mechanic shop your organization owns.' or 'You must be at a bar, club or restaurant your organization owns.'
 end

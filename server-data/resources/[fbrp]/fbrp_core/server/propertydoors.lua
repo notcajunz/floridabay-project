@@ -146,23 +146,19 @@ local function canEdit(source, prop)
     return prop ~= nil and prop.owner ~= nil and isCommand(source, prop.owner)
 end
 
+-- The property whose placed spot (any door, terminal, stash, armory or wardrobe) the player
+-- stands within 15 metres of. Nothing is assumed from the property's listed coordinates.
 local function nearProperty(source)
     local ped = GetPlayerPed(source)
     local at = ped > 0 and GetEntityCoords(ped) or nil
     if not at then return nil end
     local best, bestDistance
     for _, prop in pairs(props) do
-        local dx, dy = at.x - prop.x, at.y - prop.y
-        local distance = math.sqrt(dx * dx + dy * dy)
-        local reach = prop.radius
-        for name, point in pairs(points[prop.key] or {}) do
-            if name:sub(1, 4) == 'door' then
-                local ex, ey = at.x - point.x, at.y - point.y
-                local d = math.sqrt(ex * ex + ey * ey)
-                if d <= 15.0 and d < distance then distance, reach = d, math.max(reach, d) end
-            end
+        for _, point in pairs(points[prop.key] or {}) do
+            local ex, ey = at.x - point.x, at.y - point.y
+            local d = math.sqrt(ex * ex + ey * ey)
+            if d <= 15.0 and math.abs(at.z - point.z) < 15.0 and (not bestDistance or d < bestDistance) then best, bestDistance = prop, d end
         end
-        if distance <= reach and (not bestDistance or distance < bestDistance) then best, bestDistance = prop, distance end
     end
     return best
 end
@@ -183,6 +179,59 @@ RegisterNetEvent('fbrp:doors:toggle', function(key)
 end)
 RegisterCommand('proplock', function(src) if src ~= 0 then toggle(src, nil) end end, false)
 RegisterCommand('propopen', function(src) if src ~= 0 then toggle(src, nil) end end, false)
+
+-- Breaching: a locked door can be blown open with a thrown explosive. The player plants it
+-- at the door (third eye), the charge goes off after the fuse, and the property stays open
+-- until it relocks like any other. Members online are warned and the breach is audited.
+local BREACH_FUSE_MS, BREACH_COOLDOWN_MS = 5000, 5 * 60 * 1000
+local breachAt, planting = {}, {}
+
+RegisterNetEvent('fbrp:doors:breachStart', function(key)
+    local src = source
+    local prop = type(key) == 'string' and props[key] or nil
+    if not (sessions[src] and prop) then return end
+    if nearProperty(src) ~= prop then return S.notify(src, 'Get closer to the door.', 'error') end
+    if open[prop.key] then return S.notify(src, 'The doors are already open.', 'info') end
+    if breachAt[prop.key] and GetGameTimer() - breachAt[prop.key] < BREACH_COOLDOWN_MS then
+        return S.notify(src, 'This property was breached a moment ago. The frame will not take another charge yet.', 'error')
+    end
+    planting[src] = { key=prop.key, at=GetGameTimer() }
+    TriggerClientEvent('fbrp:doors:breachApproved', src, prop.key)
+end)
+
+RegisterNetEvent('fbrp:doors:breachPlanted', function(key)
+    local src = source
+    local job = planting[src]
+    planting[src] = nil
+    local prop = type(key) == 'string' and props[key] or nil
+    if not (job and prop and job.key == prop.key) then return end
+    local elapsed = GetGameTimer() - job.at
+    if elapsed < 2000 or elapsed > 30000 or nearProperty(src) ~= prop then return end
+    breachAt[prop.key] = GetGameTimer()
+    local who = sessions[src] and sessions[src].discord or tostring(src)
+    FBRP.DB.audit(who, 'property.breach', prop.key, { property=prop.label })
+    for other in pairs(sessions) do
+        if other ~= src and prop.owner and orgsOf(other)[prop.owner] then
+            S.notify(other, ('Alert: someone is placing explosives on the door of %s.'):format(prop.label), 'warning')
+        end
+    end
+    SetTimeout(BREACH_FUSE_MS, function()
+        local ped = GetPlayerPed(src)
+        local at = ped > 0 and GetEntityCoords(ped) or nil
+        local blast, bestDistance
+        for name, point in pairs(points[prop.key] or {}) do
+            if name:sub(1, 4) == 'door' then
+                local d = at and #(at - vector3(point.x, point.y, point.z)) or 0.0
+                if not bestDistance or d < bestDistance then blast, bestDistance = point, d end
+            end
+        end
+        if not blast and at then blast = { x=at.x, y=at.y, z=at.z } end
+        open[prop.key] = GetGameTimer()
+        pushAll()
+        if blast and sessions[src] then TriggerClientEvent('fbrp:doors:blast', src, blast.x, blast.y, blast.z) end
+    end)
+end)
+AddEventHandler('playerDropped', function() planting[source] = nil end)
 
 CreateThread(function()
     while true do

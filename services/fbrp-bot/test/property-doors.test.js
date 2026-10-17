@@ -64,3 +64,18 @@ test('staff need Community Manager or above to edit any property', () => {
   assert.match(doors, /hasStaffGroupAtLeast\(source, 'community_manager'\)/);
   assert.match(read('server/main.lua'), /hasStaffGroupAtLeast = hasStaffGroupAtLeast/);
 });
+
+test('nothing is assumed about a property and locked doors can be breached', () => {
+  const economy = read('server/economy.lua');
+  assert.ok(!/return near\(coords, property, property\.radius\)/.test(economy), 'no radius fallback');
+  assert.ok(!/or points\.terminal or points\.stash or property/.test(economy), 'work point has no property fallback');
+  const eco = read('client/economy.lua');
+  assert.ok(!/kind = 'all', x = property\.x/.test(eco), 'no combined spot at the listed coordinates');
+  const doors = read('client/propertydoors.lua');
+  assert.ok(!/return nearestProp\(at\.x/.test(doors), 'doors only belong to placed door spots');
+  assert.match(doors, /AddExplosion/);
+  const server = read('server/propertydoors.lua');
+  assert.match(server, /fbrp:doors:breachPlanted/);
+  assert.match(server, /property\.breach/);
+  assert.match(read('client/interactions.lua'), /w_breach/);
+});

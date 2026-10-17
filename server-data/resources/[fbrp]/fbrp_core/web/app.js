@@ -560,6 +560,7 @@ const ACTION_META = {
   w_hub: ["Business", "building"],
   w_serve: ["Business", "users"],
   w_door: ["Property", "door"],
+  w_breach: ["Property", "alert", "red"],
 };
 function renderThirdEye(data) {
   thirdEyePayload = data || {};

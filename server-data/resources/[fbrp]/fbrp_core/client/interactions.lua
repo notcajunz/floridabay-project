@@ -134,14 +134,23 @@ local function worldTarget()
         }
     end
 
-    -- A property door.
+    -- A property door: keyholders lock and unlock it, anyone with an explosive can breach a locked one.
     local door = FBRP.NearestPropertyDoor and FBRP.NearestPropertyDoor() or nil
-    if door and door.hasKeys then
-        return {
-            id = 'door:' .. door.key, name = 'Property doors',
-            actions = { { id = 'w_door', label = door.locked and 'Unlock the doors' or 'Lock the doors' } },
-            run = function() TriggerServerEvent('fbrp:doors:toggle', door.key) end,
-        }
+    if door then
+        local actions = {}
+        if door.hasKeys then actions[#actions + 1] = { id = 'w_door', label = door.locked and 'Unlock the doors' or 'Lock the doors' } end
+        if door.locked and FBRP.BreachExplosive and FBRP.BreachExplosive() then
+            actions[#actions + 1] = { id = 'w_breach', label = 'Breach with explosives' }
+        end
+        if #actions > 0 then
+            return {
+                id = 'door:' .. door.key .. ':' .. #actions, name = 'Property doors', actions = actions,
+                run = function(action)
+                    if action == 'w_door' then TriggerServerEvent('fbrp:doors:toggle', door.key)
+                    elseif action == 'w_breach' then FBRP.StartBreach(door.key) end
+                end,
+            }
+        end
     end
 
     -- A vehicle in front of the crosshair.
