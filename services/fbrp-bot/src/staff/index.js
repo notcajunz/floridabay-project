@@ -15,6 +15,7 @@ import {
   reconcileRosterJobs,
   setStaffTeamRole,
   staffRankAutocomplete,
+  staffRemovalAutocomplete,
   syncStaffTeamRoles,
 } from "./legacy.js";
 import { reconcileManagerRoles } from "./roles.js";
@@ -64,6 +65,7 @@ async function aceGroupAutocomplete(i) {
 async function autocomplete(i) {
   const focused = i.options.getFocused(true);
   if (i.commandName === "staff" && focused.name === "rank") return staffRankAutocomplete(i);
+  if (i.commandName === "staff" && focused.name === "reason" && i.options.getSubcommand(false) === "remove") return staffRemovalAutocomplete(i);
   if (i.commandName === "roster") return aceGroupAutocomplete(i);
   return i.respond([]);
 }

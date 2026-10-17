@@ -52,7 +52,14 @@ const staff = new SlashCommandBuilder()
     s
       .setName("remove")
       .setDescription("Remove a member's staff rank, ACE group, and callsign")
-      .addStringOption(reason)
+      .addStringOption((o) =>
+        o
+          .setName("reason")
+          .setDescription("Why they left, e.g. Resigned or Terminated (shown in the staff movement message)")
+          .setRequired(true)
+          .setMaxLength(300)
+          .setAutocomplete(true),
+      )
       .addUserOption(pickedMember)
       .addStringOption(discordId),
   )

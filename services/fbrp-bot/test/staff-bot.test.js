@@ -53,3 +53,15 @@ test("migration 063 creates the welcome queue the main bot reads", async () => {
   const sql = await readFile(new URL("../../../server-data/resources/[fbrp]/fbrp_core/migrations/063_staff_welcome_queue.sql", import.meta.url), "utf8");
   assert.ok(sql.includes("staff_welcome_queue"));
 });
+
+test("/staff remove takes a suggested free-text reason that becomes the movement label", async () => {
+  const staff = definitions.find((command) => command.name === "staff").options.find((option) => option.name === "remove");
+  const reason = staff.options.find((option) => option.name === "reason");
+  assert.equal(reason.required, true);
+  assert.equal(reason.autocomplete, true);
+  const { removalLabel } = await import("../src/staff/legacy.js");
+  assert.equal(removalLabel("Resigned"), "Resigned");
+  assert.equal(removalLabel("  Terminated \n for inactivity "), "Terminated for inactivity");
+  assert.equal(removalLabel(""), "Removed");
+  assert.equal(removalLabel("x".repeat(200)).length, 80);
+});

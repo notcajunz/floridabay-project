@@ -100,6 +100,21 @@ export async function syncNetwork(discordId, requestedBy = "staff-bot") {
 const movementLine = (targetId, rankName, actorId) =>
   `${mention(targetId)} --> ${rankName} | ${mention(actorId)} | <t:${Math.floor(Date.now() / 1000)}:D>`;
 
+/** Common reasons offered while typing /staff remove reason. Anything else typed is used as is. */
+const REMOVAL_REASONS = ["Resigned", "Terminated", "Retired", "Inactive", "Failed probation", "Demoted out of staff", "Removed"];
+
+/** The word shown after the arrow in the movement message: the reason, trimmed to one short line. */
+export function removalLabel(reason) {
+  const line = String(reason ?? "").replace(/\s+/g, " ").trim();
+  if (!line) return "Removed";
+  return line.length > 80 ? `${line.slice(0, 77)}...` : line;
+}
+
+async function staffRemovalAutocomplete(i) {
+  const needle = String(i.options.getFocused() || "").toLowerCase();
+  return i.respond(REMOVAL_REASONS.filter((reason) => reason.toLowerCase().includes(needle)).map((reason) => ({ name: reason, value: reason })));
+}
+
 /** Staff callsign feed: every new or changed callsign is posted here as `@member --> 123`. */
 const CALLSIGN_CHANNEL_ID = "1558275244567961690";
 async function announceCallsign(discordId, callsign) {
@@ -446,7 +461,7 @@ async function staffRemove(i) {
     ["ACE groups removed", groups.map((g) => `\`${g}\``).join(" ") || "None"],
     ["Reason", reason, false],
   ];
-  await log(i.guild, { content: movementLine(user.id, "Removed", i.user.id) }, "roster");
+  await log(i.guild, { content: movementLine(user.id, removalLabel(reason), i.user.id) }, "roster");
   await log(i.guild, { title: "Staff ACE membership removed", color: COLORS.warning, actor: i.user.id, target: user.id, fields: [["Groups", groups.map((g) => `\`${g}\``).join(" ") || "None"]] }, "role_sync");
   return card("Staff member removed", { color: COLORS.warning, rows: [["Member", who(user.id)], ...rows] });
 }
@@ -958,4 +973,4 @@ export const handlers = {
   coordall: coordAllCommand,
 };
 
-export { staffRankAutocomplete, activeStaff, setStaffTeamRole, syncStaffTeamRoles, reconcileRosterJobs, reconcileAllRosterJobs, rebalanceStaffCallsigns };
+export { staffRankAutocomplete, staffRemovalAutocomplete, activeStaff, setStaffTeamRole, syncStaffTeamRoles, reconcileRosterJobs, reconcileAllRosterJobs, rebalanceStaffCallsigns };
