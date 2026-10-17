@@ -48,7 +48,8 @@ local migrationFiles = {
     'migrations/068_citizen_identity.sql',
     'migrations/069_self_service_licenses.sql',
     'migrations/070_global_role_server_settings.sql',
-    'migrations/071_staff_permission_matrix.sql'
+    'migrations/071_staff_permission_matrix.sql',
+    'migrations/074_property_doors.sql'
 }
 
 local function splitSql(contents)
