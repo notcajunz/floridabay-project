@@ -1,0 +1,73 @@
+{
+  "source": "rubicon24.zip",
+  "model": "caj_rubicon",
+  "by": "1090083387638812755",
+  "at": 1792201273896,
+  "request": {
+    "topSpeedMph": 210,
+    "acceleration": "much_higher",
+    "braking": "much_higher",
+    "grip": "much_higher",
+    "drivetrain": "awd",
+    "instructions": "keep it stable at high speeds, can turn easily at any speed, amazing handling, fast/high braking"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "119.000000",
+      "to": "256.097561",
+      "reason": "Top speed about 210 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.170000",
+      "to": "0.221000",
+      "reason": "Acceleration much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "0.300000",
+      "to": "0.390000",
+      "reason": "Braking much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "2.000000",
+      "to": "2.600000",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "1.700000",
+      "to": "2.210000",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fDriveBiasFront",
+      "from": "0.100000",
+      "to": "0.500000",
+      "reason": "AWD drivetrain"
+    }
+  ],
+  "security": {
+    "verdict": "safe",
+    "summary": "This looks like a normal data-only FiveM vehicle pack: model/texture assets plus vehicle metadata and a simple fxmanifest with file/data_file declarations only. No executable behavior, downloads, callbacks, or obfuscation were found.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "rubicon24/fxmanifest.lua",
+        "issue": "Manifest includes a wildcard and may reference optional or duplicate metadata paths.",
+        "action": "Regenerate the manifest from the files actually present; omit stale or missing entries during import."
+      }
+    ]
+  },
+  "renamedFrom": "rubicon24",
+  "renamedBy": "1090083387638812755",
+  "renamedAt": 1792201284013
+}
