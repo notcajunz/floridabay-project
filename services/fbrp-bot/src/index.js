@@ -4794,6 +4794,7 @@ client.once("clientReady", async () => {
   setInterval(() => void expireGlobalCases().catch((error) => console.error("[FBRP global] expiry:", error)), 60000).unref();
   setInterval(() => void sweepLinkedAlts().catch((error) => console.error("[FBRP global] alt sweep:", error)), 300000).unref();
   setInterval(() => void db.query("DELETE FROM discord_pending_role_restores WHERE expires_at<?", [Date.now()]).catch((error) => console.error("[FBRP global] pending restore cleanup:", error)), 3600000).unref();
+  void auditMirror.tidy().catch((error) => console.error("[FBRP audit mirror] tidy:", error));
   await forwardGameAudit().catch((error) => console.error("[FBRP bot] audit forwarder:", error));
   setInterval(() => void forwardGameAudit().catch((error) => console.error("[FBRP bot] audit forwarder:", error)), 5000).unref();
   setInterval(() => void ensureProtectedRoleBoard().catch((error) => console.error("[FBRP bot] protected-role board:", error)), 300000).unref();

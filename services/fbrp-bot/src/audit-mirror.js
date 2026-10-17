@@ -45,6 +45,14 @@ export function channelName(key) {
   return `${emoji}│${base}`.slice(0, 95);
 }
 
+// Mirror keys that mean the same thing as a purpose that already has its own log channel.
+const PURPOSE_ALIAS = {
+  "audit-verify": "verification", "audit-verification": "verification",
+  "audit-organization": "organizations", "audit-organizations": "organizations", "audit-org": "organizations",
+  "audit-staff": "staff_duty",
+};
+export const purposeOf = (key) => PURPOSE_ALIAS[key] || (String(key).startsWith("log-") ? String(key).slice(4) : null);
+
 /** Which mirror channel an audit_log action belongs to. */
 export function keyForAction(action) {
   const parts = String(action || "").split(".");
@@ -83,8 +91,21 @@ export function createAuditMirror({ client, db }) {
     return category;
   }
 
+  // A kind that already has a log channel inside the category uses it instead of making a twin.
+  async function existingFor(key) {
+    const purpose = purposeOf(key);
+    if (!purpose) return null;
+    const parent = await categoryChannel();
+    if (!parent) return null;
+    const row = await db.one("SELECT channel_id FROM discord_channel_bindings WHERE purpose=?", [purpose]).catch(() => null);
+    const found = row ? await client.channels.fetch(String(row.channel_id)).catch(() => null) : null;
+    return found?.isTextBased() && found.parentId === parent.id ? found : null;
+  }
+
   async function resolve(key) {
     await load();
+    const twin = await existingFor(key);
+    if (twin) return twin;
     const known = ids.get(key);
     if (known) {
       const existing = await client.channels.fetch(known).catch(() => null);
@@ -152,5 +173,18 @@ export function createAuditMirror({ client, db }) {
     return post(key, embed, skipIds);
   }
 
-  return { post, mirrorSpec, resolve, keyForAction };
+  // Gives every channel the bot made the shared naming, without waiting for traffic.
+  async function tidy() {
+    await load();
+    for (const [key, id] of ids) {
+      const channel = await client.channels.fetch(id).catch(() => null);
+      const wanted = channelName(key);
+      if (channel && channel.name !== wanted) {
+        renamed.add(key);
+        await channel.setName(wanted, "FBRP audit mirror naming").catch((error) => console.error(`[FBRP audit mirror] rename ${key}:`, error.message || error));
+      }
+    }
+  }
+
+  return { post, mirrorSpec, resolve, tidy, keyForAction };
 }
