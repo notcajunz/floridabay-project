@@ -205,6 +205,18 @@ const personals = new SlashCommandBuilder()
   .setDescription("Look up personal vehicles")
   .addSubcommand((s) => s.setName("owned").setDescription("List a user's owned personal vehicles and their details").addUserOption((o) => o.setName("user").setDescription("Personal vehicle owner").setRequired(true)));
 
+const eup = new SlashCommandBuilder()
+  .setName("eup")
+  .setDescription("Look up custom EUP clothing packs")
+  .addSubcommand((s) =>
+    s
+      .setName("lookup")
+      .setDescription("Search by pack name, label, resource, ID, clothing pack name or addon ped")
+      .addStringOption((o) => o.setName("query").setDescription("EUP pack name, label, resource, ID or addon ped").setRequired(true).setAutocomplete(true)),
+  )
+  .addSubcommand((s) => s.setName("added").setDescription("List the EUP packs a user added").addUserOption((o) => o.setName("user").setDescription("Who added the packs").setRequired(true)))
+  .addSubcommand((s) => s.setName("list").setDescription("List every custom EUP pack"));
+
 const headtag = new SlashCommandBuilder()
   .setName("headtag")
   .setDescription("Look up headtags and their owners")
@@ -309,4 +321,4 @@ const admin = new SlashCommandBuilder()
       .addStringOption((o) => o.setName("mode").setDescription("Add or remove").setRequired(true).addChoices({ name: "Add", value: "add" }, { name: "Remove", value: "remove" })),
   );
 
-export const definitions = [dev, discipline, loa, commend, task, incident, release, announce, standup, vehicle, personals, headtag, ticket, support, devops, restart, admin].map((c) => c.toJSON());
+export const definitions = [dev, discipline, loa, commend, task, incident, release, announce, standup, vehicle, personals, eup, headtag, ticket, support, devops, restart, admin].map((c) => c.toJSON());

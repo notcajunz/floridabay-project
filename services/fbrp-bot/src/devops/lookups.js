@@ -7,6 +7,7 @@ import { db } from "./store.js";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const resourcesRoot = path.join(repoRoot, "server-data/resources");
 const vehicleRoot = path.join(resourcesRoot, "[vehicles]");
+const eupRoot = process.env.FBRP_EUP_DIR || path.join(resourcesRoot, "[eup]");
 
 const clean = (value) => String(value ?? "").replace(/[`*~>|]/g, "").trim();
 const xmlValue = (body, name) => body.match(new RegExp(`<${name}(?:\\s[^>]*)?>([^<]*)</${name}>`, "i"))?.[1]?.trim() || null;
@@ -187,6 +188,81 @@ export async function personals(i) {
   return respond(i, { embeds });
 }
 
+/* ------------------------------------------------------------------ custom EUP */
+
+/** Custom EUP packs with what the installer recorded about each one (clothing groups, addon peds, security verdict). */
+async function eupRows() {
+  const rows = await db.query("SELECT * FROM custom_eup ORDER BY label,id");
+  return Promise.all(rows.map(async (row) => {
+    const resource = `fbrp_eup_${row.name}`;
+    const marker = JSON.parse((await readFile(path.join(eupRoot, resource, ".fbrp-eup.json"), "utf8").catch(() => "null")) || "null");
+    return { ...row, resource, installed: Boolean(marker), groups: marker?.groups || [], addonPeds: marker?.addonPeds || [], verdict: marker?.security?.verdict || null };
+  }));
+}
+
+const eupSearchFields = (row) => [row.label, row.name, row.resource, ...row.groups.map((g) => g.dlc), ...row.addonPeds];
+
+/** Packs matching a lookup: an ID, or text that equals (preferred) or is part of a name, label, resource, pack name or addon ped. */
+export function eupMatches(rows, query) {
+  const lowered = String(query).toLowerCase().trim().replace(/^#/, "");
+  if (!lowered) return [];
+  const exact = rows.filter((row) => String(row.id) === lowered || eupSearchFields(row).some((value) => value && String(value).toLowerCase() === lowered));
+  if (exact.length) return exact;
+  return rows.filter((row) => eupSearchFields(row).some((value) => value && String(value).toLowerCase().includes(lowered)));
+}
+
+const bytesText = (bytes) => `${(Number(bytes) / 1048576).toFixed(Number(bytes) > 10485760 ? 0 : 1)} MB`;
+const pedText = (ped) => (ped === "mp_f_freemode_01" ? "female" : "male");
+
+/** One line per pack for lists. */
+export function eupLine(row) {
+  const items = row.groups.reduce((sum, g) => sum + g.drawables + g.props, 0);
+  return `**#${row.id} · ${clean(row.label)}** ${row.installed ? "🟢" : "🔴 files missing"}\n↳ \`${row.resource}\` · ${row.file_count} file${Number(row.file_count) === 1 ? "" : "s"} · ${bytesText(row.size_bytes)}${items ? ` · ${items} clothing item${items === 1 ? "" : "s"}` : ""}${row.addonPeds.length ? ` · ${row.addonPeds.length} addon ped${row.addonPeds.length === 1 ? "" : "s"}` : ""} · added by ${row.created_by ? mention(row.created_by) : "unknown"} ${ts(row.created_at, "d")}`;
+}
+
+export async function eupLookup(i) {
+  await i.deferReply();
+  const query = clean(i.options.getString("query", true)).slice(0, 80);
+  const matches = eupMatches(await eupRows(), query);
+  if (!matches.length) throw new UserError(`No custom EUP pack matched **${query}**. Try its name, label, resource, pack ID, clothing pack name or addon ped.`);
+  if (matches.length > 1)
+    return respond(i, { embeds: [card(`👕 ${matches.length} EUP matches`, { description: `${matches.slice(0, 15).map(eupLine).join("\n")}${matches.length > 15 ? `\n…and ${matches.length - 15} more.` : ""}`, footer: "Use the pack ID or the exact name to narrow this down" })] });
+  const row = matches[0];
+  const groups = row.groups.map((g) => `${pedText(g.ped)} · ${g.dlc ? `\`${g.dlc}\`` : "replaces base game"} · ${g.drawables + g.props} item${g.drawables + g.props === 1 ? "" : "s"}, ${g.textures} texture${g.textures === 1 ? "" : "s"}${g.meta === "generated" ? " · basic shop meta" : ""}${g.dlc && !g.ymt ? " · no creature metadata" : ""}`);
+  return respond(i, { embeds: [card(`👕 ${clean(row.label)}`, {
+    fields: [
+      ["Pack ID", `#${row.id}`],
+      ["Resource", `\`${row.resource}\``],
+      ["Status", row.installed ? "🟢 Installed" : "🔴 Files missing on the server"],
+      ["Files", `${row.file_count} · ${bytesText(row.size_bytes)}`],
+      ["Security scan", row.verdict ? humanize(row.verdict) : "Not recorded"],
+      ["Added by", row.created_by ? mention(row.created_by) : "Unknown"],
+      ["Added", ts(row.created_at)],
+      ["Updated", ts(row.updated_at)],
+      row.notes ? ["Notes", clean(row.notes), false] : null,
+      groups.length ? ["Clothing in the vMenu appearance menu", groups.join("\n"), false] : null,
+      row.addonPeds.length ? ["Addon peds", row.addonPeds.map((n) => `\`${n}\``).join(" "), false] : null,
+    ],
+  })] });
+}
+
+export async function eupAdded(i) {
+  await i.deferReply();
+  const user = i.options.getUser("user", true);
+  const rows = (await eupRows()).filter((row) => String(row.created_by) === user.id);
+  if (!rows.length) throw new UserError(`${user} has not added any custom EUP packs.`);
+  const embeds = pages(rows.map(eupLine), 3800).slice(0, 10).map((description, index, all) => card(`👕 ${user.username}'s EUP packs${all.length > 1 ? ` · ${index + 1}/${all.length}` : ""}`, { color: C.purple, description, footer: `${rows.length} EUP pack${rows.length === 1 ? "" : "s"} added` }));
+  return respond(i, { embeds });
+}
+
+export async function eupList(i) {
+  await i.deferReply();
+  const rows = await eupRows();
+  if (!rows.length) throw new UserError("No custom EUP packs are installed yet.");
+  const embeds = pages(rows.map(eupLine), 3800).slice(0, 10).map((description, index, all) => card(`👕 Custom EUP${all.length > 1 ? ` · ${index + 1}/${all.length}` : ""}`, { color: C.purple, description, footer: `${rows.length} EUP pack${rows.length === 1 ? "" : "s"}` }));
+  return respond(i, { embeds });
+}
+
 async function resolveTag(query) {
   const raw = clean(query).slice(0, 80);
   const id = /^#?\d+$/.test(raw) ? Number(raw.replace("#", "")) : 0;
@@ -249,6 +325,10 @@ export async function headtagsOwned(i) {
 
 export async function autocomplete(i) {
   const value = clean(i.options.getFocused()).toLowerCase();
+  if (i.commandName === "eup") {
+    const rows = (await eupRows()).filter((row) => !value || eupSearchFields(row).some((field) => field && String(field).toLowerCase().includes(value)) || String(row.id) === value.replace(/^#/, ""));
+    return i.respond(rows.slice(0, 25).map((row) => ({ name: `${row.label} · ${row.resource}`.slice(0, 100), value: row.name })));
+  }
   if (i.commandName === "vehicle") {
     const [catalog, personals] = await Promise.all([vehicleCatalog(), db.query("SELECT id,model,label,plate FROM personal_vehicles ORDER BY label")]);
     const choices = new Map();

@@ -72,7 +72,7 @@ const HELP = [
   ["🎫 Tickets · `/ticket` `/support`", "General Support and Purchase Support. Staff claim, prioritise, note and close from the buttons."],
   ["🟢 Status · `/devops status`", "Live game server, website, database and bot health."],
   ["♻️ Restarts · `/restart`", "Owner-only restart controls for every FBRP production service."],
-  ["🔎 Public lookups", "`/vehicle lookup` · `/personals owned` · `/headtag info` · `/headtag owned`\nAvailable to everyone in this server."],
+  ["🔎 Public lookups", "`/vehicle lookup` · `/personals owned` · `/eup lookup` · `/eup added` · `/eup list` · `/headtag info` · `/headtag owned`\nAvailable to everyone in this server."],
 ];
 
 async function slash(i, actor) {
@@ -109,6 +109,11 @@ async function slash(i, actor) {
       break;
     case "personals":
       if (sub === "owned") return lookups.personals(i);
+      break;
+    case "eup":
+      if (sub === "lookup") return lookups.eupLookup(i);
+      if (sub === "added") return lookups.eupAdded(i);
+      if (sub === "list") return lookups.eupList(i);
       break;
     case "headtag":
       if (sub === "info") return lookups.headtagInfo(i);
@@ -148,7 +153,7 @@ async function autocomplete(i, actor) {
   if (name === "incident" && focused === "id") return incidents.autocomplete(i);
   if ((name === "ticket" || name === "support") && ["type", "level"].includes(focused)) return tickets.autocomplete(i);
   if (name === "devops-admin" && focused === "rank") return roster.allRankAutocomplete(i);
-  if ((name === "vehicle" && focused === "query") || (name === "headtag" && focused === "tag")) return lookups.autocomplete(i);
+  if ((name === "vehicle" && focused === "query") || (name === "eup" && focused === "query") || (name === "headtag" && focused === "tag")) return lookups.autocomplete(i);
   return i.respond([]);
 }
 
