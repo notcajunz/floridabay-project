@@ -27,6 +27,14 @@ local function currentVehicle()
     return vehicle, netId ~= 0 and netId or nil
 end
 
+local function hasAccess()
+    return LocalPlayer.state['fbrp:carRadioAccess'] == true
+end
+
+local function denied()
+    TriggerEvent('fbrp:notify', 'You need the required Discord role to use vehicle audio.', 'error')
+end
+
 local function closePanel()
     if not panelOpen then return end
     panelOpen = false
@@ -54,8 +62,23 @@ local function openPanel()
 end
 
 RegisterCommand('carradio', function()
-    if panelOpen then closePanel() else openPanel() end
+    if panelOpen then
+        closePanel()
+    elseif not hasAccess() then
+        denied()
+    else
+        TriggerServerEvent('fbrp:carRadio:requestOpen')
+    end
 end, false)
+
+RegisterNetEvent('fbrp:carRadio:openAuthorized', function()
+    if hasAccess() then openPanel() end
+end)
+
+RegisterNetEvent('fbrp:carRadio:denied', function()
+    closePanel()
+    denied()
+end)
 
 RegisterNUICallback('carRadioClose', function(_, cb)
     closePanel()
@@ -64,7 +87,7 @@ end)
 
 RegisterNUICallback('carRadioPlay', function(data, cb)
     local _, netId = currentVehicle()
-    if not panelOpen or not netId or netId ~= panelNetId then
+    if not hasAccess() or not panelOpen or not netId or netId ~= panelNetId then
         closePanel()
         cb({ok=false})
         return
@@ -75,7 +98,7 @@ end)
 
 RegisterNUICallback('carRadioControl', function(data, cb)
     local _, netId = currentVehicle()
-    if not panelOpen or not netId or netId ~= panelNetId then
+    if not hasAccess() or not panelOpen or not netId or netId ~= panelNetId then
         closePanel()
         cb({ok=false})
         return
@@ -173,7 +196,7 @@ CreateThread(function()
 
         if panelOpen then
             local _, netId = currentVehicle()
-            if not netId or netId ~= panelNetId then closePanel() end
+            if not hasAccess() or not netId or netId ~= panelNetId then closePanel() end
         end
         Wait(next(stations) and 250 or 1000)
     end

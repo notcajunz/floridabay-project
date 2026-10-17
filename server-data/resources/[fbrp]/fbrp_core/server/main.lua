@@ -159,6 +159,11 @@ local function discordHasRole(discord, roleId)
     ]], { tostring(discord), tostring(roleId) }) ~= nil
 end
 
+function FBRP.HasCarRadioAccess(source)
+    local s = sessions[tonumber(source)]
+    return s ~= nil and s.carRadioAccess == true
+end
+
 local function hasStaffGroupAtLeast(source, minimumGroup)
     local s = sessions[tonumber(source)]
     if not s or not minimumGroup or minimumGroup == '' then return false end
@@ -406,6 +411,7 @@ local function publishPlayer(source)
         databasePermission(source, 'vMenu.NoClip') or databasePermission(source, 'vMenu.Everything')
     ), true)
     player.state:set('fbrp:maxVehicleSpeedMph', s.maxVehicleSpeedMph or FBRP.Config.vehicleSpeedLimitMph or 180, true)
+    player.state:set('fbrp:carRadioAccess', s.carRadioAccess == true, true)
     local headtag = selectedTagVisible(s, s.headtag)
     local gangtag = selectedTagVisible(s, s.gangtag)
     local chatTag = selectedTagVisible(s, s.chatTag)
@@ -479,10 +485,12 @@ local function initializePlayer(source)
     end
 
     local privilegedSpeed = discordHasRole(discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
+    local carRadioAccess = discordHasRole(discord, FBRP.Config.carRadioRoleId)
     sessions[source] = {
         source=source, playerId=tonumber(playerId), license=license, discord=discord, name=name,
         groups=membershipRows(discord), staffDuty=false, staffShift=nil, org=nil, orgShift=nil,
-        maxVehicleSpeedMph=privilegedSpeed and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250) or (FBRP.Config.vehicleSpeedLimitMph or 180)
+        maxVehicleSpeedMph=privilegedSpeed and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250) or (FBRP.Config.vehicleSpeedLimitMph or 180),
+        carRadioAccess=carRadioAccess
     }
     loadSelectedTags(sessions[source])
     reconcilePrincipals(source)
@@ -503,6 +511,7 @@ local function refreshPlayer(source)
     s.maxVehicleSpeedMph = discordHasRole(s.discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
         and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250)
         or (FBRP.Config.vehicleSpeedLimitMph or 180)
+    s.carRadioAccess = discordHasRole(s.discord, FBRP.Config.carRadioRoleId)
     if s.staffDuty and s.staffShift then
         local ended = MySQL.scalar.await('SELECT ended_at FROM staff_shifts WHERE id=?', { s.staffShift.id })
         if ended then

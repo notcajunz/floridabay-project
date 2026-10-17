@@ -40,12 +40,23 @@ local function broadcast(station)
     TriggerClientEvent('fbrp:carRadio:update', -1, public(station))
 end
 
-local function allowed(source)
+local function rateAllowed(source)
     local now = GetGameTimer()
     if lastAction[source] and now - lastAction[source] < 150 then return false end
     lastAction[source] = now
     return true
 end
+
+local function hasAccess(source)
+    if FBRP.HasCarRadioAccess and FBRP.HasCarRadioAccess(source) then return true end
+    TriggerClientEvent('fbrp:carRadio:denied', source)
+    return false
+end
+
+RegisterNetEvent('fbrp:carRadio:requestOpen', function()
+    if not hasAccess(source) then return end
+    TriggerClientEvent('fbrp:carRadio:openAuthorized', source)
+end)
 
 RegisterNetEvent('fbrp:carRadio:request', function()
     local list = {}
@@ -55,7 +66,7 @@ end)
 
 RegisterNetEvent('fbrp:carRadio:play', function(netId, videoId, volume)
     local src = source
-    if not allowed(src) then return end
+    if not hasAccess(src) or not rateAllowed(src) then return end
     local _, id = playerVehicle(src, netId)
     videoId = type(videoId) == 'string' and videoId or ''
     if not id or not videoId:match('^[%w_-][%w_-][%w_-][%w_-][%w_-][%w_-][%w_-][%w_-][%w_-][%w_-][%w_-]$') then return end
@@ -75,7 +86,7 @@ end)
 
 RegisterNetEvent('fbrp:carRadio:control', function(netId, action, value)
     local src = source
-    if not allowed(src) then return end
+    if not hasAccess(src) or not rateAllowed(src) then return end
     local _, id = playerVehicle(src, netId)
     local station = id and stations[id] or nil
     if not station or type(action) ~= 'string' then return end

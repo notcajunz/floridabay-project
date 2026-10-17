@@ -34,6 +34,9 @@ FBRP.Config = {
     vehicleSpeedLimitMph = 180,
     vehicleSpeedPrivilegedLimitMph = 250,
     vehicleSpeedPrivilegedRoleId = '1559633446429786162',
+    -- Only members with this Discord role may open or control vehicle audio.
+    -- Playback remains audible to everyone nearby.
+    carRadioRoleId = '1560857811364356218',
     -- Staff normally cannot clock in while already working an organization.
     -- This role and Head Administrator-or-higher staff ranks bypass that guard.
     staffOrgDutyBypassRoleId = '1559580245093253272',

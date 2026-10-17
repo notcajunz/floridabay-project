@@ -175,6 +175,7 @@ local function openHub()
         discordLinked=sessionInfo.discordLinked == true,
         staff=sessionInfo.staff == true,
         inVehicle=IsPedInAnyVehicle(PlayerPedId(),false),
+        carRadioAccess=state['fbrp:carRadioAccess'] == true,
     } })
 end
 

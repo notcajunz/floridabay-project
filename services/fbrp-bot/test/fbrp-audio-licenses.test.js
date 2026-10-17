@@ -22,6 +22,25 @@ test('vehicle YouTube audio is synchronized, occupant-controlled and spatial', (
   assert.match(client, /falloff \* falloff/);
 });
 
+test('vehicle YouTube audio controls require the configured Discord role', () => {
+  const base = 'server-data/resources/[fbrp]/fbrp_core/';
+  const config = read(`${base}config.lua`);
+  const main = read(`${base}server/main.lua`);
+  const server = read(`${base}server/vehicle_radio.lua`);
+  const client = read(`${base}client/vehicle_radio.lua`);
+  const clientMain = read(`${base}client/main.lua`);
+  const web = read(`${base}web/app.js`);
+
+  assert.match(config, /carRadioRoleId = '1560857811364356218'/);
+  assert.match(main, /discordHasRole\(discord, FBRP\.Config\.carRadioRoleId\)/);
+  assert.match(main, /player\.state:set\('fbrp:carRadioAccess'/);
+  assert.match(server, /FBRP\.HasCarRadioAccess\(source\)/);
+  assert.match(server, /requestOpen/);
+  assert.match(client, /LocalPlayer\.state\['fbrp:carRadioAccess'\]/);
+  assert.match(clientMain, /carRadioAccess=state\['fbrp:carRadioAccess'\] == true/);
+  assert.match(web, /radialPayload\.carRadioAccess !== true/);
+});
+
 test('loading music accepts a configurable or player-pasted YouTube link', () => {
   const base = 'server-data/resources/[fbrp]/fbrp_loading/';
   assert.match(read(`${base}fxmanifest.lua`), /web\/config\.js/);

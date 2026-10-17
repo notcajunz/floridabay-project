@@ -154,7 +154,12 @@ const RADIAL_CATEGORIES = [
 ];
 
 function radialCategories() {
-  const rows = [...RADIAL_CATEGORIES];
+  const rows = RADIAL_CATEGORIES.map((row) => ({
+    ...row,
+    actions: row.id === "vehicle" && radialPayload.carRadioAccess !== true
+      ? row.actions.filter((action) => action.action !== "carradio")
+      : row.actions,
+  }));
   if (radialPayload.jailed || radialPayload.communityService) {
     rows.push({
       id: "custody", label: "Custody", hint: radialPayload.jailed ? "Prison sentence" : "Community service", icon: "gavel", color: "#ff8c54",
@@ -865,7 +870,7 @@ function renderHub(data) {
   const tools = [
     hubCard("vehicles", "car", "Vehicle garage", "Browse and spawn approved vehicles."),
     hubCard("carcontrols", "gauge", "Vehicle controls", "Engine, locks, doors, cruise, and seatbelt."),
-    hubCard("carradio", "music", "Vehicle sound system", "Play synchronized YouTube audio inside and around your vehicle."),
+    ...(data.carRadioAccess ? [hubCard("carradio", "music", "Vehicle sound system", "Play synchronized YouTube audio inside and around your vehicle.")] : []),
     hubCard("radio", "radio", "Radio network", "Join public or organization frequencies."),
     hubCard("org", "building", "Organization hub", "Duty work, properties, deliveries, armory, and wardrobe."),
     hubCard("tags", "shirt", "Tag wardrobe", "Choose your granted headtag and organization tag."),
