@@ -159,7 +159,7 @@ DC_RANKS = [
 ]
 STATUSES = ["Active", "Semi-Active", "Inactive", "Exempt", "LOA", "Reserve",
             "Suspended", "Terminated", "Resigned", "Vacant", "Management"]
-TIMEZONES = ["GMT", "CET", "EST", "CST", "PST"]
+TIMEZONES = ["GMT", "CET", "EST", "CST", "PST", "AEST"]
 ASSIGNMENTS = ["Needs Training", "Patrol", "Supervision", "Head of Training Unit",
                "Head of Training", "Head of Recruitment", "Head of Subdivision",
                "Department Head", "Head of Internal Affairs", "Department Overseer"]
