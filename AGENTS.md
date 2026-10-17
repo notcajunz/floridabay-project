@@ -41,8 +41,10 @@ their branch and do not discard changes you did not create.
   `docker-compose.yml`.
 - MariaDB runs on game. Schema migration code belongs to the application that
   owns it and must be deployed with both planes when compatibility spans them.
-- The control-side `[vehicles]` path is an SSHFS view of the authoritative game
-  directory. Treat it as production data.
+- The control-side `[vehicles]`, `[eup]`, and
+  `[standalone]/vMenu/config` paths are SSHFS views of authoritative game
+  directories. They support personal vehicles/liveries, EUP packs, and addon
+  peds respectively. Treat all three as production data.
 - Secrets are intentionally Git-ignored. Never reveal, copy into tracked files,
   rotate, or replace Cfx, Corevia, Discord, database, OAuth, or API credentials.
 

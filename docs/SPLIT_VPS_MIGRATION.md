@@ -59,7 +59,7 @@ SSH key when creating **both** new VPSs.
 
 Create two clean servers with these exact base settings:
 
-- Ubuntu Server 26.04 LTS, AMD64
+- Ubuntu Server 22.04 LTS, AMD64
 - login user `ubuntu`
 - SSH key from step 2
 - passwordless `sudo` for `ubuntu` (the normal cloud image default)
@@ -161,6 +161,21 @@ tmux attach -t fbrp-move
 ```
 
 Preparation must finish with `Preparation complete` before continuing.
+
+If the control VPS was prepared before the game VPS was purchased, attach the
+game host later by running this on control after the game host has an `ubuntu`
+account with SSH access:
+
+```bash
+cd /home/ubuntu/fbrp
+./scripts/configure-control-game-link.sh "ubuntu@$GAME_IP"
+```
+
+This creates the encrypted database/FiveM/txAdmin tunnel and mounts all three
+authoritative upload locations from game: `[vehicles]` for personals and
+liveries, `[eup]` for clothing packs, and vMenu's `config` directory for addon
+peds. The game IP is written only to the ignored host configuration, never to
+Git.
 
 ## 8. Sign into Codex and Claude on both VPSs
 

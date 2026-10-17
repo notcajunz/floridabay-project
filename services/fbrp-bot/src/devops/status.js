@@ -13,8 +13,8 @@ export const setClient = (client) => {
 };
 
 const SERVICES = [
-  { unit: "fbrp-server", label: "Game server", detail: "FXServer + txAdmin" },
-  { unit: "fbrp-bot-live", label: "Main bot & website", detail: "Discord bot, portal and API" },
+  { unit: "fbrp-server", manager: "game", label: "Game server", detail: "FXServer + txAdmin" },
+  { unit: "fbrp-bot", manager: "system", label: "Main bot & website", detail: "Discord bot, portal and API" },
   { unit: "iaa-bot", label: "IAA Systems", detail: "Internal Affairs bot" },
   { unit: "staff-bot", label: "Staff Assistant", detail: "Staff roster, coordination team and staff commands bot" },
   { unit: "personals-bot", label: "Vehicle Manager", detail: "Personal vehicles bot" },
@@ -28,9 +28,16 @@ const SERVICES = [
 
 const systemctl = (manager, ...args) =>
   new Promise((resolve) => {
+    const target = String(process.env.FBRP_GAME_SSH || "").trim();
+    const key = String(process.env.FBRP_GAME_SSH_KEY || "/home/ubuntu/.ssh/fbrp-game").trim();
+    const remote = manager === "game" && target;
+    const file = remote ? "/usr/bin/ssh" : "/usr/bin/systemctl";
+    const command = remote
+      ? ["-i", key, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", target, "/usr/bin/systemctl", "--user", ...args]
+      : [...(manager === "system" ? [] : ["--user"]), ...args];
     execFile(
-      "systemctl",
-      [...(manager === "system" ? [] : ["--user"]), ...args],
+      file,
+      command,
       { timeout: 4000, env: { ...process.env, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 1000}` } },
       (error, stdout) => resolve(error && !stdout ? "" : String(stdout).trim()),
     );

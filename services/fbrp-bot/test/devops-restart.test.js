@@ -24,7 +24,8 @@ test("restart command exposes only fixed FBRP service targets", () => {
   assert.deepEqual(new Set(choices.map((choice) => choice.value)), new Set(["all", ...Object.keys(RESTART_TARGETS)]));
 
   for (const target of Object.values(RESTART_TARGETS)) {
-    if (target.unit) assert.match(target.unit, /^(?:fbrp-(?:server|bot-live)|(?:businesses|departments|devops|dohs|gangs|iaa|personals|role-manager|staff)-bot)\.service$/);
+    if (target.unit) assert.match(target.unit, /^(?:fbrp-(?:server|bot)|(?:businesses|departments|devops|dohs|gangs|iaa|personals|role-manager|staff)-bot)\.service$/);
     if (target.container) assert.equal(target.container, "fbrp-mariadb");
+    if (target.manager) assert.match(target.manager, /^(?:game|system)$/);
   }
 });

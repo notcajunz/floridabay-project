@@ -130,8 +130,8 @@ preflight_tests() {
   npm --prefix "$test_dir/services/fbrp-bot" ci --ignore-scripts
   npm --prefix "$test_dir/services/fbrp-bot" run check
   npm --prefix "$test_dir/services/fbrp-bot" test
-  for manager in businessmanager gangsmanager deptmanager; do
-    python3 -m venv "$test_dir/services/$manager/.venv"
+  for manager in businessmanager gangsmanager deptmanager dohsbot; do
+    python3.12 -m venv "$test_dir/services/$manager/.venv"
     "$test_dir/services/$manager/.venv/bin/pip" install -q --disable-pip-version-check \
       -e "${test_dir}/services/${manager}[dev]"
     "$test_dir/services/$manager/.venv/bin/python" -m pytest -q "$test_dir/services/$manager/tests"
@@ -165,8 +165,8 @@ stop_control() {
 install_control_revision() {
   git -C "$ROOT" merge --ff-only "$TARGET_COMMIT"
   npm --prefix "$ROOT/services/fbrp-bot" ci
-  for manager in businessmanager gangsmanager deptmanager; do
-    python3 -m venv "$ROOT/services/$manager/.venv"
+  for manager in businessmanager gangsmanager deptmanager dohsbot; do
+    python3.12 -m venv "$ROOT/services/$manager/.venv"
     "$ROOT/services/$manager/.venv/bin/pip" install --disable-pip-version-check \
       -e "${ROOT}/services/${manager}[dev]"
   done
@@ -208,7 +208,9 @@ verify_deployment() {
     printf '%-42s %s\n' "$unit" "$state"
     [[ "$state" == active ]]
   done
-  for unit in fbrp-game-tunnel.service fbrp-vehicles-sshfs.service "${CONTROL_USER_UNITS[@]}"; do
+  for unit in fbrp-game-tunnel.service fbrp-vehicles-sshfs.service \
+    fbrp-eup-sshfs.service fbrp-vmenu-config-sshfs.service \
+    "${CONTROL_USER_UNITS[@]}"; do
     state="$(systemctl --user is-active "$unit" 2>/dev/null || true)"
     printf '%-42s %s\n' "$unit" "$state"
     [[ "$state" == active ]]

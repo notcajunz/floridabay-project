@@ -4,9 +4,9 @@ import { C, EPHEMERAL, UserError, card, clip, sleep } from "./util.js";
 export const RESTART_OWNER_ID = "1090083387638812755";
 
 export const RESTART_TARGETS = Object.freeze({
-  game: { label: "Game server", unit: "fbrp-server.service" },
-  main: { label: "Main bot, website & API", unit: "fbrp-bot-live.service" },
-  database: { label: "MariaDB", container: "fbrp-mariadb" },
+  game: { label: "Game server", unit: "fbrp-server.service", manager: "game" },
+  main: { label: "Main bot, website & API", unit: "fbrp-bot.service", manager: "system" },
+  database: { label: "MariaDB", container: "fbrp-mariadb", manager: "game" },
   businesses: { label: "Business Manager", unit: "businesses-bot.service" },
   departments: { label: "Department Manager", unit: "departments-bot.service" },
   dohs: { label: "DOHS Assistant", unit: "dohs-bot.service" },
@@ -25,6 +25,8 @@ export const RESTART_CHOICES = Object.freeze([
 
 const ALL_ORDER = Object.freeze(["database", "game", "main", "businesses", "departments", "dohs", "gangs", "iaa", "personals", "roles", "staff"]);
 const processEnv = () => ({ ...process.env, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 1000}` });
+const gameSsh = () => String(process.env.FBRP_GAME_SSH || "").trim();
+const gameKey = () => String(process.env.FBRP_GAME_SSH_KEY || "/home/ubuntu/.ssh/fbrp-game").trim();
 
 const run = (file, args, timeout = 150_000) =>
   new Promise((resolve, reject) => {
@@ -41,15 +43,29 @@ const run = (file, args, timeout = 150_000) =>
 export const isRestartOwner = (id) => String(id || "") === RESTART_OWNER_ID;
 
 async function restartUnit(target) {
-  await run("/usr/bin/systemctl", ["--user", "restart", target.unit]);
-  const state = await run("/usr/bin/systemctl", ["--user", "is-active", target.unit], 10_000);
+  let file = "/usr/bin/systemctl";
+  let prefix = ["--user"];
+  if (target.manager === "system") {
+    file = "/usr/bin/sudo";
+    prefix = ["-n", "/usr/bin/systemctl"];
+  } else if (target.manager === "game" && gameSsh()) {
+    file = "/usr/bin/ssh";
+    prefix = ["-i", gameKey(), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", gameSsh(), "/usr/bin/systemctl", "--user"];
+  }
+  await run(file, [...prefix, "restart", target.unit]);
+  const state = await run(file, [...prefix, "is-active", target.unit], 10_000);
   if (state !== "active") throw new Error(`${target.unit} is ${state || "not active"} after restart`);
 }
 
 async function restartDatabase(target) {
-  await run("/usr/bin/docker", ["restart", target.container]);
+  const remote = target.manager === "game" && gameSsh();
+  const file = remote ? "/usr/bin/ssh" : "/usr/bin/docker";
+  const prefix = remote
+    ? ["-i", gameKey(), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", gameSsh(), "/usr/bin/sudo", "-n", "/usr/bin/docker"]
+    : [];
+  await run(file, [...prefix, "restart", target.container]);
   for (let attempt = 0; attempt < 90; attempt += 1) {
-    const health = await run("/usr/bin/docker", ["inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", target.container], 10_000);
+    const health = await run(file, [...prefix, "inspect", "--format", "{{.State.Health.Status}}", target.container], 10_000);
     if (health === "healthy" || health === "running") return;
     if (health === "unhealthy" || health === "exited" || health === "dead") throw new Error(`${target.container} is ${health} after restart`);
     await sleep(1000);

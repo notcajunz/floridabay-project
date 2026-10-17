@@ -22,6 +22,7 @@ readonly GAME_REVERSE_SSH_PORT="2222"
 readonly -a CONTROL_USER_UNITS=(
   businesses-bot.service
   departments-bot.service
+  dohs-bot.service
   devops-bot.service
   gangs-bot.service
   iaa-bot.service
@@ -171,10 +172,10 @@ verify_clean_target() {
       sudo -n true
       . /etc/os-release
       test "$ID" = ubuntu
-      test "$VERSION_ID" = 26.04
+      test "$VERSION_ID" = 22.04
       test "$(dpkg --print-architecture)" = amd64
       cat /etc/machine-id
-    ')" || die "${role} validation failed. It must be Ubuntu 26.04 AMD64 with ubuntu and passwordless sudo."
+    ')" || die "${role} validation failed. It must be Ubuntu 22.04 AMD64 with ubuntu and passwordless sudo."
   [[ "$remote_machine_id" != "$local_machine_id" ]] || die "The ${role} target is this source VPS."
 
   ssh \
@@ -237,18 +238,23 @@ sudo apt-get install -y \
   gnupg \
   jq \
   libatomic1 \
-  nodejs \
-  npm \
   openssl \
   python3 \
   python3-pip \
   python3-venv \
   ripgrep \
   rsync \
+  software-properties-common \
   tmux \
   ufw \
   unzip \
   xz-utils
+
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+sudo add-apt-repository -y ppa:deadsnakes/ppa
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-dev python3.12-venv
 
 node_major="$(node -p 'Number(process.versions.node.split(".")[0])')"
 if (( node_major < 22 )); then
@@ -494,6 +500,11 @@ set_env "$root/services/fbrp-bot/.env" MARIADB_PORT "$db_port"
 set_env "$root/services/fbrp-bot/.env" FBRP_FIVEM_ORIGIN "http://127.0.0.1:${game_port}/fbrp_core"
 set_env "$root/services/fbrp-bot/.env" FBRP_PANEL_HOST 127.0.0.1
 set_env "$root/services/fbrp-bot/.env" FBRP_PANEL_PORT 8080
+set_env "$root/services/fbrp-bot/.env" FBRP_GAME_SSH "$game_target"
+set_env "$root/services/fbrp-bot/.env" FBRP_GAME_SSH_KEY /home/ubuntu/.ssh/fbrp-game
+set_env "$root/services/fbrp-bot/.env" FBRP_VEHICLES_DIR "$root/server-data/resources/[vehicles]"
+set_env "$root/services/fbrp-bot/.env" FBRP_EUP_DIR "$root/server-data/resources/[eup]"
+set_env "$root/services/fbrp-bot/.env" FBRP_VMENU_ADDONS "$root/server-data/resources/[standalone]/vMenu/config/addons.json"
 for manager in businessmanager gangsmanager deptmanager; do
   set_env "$root/services/$manager/.env" FBRP_API_URL http://127.0.0.1:8080
 done
@@ -501,12 +512,13 @@ chmod 600 \
   "$root/services/fbrp-bot/.env" \
   "$root/services/businessmanager/.env" \
   "$root/services/gangsmanager/.env" \
-  "$root/services/deptmanager/.env"
+  "$root/services/deptmanager/.env" \
+  "$root/services/dohsbot/.env"
 
 cd "$root"
 npm --prefix services/fbrp-bot ci
-for manager in businessmanager gangsmanager deptmanager; do
-  python3 -m venv "$root/services/$manager/.venv"
+for manager in businessmanager gangsmanager deptmanager dohsbot; do
+  python3.12 -m venv "$root/services/$manager/.venv"
   "${root}/services/${manager}/.venv/bin/pip" install --disable-pip-version-check -e "${root}/services/${manager}[dev]"
 done
 
@@ -522,7 +534,8 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=${root}/services/fbrp-bot
 EnvironmentFile=${root}/services/fbrp-bot/.env
-ExecStartPre=/usr/bin/bash -c 'for i in \$(seq 1 90); do (exec 3<>/dev/tcp/127.0.0.1/${db_port}) 2>/dev/null && exit 0; sleep 2; done; exit 1'
+ExecStartPre=/usr/bin/bash -c 'mountpoint -q "${root}/server-data/resources/[vehicles]" && mountpoint -q "${root}/server-data/resources/[eup]" && mountpoint -q "${root}/server-data/resources/[standalone]/vMenu/config"'
+ExecStartPre=/usr/bin/bash -c 'for i in {1..90}; do (exec 3<>/dev/tcp/127.0.0.1/${db_port}) 2>/dev/null && exit 0; sleep 2; done; exit 1'
 ExecStartPre=/usr/bin/node ${root}/services/fbrp-bot/src/migrate.js
 ExecStart=/usr/bin/node ${root}/services/fbrp-bot/src/index.js
 Restart=on-failure
@@ -539,7 +552,7 @@ WantedBy=multi-user.target
 EOF
 
 write_user_unit() {
-  local name="$1" description="$2" workdir="$3" command="$4"
+  local name="$1" description="$2" workdir="$3" command="$4" environment_lines="${5:-}"
   cat >"/home/ubuntu/.config/systemd/user/${name}.service" <<EOF
 [Unit]
 Description=${description}
@@ -549,6 +562,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${workdir}
+${environment_lines}
 ExecStart=${command}
 Restart=always
 RestartSec=5
@@ -560,6 +574,8 @@ EOF
 
 write_user_unit businesses-bot 'FBRP Business Manager Discord bot' "$root/services/businessmanager" "$root/services/businessmanager/.venv/bin/python -m businessbot"
 write_user_unit departments-bot 'FBRP Department Manager Discord bot' "$root/services/deptmanager" "$root/services/deptmanager/.venv/bin/python -m deptbot"
+write_user_unit dohs-bot 'FBRP DOHS Assistant Discord bot' "$root/services/dohsbot" "$root/services/dohsbot/.venv/bin/python -m dohsbot" "EnvironmentFile=-$root/services/deptmanager/.env
+EnvironmentFile=$root/services/dohsbot/.env"
 write_user_unit gangs-bot 'FBRP Gang Manager Discord bot' "$root/services/gangsmanager" "$root/services/gangsmanager/.venv/bin/python -m gangbot"
 write_user_unit devops-bot 'FBRP DevOps Discord bot' "$root/services/fbrp-bot" "/usr/bin/node --env-file=.env src/devops/index.js"
 write_user_unit iaa-bot 'FBRP IAA Systems Discord bot' "$root/services/fbrp-bot" "/usr/bin/node --env-file=.env src/iaa/index.js"
@@ -611,7 +627,7 @@ sudo systemctl daemon-reload
 sudo systemctl disable --now fbrp-bot.service caddy.service 2>/dev/null || true
 systemctl --user daemon-reload
 systemctl --user disable --now \
-  businesses-bot.service departments-bot.service devops-bot.service \
+  businesses-bot.service departments-bot.service dohs-bot.service devops-bot.service \
   gangs-bot.service iaa-bot.service personals-bot.service \
   role-manager-bot.service staff-bot.service 2>/dev/null || true
 
@@ -852,41 +868,52 @@ REMOTE
 }
 
 install_control_vehicle_mount() {
-  log "Mounting the authoritative game-VPS vehicle directory on the control VPS"
+  log "Mounting authoritative game-VPS upload directories on the control VPS"
   local game_host="${GAME_TARGET#*@}"
   control_script "$game_host" <<'REMOTE'
 set -Eeuo pipefail
 game_host="$1"
-vehicles='/home/ubuntu/fbrp/server-data/resources/[vehicles]'
-backup='/home/ubuntu/fbrp/server-data/resources/[vehicles].source-copy'
-systemctl --user stop fbrp-vehicles-sshfs.service 2>/dev/null || true
-if mountpoint -q "$vehicles"; then
-  fusermount3 -u "$vehicles"
-fi
-if [[ ! -e "$backup" ]]; then
-  mv "$vehicles" "$backup"
-fi
-mkdir -p "$vehicles"
-cat >/home/ubuntu/.config/systemd/user/fbrp-vehicles-sshfs.service <<EOF
+
+write_mount_unit() {
+  local name="$1" remote_path="$2" local_path="$3"
+  systemctl --user stop "${name}.service" 2>/dev/null || true
+  if mountpoint -q "$local_path"; then
+    fusermount3 -u "$local_path"
+  fi
+  mkdir -p "$local_path"
+  cat >"/home/ubuntu/.config/systemd/user/${name}.service" <<EOF
 [Unit]
-Description=FBRP authoritative vehicle resources on game VPS
+Description=FBRP authoritative game data: ${remote_path}
 After=fbrp-game-tunnel.service
 Requires=fbrp-game-tunnel.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/sshfs -f -o reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,IdentityFile=/home/ubuntu/.ssh/fbrp-game,StrictHostKeyChecking=yes ubuntu@${game_host}:${vehicles} ${vehicles}
-ExecStop=-/usr/bin/fusermount3 -u ${vehicles}
+ExecStart=/usr/bin/sshfs -f -o reconnect,nonempty,ServerAliveInterval=15,ServerAliveCountMax=3,IdentityFile=/home/ubuntu/.ssh/fbrp-game,IdentitiesOnly=yes,StrictHostKeyChecking=yes ubuntu@${game_host}:${remote_path} ${local_path}
+ExecStop=-/usr/bin/fusermount3 -u ${local_path}
 Restart=always
 RestartSec=10
 
 [Install]
 WantedBy=default.target
 EOF
+}
+
+vehicles='/home/ubuntu/fbrp/server-data/resources/[vehicles]'
+eup='/home/ubuntu/fbrp/server-data/resources/[eup]'
+vmenu='/home/ubuntu/fbrp/server-data/resources/[standalone]/vMenu/config'
+write_mount_unit fbrp-vehicles-sshfs "$vehicles" "$vehicles"
+write_mount_unit fbrp-eup-sshfs "$eup" "$eup"
+write_mount_unit fbrp-vmenu-config-sshfs "$vmenu" "$vmenu"
 systemctl --user daemon-reload
-systemctl --user enable --now fbrp-vehicles-sshfs.service
+systemctl --user enable --now \
+  fbrp-vehicles-sshfs.service \
+  fbrp-eup-sshfs.service \
+  fbrp-vmenu-config-sshfs.service
 sleep 3
 mountpoint -q "$vehicles"
+mountpoint -q "$eup"
+mountpoint -q "$vmenu"
 REMOTE
 }
 
@@ -905,7 +932,7 @@ for attempt in $(seq 1 60); do
 done
 curl -fsS http://127.0.0.1:8080/ >/dev/null
 systemctl --user enable --now \
-  businesses-bot.service departments-bot.service devops-bot.service \
+  businesses-bot.service departments-bot.service dohs-bot.service devops-bot.service \
   gangs-bot.service iaa-bot.service personals-bot.service \
   role-manager-bot.service staff-bot.service
 sudo systemctl enable --now caddy.service
@@ -946,7 +973,7 @@ set -Eeuo pipefail
 db_port="$1"
 game_port="$2"
 required_system=(fbrp-bot.service caddy.service)
-required_user=(fbrp-game-tunnel.service fbrp-vehicles-sshfs.service businesses-bot.service departments-bot.service devops-bot.service gangs-bot.service iaa-bot.service personals-bot.service role-manager-bot.service staff-bot.service)
+required_user=(fbrp-game-tunnel.service fbrp-vehicles-sshfs.service fbrp-eup-sshfs.service fbrp-vmenu-config-sshfs.service businesses-bot.service departments-bot.service dohs-bot.service devops-bot.service gangs-bot.service iaa-bot.service personals-bot.service role-manager-bot.service staff-bot.service)
 for unit in "${required_system[@]}"; do
   state="$(sudo systemctl is-active "$unit" 2>/dev/null || true)"
   printf '%-42s %s\n' "$unit" "$state"
@@ -1064,12 +1091,19 @@ rollback() {
 set -Eeuo pipefail
 sudo systemctl disable --now caddy.service fbrp-bot.service 2>/dev/null || true
 systemctl --user disable --now \
-  businesses-bot.service departments-bot.service devops-bot.service \
+  businesses-bot.service departments-bot.service dohs-bot.service devops-bot.service \
   gangs-bot.service iaa-bot.service personals-bot.service \
   role-manager-bot.service staff-bot.service fbrp-vehicles-sshfs.service \
+  fbrp-eup-sshfs.service fbrp-vmenu-config-sshfs.service \
   2>/dev/null || true
 if mountpoint -q '/home/ubuntu/fbrp/server-data/resources/[vehicles]'; then
   fusermount3 -u '/home/ubuntu/fbrp/server-data/resources/[vehicles]' || true
+fi
+if mountpoint -q '/home/ubuntu/fbrp/server-data/resources/[eup]'; then
+  fusermount3 -u '/home/ubuntu/fbrp/server-data/resources/[eup]' || true
+fi
+if mountpoint -q '/home/ubuntu/fbrp/server-data/resources/[standalone]/vMenu/config'; then
+  fusermount3 -u '/home/ubuntu/fbrp/server-data/resources/[standalone]/vMenu/config' || true
 fi
 REMOTE
 
