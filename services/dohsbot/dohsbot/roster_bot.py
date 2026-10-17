@@ -1040,8 +1040,8 @@ class RosterBot(discord.Client):
                                        CFG["supervisor_min_rank"], CFG["high_command_min_rank"])
         holders = (await self.api.service_role_holders("dohs"))["holders"]
         # The bot owners keep whatever DHS roles they hold; they are not on the roster by design.
-        holders = {rid: [d for d in ids if int(d) not in OWNER_IDS] for rid, ids in holders.items()}
-        changes, removals = plan_main_roles(expected, holders, list(MAIN_ROLES.values()))
+        changes, removals = plan_main_roles(expected, holders, list(MAIN_ROLES.values()),
+                                            exempt={str(i) for i in OWNER_IDS})
         blocked = removals > MAIN_SYNC_MAX_REMOVALS and not force
         apply = [c for c in changes if c["action"] == "add"] if blocked else changes
         for c in apply:

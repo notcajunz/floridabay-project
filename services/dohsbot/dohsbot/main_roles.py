@@ -29,14 +29,14 @@ def expected_main_roles(members: list[dict], ranks: list[str], roles: dict[str, 
 
 
 def plan_main_roles(expected: dict[str, set[str]], holders: dict[str, list[str]],
-                    role_ids: list[str]) -> tuple[list[dict], int]:
+                    role_ids: list[str], exempt: set[str] | frozenset[str] = frozenset()) -> tuple[list[dict], int]:
     """(changes, removal count). Holders without a roster entry lose every role; the rest are topped up."""
     changes: list[dict] = []
     removals = 0
     for role_id in role_ids:
         has = {str(i) for i in holders.get(role_id, [])}
         for did in sorted(has):
-            if role_id not in expected.get(did, set()):
+            if role_id not in expected.get(did, set()) and did not in exempt:
                 changes.append({"discord_id": did, "role_id": role_id, "action": "remove"})
                 removals += 1
         for did, want in sorted(expected.items()):

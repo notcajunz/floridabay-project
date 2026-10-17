@@ -46,3 +46,12 @@ test("bot owners are exempt from IAA roster-bound removals", async () => {
   const { enforceRosterRoles } = await import("../src/iaa/ranksync.js");
   assert.deepEqual(await enforceRosterRoles({ id: "1090083387638812755" }), { added: 0, removed: 0, warned: 0 });
 });
+
+test("an exempt owner who holds the roles is neither removed nor re-added", () => {
+  const roleIds = Object.values(roles);
+  const holders = { [roles.base]: ["7"], [roles.supervisor]: ["7"], [roles.high_command]: ["7"] };
+  const owner = planMainRoles({ expected: new Map([["7", new Set(roleIds)]]), holders, roleIds, exempt: new Set(["7"]) });
+  assert.deepEqual(owner.changes, []);
+  const offRoster = planMainRoles({ expected: new Map(), holders, roleIds, exempt: new Set(["7"]) });
+  assert.deepEqual(offRoster.changes, []);
+});

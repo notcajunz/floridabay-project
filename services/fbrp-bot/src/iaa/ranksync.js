@@ -11,13 +11,13 @@ import { AGENCY_BYPASS_IDS, SERVICE_ROLES, queueServiceRoles, serviceRoleHolders
 const MAX_MAIN_REMOVALS = 40;
 
 /** Pure planner. `expected` maps discord id -> set of main-server role ids that person should hold. */
-export function planMainRoles({ expected, holders, roleIds }) {
+export function planMainRoles({ expected, holders, roleIds, exempt = new Set() }) {
   const changes = [];
   let removals = 0;
   for (const roleId of roleIds) {
     const has = new Set((holders[roleId] || []).map(String));
     for (const id of has)
-      if (!expected.get(id)?.has(roleId)) {
+      if (!expected.get(id)?.has(roleId) && !exempt.has(id)) {
         changes.push({ discord_id: id, role_id: roleId, action: "remove" });
         removals++;
       }
@@ -51,8 +51,8 @@ export async function reconcileMainRoles(guild) {
   }
   // A failed member fetch must never read as "nobody is on the roster".
   if (!expected.size) return { skipped: "no ranked members found" };
-  const holders = Object.fromEntries(Object.entries((await serviceRoleHolders("iaa")).holders).map(([role, ids]) => [role, ids.filter((id) => !AGENCY_BYPASS_IDS.has(id))]));
-  const { changes, removals } = planMainRoles({ expected, holders, roleIds: Object.values(SERVICE_ROLES.iaa.roles) });
+  const { holders } = await serviceRoleHolders("iaa");
+  const { changes, removals } = planMainRoles({ expected, holders, roleIds: Object.values(SERVICE_ROLES.iaa.roles), exempt: AGENCY_BYPASS_IDS });
   const apply = removals > MAX_MAIN_REMOVALS ? changes.filter((c) => c.action === "add") : changes;
   if (removals > MAX_MAIN_REMOVALS)
     await post(guild, "botLogs", { content: `⚠️ Main-server IAA role sync wants to remove ${removals} roles, which is more than the safety limit of ${MAX_MAIN_REMOVALS}. Removals were skipped; check the roster and run again.`, allowedMentions: { parse: [] } }).catch(() => null);

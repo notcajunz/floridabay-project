@@ -136,3 +136,11 @@ def test_main_role_plan_matches_roster():
     assert removals == 3 and all(c["discord_id"] == "9" for c in changes if c["action"] == "remove")
     assert {(c["discord_id"], c["role_id"]) for c in changes if c["action"] == "add"} == {
         ("1", "B"), ("3", "B"), ("1", "S"), ("1", "H")}
+
+
+def test_exempt_owner_is_not_requeued_or_removed():
+    from dohsbot.main_roles import plan_main_roles
+
+    holders = {"B": ["7"], "S": ["7"]}
+    assert plan_main_roles({"7": {"B", "S"}}, holders, ["B", "S"], exempt={"7"}) == ([], 0)
+    assert plan_main_roles({}, holders, ["B", "S"], exempt={"7"}) == ([], 0)
