@@ -14,7 +14,7 @@ export const setClient = (client) => {
 
 const SERVICES = [
   { unit: "fbrp-server", label: "Game server", detail: "FXServer + txAdmin" },
-  { unit: "fbrp-bot", manager: "system", label: "Main bot & website", detail: "Discord bot, portal and API" },
+  { unit: "fbrp-bot-live", label: "Main bot & website", detail: "Discord bot, portal and API" },
   { unit: "iaa-bot", label: "IAA Systems", detail: "Internal Affairs bot" },
   { unit: "staff-bot", label: "Staff Assistant", detail: "Staff roster, coordination team and staff commands bot" },
   { unit: "personals-bot", label: "Vehicle Manager", detail: "Personal vehicles bot" },

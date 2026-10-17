@@ -15,6 +15,7 @@ import * as admin from "./admin.js";
 import * as ranksync from "./ranksync.js";
 import * as status from "./status.js";
 import * as lookups from "./lookups.js";
+import * as restart from "./restart.js";
 import { refreshPanels, renderPanel } from "./panels.js";
 
 /**
@@ -70,6 +71,7 @@ const HELP = [
   ["📣 Comms", "`/release post` · `/announce` · `/standup`"],
   ["🎫 Tickets · `/ticket` `/support`", "General Support and Purchase Support. Staff claim, prioritise, note and close from the buttons."],
   ["🟢 Status · `/devops status`", "Live game server, website, database and bot health."],
+  ["♻️ Restarts · `/restart`", "Owner-only restart controls for every FBRP production service."],
   ["🔎 Public lookups", "`/vehicle lookup` · `/personals owned` · `/headtag info` · `/headtag owned`\nAvailable to everyone in this server."],
 ];
 
@@ -131,6 +133,8 @@ async function slash(i, actor) {
       return respond(i, { embeds: [card("🛠️ FBRP DevOps bot", { color: C.teal, description: "Everything the development team runs on, from the roster to the ticket queue.", fields: HELP.map(([n, v]) => [n, v, false]) })] });
     case "devops-admin":
       return admin.command(i, actor, sub);
+    case "restart":
+      return restart.command(i);
   }
   throw new UserError("Unknown command.");
 }
@@ -181,6 +185,9 @@ client.on(Events.InteractionCreate, async (i) => {
     return;
   }
   try {
+    // Keep recovery available even when the database/config service is the thing
+    // the owner needs to restart. Authorization is enforced inside the command.
+    if (i.isChatInputCommand() && i.commandName === "restart") return await restart.command(i);
     const cfg = await config();
     // Ticket buttons, menus and modals have their own id scheme.
     const id = i.customId || "";

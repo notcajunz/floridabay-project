@@ -2,6 +2,7 @@ import { SlashCommandBuilder } from "discord.js";
 import { PERMISSIONS } from "./store.js";
 import { AREAS, PRIORITIES, STATUSES } from "./tasks.js";
 import { COMPONENTS } from "./incidents.js";
+import { RESTART_CHOICES } from "./restart.js";
 
 const reason = (o) => o.setName("reason").setDescription("Reason").setRequired(true).setMaxLength(500);
 const optReason = (o) => o.setName("reason").setDescription("Reason (optional)").setMaxLength(500);
@@ -271,6 +272,11 @@ const devops = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("status").setDescription("Live status of the game server, website and bots"))
   .addSubcommand((s) => s.setName("help").setDescription("What this bot can do and who can do it"));
 
+const restart = new SlashCommandBuilder()
+  .setName("restart")
+  .setDescription("Restart an FBRP production service (service owner only)")
+  .addStringOption((o) => o.setName("service").setDescription("Service to restart").setRequired(true).addChoices(...RESTART_CHOICES));
+
 const admin = new SlashCommandBuilder()
   .setName("devops-admin")
   .setDescription("Configure the DevOps bot (Development Manager+)")
@@ -303,4 +309,4 @@ const admin = new SlashCommandBuilder()
       .addStringOption((o) => o.setName("mode").setDescription("Add or remove").setRequired(true).addChoices({ name: "Add", value: "add" }, { name: "Remove", value: "remove" })),
   );
 
-export const definitions = [dev, discipline, loa, commend, task, incident, release, announce, standup, vehicle, personals, headtag, ticket, support, devops, admin].map((c) => c.toJSON());
+export const definitions = [dev, discipline, loa, commend, task, incident, release, announce, standup, vehicle, personals, headtag, ticket, support, devops, restart, admin].map((c) => c.toJSON());
