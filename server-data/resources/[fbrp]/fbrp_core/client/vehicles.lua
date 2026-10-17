@@ -169,8 +169,12 @@ RegisterNetEvent('fbrp:justice:findDvCandidates',function(maxDistance)
     for _,vehicle in ipairs(GetGamePool('CVehicle')) do
         if DoesEntityExist(vehicle) then
             local distance=#(GetEntityCoords(vehicle)-origin)
-            local netId=NetworkGetNetworkIdFromEntity(vehicle)
-            if distance<=maxDistance and netId>0 then
+            -- The streamed vehicle pool also contains local-only entities.
+            -- Asking FiveM for a network id for one of those emits a native
+            -- warning, so filter by distance and network state first.
+            if distance<=maxDistance and NetworkGetEntityIsNetworked(vehicle) then
+                local netId=NetworkGetNetworkIdFromEntity(vehicle)
+                if netId<=0 then goto continue end
                 local personalId
                 pcall(function() personalId=tonumber(Entity(vehicle).state.fbrpPersonal) end)
                 nearby[#nearby+1]={
@@ -182,6 +186,7 @@ RegisterNetEvent('fbrp:justice:findDvCandidates',function(maxDistance)
                 }
             end
         end
+        ::continue::
     end
     table.sort(nearby,function(a,b) return a.distance<b.distance end)
     local candidates={}

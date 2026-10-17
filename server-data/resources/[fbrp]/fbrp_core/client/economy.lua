@@ -263,7 +263,13 @@ RegisterCommand('repair', function()
     ui({ type='progress', label='Repairing vehicle', ms=7000 })
     Wait(7000)
     ClearPedTasks(ped)
-    TriggerServerEvent('fbrp:economy:repair', NetworkGetNetworkIdFromEntity(vehicle))
+    -- The vehicle can leave scope or be deleted during the repair animation.
+    if not DoesEntityExist(vehicle) or not NetworkGetEntityIsNetworked(vehicle) then
+        return notify('The vehicle is no longer available.', 'error')
+    end
+    local netId = NetworkGetNetworkIdFromEntity(vehicle)
+    if netId <= 0 then return notify('The vehicle is no longer available.', 'error') end
+    TriggerServerEvent('fbrp:economy:repair', netId)
 end, false)
 
 RegisterCommand('serve', function()

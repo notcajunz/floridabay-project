@@ -544,7 +544,13 @@ RegisterCommand('impound', function()
     ui({ type='progress', label='Calling the tow truck', ms=3000 })
     Wait(3000)
     ClearPedTasks(ped)
-    TriggerServerEvent('fbrp:justice:impound', NetworkGetNetworkIdFromEntity(vehicle))
+    -- The vehicle can leave scope or be deleted while the tow animation runs.
+    if not DoesEntityExist(vehicle) or not NetworkGetEntityIsNetworked(vehicle) then
+        return notify('The vehicle is no longer available.', 'error')
+    end
+    local netId = NetworkGetNetworkIdFromEntity(vehicle)
+    if netId <= 0 then return notify('The vehicle is no longer available.', 'error') end
+    TriggerServerEvent('fbrp:justice:impound', netId)
 end, false)
 
 -- ─────────────────────────── spike strips ───────────────────────────

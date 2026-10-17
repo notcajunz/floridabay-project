@@ -40,8 +40,17 @@ function addNearbyPlayers()
 		isInitialized = false
 		return
 	end
-	MumbleAddVoiceChannelListen(assignedChannel)
-	MumbleAddVoiceTargetChannel(voiceTarget, assignedChannel)
+	-- assignedChannel is replicated separately from Mumble's channel state. On
+	-- reconnect it can remain populated briefly after the actual channel has
+	-- disappeared, and calling the listen native during that window spams the
+	-- client console. Let the initialization watchdog rebuild the channel first.
+	local currentChannel = MumbleGetVoiceChannelFromServerId(playerServerId)
+	if currentChannel ~= assignedChannel then
+		isInitialized = false
+		return
+	end
+	MumbleAddVoiceChannelListen(currentChannel)
+	MumbleAddVoiceTargetChannel(voiceTarget, currentChannel)
 
 	for source, _ in pairs(callData) do
 		if source ~= playerServerId then

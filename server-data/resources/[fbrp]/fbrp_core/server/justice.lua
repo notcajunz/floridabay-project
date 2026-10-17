@@ -1536,11 +1536,13 @@ end, false)
 -- it. Population type 7 is mission/script-created; ambient traffic is excluded.
 local SCRIPTED_VEHICLE_POPULATION_TYPE = 7
 local spawnedVehicles = {} -- network id -> { license, model }
+local spawnedVehicleIds = {} -- entity handle -> network id
 
 local function rememberSpawnedVehicle(entity)
     if not entity or entity == 0 or not DoesEntityExist(entity) or GetEntityType(entity) ~= 2 then return false end
     local netId = NetworkGetNetworkIdFromEntity(entity)
     if not netId or netId <= 0 then return false end
+    spawnedVehicleIds[entity] = netId
     spawnedVehicles[netId] = nil -- network ids can be reused after deletion
     if GetEntityPopulationType(entity) ~= SCRIPTED_VEHICLE_POPULATION_TYPE then return true end
     local firstOwner = NetworkGetFirstEntityOwner(entity)
@@ -1564,8 +1566,12 @@ AddEventHandler('entityCreated', function(entity)
 end)
 
 AddEventHandler('entityRemoved', function(entity)
-    local ok, netId = pcall(NetworkGetNetworkIdFromEntity, entity)
-    if ok and netId and netId > 0 then spawnedVehicles[netId] = nil end
+    -- entityRemoved fires after the network object is gone; asking the native
+    -- for its id at that point emits NETWORK_GET_NETWORK_ID_FROM_ENTITY. Keep
+    -- the id captured by entityCreated instead.
+    local netId = spawnedVehicleIds[entity]
+    spawnedVehicleIds[entity] = nil
+    if netId then spawnedVehicles[netId] = nil end
 end)
 
 -- Ask the player who ran /dv for nearby network IDs because client-created
