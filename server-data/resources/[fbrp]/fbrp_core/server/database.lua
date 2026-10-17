@@ -45,7 +45,8 @@ local migrationFiles = {
     'migrations/065_discord_oauth_grants.sql',
     'migrations/066_leadership_callsigns.sql',
     'migrations/067_player_playtime.sql',
-    'migrations/068_citizen_identity.sql'
+    'migrations/068_citizen_identity.sql',
+    'migrations/069_self_service_licenses.sql'
 }
 
 local function splitSql(contents)

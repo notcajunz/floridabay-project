@@ -13,12 +13,13 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 - Bot-created organizations for gangs, businesses, LEO, fire/rescue, government, and other groups. Every organization is gated by a required role in any registered network Discord. `/duty` opens a dropdown of every organization you can clock in as and applies its job, ACEs, and organization tag; the same menu clocks you out. Shift hours are reportable from Discord.
 - F7 vehicle garage with server-side model validation and per-section ACE rules, plus engine, locks, seatbelt/ejection, cruise control, doors, and a K-key control panel.
 - Vehicle fuel consumption, empty-tank engine cutoff, synchronized tank levels, and free refuelling at map-marked gas stations.
+- Synchronized vehicle sound systems (`/carradio` or M > Vehicle > Car Audio): paste a YouTube link, then pause, seek, stop, or change volume. Occupants hear full volume and nearby players outside the vehicle hear distance-based falloff up to 45 metres.
 - Original HUD for AOP, priority status, peacetime, road/zone, heading, voice/radio, selected tags, organization duty, staff duty, speed, gear, RPM, fuel, locks, belt, and cruise.
 - Bolingbroke prison: sentences from the MDT, third eye or `/jail` (restrained suspects only; staff `fbrp.staff.jail` from anywhere), served in online time (30 s per month by default) and resumed on reconnect. Inmates get a jumpsuit, no weapons, a server-checked yard leash, `/prisonwork` jobs that shorten the sentence, and a hidden fence panel for breakouts (needs on-duty police, not in peacetime) that issues a warrant and alerts every officer. `/jailtime`, `/prison`, `/unjail`.
-- Police MDT (`/mdt`): dispatch dashboard (calls with priorities and a recently-closed list, units, inmates, fugitives), citizen lookup by name, former name, nickname, citizen number, phone, birth date or plate, with citizen details, aliases, criminal history, warrants and registered vehicles, citations and sentencing against a Florida penal code, warrants, BOLOs (auto-close after 72h), plate lookups, report addenda, and a licensing queue where officers approve or deny license applications. Also `/runplate` (vehicle ahead), `/impound`, `/spikes`, GSR swabs, `/bodycam`, and `/respond <call>` for GPS to any 911/311/EMS call.
+- Police MDT (`/mdt`): dispatch dashboard (calls with priorities and a recently-closed list, units, inmates, fugitives), citizen lookup by name, former name, nickname, citizen number, phone, birth date or plate, with citizen details, aliases, criminal history, warrants and registered vehicles, citations and sentencing against a Florida penal code, warrants, BOLOs (auto-close after 72h), plate lookups, report addenda, and license suspension/revocation controls. Also `/runplate` (vehicle ahead), `/impound`, `/spikes`, GSR swabs, `/bodycam`, and `/respond <call>` for GPS to any 911/311/EMS call.
 - Vehicle registry: garage spawns register automatically; `/registervehicle`, `/myvehicles`, `/reportstolen`, `/recovered`.
 - Medical: players go down instead of dying, can send an EMS distress signal (G), and after 3 minutes bleed out to a hospital respawn (or the prison infirmary). EMS revive, treat and diagnose through the third eye; staff `/revive`. `/911` now reaches police and EMS; `/311` is non-emergency.
-- ID cards (`/showid`, third eye "Show my ID"; police checks flag active warrants). Civilians use `/citizen` (or the interaction menu) to edit their character: name, birth date and gender (once every 7 days, former names stay visible to police), descriptors, address and phone, ID card design and what it shows, and to apply for, restrict or surrender licenses and report their vehicles stolen.
+- ID cards (`/showid`, third eye "Show my ID"; police checks flag active warrants). Civilians use `/citizen` (or the interaction menu) to edit their character: name, birth date and gender (once every 7 days, former names stay visible to police), descriptors, address and phone, ID card design and what it shows, instantly issue, restrict or surrender licenses, and report their vehicles stolen.
 - Emotes: F3 menu or `/e <name>` (55 emotes, some with props), X hands up / cancel, B point.
 - Fishing (`/fish`): salt- and freshwater species around Florida Bay, a reel-in mini-game, personal bests, server records (`/fishlog`, `/fishtop`).
 - Florida Bay Activities: four repeatable, mode-specific checkpoint challenges (street sprint, off-road scramble, trail run, and bicycle circuit) with server validation, persistent personal/server records, points, and an on-screen run timer.
@@ -31,7 +32,7 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
   - Street duels (`/duel`, `/duelaccept`, `/dueldecline`, `/forfeit`): race another driver to your map waypoint. The server watches both cars (teleports and abandoned cars forfeit), keeps an Elo duel rating, win streaks and a leaderboard.
   - Skydiving: four jumps (Maze Bank, Observatory, Chiliad, high altitude) scored by landing distance from the target, with personal bests and server records.
   - Achievements and titles (about 35, computed from fishing, passport, challenges and every pastime), a daily check-in streak, and weekly community goals that everyone on the server fills together.
-- Original Florida Bay loading screen and generated Florida Bay Roleplay logo.
+- Original Florida Bay loading screen and generated Florida Bay Roleplay logo, with a configurable YouTube loading song and an on-screen link field. Set the server default in `fbrp_loading/web/config.js`.
 - AOP, peacetime, priority, announcements, dispatch calls, audit records, moderation cases, security incidents, tag selection, rosters, and all shift data in MariaDB.
 - Badger-compatible `GetDiscordRoles`, identity, role-list exports plus `DiscordAcePerms`-style role-to-ACE syncing, backed by the centralized bot cache. The Discord bot token is not exposed to FXServer.
 
@@ -169,7 +170,7 @@ Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11
 | F9 | Voice proximity |
 | F11 | EasyAdmin menu (staff) |
 
-Useful commands include `/clockin`, `/clockout`, `/staffhours`, `/duty`, `/aop`, `/peacetime`, `/priority`, `/announce`, `/911`, `/panic`, `/me`, `/do`, and `/ooc`.
+Useful commands include `/clockin`, `/clockout`, `/staffhours`, `/duty`, `/carradio`, `/aop`, `/peacetime`, `/priority`, `/announce`, `/911`, `/panic`, `/me`, `/do`, and `/ooc`.
 
 ## Permission design
 

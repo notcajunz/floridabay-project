@@ -25,9 +25,15 @@
     <audio id="loading-music" autoplay loop preload="auto">
       <source src="assets/florida-bay-night-drive.ogg" type="audio/ogg" />
     </audio>
+    <div id="youtube-player" aria-hidden="true"></div>
     <div class="music-player" aria-label="Loading music controls">
       <button id="music-toggle" type="button" aria-label="Pause music"><span>♫</span><b>Night Drive</b></button>
       <input id="music-volume" type="range" min="0" max="100" value="22" aria-label="Music volume" />
+      <form id="music-source" autocomplete="off">
+        <input id="music-url" type="url" inputmode="url" placeholder="Paste YouTube link" aria-label="YouTube link" />
+        <button type="submit">Play</button>
+      </form>
+      <small id="music-error" role="status"></small>
     </div>
 
     <header class="topbar">
@@ -109,6 +115,8 @@
       </div>
       <span id="clock">00:00</span>
     </footer>
+    <script src="config.js"></script>
     <script src="loading.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
   </body>
 </html>

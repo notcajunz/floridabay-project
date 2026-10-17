@@ -223,13 +223,13 @@ FBRP.MDT = {
         { id='mental', label='Mental health', tone='info' },
         { id='caution', label='Officer caution', tone='warn' },
     },
-    -- selfIssue licenses are granted the moment a citizen applies; the others
-    -- wait in the CAD licensing queue until an officer approves them.
+    -- Citizens receive every license and permit immediately. Police can still
+    -- suspend or revoke one from the MDT when roleplay calls for it.
     licenses = {
         { id='driver', label='Driver license', selfIssue=true },
-        { id='firearm', label='Firearm permit' },
-        { id='cdl', label='Commercial driver' },
-        { id='pilot', label='Pilot license' },
+        { id='firearm', label='Firearm permit', selfIssue=true },
+        { id='cdl', label='Commercial driver', selfIssue=true },
+        { id='pilot', label='Pilot license', selfIssue=true },
         { id='boat', label='Boat license', selfIssue=true },
         { id='hunting', label='Hunting license', selfIssue=true },
     },

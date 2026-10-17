@@ -125,6 +125,7 @@ const RADIAL_CATEGORIES = [
     actions: [
       { action: "vehicles", label: "Garage", hint: "Browse vehicles", icon: "car" },
       { action: "carcontrols", label: "Controls", hint: "Engine, doors & belt", icon: "gauge" },
+      { action: "carradio", label: "Car Audio", hint: "Play YouTube nearby", icon: "music" },
     ],
   },
   {
@@ -864,6 +865,7 @@ function renderHub(data) {
   const tools = [
     hubCard("vehicles", "car", "Vehicle garage", "Browse and spawn approved vehicles."),
     hubCard("carcontrols", "gauge", "Vehicle controls", "Engine, locks, doors, cruise, and seatbelt."),
+    hubCard("carradio", "music", "Vehicle sound system", "Play synchronized YouTube audio inside and around your vehicle."),
     hubCard("radio", "radio", "Radio network", "Join public or organization frequencies."),
     hubCard("org", "building", "Organization hub", "Duty work, properties, deliveries, armory, and wardrobe."),
     hubCard("tags", "shirt", "Tag wardrobe", "Choose your granted headtag and organization tag."),
@@ -2051,17 +2053,17 @@ function citizenLicenses(p) {
   const rows = (p.licenses || []).map((l) => {
     const tone = { valid: "ok", pending: "warn", suspended: "warn", revoked: "bad", none: "dim" }[l.status] || "dim";
     let actions = "";
-    if (l.status === "none") actions = `<button class="primary-action" data-citizen-license="licenseApply" data-license="${esc(l.id)}">${icon("plus")}${l.selfIssue ? "Get license" : "Apply"}</button>`;
+    if (l.status === "none") actions = `<button class="primary-action" data-citizen-license="licenseApply" data-license="${esc(l.id)}">${icon("plus")}Get license</button>`;
     else if (l.status === "pending") actions = `<button class="ctl-btn" data-citizen-license="licenseSurrender" data-license="${esc(l.id)}" data-confirm="Withdraw?">Withdraw</button>`;
     else if (l.status === "valid") {
       actions = `<select class="mdt-input small" data-citizen-restriction="${esc(l.id)}" title="Restriction"><option value="">No restriction</option>${restrictions.map((r) => `<option${l.restriction === r ? " selected" : ""}>${esc(r)}</option>`).join("")}</select>
         <label class="inline-check"><input type="checkbox" data-citizen-visible="${esc(l.id)}" ${l.showOnId ? "checked" : ""}> On ID</label>
         <button class="ctl-btn danger" data-citizen-license="licenseSurrender" data-license="${esc(l.id)}" data-confirm="Surrender?">Surrender</button>`;
     } else actions = '<small class="tone-warn">Speak to a licensing officer.</small>';
-    const meta = [LICENSE_STATUS_TEXT[l.status], l.issuedAt && l.status === "valid" ? `issued ${longDate(l.issuedAt)}` : "", l.restriction && l.status === "valid" ? l.restriction : "", l.status === "none" ? (l.selfIssue ? "issued instantly" : "needs officer approval") : ""].filter(Boolean).join(" · ");
+    const meta = [LICENSE_STATUS_TEXT[l.status], l.issuedAt && l.status === "valid" ? `issued ${longDate(l.issuedAt)}` : "", l.restriction && l.status === "valid" ? l.restriction : "", l.status === "none" ? "issued instantly" : ""].filter(Boolean).join(" · ");
     return `<div class="license-card t-${tone}"><div class="lic-main"><b>${esc(l.label)}</b><small>${esc(meta)}</small></div><div class="lic-actions">${actions}</div></div>`;
   }).join("");
-  return `<div class="cad-hint">${icon("info")}<span>Some licenses are issued on the spot. Others, such as firearm permits, wait in the police licensing queue until an officer approves them. A suspended or revoked license can only be restored by an officer.</span></div>${rows}`;
+  return `<div class="cad-hint">${icon("info")}<span>Citizen licenses and permits are issued instantly. A suspended or revoked license can only be restored by an officer.</span></div>${rows}`;
 }
 
 function citizenVehicles(p) {
@@ -2269,9 +2271,169 @@ function updateContraband(d) {
   }
 }
 
+/* ───────── Spatial vehicle YouTube audio ───────── */
+const carRadio = {
+  apiReady: false,
+  netId: 0,
+  station: null,
+  players: new Map(),
+  levels: {},
+  volumeTimer: null,
+};
+
+function youtubeVideoId(value) {
+  const raw = String(value || "").trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    let id = null;
+    if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0];
+    if (["youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com"].includes(host)) {
+      id = url.searchParams.get("v") || url.pathname.match(/^\/(?:shorts|embed|live)\/([^/?]+)/)?.[1];
+    }
+    return /^[A-Za-z0-9_-]{11}$/.test(id || "") ? id : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function carRadioLevel(netId) {
+  return clamp(Number(carRadio.levels[String(netId)]) || 0, 0, 100);
+}
+
+function carRadioTitle(netId) {
+  const entry = carRadio.players.get(Number(netId));
+  if (!entry?.ready) return "YouTube audio";
+  try { return entry.player.getVideoData()?.title || "YouTube audio"; }
+  catch (_) { return "YouTube audio"; }
+}
+
+function updateCarRadioPanel() {
+  const station = carRadio.station;
+  const hasStation = Boolean(station?.videoId);
+  setText("#car-radio-state", hasStation ? (station.paused ? "Paused" : "Playing nearby") : "Nothing playing");
+  setText("#car-radio-track", hasStation ? carRadioTitle(carRadio.netId) : "Paste a YouTube link to start");
+  const volume = hasStation ? clamp(Number(station.volume) || 0, 0, 100) : clamp(Number($("#car-radio-volume")?.value) || 35, 0, 100);
+  if ($("#car-radio-volume")) $("#car-radio-volume").value = String(volume);
+  setText("#car-radio-volume-value", `${volume}%`);
+  $$('[data-car-radio-action]').forEach((button) => { button.disabled = !hasStation; });
+  const pause = $('[data-car-radio-action="pause"]');
+  if (pause) {
+    pause.dataset.icon = station?.paused ? "music" : "power";
+    pause.setAttribute("aria-label", station?.paused ? "Resume" : "Pause");
+    hydrate(pause);
+  }
+}
+
+function destroyCarRadioPlayer(netId) {
+  const id = Number(netId);
+  const entry = carRadio.players.get(id);
+  if (!entry) return;
+  try { entry.player.destroy(); } catch (_) {}
+  entry.node?.remove();
+  carRadio.players.delete(id);
+}
+
+function applyCarRadioStation(station) {
+  if (!station?.videoId || !Number(station.netId)) return;
+  const netId = Number(station.netId);
+  let entry = carRadio.players.get(netId);
+  if (entry && entry.videoId !== station.videoId) {
+    destroyCarRadioPlayer(netId);
+    entry = null;
+  }
+  if (!entry) {
+    const node = document.createElement("div");
+    node.id = `car-radio-player-${netId}`;
+    $("#car-radio-players").appendChild(node);
+    entry = { node, videoId: station.videoId, station, ready: false, paused: null, revision: -1 };
+    carRadio.players.set(netId, entry);
+    if (carRadio.apiReady) createCarRadioPlayer(netId);
+  } else {
+    entry.station = station;
+    syncCarRadioPlayer(netId);
+  }
+  if (carRadio.netId === netId) {
+    carRadio.station = station;
+    updateCarRadioPanel();
+  }
+}
+
+function createCarRadioPlayer(netId) {
+  const entry = carRadio.players.get(Number(netId));
+  if (!entry || entry.player || !carRadio.apiReady) return;
+  entry.player = new YT.Player(entry.node.id, {
+    width: "200",
+    height: "200",
+    videoId: entry.videoId,
+    playerVars: { autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, origin: window.location.origin },
+    events: {
+      onReady: () => {
+        entry.ready = true;
+        try { entry.player.unMute(); } catch (_) {}
+        syncCarRadioPlayer(netId, true);
+        if (carRadio.netId === Number(netId)) updateCarRadioPanel();
+      },
+      onStateChange: () => {
+        if (carRadio.netId === Number(netId)) updateCarRadioPanel();
+      },
+      onAutoplayBlocked: () => {
+        if (carRadio.netId === Number(netId)) {
+          setText("#car-radio-error", "Playback was blocked. Press resume to try again.");
+          $("#car-radio-error")?.classList.add("show");
+        }
+      },
+      onError: () => {
+        if (carRadio.netId === Number(netId)) {
+          setText("#car-radio-error", "That video cannot be played in the in-game player.");
+          $("#car-radio-error")?.classList.add("show");
+        }
+      },
+    },
+  });
+}
+
+function syncCarRadioPlayer(netId, force = false) {
+  const entry = carRadio.players.get(Number(netId));
+  const station = entry?.station;
+  if (!entry?.ready || !station) return;
+  const desired = Math.max(0, Number(station.position) || 0);
+  try {
+    const current = Number(entry.player.getCurrentTime()) || 0;
+    if (force || Math.abs(current - desired) > 3) entry.player.seekTo(desired, true);
+    if (station.paused && (force || entry.paused !== true)) entry.player.pauseVideo();
+    if (!station.paused && (force || entry.paused !== false)) entry.player.playVideo();
+    entry.player.setVolume(carRadioLevel(netId));
+    entry.paused = station.paused === true;
+    entry.revision = Number(station.revision) || 0;
+  } catch (_) {}
+}
+
+window.onYouTubeIframeAPIReady = () => {
+  carRadio.apiReady = true;
+  for (const netId of carRadio.players.keys()) createCarRadioPlayer(netId);
+};
+
+const youtubeApi = document.createElement("script");
+youtubeApi.src = "https://www.youtube.com/iframe_api";
+youtubeApi.async = true;
+document.head?.appendChild(youtubeApi);
+
+function carRadioPosition() {
+  const entry = carRadio.players.get(Number(carRadio.netId));
+  try { return Math.max(0, Number(entry?.player?.getCurrentTime()) || Number(carRadio.station?.position) || 0); }
+  catch (_) { return Math.max(0, Number(carRadio.station?.position) || 0); }
+}
+
+function sendCarRadioAction(action, value = carRadioPosition()) {
+  if (!carRadio.station) return;
+  post("carRadioControl", { action, value });
+}
+
 /* ───────── Messages ───────── */
 function resetCoreUi() {
-  ["#radial-menu", "#menu", "#duty", "#third-eye", "#blindfold", "#downed", "#car-controls"].forEach((selector) => $(selector)?.classList.add("hidden"));
+  ["#radial-menu", "#menu", "#duty", "#third-eye", "#blindfold", "#downed", "#car-controls", "#car-radio-panel"].forEach((selector) => $(selector)?.classList.add("hidden"));
   document.body.classList.remove("menu-locked");
   currentView = null;
   currentPayload = {};
@@ -2360,6 +2522,44 @@ window.addEventListener("message", ({ data }) => {
   if (data.type === "blindfold") $("#blindfold").classList.toggle("hidden", !data.active);
   if (data.type === "restraint") showRestraint(data.active, data.kind);
   if (data.type === "carControls") $("#car-controls").classList.toggle("hidden", !data.open);
+  if (data.type === "carRadioSync") {
+    const wanted = new Set((data.stations || []).map((station) => Number(station.netId)));
+    for (const netId of carRadio.players.keys()) if (!wanted.has(netId)) destroyCarRadioPlayer(netId);
+    (data.stations || []).forEach(applyCarRadioStation);
+  }
+  if (data.type === "carRadioStation") applyCarRadioStation(data.station);
+  if (data.type === "carRadioRemove") {
+    destroyCarRadioPlayer(data.netId);
+    if (carRadio.netId === Number(data.netId)) { carRadio.station = null; updateCarRadioPanel(); }
+  }
+  if (data.type === "carRadioLevels") {
+    carRadio.levels = data.levels || {};
+    for (const [netId, entry] of carRadio.players) {
+      if (entry.ready) try { entry.player.setVolume(carRadioLevel(netId)); } catch (_) {}
+    }
+  }
+  if (data.type === "carRadioPanel") {
+    const root = $("#car-radio-panel");
+    if (data.open) {
+      carRadio.netId = Number(data.netId) || 0;
+      carRadio.station = data.station || null;
+      root.classList.remove("hidden");
+      root.setAttribute("aria-hidden", "false");
+      setText("#car-radio-error", "");
+      $("#car-radio-error")?.classList.remove("show");
+      updateCarRadioPanel();
+      setTimeout(() => $("#car-radio-url")?.focus(), 50);
+    } else {
+      root.classList.add("hidden");
+      root.setAttribute("aria-hidden", "true");
+      carRadio.netId = 0;
+      carRadio.station = null;
+    }
+  }
+  if (data.type === "carRadioPanelState") {
+    carRadio.station = data.station || null;
+    updateCarRadioPanel();
+  }
   if (data.type === "jail") updateJail(data);
   if (data.type === "downed") updateDowned(data);
   if (data.type === "bodycam") updateBodycam(data);
@@ -2379,6 +2579,38 @@ window.addEventListener("message", ({ data }) => {
 
 $("#close").addEventListener("click", () => post("close"));
 $("#car-close").addEventListener("click", () => post("closeCarControls"));
+$("#car-radio-close").addEventListener("click", () => post("carRadioClose"));
+$("#car-radio-panel").addEventListener("mousedown", (event) => {
+  if (event.target === $("#car-radio-panel")) post("carRadioClose");
+});
+$("#car-radio-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const videoId = youtubeVideoId($("#car-radio-url").value);
+  if (!videoId) {
+    setText("#car-radio-error", "Paste a valid YouTube video link.");
+    $("#car-radio-error").classList.add("show");
+    return;
+  }
+  setText("#car-radio-error", "");
+  $("#car-radio-error").classList.remove("show");
+  post("carRadioPlay", { videoId, volume: Number($("#car-radio-volume").value) || 35 });
+});
+$("#car-radio-volume").addEventListener("input", (event) => {
+  const volume = clamp(Number(event.target.value) || 0, 0, 100);
+  setText("#car-radio-volume-value", `${volume}%`);
+  clearTimeout(carRadio.volumeTimer);
+  carRadio.volumeTimer = setTimeout(() => sendCarRadioAction("volume", volume), 120);
+});
+$("#car-radio-panel").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-car-radio-action]");
+  if (!button || button.disabled) return;
+  const action = button.dataset.carRadioAction;
+  const position = carRadioPosition();
+  if (action === "pause") sendCarRadioAction(carRadio.station?.paused ? "resume" : "pause", position);
+  if (action === "back") sendCarRadioAction("seek", Math.max(0, position - 10));
+  if (action === "forward") sendCarRadioAction("seek", position + 10);
+  if (action === "stop") sendCarRadioAction("stop", 0);
+});
 $("#third-eye-close").addEventListener("click", () => post("closeThirdEye"));
 $("#duty-close").addEventListener("click", () => post("closeDuty"));
 $("#duty-toggle").addEventListener("click", () => setDutyList($("#duty-list").classList.contains("hidden")));

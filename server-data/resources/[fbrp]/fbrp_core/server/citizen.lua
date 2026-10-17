@@ -328,37 +328,20 @@ ACTIONS.saveId = function(src, characterId, data, row)
     return true
 end
 
-local function policeNotifyApplication(applicant, label)
-    for target in pairs(sessions) do
-        if hasPermission(target, FBRP.Ace.policeMdt) then
-            notify(target, ('%s applied for a %s. Review it in the CAD licensing queue.'):format(applicant, label:lower()), 'info')
-        end
-    end
-end
-
 ACTIONS.licenseApply = function(src, characterId, data, row)
     local license = licenseConfig(clean(data.license, 16))
     if not license then return false end
     local existing = MySQL.single.await('SELECT status FROM mdt_licenses WHERE character_id=? AND kind=?', { row.id, license.id })
     if existing then
         if existing.status == 'valid' then return fail(src, ('You already hold a %s.'):format(license.label:lower())) end
-        if existing.status == 'pending' then return fail(src, 'Your application is already waiting for review.') end
         return fail(src, ('Your %s is %s. Speak to a licensing officer.'):format(license.label:lower(), existing.status))
     end
-    local pending = tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM mdt_licenses WHERE character_id=? AND status='pending'", { row.id })) or 0
-    if pending >= 3 then return fail(src, 'You already have three applications waiting for review.') end
     local stamp = now()
-    local status = license.selfIssue and 'valid' or 'pending'
     MySQL.insert.await('INSERT INTO mdt_licenses(character_id,kind,status,points,updated_by,updated_at,issued_at,show_on_id) VALUES(?,?,?,0,?,?,?,TRUE)', {
-        row.id, license.id, status, license.selfIssue and 'Licensing office' or (row.first_name .. ' ' .. row.last_name), stamp, license.selfIssue and stamp or nil,
+        row.id, license.id, 'valid', 'Licensing office', stamp, stamp,
     })
-    FBRP.DB.audit(actorOf(src), 'character.license_apply', tostring(row.id), { license=license.id, status=status })
-    if status == 'valid' then
-        notify(src, ('Your %s was issued.'):format(license.label:lower()), 'success')
-    else
-        notify(src, ('%s application submitted. An officer will review it.'):format(license.label), 'success')
-        policeNotifyApplication(row.first_name .. ' ' .. row.last_name, license.label)
-    end
+    FBRP.DB.audit(actorOf(src), 'character.license_issue', tostring(row.id), { license=license.id, status='valid' })
+    notify(src, ('Your %s was issued.'):format(license.label:lower()), 'success')
     return true
 end
 

@@ -15,6 +15,7 @@ client_script 'client.lua'
 
 files {
     'web/index.html',
+    'web/config.js',
     'web/styles.css',
     'web/loading.js',
     'web/assets/fbrp-logo.png',

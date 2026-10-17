@@ -698,6 +698,39 @@ kbd {
 .car-grid button:hover { border-color: rgba(63,227,210,0.5); background: rgba(63,227,210,0.07); }
 .car-grid button:active { transform: scale(0.97); }
 
+/* Vehicle YouTube sound system */
+.car-radio-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; pointer-events: auto; background: rgba(0,6,10,.68); backdrop-filter: blur(7px); }
+.car-radio-card { width: min(520px, calc(100vw - 40px)); padding: 22px; color: var(--text); border: 1px solid rgba(63,227,210,.28); border-radius: 14px; background: linear-gradient(145deg,rgba(18,32,40,.98),rgba(5,12,17,.98)); box-shadow: 0 30px 90px rgba(0,0,0,.75), inset 0 1px rgba(255,255,255,.05); }
+.car-radio-card > header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.car-radio-card > header > div { flex: 1; }
+.car-radio-card > header small { display: block; color: var(--aqua); font: 700 10px/1 var(--display); letter-spacing: .2em; }
+.car-radio-card > header strong { display: block; margin-top: 5px; font: 700 25px/1 var(--display); }
+.car-radio-mark { width: 42px; height: 42px; display: grid; place-items: center; color: var(--ink); border-radius: 9px; background: linear-gradient(135deg,var(--aqua),var(--aqua-2)); }
+.car-radio-mark .i { width: 22px; height: 22px; }
+.car-radio-card form > label { display: block; margin-bottom: 7px; color: var(--dim); font: 700 11px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; }
+.car-radio-card form > div { display: flex; gap: 8px; }
+.car-radio-card form input { min-width: 0; flex: 1; padding: 12px 13px; user-select: text; outline: 0; color: var(--text); border: 1px solid var(--line-2); border-radius: 7px; background: rgba(0,0,0,.35); font: 500 15px/1 var(--body); }
+.car-radio-card form input:focus { border-color: var(--aqua); box-shadow: 0 0 0 3px rgba(63,227,210,.12); }
+.car-radio-card form .primary-action { padding-inline: 18px; }
+.car-radio-error { display: block; min-height: 16px; margin-top: 6px; color: var(--coral); font-size: 12px; opacity: 0; }
+.car-radio-error.show { opacity: 1; }
+.car-radio-now { display: flex; align-items: center; gap: 13px; margin-top: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.025); }
+.car-radio-disc { width: 42px; height: 42px; display: grid; place-items: center; flex: none; color: var(--aqua); border: 1px solid rgba(63,227,210,.25); border-radius: 50%; background: rgba(63,227,210,.07); }
+.car-radio-now div { min-width: 0; }
+.car-radio-now small { display: block; color: var(--aqua); font: 700 10px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; }
+.car-radio-now b { display: block; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 16px/1.2 var(--body); }
+.car-radio-controls { display: flex; justify-content: center; gap: 8px; margin: 15px 0; }
+.car-radio-controls button { min-width: 48px; height: 40px; padding: 0 13px; cursor: pointer; color: var(--text); border: 1px solid var(--line-2); border-radius: 7px; background: rgba(255,255,255,.035); font: 700 13px/1 var(--display); }
+.car-radio-controls button:hover:not(:disabled) { color: var(--aqua); border-color: rgba(63,227,210,.5); background: rgba(63,227,210,.08); }
+.car-radio-controls button.stop { color: #ff9d8f; border-color: rgba(255,107,87,.3); }
+.car-radio-controls button:disabled { opacity: .3; cursor: default; }
+.car-radio-volume { display: block; color: var(--dim); font: 700 11px/1 var(--display); letter-spacing: .12em; text-transform: uppercase; }
+.car-radio-volume span { display: flex; justify-content: space-between; }
+.car-radio-volume b { color: var(--aqua); }
+.car-radio-volume input { width: 100%; margin-top: 10px; accent-color: var(--aqua); }
+.car-radio-card > p { margin: 13px 0 0; color: var(--faint); font-size: 12px; text-align: center; }
+.car-radio-players { position: fixed; left: -500px; top: -500px; width: 220px; height: 220px; opacity: .001; pointer-events: none; overflow: hidden; }
+
 /* Blindfold */
 .blindfold {
   position: fixed; inset: -5%; z-index: 100; pointer-events: none;
