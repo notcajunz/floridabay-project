@@ -1106,10 +1106,10 @@ let personalUpload = null; // { file, id } of the zip already on the server, so 
 let personalConverted = null; // { pack, current }: the model the pack names and the spawn name it is installed under
 
 /** Sends the zip in chunks small enough for the proxy. Returns the server's upload id. */
-async function uploadPersonalZip(file, progress, kind = "") {
+async function uploadPersonalZip(file, progress) {
   let id = "";
   for (let offset = 0; offset < file.size; offset += UPLOAD_CHUNK) {
-    const query = new URLSearchParams({ offset, total: file.size, name: file.name, ...(kind ? { kind } : {}), ...(id ? { id } : {}) });
+    const query = new URLSearchParams({ offset, total: file.size, name: file.name, ...(id ? { id } : {}) });
     let response;
     for (let attempt = 0; attempt < 3; attempt++) {
       response = await fetch(`api/portal/personal/upload?${query}`, {
@@ -1183,46 +1183,42 @@ async function personalRetune(button) {
   }
 }
 
-/** Fills the "Replace a file" list with the files of this personal's installed resource. */
-async function personalLoadFiles(id) {
-  const select = $("#personal-replace-target");
-  const out = $("#personal-replace-result");
-  if (!select) return;
-  try {
-    const { result } = await api("portal/personal/files", { method: "POST", body: JSON.stringify({ id }) });
-    if ($("#personal-replace-target") !== select) return;
-    select.innerHTML = result.files.length
-      ? result.files.map((file) => `<option value="${esc(file.path)}">${esc(file.path)} (${(file.size / 1048576).toFixed(2)} MB)</option>`).join("")
-      : `<option value="">No replaceable files</option>`;
-  } catch (error) {
-    select.innerHTML = `<option value="">Not available</option>`;
-    if (out) out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(error.message)}</div></div>`;
-  }
-}
-
-/** Uploads one file and swaps it in for the chosen file of the installed vehicle. */
-async function personalReplaceFile(button) {
+/** Uploads a new pack and swaps it in for the whole vehicle of an existing personal. */
+async function personalReplacePack(button) {
   const form = button.closest("form") || $("#portal-dialog form") || $("#portal-dialog");
-  const target = form.querySelector("#personal-replace-target")?.value;
-  const file = form.querySelector("#personal-replace-file")?.files?.[0];
   const out = $("#personal-replace-result");
-  if (!target) return void (out.innerHTML = `<div class="callout warn">${icon("alert")}<div>Pick the file to replace.</div></div>`);
-  if (!file) return void (out.innerHTML = `<div class="callout warn">${icon("alert")}<div>Choose the new file first.</div></div>`);
+  const file = form.querySelector('[name="replacePack"]')?.files?.[0];
+  const warn = (message) => void (out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(message)}</div></div>`);
+  if (!file) return warn("Choose the new vehicle's .zip file first.");
+  if (!/\.zip$/i.test(file.name)) return warn("Upload a .zip file. Extract RAR or 7z packs and zip them again.");
+  if (file.size > 600 * 1024 * 1024) return warn("Zip files can be up to 600 MB.");
+  if (!confirm("Replace this personal's whole vehicle with the new pack? Its owner, trusted people and spawn name stay the same.")) return;
   const label = button.innerHTML;
   button.disabled = true;
   out.innerHTML = "";
   try {
-    button.innerHTML = `<span class="spinner"></span> Uploading…`;
-    const uploadId = await uploadPersonalZip(file, (done) => { button.innerHTML = `<span class="spinner"></span> Uploading ${Math.round(done * 100)}%`; }, "file");
-    button.innerHTML = `<span class="spinner"></span> Checking and installing…`;
-    const { result } = await api("portal/personal/replace-file", { method: "POST", body: JSON.stringify({ id: Number(button.dataset.personalReplace), target, uploadId, uploadName: file.name }) });
-    out.innerHTML = `<div class="callout">${icon("check")}<div><b>Replaced ${esc(result.file)}.</b> ${(result.previousSize / 1048576).toFixed(2)} MB → ${(result.size / 1048576).toFixed(2)} MB. The old file was kept as a backup.
+    if (!personalUpload || personalUpload.file !== file) {
+      personalUpload = null;
+      const id = await uploadPersonalZip(file, (done) => { button.innerHTML = `<span class="spinner"></span> Uploading ${Math.round(done * 100)}%`; });
+      personalUpload = { file, id };
+    }
+    button.innerHTML = `<span class="spinner"></span> AI security scan & install… this can take a minute`;
+    const { result } = await api("portal/personal/replace-pack", { method: "POST", body: JSON.stringify({
+      id: Number(button.dataset.personalReplacePack),
+      uploadId: personalUpload.id,
+      uploadName: file.name,
+      packModel: form.querySelector('[name="replacePackModel"]')?.value.trim() || "",
+      shrink: form.querySelector('[name="replaceShrink"]')?.checked === true,
+    }) }).catch((error) => {
+      if (/expired/i.test(error.message)) personalUpload = null;
+      throw error;
+    });
+    out.innerHTML = `<div class="callout">${icon("check")}<div><b>Security check passed.</b> <code>${esc(result.resource)}</code> now uses the new files. ${esc(result.summary || "")}
+      ${result.started ? (result.restarted ? " It was reloaded live. Players already online should reconnect to get the new vehicle." : " It is live now.") : ""}
       ${result.notes.length ? `<ul class="personal-import-list notes">${result.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div></div>`;
-    toast("Vehicle file replaced.");
-    form.querySelector("#personal-replace-file").value = "";
-    personalLoadFiles(Number(button.dataset.personalReplace));
+    toast("Vehicle files replaced.");
   } catch (error) {
-    out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(error.message)}</div></div>`;
+    warn(error.message);
   } finally {
     button.disabled = false;
     button.innerHTML = label;
@@ -1316,15 +1312,17 @@ function personalEditDialog(id) {
         </div>
       </details>
       <details class="personal-import">
-        <summary>${icon("car")}<span><b>Replace a vehicle file</b><small>Personal manager · swap one model, texture or meta file and reload it live</small></span></summary>
+        <summary>${icon("car")}<span><b>Replace the vehicle files</b><small>Personal manager · upload a new .zip to swap this personal's whole vehicle, keeping its owner and trust list</small></span></summary>
         <div class="personal-import-body">
-          <label class="field">File to replace<select id="personal-replace-target"><option value="">Loading…</option></select></label>
-          <label class="field">New file <small>(must be the same type: .yft, .ytd, .ydr, .ydd or .meta)</small><input id="personal-replace-file" type="file" accept=".yft,.ytd,.ydr,.ydd,.meta,.xml"></label>
-          <button class="btn btn-glass" type="button" data-personal-replace="${p.id}">${icon("car")} Replace file</button>
+          <div class="field">New vehicle pack
+            <label class="personal-drop">${icon("plus")}<span class="personal-drop-text">Choose a .zip or drop it here<small>Up to 600 MB · the whole vehicle pack</small></span><input name="replacePack" type="file" accept=".zip,application/zip,application/x-zip-compressed"></label>
+          </div>
+          <label class="field">Model inside the pack <small>(only needed when the pack has more than one vehicle; the personal keeps ${esc(p.model)})</small><input name="replacePackModel" maxlength="40" pattern="[A-Za-z0-9_]+" placeholder="Automatic" autocapitalize="off"></label>
+          <label class="check-row"><input type="checkbox" name="replaceShrink"><span><b>Make file size smaller</b><small>Lowers texture resolution if the pack is big or the vehicle times out when spawning.</small></span></label>
+          <button class="btn btn-glass" type="button" data-personal-replace-pack="${p.id}">${icon("car")} Replace vehicle files</button>
           <div id="personal-replace-result"></div>
         </div>
       </details>` });
-  personalLoadFiles(p.id);
 }
 
 function personalOwnerDialog(id) {
@@ -2047,10 +2045,10 @@ document.addEventListener("error", (event) => {
 }, true);
 
 $("#portal-dialog").addEventListener("change", (event) => {
-  if (event.target.name === "importFile") {
+  if (event.target.name === "importFile" || event.target.name === "replacePack") {
     const file = event.target.files?.[0];
     event.target.closest(".personal-drop")?.classList.toggle("has-file", Boolean(file));
-    $("#personal-drop-text").innerHTML = file
+    event.target.closest(".personal-drop").querySelector("span").innerHTML = file
       ? `${esc(file.name)}<small>${(file.size / 1048576).toFixed(1)} MB · click to choose a different file</small>`
       : `Choose a .zip or drop it here<small>Up to 600 MB · the whole vehicle pack</small>`;
   }
@@ -2085,8 +2083,8 @@ $("#portal-dialog").addEventListener("click", (event) => {
   if (convert && !convert.disabled) personalConvert(convert);
   const retuneButton = event.target.closest?.("[data-personal-retune]");
   if (retuneButton && !retuneButton.disabled) personalRetune(retuneButton);
-  const replaceButton = event.target.closest?.("[data-personal-replace]");
-  if (replaceButton && !replaceButton.disabled) personalReplaceFile(replaceButton);
+  const replaceButton = event.target.closest?.("[data-personal-replace-pack]");
+  if (replaceButton && !replaceButton.disabled) personalReplacePack(replaceButton);
   const renameButton = event.target.closest?.("[data-personal-rename]");
   if (renameButton && !renameButton.disabled) personalRename(renameButton);
 });

@@ -1975,8 +1975,7 @@ export function startWebPanel(context) {
         else if (url.pathname === "/api/portal/personal/import") result = await personalImporter.convert(session.id, input);
         else if (url.pathname === "/api/portal/personal/retune") result = await personalImporter.retune(session.id, input);
         else if (url.pathname === "/api/portal/personal/import/rename") result = await personalImporter.rename(session.id, input);
-        else if (url.pathname === "/api/portal/personal/files") result = await personalImporter.listFiles(session.id, input);
-        else if (url.pathname === "/api/portal/personal/replace-file") result = await personalImporter.replaceFile(session.id, input);
+        else if (url.pathname === "/api/portal/personal/replace-pack") result = await personalImporter.replacePack(session.id, input);
         else if (url.pathname === "/api/portal/ticket/request-close") {
           const ticket = await db.one("SELECT * FROM support_tickets WHERE id=? AND author_id=?", [Number(input.ticketId), session.id]);
           if (!ticket || ticket.status === "closed") throw new Error("That open ticket was not found.");
