@@ -798,6 +798,7 @@ class RosterBot(discord.Client):
         self.extra_groups: list = []
         self.api = FbrpApi()
         self._sheet_warned = False
+        self._recent_adds: dict[str, float] = {}
         self.tree.on_error = self.on_app_command_error
         self.lock = asyncio.Lock()
         self.roster: Roster | None = None
@@ -1043,7 +1044,15 @@ class RosterBot(discord.Client):
         changes, removals = plan_main_roles(expected, holders, list(MAIN_ROLES.values()),
                                             exempt={str(i) for i in OWNER_IDS})
         blocked = removals > MAIN_SYNC_MAX_REMOVALS and not force
-        apply = [c for c in changes if c["action"] == "add"] if blocked else changes
+        now = time.monotonic()
+        self._recent_adds = {k: t for k, t in self._recent_adds.items() if now - t < 6 * 3600}
+        # An add the main bot can't finish (member left the main server) must not be re-queued every pass.
+        fresh = [c for c in changes
+                 if c["action"] == "remove" or f"{c['discord_id']}:{c['role_id']}" not in self._recent_adds]
+        apply = [c for c in fresh if c["action"] == "add"] if blocked else fresh
+        for c in apply:
+            if c["action"] == "add":
+                self._recent_adds[f"{c['discord_id']}:{c['role_id']}"] = now
         for c in apply:
             c["reason"] = "DOHS roster-bound role"
         queued = await self.api.queue_service_roles(apply) if apply else 0

@@ -9,6 +9,9 @@ import { AGENCY_BYPASS_IDS, SERVICE_ROLES, queueServiceRoles, serviceRoleHolders
  * tier earns. The IAA bot is not in the main server, so the changes go through the main bot's queue.
  */
 const MAX_MAIN_REMOVALS = 40;
+// An add the main bot cannot finish (the person left the main server) would otherwise be re-queued every pass.
+const ADD_COOLDOWN_MS = 6 * 3600_000;
+const recentAdds = new Map();
 
 /** Pure planner. `expected` maps discord id -> set of main-server role ids that person should hold. */
 export function planMainRoles({ expected, holders, roleIds, exempt = new Set() }) {
@@ -53,7 +56,11 @@ export async function reconcileMainRoles(guild) {
   if (!expected.size) return { skipped: "no ranked members found" };
   const { holders } = await serviceRoleHolders("iaa");
   const { changes, removals } = planMainRoles({ expected, holders, roleIds: Object.values(SERVICE_ROLES.iaa.roles), exempt: AGENCY_BYPASS_IDS });
-  const apply = removals > MAX_MAIN_REMOVALS ? changes.filter((c) => c.action === "add") : changes;
+  const now = Date.now();
+  for (const [key, at] of recentAdds) if (now - at > ADD_COOLDOWN_MS) recentAdds.delete(key);
+  const fresh = changes.filter((c) => c.action === "remove" || !recentAdds.has(`${c.discord_id}:${c.role_id}`));
+  const apply = removals > MAX_MAIN_REMOVALS ? fresh.filter((c) => c.action === "add") : fresh;
+  for (const c of apply) if (c.action === "add") recentAdds.set(`${c.discord_id}:${c.role_id}`, now);
   if (removals > MAX_MAIN_REMOVALS)
     await post(guild, "botLogs", { content: `⚠️ Main-server IAA role sync wants to remove ${removals} roles, which is more than the safety limit of ${MAX_MAIN_REMOVALS}. Removals were skipped; check the roster and run again.`, allowedMentions: { parse: [] } }).catch(() => null);
   if (apply.length) await queueServiceRoles("iaa", apply, { requestedBy: "iaa-bot", reason: "IAA roster-bound main-server role" });
