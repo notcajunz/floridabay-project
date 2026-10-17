@@ -55,3 +55,20 @@ test('crash damage, partial repair, and engine health HUD stay wired together', 
   assert.match(html, /id="engine-health-bar"/);
   assert.match(web, /car\.engineHealth/);
 });
+
+test('full mechanic repair is public and supports the spaced command', () => {
+  const client = read('server-data/resources/[fbrp]/fbrp_core/client/economy.lua');
+  const server = read('server-data/resources/[fbrp]/fbrp_core/server/economy.lua');
+  assert.match(client, /RegisterCommand\('mechanicrepair', mechanicRepair/);
+  assert.match(client, /RegisterCommand\('mechanic',[\s\S]*'repair'[\s\S]*mechanicRepair\(\)/);
+  const repairHandler = server.slice(server.indexOf("RegisterNetEvent('fbrp:economy:repair'"), server.indexOf("RegisterNetEvent('fbrp:economy:serve'"));
+  assert.doesNotMatch(repairHandler, /if not property then return/);
+  assert.match(repairHandler, /Vehicle fully repaired/);
+});
+
+test('all overhead tags use an unconditional synthetic bold pass', () => {
+  const tags = read('server-data/resources/[fbrp]/fbrp_core/client/tags.lua');
+  assert.match(tags, /local BOLD_OFFSET = 0\.00038/);
+  assert.match(tags, /for pass = 0, 1 do/);
+  assert.match(tags, /EndTextCommandDisplayText\(x \+ pass \* BOLD_OFFSET, y\)/);
+});

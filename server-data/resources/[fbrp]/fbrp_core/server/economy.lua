@@ -643,7 +643,8 @@ RegisterNetEvent('fbrp:economy:taskDone', function()
     end
 end)
 
--- /mechanicrepair and /serve: full business services for other players, paid to the wallet.
+-- /mechanic repair is available to everyone. Eligible on-duty mechanics still
+-- earn the shop payout; /serve remains an organization business service.
 local function serviceProperty(src, kind)
     local org = orgOf(src)
     if not org then return nil, 'Clock in with /duty first.' end
@@ -666,7 +667,6 @@ end
 RegisterNetEvent('fbrp:economy:repair', function(netId)
     local src = source
     local property, spec, org = serviceProperty(src, 'repair')
-    if not property then return notify(src, spec, 'error') end
     if serviceCooldown(src) then return end
     local entity = NetworkGetEntityFromNetworkId(tonumber(netId) or 0)
     if not entity or entity == 0 or not DoesEntityExist(entity) or GetEntityType(entity) ~= 2 then return notify(src, 'No vehicle found.', 'error') end
@@ -674,11 +674,18 @@ RegisterNetEvent('fbrp:economy:repair', function(netId)
     lastService[src] = now()
     local owner = NetworkGetEntityOwner(entity)
     TriggerClientEvent('fbrp:economy:fixVehicle', owner > 0 and owner or src, NetworkGetNetworkIdFromEntity(entity))
-    local fee = math.floor(spec.serviceFee * (1 + (perksOf(org.id).pay or 0) / 100))
-    local paid = payBusiness(org.id, fee, 'service', ('%s: vehicle repair'):format(property.label), sessions[src].discord, property.key)
-    notify(src, paid > 0 and ('Vehicle repaired. +%s to the %s wallet.'):format(money(paid), org.name) or 'Vehicle repaired (hourly earnings cap reached).', 'success')
+    local paid = 0
+    if property and spec and org then
+        local fee = math.floor(spec.serviceFee * (1 + (perksOf(org.id).pay or 0) / 100))
+        paid = payBusiness(org.id, fee, 'service', ('%s: vehicle repair'):format(property.label), sessions[src].discord, property.key)
+    end
+    local message = 'Vehicle fully repaired.'
+    if property and org then
+        message = paid > 0 and ('Vehicle repaired. +%s to the %s wallet.'):format(money(paid), org.name) or 'Vehicle repaired (hourly earnings cap reached).'
+    end
+    notify(src, message, 'success')
     local s = sessions[src]
-    FBRP.DB.audit(s and s.discord or src, 'economy.service_payout', tostring(org.id), { service='repair', property=property.label, paid=paid })
+    FBRP.DB.audit(s and s.discord or src, 'economy.vehicle_repair', org and tostring(org.id) or nil, { service='repair', property=property and property.label or nil, paid=paid })
 end)
 
 RegisterNetEvent('fbrp:economy:serve', function(target)

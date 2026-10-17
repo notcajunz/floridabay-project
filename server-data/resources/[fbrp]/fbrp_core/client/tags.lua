@@ -8,6 +8,7 @@ local TAG_FONT, TAG_SCALE = 0, 0.54
 local HEAD_FONT, SUB_FONT = TAG_FONT, TAG_FONT
 local HEAD_SCALE, ID_SCALE, SUB_SCALE = TAG_SCALE, 0.52, TAG_SCALE
 local HEAD_BONE = 31086
+local BOLD_OFFSET = 0.00038
 
 local function hexColor(hex)
     hex = tostring(hex or '#FFFFFF'):gsub('#','')
@@ -34,14 +35,18 @@ local function textWidth(text, font, scale)
 end
 
 local function rawText(text, x, y, font, scale, r, g, b, a, outline)
-    SetTextFont(font)
-    SetTextScale(0.0, scale)
-    SetTextProportional(true)
-    SetTextColour(r, g, b, a)
-    if outline then SetTextOutline() end
-    BeginTextCommandDisplayText('STRING')
-    AddTextComponentSubstringPlayerName(text)
-    EndTextCommandDisplayText(x, y)
+    -- GTA does not expose a bold toggle for HUD text. Two tightly offset
+    -- passes create a stable bold weight for every headtag, gang tag and ID.
+    for pass = 0, 1 do
+        SetTextFont(font)
+        SetTextScale(0.0, scale)
+        SetTextProportional(true)
+        SetTextColour(r, g, b, a)
+        if outline then SetTextOutline() end
+        BeginTextCommandDisplayText('STRING')
+        AddTextComponentSubstringPlayerName(text)
+        EndTextCommandDisplayText(x + pass * BOLD_OFFSET, y)
+    end
 end
 
 -- Dark colors disappear behind GTA's black outline, so they get a light halo
