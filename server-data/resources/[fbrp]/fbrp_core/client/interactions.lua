@@ -115,13 +115,13 @@ local function worldTarget()
     end
     if bestSpot then
         local actions = {}
-        if bestSpot.kind == 'all' or bestSpot.kind == 'terminal' or bestSpot.kind == 'stash' then
+        if bestSpot.kind == 'all' or bestSpot.kind == 'terminal' or bestSpot.kind == 'stash' or bestSpot.kind == 'bar' then
             actions[#actions + 1] = { id = 'w_work', label = bestSpot.task or 'Work a shift' }
         end
         if bestSpot.kind == 'all' or bestSpot.kind == 'armory' or bestSpot.kind == 'wardrobe' then
             actions[#actions + 1] = { id = 'w_hub', label = 'Armory and wardrobe' }
         end
-        if bestSpot.service == 'serve' and (bestSpot.kind == 'all' or bestSpot.kind == 'terminal') then
+        if bestSpot.service == 'serve' and (bestSpot.kind == 'terminal' or bestSpot.kind == 'bar') then
             actions[#actions + 1] = { id = 'w_serve', label = 'Serve the nearest customer' }
         end
         return {

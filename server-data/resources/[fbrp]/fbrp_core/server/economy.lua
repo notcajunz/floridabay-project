@@ -174,7 +174,7 @@ end
 -- Spots placed by hand with /propset (terminal, stash, armory, wardrobe). Nothing is assumed:
 -- a property with no spots has no work spot, armory or wardrobe until someone places them.
 local function atPropertySpot(coords, property, radius)
-    for _, kind in ipairs({ 'terminal', 'stash', 'armory', 'wardrobe' }) do
+    for _, kind in ipairs({ 'terminal', 'bar', 'stash', 'armory', 'wardrobe' }) do
         local point = property.points and property.points[kind]
         if point and near(coords, point, radius or 10.0) then return true end
     end
@@ -184,7 +184,7 @@ end
 -- Where the work shift happens: the stash at a hideout, else the terminal. Nil until placed.
 local function workPoint(property)
     local points = property.points or {}
-    return (property.business == 'hideout' and points.stash) or points.terminal or points.stash
+    return (property.business == 'hideout' and points.stash) or points.terminal or points.bar or points.stash
 end
 
 local function nearOwnedProperty(source, orgId, radius)
@@ -674,9 +674,11 @@ local function serviceProperty(src, kind)
     local coords = pedCoords(src)
     for _, property in ipairs(owned[org.id] and owned[org.id].properties or {}) do
         local spec = E.business.types[property.business]
-        if spec and spec.service == kind and atPropertySpot(coords, property, 15.0) then return property, spec, org end
+        local bar = property.points and property.points.bar
+        local here = kind == 'serve' and bar ~= nil and near(coords, bar, 8.0) or kind ~= 'serve' and atPropertySpot(coords, property, 15.0)
+        if spec and spec.service == kind and here then return property, spec, org end
     end
-    return nil, kind == 'repair' and 'You must be at a mechanic shop your organization owns.' or 'You must be at a bar, club or restaurant your organization owns.'
+    return nil, kind == 'repair' and 'You must be at a mechanic shop your organization owns.' or 'You must be at the bar of a bar, club or restaurant your organization owns.'
 end
 
 local function serviceCooldown(src)

@@ -167,6 +167,7 @@ end)
 -- Where a property's prompts are drawn: only spots placed by hand with /propset.
 local SPOT_STYLE = {
     terminal = { color = { 63, 227, 210 }, icon = 21 },
+    bar = { color = { 255, 105, 180 }, icon = 21 },
     stash = { color = { 63, 227, 210 }, icon = 21 },
     armory = { color = { 255, 181, 71 }, icon = 20 },
     wardrobe = { color = { 196, 139, 255 }, icon = 20 },
@@ -176,7 +177,7 @@ local SPOT_STYLE = {
 local function propertySpots(property)
     local points = property.points or {}
     local spots = {}
-    for _, kind in ipairs({ 'terminal', 'stash', 'armory', 'wardrobe' }) do
+    for _, kind in ipairs({ 'terminal', 'bar', 'stash', 'armory', 'wardrobe' }) do
         local point = points[kind]
         if point then
             spots[#spots + 1] = { kind = kind, x = point.x, y = point.y, z = point.z, color = SPOT_STYLE[kind].color, icon = SPOT_STYLE[kind].icon }
@@ -223,6 +224,9 @@ CreateThread(function()
                             elseif spot.kind == 'terminal' or spot.kind == 'stash' then
                                 help(('~INPUT_CONTEXT~ %s%s'):format(property.task or 'Work a shift', extra))
                                 if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:taskStart', property.key) end
+                            elseif spot.kind == 'bar' then
+                                help('~INPUT_CONTEXT~ Serve the nearest customer')
+                                if IsControlJustReleased(0, 38) then ExecuteCommand('serve') end
                             else
                                 help(('~INPUT_CONTEXT~ Open the organization %s'):format(spot.kind))
                                 if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:hub') end

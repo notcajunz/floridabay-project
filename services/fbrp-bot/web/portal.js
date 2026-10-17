@@ -774,6 +774,27 @@ function examReviewDialog(id) {
 /* ---------- organizations ---------- */
 const TYPE_LABEL = { gang: "Gang", business: "Business", leo: "Law enforcement", fire: "Fire & rescue", government: "Government", other: "Organization" };
 const BUSINESS_LABEL = { mechanic: "Mechanic", bar: "Bar", club: "Nightclub", restaurant: "Restaurant", warehouse: "Warehouse", lab: "Drug lab", hideout: "Hideout" };
+const PROPERTY_SPOTS = [
+  ["door, door2, door3", "Where the property's entrances are. Every door within about 12 m of one is locked. Members of the owning gang or business press E at it to unlock or lock the doors, and anyone with an explosive can breach a locked one."],
+  ["terminal", "The work spot. On duty, press E here to run a shift and earn for the organization. Mechanics and serving businesses also use it for repairs and customers."],
+  ["bar", "The bar counter at a bar, club or restaurant. Aim at it with the third eye to serve drinks and meals to customers. Without a bar spot nobody can serve."],
+  ["stash", "A hideout's stash. Members guard it here for a small income. It replaces the terminal at a hideout."],
+  ["armory", "Where members open the organization armory and draw their permitted loadout, if their rank allows it."],
+  ["wardrobe", "Where members change into the organization's outfits."],
+];
+
+function propertySetupGuide(org) {
+  const rows = PROPERTY_SPOTS.map(([name, text]) => `<div class="feed-row"><div class="feed-ico">${icon("pin")}</div><div class="txt"><b class="mono">${esc(name)}</b><small>${esc(text)}</small></div></div>`).join("");
+  return `<section class="card">
+    <div class="card-head"><div><h2>Set up a property</h2><p>A new property does nothing, and its doors stay unlocked, until its spots are placed by hand. Nothing is guessed.</p></div></div>
+    <div class="card-body">
+      <div class="callout">${icon("info")}<div><b>Leaders and ranks that manage the roster</b> can place spots for ${esc(org.name)} themselves in game. Go to the exact spot, run <kbd>/propset terminal</kbd> (or another spot name below), check the preview marker under your feet, then press <kbd>E</kbd> to confirm or <kbd>Backspace</kbd> to cancel. Run <kbd>/propset list</kbd> to see what is placed and <kbd>/propset clear terminal</kbd> to remove one. Doors that were missed or wrongly locked are fixed with <kbd>/propdoors</kbd>.</div></div>
+      <div class="callout warn">${icon("alert")}<div><b>Cannot do it yourself?</b> Open a ticket in the <b>FBRP | DevOps</b> server and ask for the <b>Development Director</b> to set up your property. Include the property name, where each spot goes (door, terminal, bar, stash, armory, wardrobe) and a screenshot of the entrance. Community Manager and above staff can also place spots.</div></div>
+    </div>
+    <div class="feed">${rows}</div>
+  </section>`;
+}
+
 const KIND_ICON = { property: "building", vehicle: "car", weapon: "target", outfit: "shirt", perk: "bolt" };
 const TX_TONE = { drug_sale: "143 124 255", business: "53 226 205", purchase: "255 122 69", adjust: "255 194 77", refund: "61 220 151", service: "85 196 255", transfer_in: "61 220 151", transfer_out: "255 122 69", seizure: "85 196 255", stipend: "53 226 205" };
 const TX_LABEL = { drug_sale: "Product sale", transfer_in: "Transfer in", transfer_out: "Transfer out", seizure: "Seizure bounty", stipend: "Duty pay" };
@@ -869,7 +890,7 @@ function organizationsView() {
     <div class="grid-2">
       <section class="card">
         <div class="card-head"><div><h2>Properties</h2><p>Run them in game: on duty, go to the terminal and press <kbd>E</kbd>, or open <kbd>F2</kbd>.</p></div></div>
-        ${selected.properties.length ? `<div class="prop-list">${selected.properties.map((p) => `<div class="prop-row"><span class="feed-ico">${icon(p.data?.business === "lab" ? "leaf" : "building")}</span><div><b>${esc(p.label || p.item_key)}</b><small>${esc(BUSINESS_LABEL[p.data?.business] || "Property")}${p.data?.area ? ` · ${esc(p.data.area)}` : ""} · since ${esc(day(p.purchased_at))}</small></div></div>`).join("")}</div>` : empty("No property yet", dept ? "Departments draw from station armories; properties are optional." : "Buy an MLO below to start a legitimate business or a private lab.", "building")}
+        ${selected.properties.length ? `<div class="prop-list">${selected.properties.map((p) => `<div class="prop-row"><span class="feed-ico">${icon(p.data?.business === "lab" ? "leaf" : "building")}</span><div><b>${esc(p.label || p.item_key)}</b><small>${esc(BUSINESS_LABEL[p.data?.business] || "Property")}${p.data?.area ? ` · ${esc(p.data.area)}` : ""} · since ${esc(day(p.purchased_at))}</small><small>${(p.spots || []).length ? `Spots placed: ${(p.spots || []).map((name) => `<span class="pill plain">${esc(name)}</span>`).join(" ")}` : `<span class="pill pill-warn">Not set up yet</span> nothing works here until its spots are placed`}</small></div></div>`).join("")}</div>` : empty("No property yet", dept ? "Departments draw from station armories; properties are optional." : "Buy an MLO below to start a legitimate business or a private lab.", "building")}
         ${selected.purchases.filter((p) => p.kind !== "property").length ? `<div class="asset-chips">${selected.purchases.filter((p) => p.kind !== "property").map((p) => `<span class="pill plain">${icon(KIND_ICON[p.kind] || "sparkle")}${esc(p.label)}</span>`).join("")}</div>` : ""}
       </section>
       <section class="card">
@@ -877,6 +898,7 @@ function organizationsView() {
         ${ledger.length ? `<div class="feed ledger">${ledger.slice(0, 14).map((t) => `<div class="feed-row"><div class="feed-ico" style="color:rgb(${TX_TONE[t.kind] || "166 179 195"});background:rgba(${(TX_TONE[t.kind] || "166 179 195").replaceAll(" ", ",")},.1)">${icon(Number(t.amount) >= 0 ? "trend" : "wallet")}</div><div class="txt"><b>${esc(t.description)}</b><small>${esc(TX_LABEL[t.kind] || titleCase(t.kind))}${t.actor_id && /^\d{15,24}$/.test(String(t.actor_id)) ? ` · ${esc(state.data.people?.[t.actor_id]?.name || "member")}` : ""}</small></div><div class="row-end"><span class="amount ${Number(t.amount) >= 0 ? "up" : "down"}">${Number(t.amount) >= 0 ? "+" : "−"}${money(Math.abs(Number(t.amount)))}</span><time>${esc(ago(t.created_at))}</time></div></div>`).join("")}</div>` : empty("No transactions", dept ? "Go on duty and make seizures to fund the department." : "Deliver product or work your business in game to earn money.", "wallet")}
       </section>
     </div>
+    ${selected.properties.length ? propertySetupGuide(selected) : ""}
     <section class="card">
       <div class="card-head"><div><h2>Organization shop</h2><p>${perms.spend ? `Purchases apply in game instantly.${perms.spendLimit != null ? ` Your rank may spend ${money(perms.spendLimit)} a day.` : ""}` : "Your rank cannot buy. Ask a leader to pick something up."}</p></div>${seg("shop-kind", Object.entries(eco.kinds || {}).map(([k, label]) => [k, label, (eco.shop || []).filter((row) => row.kind === k && row.org_types.includes(selected.type)).length]), kind)}</div>
       <div class="shop-grid">${shopRows.map(shopCard).join("") || empty("Nothing in this aisle", "No items of this kind are available to this organization type.", "sparkle")}</div>

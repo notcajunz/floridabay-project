@@ -418,6 +418,13 @@ export function createEconomy({ client, db, audit, log }) {
         ? db.query("SELECT drug,SUM(units) units,COUNT(*) runs FROM org_drug_runs WHERE seized_org_id=? AND created_at>=? GROUP BY drug", [org.id, week])
         : Promise.resolve([]),
     ]);
+    const placed = properties.length
+      ? await db.query(
+          `SELECT property_key,point FROM property_points WHERE property_key IN (${properties.map(() => "?").join(",")}) ORDER BY point`,
+          properties.map((row) => row.item_key),
+        ).catch(() => [])
+      : [];
+    const spotsOf = (key) => placed.filter((row) => row.property_key === key).map((row) => row.point);
     return {
       id: org.id, slug: org.slug, name: org.name, type: org.type, color: org.color, motd: org.motd || "",
       department,
@@ -425,7 +432,7 @@ export function createEconomy({ client, db, audit, log }) {
       wallet: purse,
       transactions,
       purchases,
-      properties: properties.map((row) => ({ ...row, data: parse(row.data, {}) })),
+      properties: properties.map((row) => ({ ...row, data: parse(row.data, {}), spots: spotsOf(row.item_key) })),
       drugWeek: runs,
       seizuresWeek: seizures,
       earningsWeek: earnings,

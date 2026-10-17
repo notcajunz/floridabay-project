@@ -362,7 +362,7 @@ local function endPreview(confirmed)
 end
 
 local POINT_COLORS = {
-    door = { 255, 120, 60 }, terminal = { 63, 227, 210 }, stash = { 63, 227, 210 },
+    door = { 255, 120, 60 }, terminal = { 63, 227, 210 }, bar = { 255, 105, 180 }, stash = { 63, 227, 210 },
     armory = { 255, 181, 71 }, wardrobe = { 196, 139, 255 },
 }
 

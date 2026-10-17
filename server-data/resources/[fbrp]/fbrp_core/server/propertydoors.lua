@@ -4,7 +4,7 @@
 -- it. An unlocked property relocks by itself after RELOCK_MS, on a restart, or when it
 -- changes owner. A property nobody owns can only be unlocked by staff. Doors are found and
 -- held shut on the client (client/propertydoors.lua); this file decides who may unlock.
--- Staff also place exact spots with /propset (door, terminal, stash, armory, wardrobe).
+-- Exact spots are placed by hand with /propset (door, terminal, bar, stash, armory, wardrobe).
 
 local S = FBRP.Server
 local sessions = S.sessions
@@ -13,7 +13,7 @@ local props = {}        -- key -> { key, label, x, y, z, radius, owner }
 local manual = {}       -- key -> list of { id, kind, model, x, y, z }
 local open = {}         -- key -> game time it was unlocked
 local RELOCK_MS = 20 * 60 * 1000
-local POINTS = { door=true, door2=true, door3=true, terminal=true, stash=true, armory=true, wardrobe=true }
+local POINTS = { door=true, door2=true, door3=true, terminal=true, bar=true, stash=true, armory=true, wardrobe=true }
 local points = {}       -- key -> { [point] = { x, y, z } }
 local memberships = {}  -- source -> { at, orgs = { [orgId] = true } }
 
@@ -277,7 +277,7 @@ RegisterCommand('propset', function(src, args)
     local clearing = action == 'clear'
     local point = clearing and tostring(args[2] or ''):lower() or action
     if not POINTS[point] then
-        return S.notify(src, 'Use /propset door|door2|door3|terminal|stash|armory|wardrobe [key], /propset list, or /propset clear <point>.', 'info')
+        return S.notify(src, 'Use /propset door|door2|door3|terminal|bar|stash|armory|wardrobe [key], /propset list, or /propset clear <point>.', 'info')
     end
     local prop = nearest(clearing and args[3] or args[2])
     if not prop then return S.notify(src, 'No property you can edit within 150 metres. Community Manager+ staff on duty, or the command of the owning gang or business, only.', 'error') end
