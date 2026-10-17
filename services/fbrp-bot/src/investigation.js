@@ -119,3 +119,50 @@ export async function punishmentHistory(db, discordId, { limit = 200 } = {}) {
   entries.sort((a, b) => b.at - a.at);
   return { entries: entries.slice(0, limit), total: entries.length, failed };
 }
+
+/**
+ * Everything a Discord account owns or has been given in the game: personal vehicles (owned, and
+ * ones they are trusted on), the liveries on those vehicles, liveries they installed, custom EUP
+ * packs they added, and head/gang tags. A source that fails is skipped and named in `failed`.
+ */
+export async function ownedAssets(db, discordId) {
+  const id = String(discordId);
+  const failed = [];
+  const safe = async (name, run) => {
+    try {
+      return await run();
+    } catch (error) {
+      console.error(`[FBRP owned assets] ${name}:`, error?.message || error);
+      failed.push(name);
+      return [];
+    }
+  };
+  const [owned, trusted, liveries, installed, eup, tags] = await Promise.all([
+    safe("personal vehicles", () => db.query(
+      "SELECT id,model,label,plate,enabled FROM personal_vehicles WHERE owner_id=? ORDER BY label,id LIMIT 200", [id])),
+    safe("trusted vehicles", () => db.query(
+      `SELECT v.id,v.model,v.label,v.plate,v.owner_id FROM personal_vehicle_trust t
+         JOIN personal_vehicles v ON v.id=t.personal_id WHERE t.discord_id=? ORDER BY v.label,v.id LIMIT 200`, [id])),
+    safe("liveries", () => db.query(
+      `SELECT l.id,l.label,l.personal_id,v.label vehicle FROM personal_liveries l
+         JOIN personal_vehicles v ON v.id=l.personal_id WHERE v.owner_id=? ORDER BY v.label,l.label LIMIT 300`, [id])),
+    safe("installed liveries", () => db.query(
+      `SELECT l.id,l.label,l.personal_id,v.label vehicle FROM personal_liveries l
+         JOIN personal_vehicles v ON v.id=l.personal_id WHERE l.added_by=? AND v.owner_id<>? ORDER BY v.label,l.label LIMIT 300`, [id, id])),
+    safe("EUP packs", () => db.query(
+      "SELECT id,name,label,file_count FROM custom_eup WHERE created_by=? ORDER BY label,id LIMIT 200", [id])),
+    safe("tags", () => db.query(
+      `SELECT DISTINCT h.id,h.kind,h.label FROM headtag_grants g JOIN headtags h ON h.id=g.tag_id
+        WHERE g.discord_id=? ORDER BY h.kind,h.label LIMIT 100`, [id])),
+  ]);
+  const num = (row) => ({ ...row, id: Number(row.id) });
+  return {
+    personals: owned.map((row) => ({ ...num(row), enabled: Boolean(Number(row.enabled)) })),
+    trusted: trusted.map(num),
+    liveries: liveries.map((row) => ({ ...num(row), personal_id: Number(row.personal_id) })),
+    installedLiveries: installed.map((row) => ({ ...num(row), personal_id: Number(row.personal_id) })),
+    eup: eup.map((row) => ({ ...num(row), file_count: Number(row.file_count || 0) })),
+    tags: tags.map(num),
+    failed,
+  };
+}

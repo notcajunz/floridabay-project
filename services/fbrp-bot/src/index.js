@@ -16,7 +16,7 @@ import {
 import { randomInt } from "node:crypto";
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
-import { organizationActivity, punishmentHistory } from "./investigation.js";
+import { organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
 import { lookupAnyCase, moderationCaseState } from "./case-lookup.js";
 import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
 import { runGithubSync, githubStatus } from "./github-sync.js";
@@ -1904,7 +1904,7 @@ async function userinfoCommand(i) {
   await requirePermission(i, "fbrp.investigate");
   const user = i.options.getUser("member", true),
     cutoff = Date.now() - 30 * 86400000;
-  const [players, groups, orgs, punishments, hours, played] = await Promise.all([
+  const [players, groups, orgs, punishments, hours, played, assets] = await Promise.all([
     db.query(
       "SELECT id,name,license,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 5",
       [user.id],
@@ -1920,6 +1920,7 @@ async function userinfoCommand(i) {
       [Date.now(), user.id, cutoff],
     ),
     playtimeOf(user.id),
+    ownedAssets(db, user.id),
   ]);
   const overview = card(`User information: ${clean(user.username)}`, {
     description: `${mention(user.id)}\n\`${user.id}\``,
@@ -1993,6 +1994,24 @@ async function userinfoCommand(i) {
       : "Roles only show in servers the bot is in",
   });
 
+  const assetCard = card(`Owned assets · ${clean(user.username, 80)}`, {
+    color: COLORS.primary,
+    description: `Vehicles, liveries, clothing packs and tags tied to ${mention(user.id)}.`,
+    rows: [
+      ...pageRows("Personal vehicles", [
+        ...assets.personals.map((row) => `\`#${row.id}\` **${clean(row.label, 50)}** (${clean(row.model, 30)})${row.plate ? ` · ${clean(row.plate, 8)}` : ""}${row.enabled ? "" : " · disabled"}`),
+        ...assets.trusted.map((row) => `Trusted on **${clean(row.label, 50)}** (${clean(row.model, 30)}) · owner ${mention(row.owner_id)}`),
+      ], 2, "None"),
+      ...pageRows("Liveries", [
+        ...assets.liveries.map((row) => `**${clean(row.label, 50)}** on ${clean(row.vehicle, 50)}`),
+        ...assets.installedLiveries.map((row) => `Installed **${clean(row.label, 50)}** on ${clean(row.vehicle, 50)}`),
+      ], 1, "None"),
+      ...pageRows("Custom EUP packs added", assets.eup.map((row) => `\`#${row.id}\` **${clean(row.label, 50)}** · ${row.file_count} files`), 1, "None"),
+      ...pageRows("Tags", assets.tags.map((row) => `${clean(row.label, 40)} (${row.kind})`), 1, "None"),
+    ],
+    footer: assets.failed.length ? `Could not read: ${assets.failed.join(", ")}` : "Florida Bay Roleplay · organizations are listed above",
+  });
+
   const punishLine = (row) => `${row.status === "active" ? "🔴" : "⚪"} \`${clean(row.ref, 20)}\` ${new Date(row.at).toISOString().slice(0, 10)} · **${humanize(row.kind)}** · ${humanize(row.status)}${row.actorId && /^\d{15,24}$/.test(row.actorId) ? ` · by ${mention(row.actorId)}` : ""}\n${clean(row.reason || "No reason recorded.", 100)}`;
   const punishmentCard = card(`Punishment history · ${clean(user.username, 80)}`, {
     color: punishments.entries.some((row) => row.status === "active") ? COLORS.danger : punishments.total ? COLORS.warning : COLORS.success,
@@ -2028,7 +2047,7 @@ async function userinfoCommand(i) {
       description: "Seeing linked alt accounts needs the `fbrp.global.alts` permission.",
     });
   }
-  return { embeds: [overview], followUps: [{ embeds: [punishmentCard] }, { embeds: [serverCard, altCard] }] };
+  return { embeds: [overview], followUps: [{ embeds: [assetCard] }, { embeds: [punishmentCard] }, { embeds: [serverCard, altCard] }] };
 }
 
 const casePerson = (id, fallback = "Unknown") => /^\d{15,24}$/.test(String(id || "")) ? who(id) : `\`${clean(id || fallback, 80)}\``;

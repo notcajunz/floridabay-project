@@ -116,6 +116,69 @@ CreateThread(function()
     end
 end)
 
+-- A noclipping staff member must leave nothing behind: not the vehicle they are driving
+-- (or riding in), not a slung gun, not the weapon in hand. vMenu only alpha-fades the
+-- entity for its owner, so every other client hides those entities locally each frame,
+-- and the noclipping client also switches its own vehicle's visibility off.
+local ownVehicleHidden = 0
+
+local function hideEntity(entity)
+    if entity and entity ~= 0 and DoesEntityExist(entity) then SetEntityLocallyInvisible(entity) end
+end
+
+local function hideNoclipper(ped, bag)
+    hideEntity(ped)
+    local weapon = GetCurrentPedWeaponEntityIndex(ped)
+    hideEntity(weapon)
+    local vehicle = GetVehiclePedIsIn(ped, false)
+    if vehicle ~= 0 then
+        hideEntity(vehicle)
+        for seat = -1, GetVehicleModelNumberOfSeats(GetEntityModel(vehicle)) - 2 do
+            hideEntity(GetPedInVehicleSeat(vehicle, seat))
+        end
+    end
+    local props = bag['fbrp:slungProps']
+    if type(props) == 'table' then
+        for _, netId in ipairs(props) do
+            if NetworkDoesNetworkIdExist(netId) then hideEntity(NetworkGetEntityFromNetworkId(netId)) end
+        end
+    end
+end
+
+CreateThread(function()
+    local mine = PlayerId()
+    local active = {}
+    local nextScan = 0
+    while true do
+        local now = GetGameTimer()
+        if now >= nextScan then
+            nextScan = now + 250
+            active = {}
+            for _, player in ipairs(GetActivePlayers()) do
+                if player ~= mine then
+                    local bag = Player(GetPlayerServerId(player)).state
+                    if bag['fbrp:noclip'] == true then active[#active + 1] = { player = player, bag = bag } end
+                end
+            end
+        end
+        for _, row in ipairs(active) do
+            local ped = GetPlayerPed(row.player)
+            if DoesEntityExist(ped) then hideNoclipper(ped, row.bag) end
+        end
+
+        -- Own vehicle: invisible to the network while noclip is on, restored after.
+        local vehicle = GetVehiclePedIsIn(PlayerPedId(), false)
+        if noclipActive and vehicle ~= 0 then
+            if ownVehicleHidden ~= vehicle then ownVehicleHidden = vehicle end
+            SetEntityVisible(vehicle, false, false)
+        elseif ownVehicleHidden ~= 0 then
+            if DoesEntityExist(ownVehicleHidden) then SetEntityVisible(ownVehicleHidden, true, false) end
+            ownVehicleHidden = 0
+        end
+        Wait(#active > 0 and 0 or (ownVehicleHidden ~= 0 and 0 or 100))
+    end
+end)
+
 -- vMenu's overhead names are native gamer tags ("Name [id]") that stay drawn over invisible
 -- noclipping staff and cannot be hidden per player from outside vMenu. fbrp's own tags are
 -- the only overhead identity, so vMenu's gamer tags are cleared. Nothing else in this

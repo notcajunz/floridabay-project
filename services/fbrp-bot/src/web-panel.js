@@ -13,7 +13,7 @@ import { createAppeals } from "./appeals.js";
 import { OWNER_DISCORD_ID } from "./access-control.js";
 import { staffLevel } from "./database.js";
 import { findLinkedAccounts } from "./alts.js";
-import { organizationActivity, punishmentHistory } from "./investigation.js";
+import { organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
 import { lookupAnyCase } from "./case-lookup.js";
 import { MAX_TRUSTED, MAX_TRUSTED_WITH_TAG } from "./personals.js";
 
@@ -1418,7 +1418,7 @@ export function startWebPanel(context) {
     if (!user) throw new Error("That Discord account could not be found.");
     const stamp = Date.now();
     const shiftDuration = "CASE WHEN ended_at IS NULL THEN GREATEST(0,FLOOR((heartbeat_at-started_at)/1000)) ELSE seconds END";
-    const [players, groups, organizations, cases, discipline, staffHours, verification, storedGuilds, blacklist, network, linked, punishments] = await Promise.all([
+    const [players, groups, organizations, cases, discipline, staffHours, verification, storedGuilds, blacklist, network, linked, punishments, assets] = await Promise.all([
       db.query("SELECT id,name,created_at,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 20", [id]),
       db.query(`SELECT g.name,g.label,g.rank_order,m.origin FROM ace_memberships m JOIN ace_groups g ON g.name=m.group_name WHERE m.discord_id=? ORDER BY g.rank_order DESC,g.label`, [id]),
       organizationActivity(db, id, stamp),
@@ -1439,6 +1439,7 @@ export function startWebPanel(context) {
       db.query("SELECT guild_id,name,kind FROM network_guilds ORDER BY FIELD(kind,'main','staff','department','community','business','gang','partner','other'),name"),
       findLinkedAccounts(db, id),
       punishmentHistory(db, id),
+      ownedAssets(db, id),
     ]);
 
     const networkById = new Map(network.map((row) => [String(row.guild_id), row]));
@@ -1508,6 +1509,7 @@ export function startWebPanel(context) {
       players: players.map((row) => ({ ...row, id: Number(row.id), created_at: normalizeDate(row.created_at), last_seen: normalizeDate(row.last_seen) })),
       groups,
       organizations,
+      assets,
       cases: cases.map((row) => ({ ...row, id: Number(row.id), active: Boolean(Number(row.active)), expires_at: row.expires_at ? Number(row.expires_at) : null, created_at: Number(row.created_at) })),
       discipline: discipline.map((row) => ({ ...row, id: Number(row.id), created_at: Number(row.created_at), revoked_at: row.revoked_at ? Number(row.revoked_at) : null })),
       punishments,

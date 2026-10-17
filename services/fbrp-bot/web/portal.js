@@ -1735,6 +1735,17 @@ function investigationView() {
     <td class="mono">${hours(org.weekSeconds)}</td><td class="mono">${hours(org.monthSeconds)}</td><td class="mono">${hours(org.totalSeconds)}</td>
     <td>${fmt(org.shifts)}</td><td>${org.lastShift ? esc(ago(org.lastShift)) : "Never"}</td>
   </tr>`).join("");
+  const assets = record.assets || { personals: [], trusted: [], liveries: [], installedLiveries: [], eup: [], tags: [], failed: [] };
+  const assetRow = (type, name, detail) => `<tr><td><span class="pill plain">${esc(type)}</span></td><td class="strong"><b>${esc(name)}</b></td><td class="wrap">${esc(detail)}</td></tr>`;
+  const assetRows = [
+    ...assets.personals.map((row) => assetRow("Personal vehicle", row.label, `${row.model}${row.plate ? ` · ${row.plate}` : ""}${row.enabled ? "" : " · disabled"}`)),
+    ...assets.trusted.map((row) => assetRow("Trusted on", row.label, `${row.model} · owner ${state.data.people?.[row.owner_id]?.name || row.owner_id}`)),
+    ...assets.liveries.map((row) => assetRow("Livery", row.label, `on ${row.vehicle}`)),
+    ...assets.installedLiveries.map((row) => assetRow("Livery installed", row.label, `on ${row.vehicle}`)),
+    ...assets.eup.map((row) => assetRow("Custom EUP", row.label, `${fmt(row.file_count)} files · pack #${row.id}`)),
+    ...assets.tags.map((row) => assetRow("Tag", row.label, titleCase(row.kind))),
+  ].join("");
+  const assetsFailed = assets.failed?.length ? `<div class="callout">${icon("alert")}<div>Could not read: ${esc(assets.failed.join(", "))}</div></div>` : "";
   const liveServers = record.servers.live.map((server) => `<tr>
     <td class="strong"><b>${esc(server.name)}</b><small class="mono">${esc(server.id)}</small></td>
     <td>${server.network ? `<span class="pill pill-good">Network${server.kind ? ` · ${esc(titleCase(server.kind))}` : ""}</span>` : '<span class="pill pill-sea">Bot server</span>'}</td>
@@ -1757,6 +1768,7 @@ function investigationView() {
       <div class="stat-tile ${flagged.length ? "tone-bad" : "tone-good"}"><div class="ico">${icon(flagged.length ? "alert" : "check")}</div><span>Server risk matches</span><strong>${fmt(flagged.length)}</strong><small>${fmt(record.servers.live.length)} live shared · ${fmt(record.servers.other.length)} OAuth-reported</small></div>
     </div>
     <section class="card"><div class="card-head"><div><h2>Organizations & duty hours</h2><p>Current and former memberships with recorded in-game organization shifts.</p></div></div>${orgRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Organization</th><th>Position</th><th>7 days</th><th>30 days</th><th>All time</th><th>Shifts</th><th>Last shift</th></tr></thead><tbody>${orgRows}</tbody></table></div>` : empty("No organization activity", "No memberships or organization shifts are linked to this Discord account.", "building")}</section>
+    <section class="card"><div class="card-head"><div><h2>Owned assets</h2><p>Personal vehicles, liveries, custom EUP packs and tags tied to this account.</p></div></div>${assetRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Type</th><th>Item</th><th>Detail</th></tr></thead><tbody>${assetRows}</tbody></table></div>` : empty("No owned assets", "No personal vehicles, liveries, EUP packs or tags are linked to this Discord account.", "car")}${assetsFailed}</section>
     <div class="grid-2 even">
       <section class="card"><div class="card-head"><div><h2>Identity & access</h2><p>Website verification, ACE groups, and game accounts.</p></div></div><div class="card-body"><div class="kv"><div><small>Last verified</small><b>${verified ? esc(date(verified.last_verified_at)) : "Never"}</b></div><div><small>Verification method</small><b>${verified ? esc(titleCase(verified.method)) : "-"}</b></div><div><small>ACE groups</small><b>${record.groups.length ? record.groups.map((row) => esc(row.label || row.name)).join(", ") : "None"}</b></div><div><small>Highest ACE rank</small><b>${record.groups.length ? fmt(record.groups[0].rank_order) : "None"}</b></div></div></div>${record.players.length ? `<div class="feed">${record.players.map((player) => `<div class="feed-row"><div class="feed-ico">${icon("car")}</div><div class="txt"><b>#${fmt(player.id)} · ${esc(player.name)}</b><small>First linked ${esc(day(player.created_at))} · last seen ${esc(ago(player.last_seen))}</small></div></div>`).join("")}</div>` : ""}</section>
       <section class="card"><div class="card-head"><div><h2>Linked accounts</h2><p>Direct strong identifiers and shared-IP leads.</p></div></div>${alts ? `<div class="feed">${alts}</div>` : empty("No linked accounts", record.alts.unlinkedAccounts ? `${plural(record.alts.unlinkedAccounts, "game account")} could not be tied to Discord.` : "No direct account links were found.", "check", "61 220 151")}</section>

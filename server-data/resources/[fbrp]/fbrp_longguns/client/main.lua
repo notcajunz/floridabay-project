@@ -29,6 +29,7 @@ local busy = false
 local session = nil     -- open trunk: { vehicle, netId, openedDoor }
 local lastWarn = 0
 local trackedPed = 0
+local syncSlungState
 
 do
     local saved = GetResourceKvpString('fbrp_longguns:pref')
@@ -287,10 +288,41 @@ local function resetAfterPedChange()
     grace = {}
 end
 
+-- Slung guns are separate networked props. While this player is noclipping, hide them
+-- for everyone (SetEntityVisible is synced) and publish their net ids so other clients
+-- can also hide them locally (fbrp_core client/tags.lua).
+local hidingProps = false
+local publishedProps = ''
+
+syncSlungState = function()
+    local ids, entities = {}, {}
+    for _, pos in ipairs({ 'back', 'chest' }) do
+        local prop = slung[pos] and slung[pos].prop
+        if prop and DoesEntityExist(prop) then
+            entities[#entities + 1] = prop
+            if NetworkGetEntityIsNetworked(prop) then ids[#ids + 1] = NetworkGetNetworkIdFromEntity(prop) end
+        end
+    end
+    local key = table.concat(ids, ',')
+    if key ~= publishedProps then
+        publishedProps = key
+        LocalPlayer.state:set('fbrp:slungProps', ids, true)
+    end
+    local noclip = LocalPlayer.state['fbrp:noclip'] == true
+    if noclip then
+        for _, prop in ipairs(entities) do SetEntityVisible(prop, false, false) end
+        hidingProps = true
+    elseif hidingProps then
+        hidingProps = false
+        for _, prop in ipairs(entities) do SetEntityVisible(prop, true, false) end
+    end
+end
+
 CreateThread(function()
     local ticks = {}
     while true do
         Wait(120)
+        syncSlungState()
         if LG.enabled then
             local ped = PlayerPedId()
             if ped ~= trackedPed then
@@ -355,8 +387,34 @@ end)
 -- Sling controls
 -- ---------------------------------------------------------------------------
 
+-- Three separately rebindable keys (Settings > Key Bindings > FiveM): J toggles by
+-- default, and "Sling" / "Unsling" are unbound until a player picks a key for them.
 RegisterCommand('fbrp_sling_toggle', function() CreateThread(function() toggleSling(nil) end) end, false)
-RegisterKeyMapping('fbrp_sling_toggle', 'Sling or draw long gun', 'keyboard', 'J')
+RegisterKeyMapping('fbrp_sling_toggle', 'Long gun: sling or draw (toggle)', 'keyboard', 'J')
+
+RegisterCommand('fbrp_sling_put', function()
+    CreateThread(function()
+        if not handWeapon(PlayerPedId()) then
+            return notify('You have no long gun in your hands to sling.', 'info')
+        end
+        toggleSling(nil)
+    end)
+end, false)
+RegisterKeyMapping('fbrp_sling_put', 'Long gun: sling', 'keyboard', '')
+
+RegisterCommand('fbrp_sling_draw', function()
+    CreateThread(function()
+        if handWeapon(PlayerPedId()) then
+            return notify('You already have a long gun in your hands.', 'info')
+        end
+        toggleSling(nil)
+    end)
+end, false)
+RegisterKeyMapping('fbrp_sling_draw', 'Long gun: unsling (draw)', 'keyboard', '')
+
+RegisterCommand('slingkeys', function()
+    notify('Set your sling keys in Settings > Key Bindings > FiveM: toggle, sling and unsling.', 'info')
+end, false)
 
 local function position(arg)
     arg = tostring(arg or ''):lower()
