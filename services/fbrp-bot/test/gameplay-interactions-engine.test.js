@@ -27,10 +27,14 @@ test('cuffs and zip ties have props, tools, and application/removal animations',
   assert.match(client, /prop_cs_cable_tie_01/);
   assert.match(client, /mp_arrest_paired/);
   assert.match(client, /a_uncuff/);
-  assert.match(client, /ShootSingleBulletBetweenCoords/);
+  assert.match(client, /IsPedShooting/);
+  assert.match(client, /GetPedLastWeaponImpactCoord/);
+  assert.match(client, /TriggerServerEvent\('fbrp:restraints:cuffsShot'/);
+  assert.doesNotMatch(client, /ShootSingleBulletBetweenCoords/);
   assert.match(server, /BLADED_WEAPONS/);
+  assert.match(server, /RegisterNetEvent\('fbrp:restraints:cuffsShot'/);
   assert.match(config, /id\s*=\s*'cutziptie'/);
-  assert.match(config, /id\s*=\s*'shootcuffs'/);
+  assert.doesNotMatch(config, /id\s*=\s*'shootcuffs'/);
 });
 
 test('jail and community service clear replicated restraint state', () => {

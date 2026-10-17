@@ -535,7 +535,6 @@ const ACTION_META = {
   hardcuff: ["Restraints", "cuffs", "red"],
   ziptie: ["Restraints", "zip"],
   cutziptie: ["Restraints", "knife"],
-  shootcuffs: ["Restraints", "target", "red"],
   uncuff: ["Restraints", "unlock"],
   arrest: ["Custody", "gavel", "red"],
   escort: ["Custody", "walk"],

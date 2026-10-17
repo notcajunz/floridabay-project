@@ -4,6 +4,7 @@ local connectPrincipals = {} -- discord id -> { [principal]=true } granted at co
 local appliedAces = {}
 local permissionRows = {}
 local pendingSearches = {}
+local cuffShotCooldowns = {}
 local ready = false
 local stateVersion = 0
 
@@ -621,9 +622,6 @@ end
 FBRP.InteractionVisible.cutziptie = function(_, target)
     return Player(target).state['fbrp:restrained'] == 'ziptie'
 end
-FBRP.InteractionVisible.shootcuffs = function(_, target)
-    return Player(target).state['fbrp:restrained'] == 'cuffs'
-end
 FBRP.InteractionHandlers.cutziptie = function(source, target, evidence)
     if Player(target).state['fbrp:restrained'] ~= 'ziptie' then return false end
     local weapon = selectedWeapon(source, evidence)
@@ -635,21 +633,29 @@ FBRP.InteractionHandlers.cutziptie = function(source, target, evidence)
     TriggerClientEvent('fbrp:interaction:actor', source, 'cutziptie', target)
     return true
 end
-FBRP.InteractionHandlers.shootcuffs = function(source, target, evidence)
-    if Player(target).state['fbrp:restrained'] ~= 'cuffs' then return false end
-    local weapon, ped = selectedWeapon(source, evidence)
+
+-- Shooting cuffs is deliberately separate from third-eye interactions. The
+-- client only requests this after a real shot crosses the cuff/wrist area;
+-- the server still verifies the live weapon, range and replicated restraint.
+RegisterNetEvent('fbrp:restraints:cuffsShot', function(target, evidence)
+    local src = source
+    target = tonumber(target)
+    if not target or target == src or not sessions[src] or not sessions[target] then return end
+    if Player(target).state['fbrp:restrained'] ~= 'cuffs' or not playersNear(src, target, 30.0) then return end
+
+    local stamp = GetGameTimer()
+    if stamp < (cuffShotCooldowns[src] or 0) then return end
+    cuffShotCooldowns[src] = stamp + 1000
+
+    local weapon, ped = selectedWeapon(src, evidence)
     local ok, armed = pcall(IsPedArmed, ped, 4)
-    if not ok then armed = type(evidence) == 'table' and evidence.firearm == true end
-    local ammoOk, ammo = pcall(GetAmmoInPedWeapon, ped, weapon)
-    if not ammoOk then ammo = type(evidence) == 'table' and tonumber(evidence.ammo) or 0 end
-    if weapon == joaat('WEAPON_UNARMED') or (ok and not armed) or BLADED_WEAPONS[weapon] or tonumber(ammo or 0) <= 0 then
-        notify(source, 'Hold a firearm to shoot the cuffs off.', 'error')
-        return false
-    end
-    TriggerClientEvent('fbrp:interaction:apply', target, 'shootcuffs', source)
-    TriggerClientEvent('fbrp:interaction:actor', source, 'shootcuffs', target)
-    return true
-end
+    if weapon == joaat('WEAPON_UNARMED') or BLADED_WEAPONS[weapon] or (ok and not armed) then return end
+
+    TriggerClientEvent('fbrp:interaction:apply', target, 'shootcuffs', src)
+    FBRP.DB.audit(sessions[src].discord or src, 'restraints.cuffs_shot', sessions[target].discord or target, {
+        source=src, target=target, weapon=weapon
+    })
+end)
 
 local function banDiscordId(ban)
     for _, value in ipairs(type(ban.identifiers) == 'table' and ban.identifiers or {}) do
@@ -867,6 +873,7 @@ AddEventHandler('playerDropped', function()
     appliedPrincipals[src] = nil
     sessions[src] = nil
     pendingSearches[src] = nil
+    cuffShotCooldowns[src] = nil
 end)
 
 RegisterNetEvent('fbrp:requestSession', function()

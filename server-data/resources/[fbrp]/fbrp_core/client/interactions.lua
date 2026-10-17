@@ -9,6 +9,42 @@ local thirdEyePending = false
 local thirdEyeTarget = nil
 local thirdEyeHoverAt = 0
 local restraintProps = {}
+local lastCuffShotAt = 0
+local restraintKind
+
+local function cameraDirection(rotation)
+    local pitch = math.rad(rotation.x)
+    local yaw = math.rad(rotation.z)
+    local scale = math.abs(math.cos(pitch))
+    return vector3(-math.sin(yaw) * scale, math.cos(yaw) * scale, math.sin(pitch))
+end
+
+local function aimedCuffedPlayer(maxDistance)
+    local origin = GetGameplayCamCoord()
+    local direction = cameraDirection(GetGameplayCamRot(2))
+    local hasImpact, impact = GetPedLastWeaponImpactCoord(PlayerPedId())
+    local best, bestMiss = nil, 0.24
+
+    for _, player in ipairs(GetActivePlayers()) do
+        if player ~= PlayerId() then
+            local serverId = GetPlayerServerId(player)
+            local ok, state = pcall(function() return Player(serverId).state['fbrp:restrained'] end)
+            local ped = GetPlayerPed(player)
+            if ok and restraintKind(state) == 'cuffs' and ped ~= 0 and DoesEntityExist(ped) then
+                local wrists = GetPedBoneCoords(ped, 60309, 0.0, 0.0, 0.0)
+                local offset = wrists - origin
+                local along = offset.x * direction.x + offset.y * direction.y + offset.z * direction.z
+                if along > 0.5 and along <= maxDistance and HasEntityClearLosToEntity(PlayerPedId(), ped, 17) then
+                    local nearest = origin + direction * along
+                    local miss = #(wrists - nearest)
+                    if hasImpact and #(wrists - impact) <= 0.55 then miss = 0.0 end
+                    if miss < bestMiss then best, bestMiss = serverId, miss end
+                end
+            end
+        end
+    end
+    return best
+end
 
 local function targetedPlayer(maxDistance)
     local me = PlayerPedId()
@@ -64,7 +100,7 @@ local function loadModel(model)
     return HasModelLoaded(hash) and hash or nil
 end
 
-local function restraintKind(value)
+restraintKind = function(value)
     if value == nil or value == false then return nil end
     value = tostring(value or ''):lower()
     if value:find('zip', 1, true) then return 'ziptie' end
@@ -201,6 +237,29 @@ RegisterNUICallback('closeThirdEye', function(_, cb)
     cb({ok=true})
 end)
 
+-- A real firearm shot aimed at the physical cuff prop/wrist removes cuffs.
+-- This is intentionally not exposed as a third-eye action.
+CreateThread(function()
+    while true do
+        local ped = PlayerPedId()
+        if IsPedShooting(ped) and IsPedArmed(ped, 4) then
+            local stamp = GetGameTimer()
+            if stamp - lastCuffShotAt >= 500 then
+                local target = aimedCuffedPlayer(30.0)
+                if target then
+                    lastCuffShotAt = stamp
+                    TriggerServerEvent('fbrp:restraints:cuffsShot', target, {
+                        weapon=GetSelectedPedWeapon(ped), firearm=true
+                    })
+                end
+            end
+            Wait(0)
+        else
+            Wait(20)
+        end
+    end
+end)
+
 RegisterNetEvent('fbrp:restraints:clear', function()
     setRestrained(nil)
 end)
@@ -275,17 +334,6 @@ RegisterNetEvent('fbrp:interaction:actor', function(action, targetServerId)
         TaskTurnPedToFaceEntity(PlayerPedId(), targetPed, 350)
         Wait(350)
         playAnim('mini@repair', 'fixing_a_ped', 2600, 48)
-    elseif action == 'shootcuffs' then
-        TaskTurnPedToFaceEntity(PlayerPedId(), targetPed, 250)
-        Wait(250)
-        TaskAimGunAtEntity(PlayerPedId(), targetPed, 1250, false)
-        Wait(650)
-        local muzzle = GetPedBoneCoords(PlayerPedId(), 57005, 0.12, 0.0, 0.0)
-        local wrists = GetPedBoneCoords(targetPed, 60309, 0.0, 0.0, 0.0)
-        -- Make the removal visibly/audibly use the held gun without damaging the player.
-        local weapon = GetSelectedPedWeapon(PlayerPedId())
-        ShootSingleBulletBetweenCoords(muzzle.x, muzzle.y, muzzle.z, wrists.x, wrists.y, wrists.z, 0, true, weapon, PlayerPedId(), true, false, 40.0)
-        SetPedAmmo(PlayerPedId(), weapon, math.max(0, GetAmmoInPedWeapon(PlayerPedId(), weapon) - 1))
     end
 end)
 
