@@ -749,6 +749,22 @@ function GenerateMenu() -- this is a big ass function
 							TriggerServerEvent("EasyAdmin:FreezePlayer", thePlayer.id, checked_)
 						end
 					end
+
+					if permissions["player.release"] then
+						for _, release in ipairs({
+							{ "jail", "forceunjail" },
+							{ "communityservice", "forceuncommunityservice" },
+							{ "headbag", "forceunheadbag" },
+							{ "ziptie", "forceunziptie" },
+							{ "cuff", "forceuncuff" },
+						}) do
+							local thisItem = NativeUI.CreateItem(GetLocalisedText(release[2]), GetLocalisedText("forcereleaseguide"))
+							thisPlayer:AddItem(thisItem)
+							thisItem.Activated = function(ParentMenu, SelectedItem)
+								TriggerServerEvent("EasyAdmin:ForceRelease", thePlayer.id, release[1])
+							end
+						end
+					end
 				
 					if permissions["player.screenshot"] then
 						local thisItem = NativeUI.CreateItem(GetLocalisedText("takescreenshot"),"")

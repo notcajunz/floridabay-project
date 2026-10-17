@@ -125,7 +125,9 @@ FBRP.Ace = {
     vehicleMenu = 'fbrp.vehicles',
     aop = 'fbrp.aop',
     priority = 'fbrp.priority',
+    peacetime = 'fbrp.peacetime',
     announce = 'fbrp.announce',
+    staffOnDutyAnnounce = 'fbrp.staff.onduty_announce',
     policeJail = 'fbrp.police.jail',
     policeCite = 'fbrp.police.cite',
     policeMdt = 'fbrp.police.mdt',
@@ -133,8 +135,10 @@ FBRP.Ace = {
     policeSpikes = 'fbrp.police.spikes',
     ems = 'fbrp.ems',
     emsRevive = 'fbrp.ems.revive',
-    staffRevive = 'fbrp.staff.revive',
+    staffReviveSelf = 'fbrp.staff.revive.self',
+    staffRevive = 'fbrp.staff.revive.others',
     staffJail = 'fbrp.staff.jail',
+    staffRelease = 'fbrp.staff.release',
 }
 
 FBRP.VehicleCatalog = {

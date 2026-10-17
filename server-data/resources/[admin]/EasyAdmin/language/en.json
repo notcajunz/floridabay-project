@@ -48,6 +48,12 @@
     "teleportplayertome": "Player to Me",
     "slapplayer": "Slap Player",
     "setplayerfrozen": "Set Player Frozen",
+    "forceunjail": "Force Unjail",
+    "forceuncommunityservice": "Force End Community Service",
+    "forceunheadbag": "Force Remove Head Bag",
+    "forceunziptie": "Force Remove Zip Ties",
+    "forceuncuff": "Force Remove Handcuffs",
+    "forcereleaseguide": "Admin+: releases this player no matter who restrained them.",
     "allplayers": "All Players",
     "teleporttome": "Teleport To Me",
     "teleporttomeguide": "~r~~h~NOTE:~h~~w~ This will teleport ~h~all~h~ players to you.",
@@ -98,6 +104,7 @@
 
     "adminfrozeplayer": "**%s** froze **%s**.",
     "adminunfrozeplayer": "**%s** unfroze **%s**.",
+    "adminforcereleased": "**%s** force-released **%s** (%s).",
 
     "left": "Left",
     "middle": "Middle",

@@ -650,6 +650,34 @@ Citizen.CreateThread(function()
 	end
 	exports('freezePlayer', freezePlayer)
 
+	-- Admin+ force release (jail, community service, head bag, zip ties, cuffs). The
+	-- restraint state belongs to fbrp_core, which enforces its own ACE as well.
+	RegisterServerEvent("EasyAdmin:ForceRelease", function(playerId, kind)
+		local src = source
+		playerId = tonumber(playerId)
+		if not playerId or not CachedPlayers[playerId] or CachedPlayers[playerId].dropped then
+			TriggerClientEvent("EasyAdmin:showNotification", src, GetLocalisedText("invalidplayer"))
+			return
+		end
+		if not DoesPlayerHavePermission(src, "player.release") or type(kind) ~= "string" then return end
+		if GetResourceState("fbrp_core") ~= "started" then
+			TriggerClientEvent("EasyAdmin:showNotification", src, "Force release is unavailable right now.")
+			return
+		end
+		local ok, released, message = pcall(function() return exports.fbrp_core:ForceRelease(src, playerId, kind) end)
+		if not ok then
+			PrintDebugMessage("Force release failed: "..tostring(released), 1)
+			TriggerClientEvent("EasyAdmin:showNotification", src, "Force release failed.")
+			return
+		end
+		TriggerClientEvent("EasyAdmin:showNotification", src, message or (released and "Released." or "Could not release that player."))
+		if released then
+			local preferredWebhook = detailNotification ~= "false" and detailNotification or moderationNotification
+			SendWebhookMessage(preferredWebhook, string.format(GetLocalisedText("adminforcereleased"), getName(src, false, true), getName(playerId, true, true), kind), "release", 16777214)
+			PrintDebugMessage("Player "..getName(src, true).." force-released "..getName(playerId, true).." ("..kind..")", 3)
+		end
+	end)
+
 	RegisterServerEvent("EasyAdmin:FreezePlayer", function(playerId,toggle)
 		-- Validate playerId before proceeding
 		if not playerId or not CachedPlayers[playerId] or CachedPlayers[playerId].dropped then

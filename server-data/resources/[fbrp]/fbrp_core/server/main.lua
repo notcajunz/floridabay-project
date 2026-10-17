@@ -1136,6 +1136,7 @@ local function controlPayload(source, focus)
         cooldownDefault=FBRP.PriorityCooldownDefault,
         canAop=hasPermission(source, FBRP.Ace.aop),
         canPriority=hasPermission(source, FBRP.Ace.priority),
+        canPeacetime=hasPermission(source, FBRP.Ace.peacetime),
     }
 end
 
@@ -1157,7 +1158,7 @@ RegisterCommand('aop', function(source, args)
 end, false)
 
 RegisterCommand('peacetime', function(source, args)
-    if source > 0 and not hasPermission(source, FBRP.Ace.priority) then return deny(source, FBRP.Ace.priority) end
+    if source > 0 and not hasPermission(source, FBRP.Ace.peacetime) then return deny(source, FBRP.Ace.peacetime) end
     local on = args[1] == 'on' or (args[1] == nil and not GlobalState['fbrp:peacetime'])
     setPeacetime(on, source)
 end, false)
@@ -1205,7 +1206,7 @@ RegisterNetEvent('fbrp:control:action', function(kind, data)
         if value == '' then return notify(src, 'Enter an area of play.', 'error') end
         setAop(value, src)
     elseif kind == 'peacetime' then
-        if not hasPermission(src, FBRP.Ace.priority) then return deny(src, FBRP.Ace.priority) end
+        if not hasPermission(src, FBRP.Ace.peacetime) then return deny(src, FBRP.Ace.peacetime) end
         setPeacetime(data.value == true, src)
     elseif kind == 'priority' then
         if not hasPermission(src, FBRP.Ace.priority) then return deny(src, FBRP.Ace.priority) end
@@ -1256,10 +1257,24 @@ CreateThread(function()
     end
 end)
 
-RegisterCommand('announce', function(source, args)
+local function announcementCommand(source, args)
     if source > 0 and not hasPermission(source, FBRP.Ace.announce) then return deny(source, FBRP.Ace.announce) end
     local message = clean(table.concat(args, ' '), 300)
     if message ~= '' then broadcast('FLORIDA BAY', message, { 67,232,216 }) end
+end
+RegisterCommand('announce', announcementCommand, false)
+RegisterCommand('staff', announcementCommand, false)
+
+RegisterCommand('ondutystaff', function(source, args)
+    if source > 0 and not hasPermission(source, FBRP.Ace.staffOnDutyAnnounce) then return deny(source, FBRP.Ace.staffOnDutyAnnounce) end
+    local message = clean(table.concat(args, ' '), 300)
+    if message == '' then return notify(source, 'Usage: /ondutystaff <message>', 'error') end
+    local sourcePlayer = source > 0 and Player(source) or nil
+    local sender = source > 0 and ((sourcePlayer and sourcePlayer.state['fbrp:characterName']) or GetPlayerName(source) or ('Player ' .. source)) or 'Console'
+    for target, session in pairs(sessions) do
+        if session.staffDuty then chat(target, 'ON-DUTY STAFF · ' .. sender, message, { 255, 180, 87 }) end
+    end
+    FBRP.DB.audit(actorOf(source), 'staff.onduty_announcement', nil, { message=message })
 end, false)
 
 -- /me, /do and /ooc are owned by s4_chat so its proximity routing,

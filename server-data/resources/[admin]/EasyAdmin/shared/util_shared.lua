@@ -9,6 +9,7 @@ permissions = {
 	["player.teleport.single"] = false,
 	["player.slap"] = false,
 	["player.freeze"] = false,
+	["player.release"] = false,
 	["player.bucket.join"] = false,
 	["player.bucket.force"] = false,
 	["player.screenshot"] = false,

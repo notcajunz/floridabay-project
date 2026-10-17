@@ -57,6 +57,12 @@ local function canJail(source)
     return hasPermission(source, FBRP.Ace.policeJail) or hasPermission(source, FBRP.Ace.staffJail)
 end
 
+-- Releasing someone early is narrower than jailing them: police with jail powers,
+-- or Admin+ staff holding the force-release ACE. Jail-only staff cannot undo a sentence.
+local function canRelease(source)
+    return hasPermission(source, FBRP.Ace.policeJail) or hasPermission(source, FBRP.Ace.staffRelease)
+end
+
 local function canMdt(source)
     return hasPermission(source, FBRP.Ace.policeMdt) or hasPermission(source, FBRP.Ace.staffJail)
 end
@@ -767,7 +773,7 @@ RegisterCommand('communityservice', serviceCommand, false)
 RegisterCommand('cs', serviceCommand, false)
 
 RegisterCommand('endservice', function(source, args)
-    if source > 0 and not canJail(source) then return S.deny(source, FBRP.Ace.policeJail) end
+    if source > 0 and not canRelease(source) then return S.deny(source, FBRP.Ace.policeJail) end
     local target = tonumber(args[1])
     if not target or not serving[target] then return notify(source, 'Usage: /endservice <server id of someone doing community service>', 'error') end
     endService(target, 'released', select(1, officer(source)))
@@ -776,7 +782,7 @@ RegisterCommand('endservice', function(source, args)
 end, false)
 
 RegisterCommand('unjail', function(source, args)
-    if source > 0 and not canJail(source) then return S.deny(source, FBRP.Ace.policeJail) end
+    if source > 0 and not canRelease(source) then return S.deny(source, FBRP.Ace.policeJail) end
     local target = tonumber(args[1])
     if not target or not jailed[target] then return notify(source, 'Usage: /unjail <server id of an inmate>', 'error') end
     local actor = officer(source)
@@ -784,6 +790,52 @@ RegisterCommand('unjail', function(source, args)
     notify(target, ('You were released early by %s.'):format(select(2, officer(source))), 'success')
     notify(source, 'Inmate released.', 'success')
 end, false)
+
+-- Admin+ force release, called by EasyAdmin's player menu. Works on someone online
+-- whatever put them there: a sentence, community service, cuffs, a zip tie or a head bag.
+local RELEASE_KINDS = {
+    jail = 'jail',
+    communityservice = 'community service',
+    headbag = 'head bag',
+    ziptie = 'zip ties',
+    cuff = 'handcuffs',
+}
+
+local function forceRelease(actorSource, target, kind)
+    actorSource, target = tonumber(actorSource), tonumber(target)
+    if not actorSource or actorSource <= 0 or not hasPermission(actorSource, FBRP.Ace.staffRelease) then
+        return false, 'You do not have permission to force-release players.'
+    end
+    if not RELEASE_KINDS[kind] then return false, 'Unknown release type.' end
+    if not target or not sessions[target] then return false, 'That player is not online.' end
+    local player = Player(target)
+    local actorId, actorName = officer(actorSource)
+    local restrained = player and player.state['fbrp:restrained'] or nil
+    if kind == 'jail' then
+        if not jailed[target] then return false, 'That player is not in jail.' end
+        releaseInmate(target, 'released', actorId)
+    elseif kind == 'communityservice' then
+        if not serving[target] then return false, 'That player is not doing community service.' end
+        endService(target, 'released', actorId)
+    elseif kind == 'headbag' then
+        if not (player and player.state['fbrp:blindfolded'] == true) then return false, 'That player is not wearing a head bag.' end
+        TriggerClientEvent('fbrp:interaction:apply', target, 'unblindfold', actorSource)
+    elseif kind == 'ziptie' then
+        if restrained ~= 'ziptie' then return false, 'That player is not zip-tied.' end
+        player.state:set('fbrp:restrained', nil, true)
+        TriggerClientEvent('fbrp:restraints:clear', target)
+    else
+        if restrained ~= 'cuffs' then return false, 'That player is not handcuffed.' end
+        player.state:set('fbrp:restrained', nil, true)
+        TriggerClientEvent('fbrp:restraints:clear', target)
+    end
+    local _, targetName = characterOf(target)
+    targetName = targetName or GetPlayerName(target)
+    notify(target, ('%s removed your %s.'):format(actorName, RELEASE_KINDS[kind]), 'success')
+    FBRP.DB.audit(actorId, 'staff.force_release', sessions[target].discord or tostring(target), { kind=kind, target=target })
+    return true, ('Removed %s from %s.'):format(RELEASE_KINDS[kind], targetName)
+end
+exports('ForceRelease', forceRelease)
 
 RegisterCommand('prison', function(source)
     if source > 0 and not canMdt(source) then return S.deny(source, FBRP.Ace.policeMdt) end
@@ -1282,7 +1334,7 @@ MDT_ACTIONS.service = function(src, data)
 end
 
 MDT_ACTIONS.release = function(src, data, actorId, actorName)
-    if not canJail(src) then return notify(src, 'You do not have permission to release inmates.', 'error') end
+    if not canRelease(src) then return notify(src, 'You do not have permission to release inmates.', 'error') end
     local row = MySQL.single.await("SELECT id,character_id,status FROM jail_sentences WHERE id=? AND status IN ('serving','escaped')", { tonumber(data.id) })
     if not row then return end
     local online = onlineByCharacter(row.character_id)
@@ -1298,7 +1350,7 @@ MDT_ACTIONS.release = function(src, data, actorId, actorName)
 end
 
 MDT_ACTIONS.serviceRelease = function(src, data, actorId, actorName)
-    if not canJail(src) then return notify(src, 'You do not have permission to end community service.', 'error') end
+    if not canRelease(src) then return notify(src, 'You do not have permission to end community service.', 'error') end
     local row = MySQL.single.await("SELECT id,character_id FROM community_service WHERE id=? AND status='serving'", { tonumber(data.id) })
     if not row then return end
     local online = onlineByCharacter(row.character_id)

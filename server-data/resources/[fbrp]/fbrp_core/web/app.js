@@ -761,7 +761,7 @@ function renderControl(data) {
         <form class="aop-custom" id="aop-form"><input name="aop" maxlength="60" placeholder="Custom area of play…" autocomplete="off"><button type="submit" class="primary-action">Set AOP</button></form>
       </section>`
     : "";
-  const peacetime = data.canPriority
+  const peacetime = data.canPeacetime
     ? `<div class="pt-row"><div><b>Peacetime</b><small>${data.peacetime ? "In effect: no violent crime anywhere." : "Off"}</small></div>
         <button class="toggle${data.peacetime ? " on" : ""}" data-ctl="peacetime" data-value="${data.peacetime ? "off" : "on"}"><i></i></button></div>`
     : "";

@@ -103,9 +103,10 @@ AddEventHandler('playerDropped', function()
 end)
 
 RegisterCommand('revive', function(source, args)
-    if source > 0 and not hasPermission(source, FBRP.Ace.staffRevive) then return S.deny(source, FBRP.Ace.staffRevive) end
     local target = tonumber(args[1]) or (source > 0 and source or nil)
     if not target or not sessions[target] then return notify(source, 'Usage: /revive [server id]', 'error') end
+    local permission = target == source and FBRP.Ace.staffReviveSelf or FBRP.Ace.staffRevive
+    if source > 0 and not hasPermission(source, permission) then return S.deny(source, permission) end
     local actor = S.actorOf(source)
     if not revive(target, actor) then
         -- Not tracked as downed (e.g. died before the module loaded): still pick them up.
