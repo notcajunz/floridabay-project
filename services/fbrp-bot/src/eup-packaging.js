@@ -217,3 +217,34 @@ export function assetHeaderProblem(name, head) {
   const magic = Buffer.from(head).subarray(0, 4).toString("latin1");
   return /^RSC[78]$/.test(magic) ? null : `${name} is not a real ${ext} game asset (its header is not a GTA resource header).`;
 }
+
+/** GTA component and prop slot numbers with the name of the vMenu Character Customization category that lists them. */
+export const SLOTS = {
+  head: { slot: 0, label: "Head" }, berd: { slot: 1, label: "Masks" }, hair: { slot: 2, label: "Hair Style" },
+  uppr: { slot: 3, label: "Torsos" }, lowr: { slot: 4, label: "Legs" }, hand: { slot: 5, label: "Bags & Parachutes" },
+  feet: { slot: 6, label: "Shoes" }, teef: { slot: 7, label: "Scarfs & Chains" }, accs: { slot: 8, label: "Shirt & Accessories" },
+  task: { slot: 9, label: "Body Armor & Accessories" }, decl: { slot: 10, label: "Badges & Logos" }, jbib: { slot: 11, label: "Shirt Overlay & Jackets" },
+  p_head: { slot: 0, label: "Hats & Helmets", prop: true }, p_eyes: { slot: 1, label: "Glasses", prop: true }, p_ears: { slot: 2, label: "Misc Props", prop: true },
+  p_mouth: { slot: 3, label: "Misc Props", prop: true }, p_lhand: { slot: 4, label: "Misc Props", prop: true }, p_rhand: { slot: 5, label: "Misc Props", prop: true },
+  p_lwrist: { slot: 6, label: "Watches", prop: true }, p_rwrist: { slot: 7, label: "Bracelets", prop: true }, p_hip: { slot: 8, label: "Misc Props", prop: true },
+  p_lfoot: { slot: 9, label: "Misc Props", prop: true }, p_rfoot: { slot: 10, label: "Misc Props", prop: true },
+};
+
+/**
+ * Which slot and vMenu category each part of a pack lands in. Numbers are the pack's own drawable numbers: for a pack
+ * with a name FiveM adds them after the base game's items of that slot, so the in-game number is higher.
+ */
+export function slotSummary(entries) {
+  const map = new Map();
+  for (const e of entries) {
+    if (!["drawable", "texture", "prop", "proptexture"].includes(e.kind) || !e.ped || !SLOTS[e.comp]) continue;
+    const key = `${e.ped}|${e.dlc || ""}|${e.comp}`;
+    if (!map.has(key)) map.set(key, { ped: e.ped, dlc: e.dlc || null, comp: e.comp, ...SLOTS[e.comp], indices: new Set(), textures: 0 });
+    const row = map.get(key);
+    if (e.kind === "drawable" || e.kind === "prop") row.indices.add(e.index);
+    else row.textures++;
+  }
+  return [...map.values()]
+    .map(({ indices, ...row }) => ({ ...row, items: indices.size, first: indices.size ? Math.min(...indices) : null, last: indices.size ? Math.max(...indices) : null }))
+    .sort((a, b) => a.ped.localeCompare(b.ped) || Number(Boolean(a.prop)) - Number(Boolean(b.prop)) || a.slot - b.slot);
+}

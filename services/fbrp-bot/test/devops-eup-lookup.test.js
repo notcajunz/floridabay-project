@@ -3,7 +3,8 @@ import test from "node:test";
 import { definitions } from "../src/devops/commands.js";
 
 process.env.MARIADB_HOST ||= "127.0.0.1";
-const { eupLine, eupMatches } = await import("../src/devops/lookups.js");
+const { eupLine, eupMatches, slotLines } = await import("../src/devops/lookups.js");
+const { analyze, slotSummary } = await import("../src/eup-packaging.js");
 
 const rows = [
   { id: 1, name: "sheriff_class_a", label: "Sheriff Class A", resource: "fbrp_eup_sheriff_class_a", installed: true, file_count: 42, size_bytes: 31457280, created_by: "111111111111111111", created_at: 1700000000000, groups: [{ ped: "mp_m_freemode_01", dlc: "sheriff", drawables: 10, textures: 12, props: 2, ymt: true, meta: "pack" }], addonPeds: ["deputy_m"] },
@@ -37,8 +38,25 @@ test("lookup finds packs by id, exact name, partial text, clothing pack name or 
 test("list lines show status, size, clothing, addon peds and who added the pack", () => {
   const line = eupLine(rows[0]);
   assert.match(line, /#1 · Sheriff Class A\*\* 🟢/);
-  assert.match(line, /`fbrp_eup_sheriff_class_a` · 42 files · 30 MB · 12 clothing items · 1 addon ped · added by <@111111111111111111>/);
+  assert.match(line, /`fbrp_eup_sheriff_class_a` · 42 files · 30 MB · 12 clothing items · 1 addon ped\n↳ added by <@111111111111111111>/);
   assert.match(eupLine(rows[1]), /🔴 files missing/);
   assert.match(eupLine(rows[1]), /1 file · 1\.0 MB|1 file · 0\.0 MB/);
   assert.match(eupLine(rows[1]), /added by unknown/);
+  assert.match(eupLine({ ...rows[0], slots: [{ label: "Torsos" }, { label: "Shoes" }, { label: "Torsos" }] }), /\n↳ Torsos, Shoes\n/);
+});
+
+test("each part of a pack is shown with its slot and the vMenu category that lists it", () => {
+  const names = [
+    "mp_m_freemode_01_x^jbib_000_u.ydd", "mp_m_freemode_01_x^jbib_001_u.ydd", "mp_m_freemode_01_x^jbib_diff_000_a_uni.ytd", "mp_m_freemode_01_x^jbib_diff_001_a_uni.ytd", "mp_m_freemode_01_x^jbib_diff_001_b_uni.ytd",
+    "mp_m_freemode_01_x^p_head_000.ydd", "mp_m_freemode_01_x^p_head_diff_000_a.ytd",
+    "mp_f_freemode_01_x^feet_002_u.ydd", "mp_f_freemode_01_x^feet_diff_002_a_uni.ytd",
+    "mp_m_freemode_01^lowr_007_u.ydd",
+  ];
+  const lines = slotLines(slotSummary(analyze(names.map((rel) => ({ rel }))).entries));
+  assert.deepEqual(lines, [
+    "Female · slot 6 `feet` · **Shoes** · item 002 · 1 texture",
+    "Male · slot 4 `lowr` · **Legs** · item 007 · 0 textures · replaces base game",
+    "Male · slot 11 `jbib` · **Shirt Overlay & Jackets** · items 000–001 (2) · 3 textures",
+    "Male · prop slot 0 `p_head` · **Hats & Helmets** · item 000 · 1 texture",
+  ]);
 });

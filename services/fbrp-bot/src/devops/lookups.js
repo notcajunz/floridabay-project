@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { C, UserError, card, humanize, mention, pages, respond, roleMention, ts } from "./util.js";
 import { db } from "./store.js";
+import { analyze, slotSummary } from "../eup-packaging.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const resourcesRoot = path.join(repoRoot, "server-data/resources");
@@ -190,13 +191,30 @@ export async function personals(i) {
 
 /* ------------------------------------------------------------------ custom EUP */
 
+/** Paths of every file below a pack's stream folder (relative to it). */
+async function streamFiles(dir, prefix = "") {
+  const out = [];
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    if (entry.isDirectory()) out.push(...(await streamFiles(path.join(dir, entry.name), `${prefix}${entry.name}/`)));
+    else if (entry.isFile()) out.push({ rel: `${prefix}${entry.name}` });
+  }
+  return out;
+}
+
+/** One line per slot: "Male · Slot 11 jbib · Shirt Overlay & Jackets · items 000–004 (5) · 8 textures". */
+export function slotLines(slots) {
+  const num = (n) => String(n).padStart(3, "0");
+  return slots.map((s) => `${s.ped === "mp_f_freemode_01" ? "Female" : "Male"} · ${s.prop ? "prop " : ""}slot ${s.slot} \`${s.comp}\` · **${s.label}** · ${s.items ? `${s.items === 1 ? `item ${num(s.first)}` : `items ${num(s.first)}–${num(s.last)} (${s.items})`}` : "textures only"} · ${s.textures} texture${s.textures === 1 ? "" : "s"}${s.dlc ? "" : " · replaces base game"}`);
+}
+
 /** Custom EUP packs with what the installer recorded about each one (clothing groups, addon peds, security verdict). */
 async function eupRows() {
   const rows = await db.query("SELECT * FROM custom_eup ORDER BY label,id");
   return Promise.all(rows.map(async (row) => {
     const resource = `fbrp_eup_${row.name}`;
     const marker = JSON.parse((await readFile(path.join(eupRoot, resource, ".fbrp-eup.json"), "utf8").catch(() => "null")) || "null");
-    return { ...row, resource, installed: Boolean(marker), groups: marker?.groups || [], addonPeds: marker?.addonPeds || [], verdict: marker?.security?.verdict || null };
+    const slots = marker ? slotSummary(analyze(await streamFiles(path.join(eupRoot, resource, "stream"))).entries) : [];
+    return { ...row, resource, slots, installed: Boolean(marker), groups: marker?.groups || [], addonPeds: marker?.addonPeds || [], verdict: marker?.security?.verdict || null };
   }));
 }
 
@@ -217,7 +235,7 @@ const pedText = (ped) => (ped === "mp_f_freemode_01" ? "female" : "male");
 /** One line per pack for lists. */
 export function eupLine(row) {
   const items = row.groups.reduce((sum, g) => sum + g.drawables + g.props, 0);
-  return `**#${row.id} · ${clean(row.label)}** ${row.installed ? "🟢" : "🔴 files missing"}\n↳ \`${row.resource}\` · ${row.file_count} file${Number(row.file_count) === 1 ? "" : "s"} · ${bytesText(row.size_bytes)}${items ? ` · ${items} clothing item${items === 1 ? "" : "s"}` : ""}${row.addonPeds.length ? ` · ${row.addonPeds.length} addon ped${row.addonPeds.length === 1 ? "" : "s"}` : ""} · added by ${row.created_by ? mention(row.created_by) : "unknown"} ${ts(row.created_at, "d")}`;
+  return `**#${row.id} · ${clean(row.label)}** ${row.installed ? "🟢" : "🔴 files missing"}\n↳ \`${row.resource}\` · ${row.file_count} file${Number(row.file_count) === 1 ? "" : "s"} · ${bytesText(row.size_bytes)}${items ? ` · ${items} clothing item${items === 1 ? "" : "s"}` : ""}${row.addonPeds.length ? ` · ${row.addonPeds.length} addon ped${row.addonPeds.length === 1 ? "" : "s"}` : ""}${(row.slots || []).length ? `\n↳ ${[...new Set(row.slots.map((s) => s.label))].join(", ")}` : ""}\n↳ added by ${row.created_by ? mention(row.created_by) : "unknown"} ${ts(row.created_at, "d")}`;
 }
 
 export async function eupLookup(i) {
@@ -241,6 +259,7 @@ export async function eupLookup(i) {
       ["Updated", ts(row.updated_at)],
       row.notes ? ["Notes", clean(row.notes), false] : null,
       groups.length ? ["Clothing in the vMenu appearance menu", groups.join("\n"), false] : null,
+      row.slots.length ? ["Slots and vMenu categories (Player Appearance → Character Customization)", slotLines(row.slots).join("\n").slice(0, 1000), false] : null,
       row.addonPeds.length ? ["Addon peds", row.addonPeds.map((n) => `\`${n}\``).join(" "), false] : null,
     ],
   })] });
