@@ -205,6 +205,8 @@ RegisterNUICallback('hubAction', function(data, cb)
         closeInteractionMenus(); TriggerServerEvent('fbrp:justice:status')
     elseif action == 'mdt' then
         closeInteractionMenus(); TriggerServerEvent('fbrp:mdt:request')
+    elseif action == 'citizen' then
+        closeInteractionMenus(); TriggerServerEvent('fbrp:citizen:request')
     elseif commands[action] then
         closeInteractionMenus(); ExecuteCommand(commands[action])
     end

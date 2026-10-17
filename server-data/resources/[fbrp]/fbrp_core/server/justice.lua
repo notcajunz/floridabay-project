@@ -38,7 +38,7 @@ local function onlineByCharacter(characterId)
 end
 
 local function characterRow(id)
-    return MySQL.single.await('SELECT id,owner_license,discord_id,first_name,last_name,date_of_birth,gender FROM characters WHERE id=? AND archived=FALSE', { tonumber(id) })
+    return MySQL.single.await('SELECT id,owner_license,discord_id,first_name,last_name,date_of_birth,gender,last_played_at FROM characters WHERE id=? AND archived=FALSE', { tonumber(id) })
 end
 
 local function fullName(row)
@@ -833,6 +833,11 @@ local function unitList()
     return out
 end
 
+local function callPriority(call)
+    local value = tonumber(call.priority) or MDT.callPriority[call.kind] or 3
+    return math.max(1, math.min(3, math.floor(value)))
+end
+
 local function callList()
     local calls = {}
     for _, call in pairs(S.recentCalls) do
@@ -845,13 +850,33 @@ local function callList()
                 end
             end
             calls[#calls + 1] = {
-                id=call.id, kind=call.kind, caller=call.callerName, message=call.message, at=call.at,
+                id=call.id, kind=call.kind, caller=call.callerName, message=call.message, at=call.at, priority=callPriority(call),
                 x=call.coords and call.coords.x, y=call.coords and call.coords.y, responders=responders, notes=call.notes or {},
             }
         end
     end
-    table.sort(calls, function(a, b) return a.id > b.id end)
+    table.sort(calls, function(a, b)
+        if a.priority ~= b.priority then return a.priority < b.priority end
+        return a.id > b.id
+    end)
     return calls
+end
+
+-- Calls closed in the last half hour, newest first, so a unit can look back at
+-- what just happened without searching the reports.
+local function callHistory()
+    local out = {}
+    for _, call in pairs(S.recentCalls) do
+        if call.closedAt then
+            out[#out + 1] = {
+                id=call.id, kind=call.kind, caller=call.callerName, message=call.message, at=call.at, closedAt=call.closedAt,
+                closedBy=call.closedBy, priority=callPriority(call), notes=#(call.notes or {}),
+            }
+        end
+    end
+    table.sort(out, function(a, b) return a.closedAt > b.closedAt end)
+    while #out > 15 do table.remove(out) end
+    return out
 end
 
 local function stats(source)
@@ -904,6 +929,11 @@ local function dashboard(source)
         seizures = seizures,
         units = unitList(),
         calls = callList(),
+        history = callHistory(),
+        applications = MySQL.query.await([[
+            SELECT l.character_id,l.kind,l.updated_at,CONCAT(c.first_name,' ',c.last_name) name FROM mdt_licenses l
+              JOIN characters c ON c.id=l.character_id WHERE l.status='pending' ORDER BY l.updated_at LIMIT 20
+        ]]),
         stats = source and stats(source) or nil,
         me = source and { id=source, unit=unitOf(source) } or nil,
     }
@@ -917,7 +947,11 @@ local function search(query)
     query = clean(query, 60)
     local rows = {}
     local id = tonumber(query)
-    if id then
+    local citizenNo = query:upper():match('^FB%-?(%d+)$')
+    if citizenNo then
+        local row = characterRow(tonumber(citizenNo))
+        if row then rows[1] = row end
+    elseif id then
         local characterId = sessions[id] and characterOf(id)
         if characterId then
             local row = characterRow(characterId)
@@ -925,11 +959,17 @@ local function search(query)
         end
     end
     if #rows == 0 and #query >= 2 then
+        local like = '%' .. likeEscape(query) .. '%'
+        local digits = query:gsub('%D', '')
+        local phoneLike = #digits >= 4 and ('%' .. digits .. '%') or ''
         rows = MySQL.query.await([[
-            SELECT id,first_name,last_name,date_of_birth,gender FROM characters
-            WHERE archived=FALSE AND CONCAT(first_name,' ',last_name) LIKE ?
-            ORDER BY last_played_at DESC LIMIT 20
-        ]], { '%' .. likeEscape(query) .. '%' })
+            SELECT DISTINCT c.id,c.first_name,c.last_name,c.date_of_birth,c.gender,c.last_played_at FROM characters c
+              LEFT JOIN character_profiles p ON p.character_id=c.id
+              LEFT JOIN character_changes ch ON ch.character_id=c.id AND ch.field='name'
+             WHERE c.archived=FALSE AND (CONCAT(c.first_name,' ',c.last_name) LIKE ? OR p.nickname LIKE ? OR ch.old_value LIKE ?
+                OR c.date_of_birth=? OR (?<>'' AND REPLACE(REPLACE(REPLACE(REPLACE(p.phone,'-',''),' ',''),'(',''),')','') LIKE ?))
+             ORDER BY c.last_played_at DESC LIMIT 20
+        ]], { like, like, like, query, phoneLike, phoneLike })
     end
     local out = {}
     for _, row in ipairs(rows) do
@@ -945,13 +985,17 @@ local function search(query)
 end
 
 local function licenseList(characterId)
-    local rows = MySQL.query.await('SELECT kind,status,points,updated_by,updated_at FROM mdt_licenses WHERE character_id=?', { characterId })
+    local rows = MySQL.query.await('SELECT kind,status,points,restriction,issued_at,updated_by,updated_at FROM mdt_licenses WHERE character_id=?', { characterId })
     local byKind = {}
     for _, row in ipairs(rows) do byKind[row.kind] = row end
     local out = {}
     for _, license in ipairs(MDT.licenses) do
         local row = byKind[license.id]
-        out[#out + 1] = { id=license.id, label=license.label, status=row and row.status or 'none', points=row and tonumber(row.points) or 0, updatedBy=row and row.updated_by, updatedAt=row and tonumber(row.updated_at) }
+        out[#out + 1] = {
+            id=license.id, label=license.label, status=row and row.status or 'none', points=row and tonumber(row.points) or 0,
+            restriction=row and row.restriction or nil, issuedAt=row and tonumber(row.issued_at) or nil,
+            updatedBy=row and row.updated_by, updatedAt=row and tonumber(row.updated_at),
+        }
     end
     return out
 end
@@ -975,7 +1019,8 @@ local function profile(characterId)
     local flags = MySQL.query.await('SELECT flag,added_by,added_at FROM mdt_citizen_flags WHERE character_id=? ORDER BY added_at', { id })
     return {
         id=id, name=fullName(row), dob=row.date_of_birth, gender=row.gender, citizen=citizenNumber(id),
-        online=online, restrained=restrained and true or false,
+        online=online, restrained=restrained and true or false, lastSeen=tonumber(row.last_played_at),
+        details=FBRP.CitizenApi.details(id), aliases=FBRP.CitizenApi.aliases(id),
         records=records,
         warrants=MySQL.query.await('SELECT id,reason,status,created_by,created_at,closed_by,closed_at FROM warrants WHERE character_id=? ORDER BY status=\'active\' DESC,id DESC LIMIT 30', { id }),
         vehicles=MySQL.query.await('SELECT plate,model,label,stolen,impounded_at,registered_at FROM vehicle_registrations WHERE character_id=? ORDER BY registered_at DESC LIMIT 20', { id }),
@@ -1033,19 +1078,26 @@ local function plateLine(report)
     return text, #flags > 0 and RED or GREEN
 end
 
-local function reportList(query)
+local function reportList(query, kind)
     query = clean(query, 60)
+    kind = clean(kind, 24)
+    local validKind = false
+    for _, k in ipairs(MDT.reportKinds) do if k == kind then validKind = true end end
+    local kindClause, kindArgs = '', {}
+    if validKind then kindClause, kindArgs = ' AND r.kind=?', { kind } end
     if query ~= '' then
         local like = '%' .. likeEscape(query) .. '%'
-        return MySQL.query.await([[
+        local args = { like, like, like, tonumber(query) or 0 }
+        for _, value in ipairs(kindArgs) do args[#args + 1] = value end
+        return MySQL.query.await(([[
             SELECT DISTINCT r.id,r.kind,r.title,r.location,r.author_name,r.created_at FROM mdt_reports r
               LEFT JOIN mdt_report_citizens rc ON rc.report_id=r.id
               LEFT JOIN characters c ON c.id=rc.character_id
-             WHERE r.title LIKE ? OR r.narrative LIKE ? OR CONCAT(c.first_name,' ',c.last_name) LIKE ? OR r.id=?
+             WHERE (r.title LIKE ? OR r.narrative LIKE ? OR CONCAT(c.first_name,' ',c.last_name) LIKE ? OR r.id=?)%s
              ORDER BY r.id DESC LIMIT 40
-        ]], { like, like, like, tonumber(query) or 0 })
+        ]]):format(kindClause), args)
     end
-    return MySQL.query.await('SELECT id,kind,title,location,author_name,created_at FROM mdt_reports ORDER BY id DESC LIMIT 40')
+    return MySQL.query.await(('SELECT r.id,r.kind,r.title,r.location,r.author_name,r.created_at FROM mdt_reports r WHERE 1=1%s ORDER BY r.id DESC LIMIT 40'):format(kindClause), kindArgs)
 end
 
 local function reportView(id)
@@ -1053,6 +1105,7 @@ local function reportView(id)
     if not row then return nil end
     row.citizens = decode(row.citizens)
     row.officers = decode(row.officers)
+    row.addenda = MySQL.query.await('SELECT id,body,author_name,created_at FROM mdt_report_addenda WHERE report_id=? ORDER BY id', { row.id })
     return row
 end
 
@@ -1144,7 +1197,13 @@ end
 local MDT_ACTIONS = {}
 
 MDT_ACTIONS.dashboard = function(src) sendMdt(src, 'dashboard', dashboard(src)) end
-MDT_ACTIONS.search = function(src, data) sendMdt(src, 'results', { query=clean(data.query, 60), rows=search(data.query) }) end
+MDT_ACTIONS.search = function(src, data)
+    local plate = plateReport(data.query)
+    sendMdt(src, 'results', {
+        query=clean(data.query, 60), rows=search(data.query),
+        plate=plate and plate.registered and { plate=plate.plate, model=plate.model, owner=plate.owner, stolen=plate.stolen } or nil,
+    })
+end
 MDT_ACTIONS.profile = function(src, data)
     local p = profile(data.id)
     if p then sendMdt(src, 'profile', p) else notify(src, 'Citizen not found.', 'error') end
@@ -1309,6 +1368,14 @@ MDT_ACTIONS.callNote = function(src, data)
     sendMdt(src, 'dashboard', dashboard(src))
 end
 
+MDT_ACTIONS.callPriority = function(src, data)
+    local call = findCall(data.id)
+    local priority = tonumber(data.priority)
+    if not call or not priority then return end
+    call.priority = math.max(1, math.min(3, math.floor(priority)))
+    sendMdt(src, 'dashboard', dashboard(src))
+end
+
 MDT_ACTIONS.callClose = function(src, data, actorId, actorName)
     local call = findCall(data.id)
     if not call then return end
@@ -1374,9 +1441,10 @@ MDT_ACTIONS.license = function(src, data, actorId, actorName)
         MySQL.update.await('DELETE FROM mdt_licenses WHERE character_id=? AND kind=?', { id, kind })
     elseif status == 'valid' or status == 'suspended' or status == 'revoked' then
         MySQL.prepare.await([[
-            INSERT INTO mdt_licenses(character_id,kind,status,points,updated_by,updated_at) VALUES(?,?,?,0,?,?)
-            ON DUPLICATE KEY UPDATE status=VALUES(status),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)
-        ]], { id, kind, status, actorName, now() })
+            INSERT INTO mdt_licenses(character_id,kind,status,points,updated_by,updated_at,issued_at) VALUES(?,?,?,0,?,?,?)
+            ON DUPLICATE KEY UPDATE status=VALUES(status),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at),
+              issued_at=IF(VALUES(status)='valid',COALESCE(issued_at,VALUES(issued_at)),issued_at)
+        ]], { id, kind, status, actorName, now(), status == 'valid' and now() or nil })
     else
         return
     end
@@ -1385,6 +1453,29 @@ MDT_ACTIONS.license = function(src, data, actorId, actorName)
     local target = onlineByCharacter(id)
     if target and status ~= 'valid' and status ~= 'none' then notify(target, ('Your %s was %s by %s.'):format(LICENSE[kind].label:lower(), status, actorName), 'warning') end
     sendMdt(src, 'profile', profile(id))
+end
+
+-- Approve or turn down a citizen's license application.
+MDT_ACTIONS.licenseReview = function(src, data, actorId, actorName)
+    local id, kind = tonumber(data.id), clean(data.license, 16)
+    if not id or not LICENSE[kind] then return end
+    local row = MySQL.single.await("SELECT status FROM mdt_licenses WHERE character_id=? AND kind=?", { id, kind })
+    if not row or row.status ~= 'pending' then return notify(src, 'That application was already handled.', 'error') end
+    local approve = data.approve == true
+    if approve then
+        MySQL.update.await("UPDATE mdt_licenses SET status='valid',issued_at=?,updated_by=?,updated_at=? WHERE character_id=? AND kind=?", { now(), actorName, now(), id, kind })
+    else
+        MySQL.update.await('DELETE FROM mdt_licenses WHERE character_id=? AND kind=?', { id, kind })
+    end
+    FBRP.DB.audit(actorId, approve and 'justice.license_approve' or 'justice.license_deny', tostring(id), { license=kind })
+    notify(src, ('%s application %s.'):format(LICENSE[kind].label, approve and 'approved' or 'denied'), 'success')
+    local target = onlineByCharacter(id)
+    if target then
+        notify(target, approve and ('Your %s application was approved by %s.'):format(LICENSE[kind].label:lower(), actorName)
+            or ('Your %s application was denied by %s.'):format(LICENSE[kind].label:lower(), actorName), approve and 'success' or 'warning')
+    end
+    sendMdt(src, 'dashboard', dashboard(src))
+    if data.refresh == 'profile' then sendMdt(src, 'profile', profile(id)) end
 end
 
 -- Vehicles
@@ -1407,7 +1498,7 @@ end
 
 -- Reports
 MDT_ACTIONS.reports = function(src, data)
-    sendMdt(src, 'reports', { query=clean(data.query, 60), rows=reportList(data.query) })
+    sendMdt(src, 'reports', { query=clean(data.query, 60), kind=clean(data.kind, 24), rows=reportList(data.query, data.kind) })
 end
 
 MDT_ACTIONS.reportView = function(src, data)
@@ -1448,6 +1539,22 @@ MDT_ACTIONS.report = function(src, data, actorId, actorName)
     end
     FBRP.DB.audit(actorId, 'justice.report', tostring(id), { kind=kind, title=title, citizens=#citizens })
     notify(src, ('Report #%d filed.'):format(id), 'success')
+    sendMdt(src, 'report', reportView(id))
+end
+
+-- Reports are never rewritten after filing: corrections go in as addenda that
+-- keep their author and time.
+MDT_ACTIONS.addendum = function(src, data, actorId, actorName)
+    local id, body = tonumber(data.id), clean(data.body, 2000)
+    if not id or #body < 5 then return notify(src, 'An addendum needs at least a sentence.', 'error') end
+    local exists = MySQL.scalar.await('SELECT id FROM mdt_reports WHERE id=?', { id })
+    if not exists then return notify(src, 'Report not found.', 'error') end
+    local count = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM mdt_report_addenda WHERE report_id=?', { id })) or 0
+    if count >= (MDT.addendumMax or 40) then return notify(src, 'This report has reached its addendum limit.', 'error') end
+    MySQL.insert.await('INSERT INTO mdt_report_addenda(report_id,body,author_id,author_name,created_at) VALUES(?,?,?,?,?)', { id, body, actorId, actorName, now() })
+    MySQL.update.await('UPDATE mdt_reports SET updated_at=? WHERE id=?', { now(), id })
+    FBRP.DB.audit(actorId, 'justice.report_addendum', tostring(id), {})
+    notify(src, ('Addendum added to report #%d.'):format(id), 'success')
     sendMdt(src, 'report', reportView(id))
 end
 
@@ -1503,21 +1610,32 @@ local function ownedPlate(source, rawPlate)
     return row and plate or nil
 end
 
+-- Owner-only stolen/recovered report, shared by the commands and the My Citizen menu.
+function FBRP.Justice.SetStolen(source, rawPlate, stolen)
+    local plate = ownedPlate(source, rawPlate)
+    if not plate then return false, 'Only a vehicle registered to you can be reported.' end
+    MySQL.update.await('UPDATE vehicle_registrations SET stolen=? WHERE plate=?', { stolen == true, plate })
+    if stolen then
+        S.sendDispatch('311', source, ('Stolen vehicle report: %s'):format(plate), pedCoords(source), { FBRP.Ace.police }, true)
+        return true, ('%s reported stolen. Police have been notified.'):format(plate)
+    end
+    return true, ('%s marked as recovered.'):format(plate)
+end
+
 RegisterCommand('reportstolen', function(source, args)
     if source <= 0 then return end
     local plate = ownedPlate(source, table.concat(args, ' '))
     if not plate then return notify(source, 'Usage: /reportstolen <plate of a vehicle registered to you>', 'error') end
-    MySQL.update.await('UPDATE vehicle_registrations SET stolen=TRUE WHERE plate=?', { plate })
-    S.sendDispatch('311', source, ('Stolen vehicle report: %s'):format(plate), pedCoords(source), { FBRP.Ace.police }, true)
-    notify(source, ('%s reported stolen. Police have been notified.'):format(plate), 'success')
+    local _, message = FBRP.Justice.SetStolen(source, plate, true)
+    notify(source, message, 'success')
 end, false)
 
 RegisterCommand('recovered', function(source, args)
     if source <= 0 then return end
     local plate = ownedPlate(source, table.concat(args, ' '))
     if not plate then return notify(source, 'Usage: /recovered <plate of a vehicle registered to you>', 'error') end
-    MySQL.update.await('UPDATE vehicle_registrations SET stolen=FALSE WHERE plate=?', { plate })
-    notify(source, ('%s marked as recovered.'):format(plate), 'success')
+    local _, message = FBRP.Justice.SetStolen(source, plate, false)
+    notify(source, message, 'success')
 end, false)
 
 RegisterCommand('myvehicles', function(source)
@@ -1747,6 +1865,15 @@ CreateThread(function()
     end
 end)
 
+-- BOLOs close themselves so the board does not fill up with stale lookouts.
+CreateThread(function()
+    while true do
+        Wait(10 * 60000)
+        local cutoff = now() - (MDT.boloExpireHours or 72) * 3600000
+        MySQL.update('UPDATE bolos SET active=FALSE,closed_at=? WHERE active=TRUE AND created_at<?', { now(), cutoff })
+    end
+end)
+
 RegisterCommand('bodycam', function(source)
     if source <= 0 then return end
     if not isPolice(source) and not hasPermission(source, FBRP.Ace.ems) then return S.deny(source, FBRP.Ace.police) end
@@ -1757,16 +1884,17 @@ end, false)
 
 -- ─────────────────────────── third eye ───────────────────────────
 
-local function idCard(source)
+local function idCard(source, forPolice)
     local characterId = characterOf(source)
-    local row = characterId and characterRow(characterId)
-    if not row then return { name=GetPlayerName(source), citizen='Unregistered', dob='Unknown', gender='Unknown' } end
-    return { name=fullName(row), citizen=citizenNumber(row.id), dob=row.date_of_birth, gender=row.gender, id=tonumber(row.id) }
+    local card = characterId and FBRP.CitizenApi.idCard(characterId, forPolice)
+    if not card then return { name=GetPlayerName(source), citizen='Unregistered', dob='Unknown', gender='Unknown' } end
+    return card
 end
 
 FBRP.InteractionHandlers.checkid = function(src, target)
-    local card = idCard(target)
-    if isPolice(src) and card.id then
+    local police = isPolice(src)
+    local card = idCard(target, police)
+    if police and card.id then
         card.warrants = activeWarrantCount(card.id)
         card.inPrison = jailed[target] ~= nil
         local driver = MySQL.single.await("SELECT status FROM mdt_licenses WHERE character_id=? AND kind='driver'", { card.id })
@@ -1780,7 +1908,7 @@ FBRP.InteractionHandlers.checkid = function(src, target)
 end
 
 FBRP.InteractionHandlers.showid = function(src, target)
-    local card = idCard(src)
+    local card = idCard(src, false)
     TriggerClientEvent('fbrp:idcard:show', target, card)
     notify(target, ('%s showed you their ID.'):format(card.name), 'info')
     notify(src, 'You showed your ID.', 'success')

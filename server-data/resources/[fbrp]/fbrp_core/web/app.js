@@ -115,6 +115,7 @@ const RADIAL_CATEGORIES = [
       { action: "interactions", label: "Interact", hint: "Nearby players", icon: "eye" },
       { action: "emotes", label: "Emotes", hint: "Gestures & props", icon: "sparkles" },
       { action: "showid", label: "Show ID", hint: "Present identity", icon: "id" },
+      { action: "citizen", label: "My Citizen", hint: "Identity & licenses", icon: "user" },
       { action: "handsup", label: "Hands Up", hint: "Toggle stance", icon: "user" },
       { action: "point", label: "Point", hint: "Toggle pointing", icon: "back" },
     ],
@@ -856,6 +857,7 @@ function renderHub(data) {
   const roleplay = [
     hubCard("interactions", "eye", "Player interactions", "Look at someone nearby to cuff, search, escort, identify, or help."),
     hubCard("emotes", "sparkles", "Emotes", "Gestures, props, work animations, fitness, and dances."),
+    hubCard("citizen", "id", "My citizen", "Edit your identity, details, ID card and licenses.", "NEW"),
     hubCard("showid", "id", "Show my ID", "Present your character ID to nearby players."),
     hubCard("handsup", "user", "Hands up", "Raise or lower your hands."),
   ].join("");
@@ -1062,6 +1064,7 @@ function renderMenu() {
     spawns: "Spawn",
     control: "Server control",
     mdt: "Mobile data terminal",
+    citizen: "My citizen",
     emotes: "Emotes",
     passport: "Coastal Passport",
     scenes: "Scene Hub",
@@ -1081,6 +1084,7 @@ function renderMenu() {
     spawns: renderSpawns,
     control: renderControl,
     mdt: renderMdt,
+    citizen: renderCitizen,
     emotes: renderEmotes,
     passport: renderPassport,
     scenes: renderScenes,
@@ -1088,7 +1092,7 @@ function renderMenu() {
     orghub: renderOrgHub,
   };
   const shell = $(".menu-shell");
-  shell.classList.toggle("wide", ["mdt", "orghub"].includes(currentView));
+  shell.classList.toggle("wide", ["mdt", "orghub", "citizen"].includes(currentView));
   shell.classList.toggle("cad-mode", currentView === "mdt");
   shell.classList.toggle("radio-mode", currentView === "radio");
   $("#menu").classList.toggle("radio-mode", currentView === "radio");
@@ -1224,15 +1228,7 @@ function showCard(html, cls, ms = 9000) {
   dismiss(node, ms);
 }
 function idCard(d) {
-  const initials = String(d.name || "?").split(/\s+/).map((p) => p[0] || "").join("").slice(0, 2).toUpperCase();
-  const flag = d.warrants > 0
-    ? `<div class="idcard-flag">${icon("alert")} ${Number(d.warrants)} active warrant${d.warrants > 1 ? "s" : ""}</div>`
-    : d.inPrison ? `<div class="idcard-flag">${icon("gavel")} Serving a sentence</div>`
-    : d.license === "suspended" || d.license === "revoked" ? `<div class="idcard-flag">${icon("car")} Driver license ${esc(d.license)}</div>` : "";
-  showCard(`<header class="idcard-head"><img src="fbrp-logo.png" alt=""><div><small>State of San Andreas</small><b>Florida Bay ID</b></div></header>
-    <div class="idcard-body"><div class="idcard-photo">${esc(initials)}</div>
-      <dl><dt>Name</dt><dd>${esc(d.name)}</dd><dt>DOB</dt><dd>${esc(d.dob)}</dd><dt>Sex</dt><dd>${esc(d.gender)}</dd><dt>No.</dt><dd>${esc(d.citizen)}</dd></dl>
-    </div>${flag}`, "idcard", 10000);
+  showCard(idCardMarkup(d), `idcard theme-${esc(d.theme || "classic")}`, 10000);
 }
 function citationCard(d) {
   showCard(`<header class="card-head amber">${icon("gavel")}<b>Uniform citation</b></header>
@@ -1426,6 +1422,8 @@ function mdtInit(payload) {
     picks: [],
     openCall: null,
     callsignEdit: false,
+    plateHit: null,
+    reportKind: "",
   };
   clearInterval(ui.mdtClock);
   ui.mdtClock = setInterval(() => setText("#cad-clock", new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })), 1000);
@@ -1453,13 +1451,15 @@ function callCard(c, compact) {
   const open = Number(m.openCall) === Number(c.id);
   const tone = CALL_TONE[c.kind] || "unit";
   return `<article class="call-card t-${tone}${attached ? " attached" : ""}">
-    <header><span class="mdt-kind k-${tone}">${esc(c.kind)}</span><b>#${Number(c.id)}</b><span class="call-age">${ago(c.at)}</span></header>
+    <header><span class="mdt-kind k-${tone}">${esc(c.kind)}</span><b>#${Number(c.id)}</b><span class="prio p${Number(c.priority) || 3}" title="Priority ${Number(c.priority) || 3}">P${Number(c.priority) || 3}</span><span class="call-age">${ago(c.at)}</span></header>
     <p>${esc(c.message)}</p>
     <div class="call-meta"><span>${icon("user")}${esc(c.caller || "Dispatch")}</span>${(c.responders || []).length ? `<span>${icon("users")}${c.responders.map((r) => esc(r.callsign || r.name)).join(", ")}</span>` : `<span class="tone-warn">${icon("alert")}Unassigned</span>`}</div>
     ${compact ? "" : `<div class="call-actions">
       ${attached ? `<button class="ctl-btn small" data-mdt-call="callDetach" data-id="${Number(c.id)}">Detach</button>` : `<button class="ctl-btn small on" data-mdt-call="callAttach" data-id="${Number(c.id)}">${icon("check")} Attach</button>`}
       <button class="ctl-btn small" data-mdt-call="callWaypoint" data-id="${Number(c.id)}">${icon("pin")} GPS</button>
       <button class="ctl-btn small" data-mdt-call-notes="${Number(c.id)}">${icon("file")} Notes${(c.notes || []).length ? ` · ${c.notes.length}` : ""}</button>
+      <button class="ctl-btn small" data-mdt-call-prio="${Number(c.id)}" data-priority="${(Number(c.priority) || 3) % 3 + 1}" title="Cycle priority">${icon("alert")} Priority</button>
+      <button class="ctl-btn small" data-mdt-call-report="${Number(c.id)}">${icon("plus")} Report</button>
       <button class="ctl-btn small danger" data-mdt-call="callClose" data-id="${Number(c.id)}">Close</button>
     </div>
     ${open ? `<div class="call-notes">${(c.notes || []).map((n) => `<div><b>${esc(n.callsign || n.by)}</b><span>${esc(n.text)}</span><em>${ago(n.at)}</em></div>`).join("") || '<small class="tone-dim">No notes yet.</small>'}
@@ -1498,15 +1498,19 @@ function mdtDashboard(m) {
     <div class="mdt-columns">
       <section class="mdt-panel"><div class="eyebrow">Latest records</div>${records.length ? records.slice(0, 8).map((r) => mdtRecordRow(r, true)).join("") : '<div class="empty compact">No records yet.</div>'}</section>
       <section class="mdt-panel"><div class="eyebrow">Narcotics seizures</div>${seizures.length ? seizures.map((s) => `<div class="mdt-row"><span class="mdt-kind k-bolo">${esc(s.drug)}</span><div><b>${Number(s.units)} units · ${esc(s.name)}</b><small>${esc(s.status === "seized" ? `Seized by ${s.seized_by || "police"}` : `Confiscated at booking by ${s.seized_by || "police"}`)}${s.location ? ` · ${esc(s.location)}` : ""}</small></div><em>${ago(s.created_at)}</em></div>`).join("") : '<div class="empty compact">No seizures logged.</div>'}</section>
-    </div>`;
+    </div>
+    ${(d.applications || []).length ? `<section class="mdt-panel"><div class="eyebrow">License applications · ${d.applications.length}</div>${d.applications.map((a) => `<div class="mdt-row"><span class="mdt-kind k-bolo">${esc(licenseLabel(a.kind))}</span><div><b><a data-mdt-profile="${Number(a.character_id)}">${esc(a.name)}</a></b><small>Applied ${when(a.updated_at)}</small></div><button class="ctl-btn small" data-mdt-license-review="1" data-id="${Number(a.character_id)}" data-license="${esc(a.kind)}" data-approve="1">Approve</button><button class="ctl-btn small danger" data-mdt-license-review="1" data-id="${Number(a.character_id)}" data-license="${esc(a.kind)}" data-approve="0">Deny</button></div>`).join("")}</section>` : ""}`;
 }
+
+const licenseLabel = (id) => (currentPayload.licenses || []).find((l) => l.id === id)?.label || id;
 
 function mdtDispatch(m) {
   const d = m.dashboard || {};
   const calls = d.calls || [];
   const units = d.units || [];
   return `<div class="cad-dispatch">
-    <section class="cad-calls"><div class="eyebrow">Call queue · ${calls.length}</div>${calls.length ? calls.map((c) => callCard(c, false)).join("") : '<div class="empty">The call queue is clear. Calls from /911, /311, panic buttons and drop-off tips land here.</div>'}</section>
+    <section class="cad-calls"><div class="eyebrow">Call queue · ${calls.length}</div>${calls.length ? calls.map((c) => callCard(c, false)).join("") : '<div class="empty">The call queue is clear. Calls from /911, /311, panic buttons and drop-off tips land here.</div>'}
+      ${(d.history || []).length ? `<div class="eyebrow spaced">Recently closed</div>${d.history.map((c) => `<div class="mdt-row"><span class="mdt-kind k-${CALL_TONE[c.kind] || "unit"}">${esc(c.kind)}</span><div><b>#${Number(c.id)} · ${esc(c.message)}</b><small>Closed by ${esc(c.closedBy || "dispatch")} ${ago(c.closedAt)}${c.notes ? ` · ${Number(c.notes)} note${c.notes > 1 ? "s" : ""}` : ""}</small></div><button class="ctl-btn small" data-mdt-call-report="${Number(c.id)}">${icon("plus")} Report</button></div>`).join("")}` : ""}</section>
     <section class="cad-side">
       <div class="mdt-panel"><div class="eyebrow">Units · ${units.length}</div>${units.length ? units.map(unitRow).join("") : '<div class="empty compact">Nobody on duty.</div>'}</div>
       <div class="mdt-panel"><div class="eyebrow">Map</div>${cadMap(d, true)}</div>
@@ -1516,8 +1520,9 @@ function mdtDispatch(m) {
 
 function mdtSearchView(m) {
   const rows = m.results || [];
-  return `${head("Citizen lookup", "Search by name, or type a server ID to look up someone in the city.")}
-    <form id="mdt-search-form" class="mdt-bar"><input name="query" class="mdt-input" placeholder="Name or server ID…" value="${esc(m.query)}" autocomplete="off" autofocus><button class="primary-action" type="submit">${icon("search")}Search</button></form>
+  return `${head("Citizen lookup", "Search by name, former name, nickname, citizen number (FB-000123), phone, date of birth, a plate, or a server ID.")}
+    <form id="mdt-search-form" class="mdt-bar"><input name="query" class="mdt-input" placeholder="Name, FB number, phone, plate or server ID…" value="${esc(m.query)}" autocomplete="off" autofocus><button class="primary-action" type="submit">${icon("search")}Search</button></form>
+    ${m.plateHit ? `<button class="mdt-person plate-hit" data-mdt-plate-open="${esc(m.plateHit.plate)}"><span class="plate-tag">${esc(m.plateHit.plate)}</span><div><b>${esc(m.plateHit.model || "Vehicle")}</b><small>Registered to ${esc(m.plateHit.owner || "unknown")}${m.plateHit.stolen ? " · REPORTED STOLEN" : ""} · open vehicle record</small></div></button>` : ""}
     ${m.results === null ? `<div class="cad-hint">${icon("info")}<span>Tip: flags such as <b>Armed &amp; dangerous</b> show on results so you know before you approach.</span></div>` : rows.length ? `<div class="mdt-results">${rows.map((r) => `<button class="mdt-person" data-mdt-profile="${Number(r.id)}"><span class="monogram">${initials2(r.name)}</span><div><b>${esc(r.name)}</b><small>${esc(r.citizen)} · DOB ${esc(r.dob)} · ${esc(r.gender)}</small>${(r.flags || []).length ? `<div class="flag-chips">${r.flags.map((f) => `<span class="fchip t-${esc(flagMeta(f).tone)}">${esc(flagMeta(f).label)}</span>`).join("")}</div>` : ""}</div>${r.warrants ? `<span class="chip warn-chip">${r.warrants} warrant${r.warrants > 1 ? "s" : ""}</span>` : ""}${r.online ? `<span class="chip">ID <b>${Number(r.online)}</b></span>` : ""}</button>`).join("")}</div>` : '<div class="empty">No citizens match that search.</div>'}`;
 }
 
@@ -1589,7 +1594,27 @@ function mdtTotals(mode) {
   return `<span>Sentence</span><label class="months-input"><input type="number" id="mdt-months" min="1" max="${max}" value="${months || ""}" placeholder="${sum}"> months</label><small>≈ ${fmtClock((months || 0) * (Number(currentPayload.secondsPerMonth) || 30))} served before good behaviour · recommended ${sum}</small>`;
 }
 
-const LICENSE_TONE = { valid: "ok", suspended: "warn", revoked: "bad", none: "dim" };
+const LICENSE_TONE = { valid: "ok", pending: "warn", suspended: "warn", revoked: "bad", none: "dim" };
+
+function mdtDetailsPanel(p) {
+  const d = p.details || {};
+  const facts = [
+    ["Nickname", d.nickname], ["Height", d.heightCm ? `${d.heightCm} cm` : ""], ["Weight", d.weightKg ? `${d.weightKg} kg` : ""],
+    ["Eyes", d.eyeColor], ["Hair", d.hairColor], ["Nationality", d.nationality], ["Occupation", d.occupation],
+    ["Address", d.address], ["Phone", d.phone], ["Blood type", d.bloodType], ["Emergency contact", d.emergencyContact],
+    ["Marks", d.marks], ["Last seen", p.lastSeen ? when(p.lastSeen) : ""],
+  ].filter(([, v]) => v);
+  const aliases = p.aliases || [];
+  return `<section class="mdt-panel"><div class="eyebrow">Citizen details</div>${facts.length ? `<div class="detail-grid">${facts.map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join("")}</div>` : '<div class="empty compact">This citizen has not filled in their details.</div>'}${aliases.length ? `<div class="alias-row"><small>Known aliases</small>${aliases.map((a) => `<span class="fchip t-warn">${esc(a.name)}</span>`).join("")}</div>` : ""}</section>`;
+}
+
+function mdtLicenseRow(l) {
+  const sub = l.status === "none" ? "Not on file" : [l.status, l.restriction, l.updatedBy].filter(Boolean).map(esc).join(" · ");
+  const control = l.status === "pending"
+    ? `<button class="ctl-btn small" data-mdt-license-review="1" data-id="${Number(ui.mdt.profile?.id)}" data-license="${esc(l.id)}" data-approve="1" data-refresh="profile">Approve</button><button class="ctl-btn small danger" data-mdt-license-review="1" data-id="${Number(ui.mdt.profile?.id)}" data-license="${esc(l.id)}" data-approve="0" data-refresh="profile">Deny</button>`
+    : `<select data-mdt-license="${esc(l.id)}" class="mdt-input small">${["none", "valid", "suspended", "revoked"].map((v) => `<option value="${v}"${l.status === v ? " selected" : ""}>${v === "none" ? "Not on file" : v[0].toUpperCase() + v.slice(1)}</option>`).join("")}</select>`;
+  return `<div class="license t-${LICENSE_TONE[l.status] || "dim"}"><div><b>${esc(l.label)}</b><small>${sub}</small></div>${control}</div>`;
+}
 
 function mdtProfileView(m) {
   const p = m.profile;
@@ -1618,9 +1643,10 @@ function mdtProfileView(m) {
       </div>
     </div>
     ${form}
+    ${mdtDetailsPanel(p)}
     <div class="profile-grid">
       <section class="mdt-panel"><div class="eyebrow">Officer safety flags</div><div class="flag-toggles">${(currentPayload.flags || []).map((f) => `<button class="ftoggle t-${esc(f.tone)}${flags.has(f.id) ? " on" : ""}" data-mdt-flag="${esc(f.id)}" data-on="${flags.has(f.id) ? 0 : 1}">${esc(f.label)}</button>`).join("")}</div></section>
-      <section class="mdt-panel"><div class="eyebrow">Licenses</div><div class="license-grid">${(p.licenses || []).map((l) => `<div class="license t-${LICENSE_TONE[l.status] || "dim"}"><div><b>${esc(l.label)}</b><small>${l.status === "none" ? "Not on file" : `${esc(l.status)}${l.updatedBy ? ` · ${esc(l.updatedBy)}` : ""}`}</small></div><select data-mdt-license="${esc(l.id)}" class="mdt-input small">${["none", "valid", "suspended", "revoked"].map((v) => `<option value="${v}"${l.status === v ? " selected" : ""}>${v === "none" ? "Not on file" : v[0].toUpperCase() + v.slice(1)}</option>`).join("")}</select></div>`).join("")}</div></section>
+      <section class="mdt-panel"><div class="eyebrow">Licenses</div><div class="license-grid">${(p.licenses || []).map(mdtLicenseRow).join("")}</div></section>
     </div>
     <section class="mdt-panel"><div class="eyebrow">Notes</div>
       <form id="mdt-note-form" class="mdt-bar"><input name="body" class="mdt-input" maxlength="600" placeholder="Add an intelligence note visible to every officer…" autocomplete="off"><button class="primary-action" type="submit">${icon("plus")}Add</button></form>
@@ -1637,7 +1663,7 @@ function mdtReportsView(m) {
   if (m.reportDraft) return mdtReportForm(m);
   const rows = m.reports || [];
   return `<div class="view-head"><div><h2>Incident reports</h2><p>Every report is searchable by title, narrative, number or anyone named in it.</p></div><button class="primary-action" data-mdt-new-report="">${icon("plus")}New report</button></div>
-    <form id="mdt-report-search" class="mdt-bar"><input name="query" class="mdt-input" placeholder="Search reports…" value="${esc(m.reportQuery)}" autocomplete="off"><button class="primary-action" type="submit">${icon("search")}Search</button></form>
+    <form id="mdt-report-search" class="mdt-bar"><input name="query" class="mdt-input" placeholder="Search reports…" value="${esc(m.reportQuery)}" autocomplete="off"><select name="kind" class="mdt-input kind-filter"><option value="">All types</option>${(currentPayload.reportKinds || []).map((k) => `<option${m.reportKind === k ? " selected" : ""}>${esc(k)}</option>`).join("")}</select><button class="primary-action" type="submit">${icon("search")}Search</button></form>
     ${m.reports === null ? '<div class="empty compact">Loading reports…</div>' : rows.length ? rows.map((r) => `<button class="report-row" data-mdt-report="${Number(r.id)}"><span class="report-no">#${Number(r.id)}</span><div><b>${esc(r.title)}</b><small>${esc(r.kind)} · ${esc(r.author_name)}${r.location ? ` · ${esc(r.location)}` : ""}</small></div><em>${when(r.created_at)}</em></button>`).join("") : '<div class="empty">No reports found.</div>'}`;
 }
 
@@ -1666,6 +1692,10 @@ function mdtReportView(m) {
     <div class="report-people">${(r.citizens || []).map((c) => `<a class="person-tag r-${esc(c.role)}" data-mdt-profile="${Number(c.id)}"><b>${esc(c.name)}</b><small>${esc(c.role)}</small></a>`).join("") || '<small class="tone-dim">No citizens named.</small>'}</div>
     <div class="report-officers">${icon("shield")}${(r.officers || []).map((o) => esc(o)).join(" · ")}</div>
     <div class="report-body">${esc(r.narrative)}</div>
+    <section class="report-addenda"><div class="eyebrow">Addenda · ${(r.addenda || []).length}</div>
+      ${(r.addenda || []).map((a) => `<div class="addendum"><div class="report-body">${esc(a.body)}</div><small>${esc(a.author_name)} · ${when(a.created_at)}</small></div>`).join("") || '<small class="tone-dim">Nothing has been added since this report was filed.</small>'}
+      <form id="mdt-addendum-form" class="mdt-form" data-report="${Number(r.id)}"><label>Add an addendum<textarea name="body" class="mdt-input" rows="3" maxlength="2000" required placeholder="New evidence, a correction or a follow-up. The original report is never edited."></textarea></label><div class="form-foot"><button class="primary-action" type="submit">${icon("plus")}Add addendum</button></div></form>
+    </section>
   </article>`;
 }
 
@@ -1721,9 +1751,9 @@ function mdtData(kind, data) {
   const m = ui.mdt;
   if (!m) return;
   if (kind === "dashboard") m.dashboard = data || {};
-  if (kind === "results") { m.results = data?.rows || []; m.query = data?.query || m.query; }
+  if (kind === "results") { m.results = data?.rows || []; m.query = data?.query || m.query; m.plateHit = data?.plate || null; }
   if (kind === "plate") { m.plate = data; if (m.tab !== "plates") m.tab = "plates"; }
-  if (kind === "reports") { m.reports = data?.rows || []; m.reportQuery = data?.query || ""; }
+  if (kind === "reports") { m.reports = data?.rows || []; m.reportQuery = data?.query || ""; m.reportKind = data?.kind || ""; }
   if (kind === "report") { m.report = data; m.reportDraft = null; m.picks = []; m.tab = "report"; }
   if (kind === "citizenPick") m.picks = data?.rows || [];
   if (kind === "profile") {
@@ -1754,7 +1784,7 @@ function mdtClick(event) {
   if ((el = hit("[data-mdt-tab]"))) {
     ui.mdt.tab = el.dataset.mdtTab;
     if (["dashboard", "dispatch", "warrants", "bolos", "corrections"].includes(ui.mdt.tab)) mdtSend("dashboard");
-    if (ui.mdt.tab === "reports") { ui.mdt.reportDraft = null; mdtSend("reports", { query: ui.mdt.reportQuery }); }
+    if (ui.mdt.tab === "reports") { ui.mdt.reportDraft = null; mdtSend("reports", { query: ui.mdt.reportQuery, kind: ui.mdt.reportKind }); }
     renderMenu();
     return true;
   }
@@ -1780,6 +1810,19 @@ function mdtClick(event) {
     return true;
   }
   if ((el = hit("[data-mdt-call]"))) { mdtSend(el.dataset.mdtCall, { id: Number(el.dataset.id) }); return true; }
+  if ((el = hit("[data-mdt-call-prio]"))) { mdtSend("callPriority", { id: Number(el.dataset.mdtCallPrio), priority: Number(el.dataset.priority) }); return true; }
+  if ((el = hit("[data-mdt-call-report]"))) {
+    const id = Number(el.dataset.mdtCallReport);
+    const d = ui.mdt.dashboard || {};
+    const call = [...(d.calls || []), ...(d.history || [])].find((c) => Number(c.id) === id);
+    ui.mdt.reportDraft = { kind: call && call.kind === "TRAFFIC" ? "Traffic stop" : "Incident", title: call ? `Call #${id} · ${String(call.message).slice(0, 80)}` : "", narrative: call ? `Responding to call #${id} (${call.kind}): ${call.message}\n\n` : "", citizens: [] };
+    ui.mdt.picks = [];
+    ui.mdt.tab = "reports";
+    renderMenu();
+    return true;
+  }
+  if ((el = hit("[data-mdt-license-review]"))) { mdtSend("licenseReview", { id: Number(el.dataset.id), license: el.dataset.license, approve: el.dataset.approve === "1", refresh: el.dataset.refresh }); return true; }
+  if ((el = hit("[data-mdt-plate-open]"))) { mdtSend("plate", { plate: el.dataset.mdtPlateOpen }); return true; }
   if ((el = hit("[data-mdt-call-gps]"))) { mdtSend("callWaypoint", { id: Number(el.dataset.mdtCallGps) }); return true; }
   if ((el = hit("[data-mdt-call-notes]"))) { ui.mdt.openCall = Number(ui.mdt.openCall) === Number(el.dataset.mdtCallNotes) ? null : Number(el.dataset.mdtCallNotes); renderMenu(); return true; }
   if ((el = hit("[data-mdt-flag]"))) { mdtSend("flag", { id: ui.mdt.profile?.id, flag: el.dataset.mdtFlag, on: el.dataset.on === "1" }); return true; }
@@ -1829,7 +1872,8 @@ function mdtSubmit(event) {
   if (form.id === "mdt-warrant-form") { mdtSend("warrant", { id: ui.mdt.profile?.id, reason: values.reason }); return true; }
   if (form.id === "mdt-note-form") { if (values.body) mdtSend("note", { id: ui.mdt.profile?.id, body: values.body }); return true; }
   if (form.id === "mdt-callsign-form") { ui.mdt.callsignEdit = false; mdtSend("callsign", { callsign: values.callsign }); renderMenu(); return true; }
-  if (form.id === "mdt-report-search") { mdtSend("reports", { query: values.query }); return true; }
+  if (form.id === "mdt-report-search") { ui.mdt.reportKind = values.kind || ""; mdtSend("reports", { query: values.query, kind: values.kind }); return true; }
+  if (form.id === "mdt-addendum-form") { if (values.body) mdtSend("addendum", { id: Number(form.dataset.report), body: values.body }); return true; }
   if (form.classList.contains("call-note-form")) { if (values.text) mdtSend("callNote", { id: Number(form.dataset.call), text: values.text }); form.reset(); return true; }
   if (form.id === "mdt-report-form") {
     captureDraft();
@@ -1874,6 +1918,221 @@ function mdtInput(event) {
   }
   if (t.dataset.mdtLicense) { mdtSend("license", { id: ui.mdt.profile?.id, license: t.dataset.mdtLicense, status: t.value }); return true; }
   if (t.dataset.mdtPickRole !== undefined) { captureDraft(); ui.mdt.reportDraft.citizens[Number(t.dataset.mdtPickRole)].role = t.value; return true; }
+  return false;
+}
+
+/* ───────── My Citizen ───────── */
+const CITIZEN_TABS = [
+  ["identity", "Identity", "id"],
+  ["details", "Details", "user"],
+  ["card", "ID card", "shield"],
+  ["licenses", "Licenses", "file"],
+  ["vehicles", "Vehicles", "car"],
+  ["record", "My record", "gavel"],
+];
+const LICENSE_STATUS_TEXT = { valid: "Valid", pending: "Awaiting review", suspended: "Suspended", revoked: "Revoked", none: "Not held" };
+const citizenSend = (kind, body = {}) => post("citizenAction", { kind, ...body });
+const longDate = (ms) => (ms ? new Date(Number(ms)).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" }) : "");
+
+function citizenInit() {
+  ui.citizen = { tab: "identity" };
+}
+
+function citizenSelect(name, list, current) {
+  return `<select class="mdt-input" name="${name}"><option value="">Not stated</option>${(list || []).map((v) => `<option${v === current ? " selected" : ""}>${esc(v)}</option>`).join("")}</select>`;
+}
+
+// One ID card, used for the pop-up other players see and the live preview.
+function idCardMarkup(d) {
+  const initials = String(d.name || "?").split(/\s+/).map((p) => p[0] || "").join("").slice(0, 2).toUpperCase();
+  const flag = d.warrants > 0
+    ? `<div class="idcard-flag">${icon("alert")} ${Number(d.warrants)} active warrant${d.warrants > 1 ? "s" : ""}</div>`
+    : d.inPrison ? `<div class="idcard-flag">${icon("gavel")} Serving a sentence</div>`
+    : d.license === "suspended" || d.license === "revoked" ? `<div class="idcard-flag">${icon("car")} Driver license ${esc(d.license)}</div>` : "";
+  const rows = [
+    ["Name", d.name],
+    d.nickname ? ["Alias", `"${d.nickname}"`] : null,
+    ["DOB", d.dob],
+    ["Sex", d.gender],
+    ["No.", d.citizen],
+    d.heightCm ? ["Ht", `${d.heightCm} cm`] : null,
+    d.eyeColor || d.hairColor ? ["Eyes/Hair", [d.eyeColor, d.hairColor].filter(Boolean).join(" / ")] : null,
+    d.nationality ? ["Nat.", d.nationality] : null,
+    d.occupation ? ["Job", d.occupation] : null,
+    d.address ? ["Addr.", d.address] : null,
+    d.phone ? ["Phone", d.phone] : null,
+  ].filter(Boolean);
+  const licenses = (d.licenses || []).length
+    ? `<div class="idcard-licenses">${d.licenses.map((l) => `<span class="lic-chip s-${esc(l.status || "valid")}">${esc(l.label)}${l.restriction ? ` · ${esc(l.restriction)}` : ""}${l.status && l.status !== "valid" ? ` · ${esc(l.status)}` : ""}</span>`).join("")}</div>` : "";
+  return `<header class="idcard-head"><img src="fbrp-logo.png" alt=""><div><small>State of San Andreas</small><b>Florida Bay ID</b></div>${d.organDonor ? `<em class="idcard-donor">${icon("heart-pulse")} Donor</em>` : ""}</header>
+    <div class="idcard-body"><div class="idcard-photo">${esc(initials)}</div>
+      <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+    </div>${licenses}${flag}`;
+}
+
+function citizenLine(label, value) {
+  return value ? `<div class="mdt-row"><div><b>${esc(label)}</b><small>${esc(value)}</small></div></div>` : "";
+}
+
+function citizenIdentity(p) {
+  const id = p.identity || {};
+  const locked = !id.canChange;
+  const dis = locked ? "disabled" : "";
+  const note = locked
+    ? `<div class="flag warn">${esc(id.reason || `You can change your identity again on ${longDate(id.nextAt)}.`)}</div>`
+    : `<div class="cad-hint">${icon("info")}<span>Name, birth date and gender can be changed once every <b>${Number(id.cooldownDays) || 7} days</b>. Officers keep a record of your former names, and any records or warrants stay with you.</span></div>`;
+  const aliases = (p.aliases || []).length
+    ? p.aliases.map((a) => `<div class="mdt-row"><span class="mdt-kind k-unit">alias</span><div><b>${esc(a.name)}</b><small>Changed ${when(a.changedAt)}</small></div></div>`).join("")
+    : '<div class="empty compact">You have never changed your name.</div>';
+  return `${note}
+    <form id="citizen-identity-form" class="mdt-form">
+      <div class="eyebrow">Legal identity</div>
+      <div class="mdt-form-row"><label>First name<input class="mdt-input" name="firstName" maxlength="40" required value="${esc(p.firstName)}" ${dis}></label><label>Last name<input class="mdt-input" name="lastName" maxlength="40" required value="${esc(p.lastName)}" ${dis}></label></div>
+      <div class="mdt-form-row"><label>Date of birth<input class="mdt-input" type="date" name="dateOfBirth" required value="${esc(p.dob)}" ${dis}></label><label>Gender<input class="mdt-input" name="gender" list="citizen-genders" maxlength="24" required value="${esc(p.gender)}" ${dis}></label></div>
+      <datalist id="citizen-genders"><option>Male</option><option>Female</option><option>Non-binary</option></datalist>
+      <small class="tone-dim">Characters must be at least ${Number(id.minAge) || 18} years old.</small>
+      <div class="form-foot"><button class="primary-action" type="submit" ${dis}>${icon("check")}Save identity</button></div>
+    </form>
+    <section class="mdt-panel"><div class="eyebrow">Former names</div>${aliases}</section>`;
+}
+
+function citizenDetails(p) {
+  const d = p.details || {};
+  const o = p.options || {};
+  return `<form id="citizen-details-form" class="mdt-form">
+      <div class="eyebrow">About you</div>
+      <div class="mdt-form-row"><label>Nickname<input class="mdt-input" name="nickname" maxlength="40" value="${esc(d.nickname || "")}" placeholder="Optional"></label><label>Nationality<input class="mdt-input" name="nationality" maxlength="40" value="${esc(d.nationality || "")}" placeholder="American"></label></div>
+      <div class="mdt-form-row"><label>Occupation<input class="mdt-input" name="occupation" maxlength="60" value="${esc(d.occupation || "")}" placeholder="Charter captain"></label><label>Phone<input class="mdt-input" name="phone" maxlength="16" value="${esc(d.phone || "")}" placeholder="555-0123"></label></div>
+      <label>Home address<input class="mdt-input" name="address" maxlength="120" value="${esc(d.address || "")}" placeholder="12 Seagrape Way, Florida Bay"></label>
+      <label>Emergency contact<input class="mdt-input" name="emergencyContact" maxlength="80" value="${esc(d.emergencyContact || "")}" placeholder="Name and number"></label>
+      <div class="eyebrow spaced">Description</div>
+      <div class="mdt-form-row"><label>Height (cm)<input class="mdt-input" type="number" name="heightCm" min="120" max="${Number(o.maxHeightCm) || 230}" value="${esc(d.heightCm || "")}"></label><label>Weight (kg)<input class="mdt-input" type="number" name="weightKg" min="30" max="${Number(o.maxWeightKg) || 250}" value="${esc(d.weightKg || "")}"></label></div>
+      <div class="mdt-form-row"><label>Eye colour${citizenSelect("eyeColor", o.eyeColors, d.eyeColor)}</label><label>Hair colour${citizenSelect("hairColor", o.hairColors, d.hairColor)}</label></div>
+      <div class="mdt-form-row"><label>Blood type${citizenSelect("bloodType", o.bloodTypes, d.bloodType)}</label><label class="charge${d.organDonor ? " on" : ""}"><input type="checkbox" name="organDonor" ${d.organDonor ? "checked" : ""}><span>Organ donor</span></label></div>
+      <label>Distinguishing marks<textarea class="mdt-input" name="marks" rows="2" maxlength="200" placeholder="Scars, tattoos, birthmarks…">${esc(d.marks || "")}</textarea></label>
+      <label>Biography<textarea class="mdt-input" name="backstory" rows="4" maxlength="500" placeholder="Who is your character?">${esc(p.backstory || "")}</textarea></label>
+      <div class="form-foot"><button class="primary-action" type="submit">${icon("check")}Save details</button></div>
+    </form>`;
+}
+
+function citizenPreviewCard(p, values) {
+  const d = p.details || {};
+  const card = { ...(p.card || {}), theme: values.theme };
+  card.address = values.showAddress ? d.address : undefined;
+  card.phone = values.showPhone ? d.phone : undefined;
+  card.licenses = values.showLicenses ? (p.licenses || []).filter((l) => l.status === "valid" && l.showOnId).map((l) => ({ label: l.label, status: "valid", restriction: l.restriction })) : [];
+  return card;
+}
+
+function citizenCardTab(p) {
+  const d = p.details || {};
+  const themes = (p.options?.themes || []).map((t) => `<label class="theme-pick id-${esc(t.id)}${d.theme === t.id ? " on" : ""}"><input type="radio" name="theme" value="${esc(t.id)}" ${d.theme === t.id ? "checked" : ""}><i></i><span>${esc(t.label)}</span></label>`).join("");
+  const toggle = (name, text, on) => `<label class="charge${on ? " on" : ""}"><input type="checkbox" name="${name}" ${on ? "checked" : ""}><span>${text}</span></label>`;
+  const values = { theme: d.theme || "classic", showAddress: d.showAddress, showPhone: d.showPhone, showLicenses: d.showLicenses };
+  return `<div class="citizen-card-layout">
+    <form id="citizen-id-form" class="mdt-form">
+      <div class="eyebrow">Design</div>
+      <div class="theme-grid">${themes}</div>
+      <div class="eyebrow spaced">Shown to people you hand your ID to</div>
+      <div class="charge-grid one">
+        ${toggle("showLicenses", "Valid licenses", d.showLicenses)}
+        ${toggle("showAddress", "Home address", d.showAddress)}
+        ${toggle("showPhone", "Phone number", d.showPhone)}
+      </div>
+      <small class="tone-dim">Officers who check your ID always see your full details. Set them on the Details tab.</small>
+      <div class="form-foot"><button type="button" class="ghost-action" data-citizen-showid>${icon("id")}Show to people nearby</button><button class="primary-action" type="submit">${icon("check")}Save design</button></div>
+    </form>
+    <div><div class="eyebrow">Preview</div><div id="citizen-card-preview" class="idcard id-preview theme-${esc(values.theme)}">${idCardMarkup(citizenPreviewCard(p, values))}</div></div>
+  </div>`;
+}
+
+function citizenLicenses(p) {
+  const restrictions = p.options?.restrictions || [];
+  const rows = (p.licenses || []).map((l) => {
+    const tone = { valid: "ok", pending: "warn", suspended: "warn", revoked: "bad", none: "dim" }[l.status] || "dim";
+    let actions = "";
+    if (l.status === "none") actions = `<button class="primary-action" data-citizen-license="licenseApply" data-license="${esc(l.id)}">${icon("plus")}${l.selfIssue ? "Get license" : "Apply"}</button>`;
+    else if (l.status === "pending") actions = `<button class="ctl-btn" data-citizen-license="licenseSurrender" data-license="${esc(l.id)}" data-confirm="Withdraw?">Withdraw</button>`;
+    else if (l.status === "valid") {
+      actions = `<select class="mdt-input small" data-citizen-restriction="${esc(l.id)}" title="Restriction"><option value="">No restriction</option>${restrictions.map((r) => `<option${l.restriction === r ? " selected" : ""}>${esc(r)}</option>`).join("")}</select>
+        <label class="inline-check"><input type="checkbox" data-citizen-visible="${esc(l.id)}" ${l.showOnId ? "checked" : ""}> On ID</label>
+        <button class="ctl-btn danger" data-citizen-license="licenseSurrender" data-license="${esc(l.id)}" data-confirm="Surrender?">Surrender</button>`;
+    } else actions = '<small class="tone-warn">Speak to a licensing officer.</small>';
+    const meta = [LICENSE_STATUS_TEXT[l.status], l.issuedAt && l.status === "valid" ? `issued ${longDate(l.issuedAt)}` : "", l.restriction && l.status === "valid" ? l.restriction : "", l.status === "none" ? (l.selfIssue ? "issued instantly" : "needs officer approval") : ""].filter(Boolean).join(" · ");
+    return `<div class="license-card t-${tone}"><div class="lic-main"><b>${esc(l.label)}</b><small>${esc(meta)}</small></div><div class="lic-actions">${actions}</div></div>`;
+  }).join("");
+  return `<div class="cad-hint">${icon("info")}<span>Some licenses are issued on the spot. Others, such as firearm permits, wait in the police licensing queue until an officer approves them. A suspended or revoked license can only be restored by an officer.</span></div>${rows}`;
+}
+
+function citizenVehicles(p) {
+  const rows = p.vehicles || [];
+  return `<div class="cad-hint">${icon("info")}<span>Register a vehicle with <b>/registervehicle</b> while driving it. If one is stolen, report it here so police can look out for it.</span></div>
+    ${rows.length ? rows.map((v) => `<div class="mdt-row big"><span class="plate-tag">${esc(v.plate)}</span><div><b>${esc(v.label || v.model)}</b><small>${v.stolen ? "Reported stolen · " : ""}${v.impounded ? "Impounded · " : ""}registered ${when(v.registered_at)}</small></div>
+      ${v.stolen ? `<button class="ctl-btn small" data-citizen-vehicle="recovered" data-plate="${esc(v.plate)}">${icon("check")} Recovered</button>` : `<button class="ctl-btn small danger" data-citizen-vehicle="stolen" data-plate="${esc(v.plate)}" data-confirm="Confirm?">${icon("alert")} Report stolen</button>`}</div>`).join("") : '<div class="empty">No vehicles are registered to this character.</div>'}`;
+}
+
+function citizenRecord(p) {
+  const rows = p.history || [];
+  return `<div class="cad-hint">${icon("info")}<span>Citations, arrests and community service issued to this character.</span></div>
+    ${rows.length ? rows.map((r) => `<div class="mdt-row big"><span class="mdt-kind k-${r.kind === "arrest" ? "panic" : r.kind === "citation" ? "bolo" : "unit"}">${esc(r.kind)}</span><div><b>${esc(chargeList(r.charges) || "No charges listed")}</b><small>${r.fine ? `$${Number(r.fine)} fine · ` : ""}${r.months ? `${Number(r.months)} months · ` : ""}${esc(r.officer_name)}${r.notes ? ` · ${esc(r.notes)}` : ""}</small></div><em>${when(r.created_at)}</em></div>`).join("") : '<div class="empty">Clean record. Keep it that way.</div>'}`;
+}
+
+function renderCitizen(p) {
+  const tab = ui.citizen?.tab || "identity";
+  const views = { identity: citizenIdentity, details: citizenDetails, card: citizenCardTab, licenses: citizenLicenses, vehicles: citizenVehicles, record: citizenRecord };
+  const nav = CITIZEN_TABS.map(([id, label, ic]) => `<button class="${tab === id ? "active" : ""}" data-citizen-tab="${id}"><span data-icon="${ic}"></span>${label}</button>`).join("");
+  return `${head(esc(`${p.firstName || ""} ${p.lastName || ""}`), "Edit your character's identity, ID card and licenses.", `<b>${esc(p.citizen)}</b>`)}
+    <div class="hub citizen"><nav class="hub-tabs">${nav}</nav><div class="hub-body">${(views[tab] || citizenIdentity)(p)}</div></div>`;
+}
+
+function citizenData(kind, data) {
+  if (!data) return;
+  currentPayload = data;
+  renderMenu();
+}
+
+function citizenClick(event) {
+  const t = event.target;
+  let el;
+  if ((el = t.closest("[data-citizen-tab]"))) { ui.citizen.tab = el.dataset.citizenTab; renderMenu(); return true; }
+  if ((el = t.closest("[data-citizen-showid]"))) { post("hubAction", { action: "showid" }); return true; }
+  // Destructive buttons ask twice: the first click arms them for a few seconds.
+  const confirmed = (button) => {
+    if (!button.dataset.confirm || button.classList.contains("armed")) return true;
+    button.classList.add("armed");
+    button.textContent = button.dataset.confirm;
+    setTimeout(() => button.isConnected && renderMenu(), 2500);
+    return false;
+  };
+  if ((el = t.closest("[data-citizen-license]"))) { if (confirmed(el)) citizenSend(el.dataset.citizenLicense, { license: el.dataset.license }); return true; }
+  if ((el = t.closest("[data-citizen-vehicle]"))) { if (confirmed(el)) citizenSend("vehicleStolen", { plate: el.dataset.plate, stolen: el.dataset.citizenVehicle === "stolen" }); return true; }
+  return false;
+}
+
+function citizenSubmit(event) {
+  const form = event.target;
+  const v = Object.fromEntries(new FormData(form).entries());
+  if (form.id === "citizen-identity-form") { citizenSend("saveIdentity", { firstName: v.firstName, lastName: v.lastName, dateOfBirth: v.dateOfBirth, gender: v.gender }); return true; }
+  if (form.id === "citizen-details-form") { citizenSend("saveDetails", { ...v, organDonor: v.organDonor === "on" }); return true; }
+  if (form.id === "citizen-id-form") { citizenSend("saveId", { theme: v.theme, showAddress: v.showAddress === "on", showPhone: v.showPhone === "on", showLicenses: v.showLicenses === "on" }); return true; }
+  return false;
+}
+
+function citizenInput(event) {
+  const t = event.target;
+  if (t.dataset.citizenRestriction) { citizenSend("licenseRestriction", { license: t.dataset.citizenRestriction, restriction: t.value }); return true; }
+  if (t.dataset.citizenVisible) { citizenSend("licenseVisible", { license: t.dataset.citizenVisible, visible: t.checked }); return true; }
+  const form = t.closest("#citizen-id-form");
+  if (form) {
+    const v = Object.fromEntries(new FormData(form).entries());
+    const values = { theme: v.theme || "classic", showAddress: v.showAddress === "on", showPhone: v.showPhone === "on", showLicenses: v.showLicenses === "on" };
+    const preview = $("#citizen-card-preview");
+    if (preview) { preview.className = `idcard id-preview theme-${values.theme}`; preview.innerHTML = idCardMarkup(citizenPreviewCard(currentPayload, values)); }
+    t.closest(".charge")?.classList.toggle("on", t.checked);
+    if (t.name === "theme") $$(".theme-pick", form).forEach((n) => n.classList.toggle("on", n.querySelector("input").checked));
+    return true;
+  }
+  if (t.closest("#citizen-details-form") && t.type === "checkbox") { t.closest(".charge")?.classList.toggle("on", t.checked); return true; }
   return false;
 }
 
@@ -2054,6 +2313,7 @@ window.addEventListener("message", ({ data }) => {
       currentView = data.view;
       currentPayload = data.payload || {};
       if (currentView === "mdt") mdtInit(currentPayload);
+      if (currentView === "citizen") citizenInit();
       setLocked(data.locked === true);
       renderMenu();
       $("#menu").classList.remove("hidden");
@@ -2111,6 +2371,7 @@ window.addEventListener("message", ({ data }) => {
   if (data.type === "plate") plateCard(data.data || {});
   if (data.type === "passportDiscovery") passportDiscovery(data.data || {});
   if (data.type === "mdtData" && currentView === "mdt") mdtData(data.kind, data.data);
+  if (data.type === "citizenData" && currentView === "citizen") citizenData(data.kind, data.data);
   if (data.type === "service") updateService(data);
   if (data.type === "contraband") updateContraband(data);
   if (data.type === "orghubData" && currentView === "orghub") { currentPayload = data.data || {}; renderMenu(); }
@@ -2179,6 +2440,7 @@ $("#third-eye-actions").addEventListener("click", (event) => {
 
 $("#menu-content").addEventListener("click", (event) => {
   if (currentView === "mdt" && mdtClick(event)) return;
+  if (currentView === "citizen" && citizenClick(event)) return;
   if (currentView === "orghub" && orgClick(event)) return;
   if (currentView === "pastimes") {
     const tabButton = event.target.closest("[data-pt-tab]");
@@ -2294,6 +2556,7 @@ $("#menu-content").addEventListener("click", (event) => {
 
 $("#menu-content").addEventListener("input", (event) => {
   if (currentView === "mdt" && mdtInput(event)) return;
+  if (currentView === "citizen" && citizenInput(event)) return;
   if (event.target.id === "emote-search") {
     ui.emoteSearch = event.target.value;
     $("#emote-grid").innerHTML = emoteGrid(currentPayload);
@@ -2321,6 +2584,10 @@ $("#menu-content").addEventListener("mouseover", (event) => {
 
 $("#menu-content").addEventListener("submit", (event) => {
   if (currentView === "mdt" && mdtSubmit(event)) {
+    event.preventDefault();
+    return;
+  }
+  if (currentView === "citizen" && citizenSubmit(event)) {
     event.preventDefault();
     return;
   }

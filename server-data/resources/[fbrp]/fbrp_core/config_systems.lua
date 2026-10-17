@@ -223,15 +223,41 @@ FBRP.MDT = {
         { id='mental', label='Mental health', tone='info' },
         { id='caution', label='Officer caution', tone='warn' },
     },
+    -- selfIssue licenses are granted the moment a citizen applies; the others
+    -- wait in the CAD licensing queue until an officer approves them.
     licenses = {
-        { id='driver', label='Driver license' },
+        { id='driver', label='Driver license', selfIssue=true },
         { id='firearm', label='Firearm permit' },
         { id='cdl', label='Commercial driver' },
         { id='pilot', label='Pilot license' },
-        { id='boat', label='Boat license' },
-        { id='hunting', label='Hunting license' },
+        { id='boat', label='Boat license', selfIssue=true },
+        { id='hunting', label='Hunting license', selfIssue=true },
     },
     reportKinds = { 'Incident', 'Arrest', 'Traffic stop', 'Use of force', 'Investigation', 'Narcotics', 'Pursuit' },
+    -- Call priority: 1 is most urgent. Used as the default per dispatch kind.
+    callPriority = { PANIC=1, BACKUP=1, ['911']=2, EMS=2, PRISON=1, DRUGS=2, BOLO=3, TRAFFIC=3, ['311']=3 },
+    boloExpireHours = 72,   -- BOLOs close themselves after this long
+    addendumMax = 40,       -- addenda kept per report
+}
+
+-- Civilian identity: what a citizen can change about themselves, and the
+-- choices offered by the My Citizen menu.
+FBRP.Citizen = {
+    identityCooldownDays = 7,   -- name, birth date and gender may be changed this often
+    minAge = 18,
+    idThemes = {
+        { id='classic', label='Bay Classic' },
+        { id='sunset', label='Sunset' },
+        { id='midnight', label='Midnight' },
+        { id='gold', label='Gold Coast' },
+        { id='evergreen', label='Evergreen' },
+    },
+    eyeColors = { 'Brown', 'Blue', 'Green', 'Hazel', 'Gray', 'Amber', 'Black' },
+    hairColors = { 'Black', 'Brown', 'Blonde', 'Red', 'Gray', 'White', 'Bald', 'Other' },
+    bloodTypes = { 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-' },
+    restrictions = { 'Corrective lenses', 'Daylight only', 'Automatic only', 'Hearing aid', 'Supervised use' },
+    maxHeightCm = 230,
+    maxWeightKg = 250,
 }
 
 -- Charges offered by the sentencing and citation forms. Fines are roleplay
