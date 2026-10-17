@@ -1179,10 +1179,11 @@ export function startWebPanel(context) {
         records[id] = await db.query(`SELECT ${columns.map((name) => `\`${name}\``).join(",")} FROM \`${resource.table}\` ORDER BY ${resource.order} LIMIT 1000`);
       }
     const orgActions = [...ORG_ADMIN_RESOURCES].map((id) => `panel.${id}.%`);
-    const [syncs, syncGuilds, syncRoles, auditRows] = await Promise.all([
+    const [syncs, syncGuilds, syncRoles, syncGuildSettings, auditRows] = await Promise.all([
       scoped ? [] : db.query("SELECT * FROM network_syncs ORDER BY sort_order,id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_guilds ORDER BY sync_id,guild_id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_roles ORDER BY sync_id,guild_id"),
+      scoped ? [] : db.query("SELECT * FROM network_sync_guild_settings ORDER BY sync_id,guild_id"),
       scoped
         ? db.query(`SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log WHERE ${orgActions.map(() => "action LIKE ?").join(" OR ")} ORDER BY id DESC LIMIT 80`, orgActions)
         : db.query("SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log ORDER BY id DESC LIMIT 80"),
@@ -1194,7 +1195,14 @@ export function startWebPanel(context) {
       roles: guild.roles.cache
         .filter((role) => role.id !== guild.id)
         .sort((a, b) => b.position - a.position)
-        .map((role) => ({ id: role.id, name: role.name, color: role.hexColor, editable: role.editable, managed: role.managed })),
+        .map((role) => ({
+          id: role.id,
+          name: role.name,
+          color: role.hexColor,
+          permissions: role.permissions.bitfield.toString(),
+          editable: role.editable,
+          managed: role.managed,
+        })),
       channels: guild.channels.cache
         .filter((channel) => !channel.isThread())
         .sort((a, b) => a.rawPosition - b.rawPosition)
@@ -1216,6 +1224,7 @@ export function startWebPanel(context) {
         ...row,
         guild_ids: syncGuilds.filter((item) => Number(item.sync_id) === Number(row.id)).map((item) => String(item.guild_id)),
         roles: syncRoles.filter((item) => Number(item.sync_id) === Number(row.id)),
+        server_settings: syncGuildSettings.filter((item) => Number(item.sync_id) === Number(row.id)),
       })),
       guilds,
       audit: auditRows.map((row) => {

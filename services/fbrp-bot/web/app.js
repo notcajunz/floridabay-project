@@ -539,14 +539,23 @@ function syncForm(sync = null) {
   const network = records("network-guilds");
   const pick = sync?.scope === "custom";
   const linked = new Map((sync?.roles || []).filter((link) => !link.managed).map((link) => [String(link.guild_id), String(link.role_id)]));
+  const settings = new Map((sync?.server_settings || []).map((item) => [String(item.guild_id), item]));
   const serverRows = network.map((row) => {
     const id = String(row.guild_id);
     const guild = state.data.guilds.find((item) => item.id === id);
     const roles = (guild?.roles || []).filter((role) => !role.managed);
+    const server = settings.get(id);
+    const linkedRole = roles.find((role) => String(role.id) === linked.get(id));
+    const permissions = String(server?.permissions ?? linkedRole?.permissions ?? sync?.permissions ?? "0");
+    const allChannels = Boolean(server?.all_channels ?? sync?.all_channels);
     return `<div class="list-row server-row" data-server-row data-kind="${esc(row.kind)}" data-guild="${esc(id)}">
       <label class="toggle" data-pick-only><input type="checkbox" name="guild_ids" value="${esc(id)}" ${chosen.has(id) || linked.has(id) ? "checked" : ""}></label>
       <div class="server-name"><div class="primary-text">${esc(guildName(id))}</div><div class="secondary-text">${esc(KIND_LABELS[row.kind] || row.kind)} server<span data-excluded-note> · not included</span></div></div>
-      <select data-role-for="${esc(id)}" aria-label="Role in ${esc(guildName(id))}"><option value="">Let the bot create the role</option>${roles.map((role) => `<option value="${esc(role.id)}" ${linked.get(id) === role.id ? "selected" : ""}>Use existing role: ${esc(role.name)}${role.editable ? "" : " (above the bot)"}</option>`).join("")}</select>
+      <div class="server-role-settings">
+        <select data-role-for="${esc(id)}" aria-label="Role in ${esc(guildName(id))}"><option value="" data-permissions="${esc(sync?.permissions || "0")}">Let the bot create the role</option>${roles.map((role) => `<option value="${esc(role.id)}" data-permissions="${esc(role.permissions || "0")}" ${linked.get(id) === role.id ? "selected" : ""}>Use existing role: ${esc(role.name)}${role.editable ? "" : " (above the bot)"}</option>`).join("")}</select>
+        <label class="field compact"><span>Discord permissions</span><input data-permissions-for="${esc(id)}" inputmode="numeric" pattern="[0-9]{1,20}" value="${esc(permissions)}" required></label>
+        <label class="toggle channel-toggle"><input data-channels-for="${esc(id)}" type="checkbox" ${allChannels ? "checked" : ""}> See and chat in every channel</label>
+      </div>
     </div>`;
   }).join("");
   return `<form id="sync-form" class="form-grid">
@@ -557,9 +566,9 @@ function syncForm(sync = null) {
       <label class="toggle"><input name="hoist" type="checkbox" ${sync?.hoist ? "checked" : ""}> Show members separately in the member list</label>
       <label class="toggle"><input name="mentionable" type="checkbox" ${sync?.mentionable ? "checked" : ""}> Anyone can @mention this role</label>
     </div>
-    <label class="toggle wide"><input name="all_channels" type="checkbox" ${sync?.all_channels ? "checked" : ""}> Can see and chat in every text channel and join every voice channel</label>
     <details class="more wide"><summary>${icon("right")}More options</summary><div>
-      <label class="field">Discord permissions number<input name="permissions" inputmode="numeric" pattern="[0-9]{1,20}" value="${esc(sync?.permissions || "0")}" required><small>Leave at 0 for no extra Discord permissions (recommended). Dangerous permissions need a bot owner.</small></label>
+      <label class="field">Default Discord permissions for newly connected servers<input name="permissions" inputmode="numeric" pattern="[0-9]{1,20}" value="${esc(sync?.permissions || "0")}" required><small>Each current server is configured below. Leave this at 0 for no extra permissions on future servers.</small></label>
+      <label class="toggle"><input name="all_channels" type="checkbox" ${sync?.all_channels ? "checked" : ""}> Let the role see every channel by default in newly connected servers</label>
     </div></details>
     <div class="wide">
       <p class="section-label">Which servers?</p>
@@ -570,8 +579,8 @@ function syncForm(sync = null) {
       <label class="field" data-type-only>Server type<select name="scope">${Object.entries(SCOPES).filter(([value]) => value !== "custom").map(([value, label]) => `<option value="${value}" ${(pick ? "all" : sync?.scope || "all") === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
     </div>
     <div class="wide">
-      <p class="section-label">Role in each server</p>
-      <p class="muted">For each included server, let the bot create the role or use one that already exists there. Existing roles are used as they are (never renamed or recolored).</p>
+      <p class="section-label">Role settings in each server</p>
+      <p class="muted">Choose the role, its Discord permission number, and whether it can see and chat in every channel. Existing linked roles keep their name and appearance; their permissions follow the value here.</p>
       <div class="list server-list">${serverRows || `<div class="empty">No network servers yet. Add one under Connected servers.</div>`}</div>
     </div>
     <div class="wide" style="display:flex;gap:8px;justify-content:flex-end">${sync ? `<button type="button" class="btn danger-text" data-sync-delete="${esc(sync.group_name)}">${icon("trash")}Stop sharing this role</button>` : ""}<button type="submit" class="btn primary">${sync ? "Save and apply everywhere" : "Create shared role"}</button></div>
@@ -590,7 +599,8 @@ function updateServerRows(form) {
     const included = pick ? box.checked : scopeIncludes(scope, row.dataset.kind);
     row.classList.toggle("excluded", !included);
     row.querySelector("[data-excluded-note]").hidden = included;
-    row.querySelector("[data-role-for]").disabled = !included;
+    for (const control of $$('[data-role-for], [data-permissions-for], [data-channels-for]', row))
+      control.disabled = !included;
   }
 }
 
@@ -884,6 +894,11 @@ $("#content").addEventListener("change", (event) => {
   if (event.target.name === "objects") return refreshAceCount();
   const form = event.target.form;
   if (!form) return;
+  if (event.target.matches("[data-role-for]")) {
+    const row = event.target.closest("[data-server-row]");
+    const permissions = event.target.selectedOptions[0]?.dataset.permissions;
+    if (row && permissions !== undefined) row.querySelector("[data-permissions-for]").value = permissions;
+  }
   if (event.target.name === "color_default") form.elements.color.disabled = event.target.checked;
   if (form.id === "sync-form") return updateServerRows(form);
   filterByGuild(form);
@@ -916,6 +931,11 @@ $("#content").addEventListener("submit", async (event) => {
         all_channels: values.has("all_channels"),
         guild_ids: pick ? values.getAll("guild_ids") : undefined,
         existing_roles: included.map((row) => ({ guild_id: row.dataset.guild, role_id: row.querySelector("[data-role-for]").value })),
+        server_settings: $$('[data-server-row]', form).map((row) => ({
+          guild_id: row.dataset.guild,
+          permissions: row.querySelector("[data-permissions-for]").value,
+          all_channels: row.querySelector("[data-channels-for]").checked,
+        })),
       };
       await post("globalsync/save", body);
       state.selectedSync = body.group;

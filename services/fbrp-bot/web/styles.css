@@ -289,12 +289,17 @@ tbody tr[data-edit]:hover td.actions .btn { color: var(--accent); }
 .mode-switch { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 13px; }
 .mode-switch .toggle { width: auto; flex: 0 0 auto; white-space: nowrap; }
 .server-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.server-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr); }
+.server-row { display: grid; grid-template-columns: auto minmax(150px, .7fr) minmax(300px, 1.3fr); align-items: start; }
 .server-row .toggle { border: 0; background: transparent; padding: 4px 6px 4px 0; }
 .server-row [data-pick-only][hidden] + .server-name { grid-column: 1 / 3; }
-.server-row.excluded .server-name, .server-row.excluded select { opacity: .45; }
+.server-row.excluded .server-name, .server-row.excluded .server-role-settings { opacity: .45; }
 .server-row .toggle input[type="checkbox"] { appearance: auto; width: 18px; height: 18px; min-height: 18px; background: none; }
 .server-row .toggle input[type="checkbox"]::after { display: none; }
+.server-role-settings { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(150px, .65fr); gap: 9px 12px; }
+.server-role-settings > select { grid-column: 1 / -1; }
+.server-role-settings .field.compact { gap: 4px; font-size: .76rem; }
+.server-role-settings .field.compact input { min-height: 36px; padding: 7px 9px; }
+.server-role-settings .channel-toggle { align-self: end; min-height: 36px; }
 details.more { border: 1px solid var(--border); border-radius: var(--radius); }
 details.more > summary { display: flex; align-items: center; gap: 8px; padding: 12px 14px; color: var(--text-2); cursor: pointer; font-size: .88rem; font-weight: 600; list-style: none; }
 details.more > summary::-webkit-details-marker { display: none; }
@@ -390,7 +395,7 @@ dialog.ask p { margin-top: 8px; line-height: 1.55; font-size: .92rem; }
   .saved-state, #reconcile span { display: none; }
   #reconcile { width: 40px; padding: 0; }
 }
-@media (max-width: 720px) { .server-row { grid-template-columns: auto minmax(0, 1fr); } .server-row select { grid-column: 1 / -1; } }
+@media (max-width: 720px) { .server-row { grid-template-columns: auto minmax(0, 1fr); } .server-role-settings { grid-column: 1 / -1; width: 100%; } }
 @media (max-width: 640px) {
   .form-grid, .check-grid, .inline-form { grid-template-columns: 1fr; }
   .hero { flex-direction: column; align-items: stretch; padding: 22px; }

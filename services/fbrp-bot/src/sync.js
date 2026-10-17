@@ -97,6 +97,23 @@ async function pickedGuilds(syncId) {
   );
 }
 
+async function guildSettings(syncId) {
+  return db.query(
+    "SELECT guild_id,permissions,all_channels FROM network_sync_guild_settings WHERE sync_id=?",
+    [syncId],
+  );
+}
+
+/** Applies one server's explicit settings, falling back to the shared-role defaults. */
+export function effectiveGuildSync(sync, settings = null) {
+  if (!settings) return sync;
+  return {
+    ...sync,
+    permissions: String(settings.permissions),
+    all_channels: settings.all_channels === true || Number(settings.all_channels) === 1,
+  };
+}
+
 async function inScope(sync, guildId, kind) {
   if (sync.scope === "custom")
     return (await pickedGuilds(sync.id)).has(String(guildId));
@@ -192,8 +209,8 @@ export async function scopeText(sync) {
   return `Picked servers (${picked.size})`;
 }
 
-/** Creates, restyles or links one sync's role in one server. Linked existing roles are never edited. */
-async function ensureRole(guild, sync) {
+/** Creates, restyles or links one sync's role in one server. Linked roles only accept explicit permission edits. */
+async function ensureRole(guild, sync, updateLinkedPermissions = false) {
   const saved = await db.one(
     "SELECT role_id,managed FROM network_sync_roles WHERE sync_id=? AND guild_id=?",
     [sync.id, guild.id],
@@ -209,8 +226,21 @@ async function ensureRole(guild, sync) {
     mentionable: Boolean(sync.mentionable),
   };
   if (role) {
-    if (!saved.managed)
-      return { role, line: `**${clean(role.name)}** · linked existing role (left as-is)` };
+    if (!saved.managed) {
+      if (!updateLinkedPermissions)
+        return { role, line: `**${clean(role.name)}** · linked existing role (left as-is)` };
+      if (role.permissions.bitfield === spec.permissions)
+        return { role, line: `**${clean(role.name)}** · linked existing role · permissions up to date` };
+      if (!role.editable)
+        return { role, line: `**${clean(role.name)}** · linked existing role · above the bot, permissions unchanged` };
+      const ok = await role
+        .setPermissions(spec.permissions, `Florida Bay global role sync (${sync.group_name})`)
+        .then(() => true, () => false);
+      return {
+        role,
+        line: `**${clean(role.name)}** · linked existing role · permissions ${ok ? "updated" : "update refused"}`,
+      };
+    }
     const drift =
       role.name !== spec.name ||
       role.colors.primaryColor !== spec.colors.primaryColor ||
@@ -387,17 +417,22 @@ async function applyBelowPlacement(guild) {
 }
 
 /** Creates, restyles or unlinks every synced role in one server to match network_syncs. */
-async function syncGuildRoles(client, guild, kind, channelsTurnedOffFor = null) {
+async function syncGuildRoles(client, guild, kind) {
   const lines = [];
   const syncs = await db.query("SELECT * FROM network_syncs ORDER BY sort_order,id");
+  const settings = new Map(
+    (await db.query(
+      "SELECT sync_id,permissions,all_channels FROM network_sync_guild_settings WHERE guild_id=?",
+      [guild.id],
+    )).map((row) => [Number(row.sync_id), row]),
+  );
   for (const sync of syncs) {
     if (await inScope(sync, guild.id, kind)) {
-      const { line, role } = await ensureRole(guild, sync);
+      const effective = effectiveGuildSync(sync, settings.get(Number(sync.id)));
+      const { line, role } = await ensureRole(guild, effective, settings.has(Number(sync.id)));
       let channels = "";
-      if (role && sync.all_channels)
+      if (role && effective.all_channels)
         channels = channelNote(await applyChannelAccess(guild, role.id, true));
-      if (role && Number(channelsTurnedOffFor) === Number(sync.id))
-        channels = channelNote(await applyChannelAccess(guild, role.id, false));
       lines.push(`\`${sync.group_name}\` → ${line}${channels}`);
     } else {
       const removed = await unlinkRole(client, guild.id, sync.id, true);
@@ -413,31 +448,50 @@ async function syncGuildRoles(client, guild, kind, channelsTurnedOffFor = null) 
   return lines;
 }
 
-async function syncGuildRoleDefinitions(client, guild, channelsTurnedOffFor = null) {
+async function syncGuildRoleDefinitions(client, guild) {
   const network = await db.one(
     "SELECT kind FROM network_guilds WHERE guild_id=?",
     [guild.id],
   );
   if (!network) return [];
-  return syncGuildRoles(client, guild, network.kind, channelsTurnedOffFor);
+  return syncGuildRoles(client, guild, network.kind);
 }
 
 /** Creates, restyles or removes one sync's role in every network server to match its scope. */
-export async function applySync(client, sync, channelsTurnedOff = false) {
+export async function applySync(client, sync, previous = null) {
   const lines = [];
+  const currentSettings = new Map(
+    (await guildSettings(sync.id)).map((row) => [String(row.guild_id), row]),
+  );
+  const previousSettings = new Map(
+    (previous?.settings || []).map((row) => [String(row.guild_id), row]),
+  );
   for (const network of await networkRows()) {
     const guild = client.guilds.cache.get(String(network.guild_id));
     if (!guild) lines.push(`**${clean(network.name)}** · the bot is not in this server`);
     else if (await inScope(sync, guild.id, network.kind)) {
-      const { line, role } = await ensureRole(guild, sync);
+      const effective = effectiveGuildSync(sync, currentSettings.get(String(guild.id)));
+      const before = previous?.sync
+        ? effectiveGuildSync(previous.sync, previousSettings.get(String(guild.id)))
+        : null;
+      const { line, role } = await ensureRole(guild, effective, currentSettings.has(String(guild.id)));
       const channels =
-        role && (sync.all_channels || channelsTurnedOff)
-          ? channelNote(await applyChannelAccess(guild, role.id, Boolean(sync.all_channels)))
+        role && (effective.all_channels || before?.all_channels)
+          ? channelNote(await applyChannelAccess(guild, role.id, Boolean(effective.all_channels)))
           : "";
       await applyRoleOrder(guild).catch(() => {});
       await applyBelowPlacement(guild).catch(() => {});
       lines.push(`**${clean(guild.name)}** · ${line}${channels}`);
     } else {
+      const mapped = await db.one(
+        "SELECT role_id FROM network_sync_roles WHERE sync_id=? AND guild_id=?",
+        [sync.id, guild.id],
+      );
+      const before = previous?.sync
+        ? effectiveGuildSync(previous.sync, previousSettings.get(String(guild.id)))
+        : null;
+      if (mapped && before?.all_channels)
+        await applyChannelAccess(guild, String(mapped.role_id), false);
       const removed = await unlinkRole(client, guild.id, sync.id, true);
       if (removed) lines.push(`**${clean(guild.name)}** · not selected, ${removed}`);
     }
@@ -1028,11 +1082,7 @@ export async function syncGuild(client, guild, options = {}) {
       "INSERT INTO discord_guild_roles(guild_id,role_id,name,updated_at) VALUES(?,?,?,?)",
       [guild.id, role.id, role.name, Date.now()],
     );
-  await syncGuildRoleDefinitions(
-    client,
-    guild,
-    options.channelsTurnedOffFor || null,
-  );
+  await syncGuildRoleDefinitions(client, guild);
   const members = await allMembers(guild);
   for (const member of members.values())
     if (!member.user.bot) await syncMember(client, member, { refresh: false });
@@ -1118,6 +1168,43 @@ async function replacePickedGuilds(syncId, guildIds) {
   return chosen;
 }
 
+async function normalizeGuildSettings(actor, entries) {
+  if (!Array.isArray(entries)) return null;
+  const known = new Set((await networkRows()).map((row) => String(row.guild_id)));
+  const normalized = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const guildId = String(entry?.guild_id || "");
+    if (!known.has(guildId)) throw new Error(`Unknown network server \`${clean(guildId)}\`.`);
+    if (seen.has(guildId)) throw new Error("Each network server can only have one role setting.");
+    seen.add(guildId);
+    const permissions = parseDiscordPermissions(entry.permissions ?? "0").toString();
+    if (parseDiscordPermissions(permissions) & DANGEROUS_ROLE_PERMISSIONS && !isBotOwner(actor))
+      throw new Error(
+        "Only a bot owner can sync a role with Administrator, Manage Server, Manage Roles, Ban Members, Manage Channels or Manage Webhooks.",
+      );
+    normalized.push({
+      guild_id: guildId,
+      permissions,
+      all_channels: Boolean(entry.all_channels),
+    });
+  }
+  return normalized;
+}
+
+async function replaceGuildSettings(syncId, settings) {
+  if (!settings) return;
+  await db.transaction(async (query) => {
+    await query("DELETE FROM network_sync_guild_settings WHERE sync_id=?", [syncId]);
+    for (const setting of settings)
+      await query(
+        `INSERT INTO network_sync_guild_settings(sync_id,guild_id,permissions,all_channels)
+         VALUES(?,?,?,?)`,
+        [syncId, setting.guild_id, setting.permissions, setting.all_channels],
+      );
+  });
+}
+
 /**
  * Makes an existing Discord role the sync's role in that role's server (left visually unchanged).
  * For individually picked syncs the server is added to the picks; otherwise it must be in scope.
@@ -1198,7 +1285,9 @@ export async function saveGlobalSync(client, actor, rawGroup, input = {}) {
   const group = String(rawGroup || "").trim().toLowerCase();
   await requireSyncableGroup(actor, group);
   const existing = await db.one("SELECT * FROM network_syncs WHERE group_name=?", [group]);
+  const oldGuildSettings = existing ? await guildSettings(existing.id) : [];
   const next = normalizeSyncInput(group, input, existing);
+  const nextGuildSettings = await normalizeGuildSettings(actor, input.server_settings);
   if (
     parseDiscordPermissions(next.permissions) & DANGEROUS_ROLE_PERMISSIONS &&
     !isBotOwner(actor)
@@ -1234,6 +1323,7 @@ export async function saveGlobalSync(client, actor, rawGroup, input = {}) {
   );
   const sync = await db.one("SELECT * FROM network_syncs WHERE group_name=?", [group]);
   if (Array.isArray(input.guild_ids)) await replacePickedGuilds(sync.id, input.guild_ids);
+  await replaceGuildSettings(sync.id, nextGuildSettings);
   if (Array.isArray(input.existing_roles) && input.existing_roles.length) {
     try {
       await applyExistingRoles(client, actor, sync, input.existing_roles);
@@ -1242,14 +1332,20 @@ export async function saveGlobalSync(client, actor, rawGroup, input = {}) {
       throw error;
     }
   }
-  await audit(actor, existing ? "network.sync.edit" : "network.sync.create", group, next);
+  await audit(actor, existing ? "network.sync.edit" : "network.sync.create", group, {
+    ...next,
+    server_settings: nextGuildSettings,
+  });
   const needsPicker =
     sync.scope === "custom" &&
     existing?.scope !== "custom" &&
     !Array.isArray(input.guild_ids);
   if (needsPicker) return { sync, existing, needsPicker, lines: [], swept: { added: 0, removed: 0 } };
-  const channelsTurnedOff = Boolean(existing?.all_channels) && !next.all_channels;
-  const { lines, swept } = await applySync(client, sync, channelsTurnedOff);
+  const { lines, swept } = await applySync(
+    client,
+    sync,
+    existing ? { sync: existing, settings: oldGuildSettings } : null,
+  );
   return { sync, existing, needsPicker, lines, swept };
 }
 
