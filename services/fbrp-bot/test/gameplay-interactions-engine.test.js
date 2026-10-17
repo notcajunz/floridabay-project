@@ -70,9 +70,13 @@ test('full mechanic repair is public and supports the spaced command', () => {
   assert.match(repairHandler, /Vehicle fully repaired/);
 });
 
-test('all overhead tags use an unconditional synthetic bold pass', () => {
+test('all existing and new tags use an unconditional strong bold pass', () => {
   const tags = read('server-data/resources/[fbrp]/fbrp_core/client/tags.lua');
-  assert.match(tags, /local BOLD_OFFSET = 0\.00038/);
-  assert.match(tags, /for pass = 0, 1 do/);
-  assert.match(tags, /EndTextCommandDisplayText\(x \+ pass \* BOLD_OFFSET, y\)/);
+  const styles = read('server-data/resources/[fbrp]/fbrp_core/web/styles.css');
+  assert.match(tags, /local BOLD_PASSES =/);
+  assert.match(tags, /for _, offset in ipairs\(BOLD_PASSES\) do/);
+  assert.match(tags, /EndTextCommandDisplayText\(x \+ offset\[1\], y \+ offset\[2\]\)/);
+  assert.match(styles, /#hud-headtag, #hud-gangtag \{ font-weight: 800; \}/);
+  assert.match(styles, /\.gta-head, \.gta-sub \{ font: 800/);
+  assert.match(styles, /\.tag-row \.name \{[^\n]*font: 800/);
 });

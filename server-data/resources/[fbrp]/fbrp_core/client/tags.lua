@@ -8,7 +8,14 @@ local TAG_FONT, TAG_SCALE = 0, 0.54
 local HEAD_FONT, SUB_FONT = TAG_FONT, TAG_FONT
 local HEAD_SCALE, ID_SCALE, SUB_SCALE = TAG_SCALE, 0.52, TAG_SCALE
 local HEAD_BONE = 31086
-local BOLD_OFFSET = 0.00038
+-- GTA has no HUD-text bold switch. A centered five-pass weight works for old
+-- and new database tags alike, including tags whose outline setting is off.
+local BOLD_OFFSET_X, BOLD_OFFSET_Y = 0.00046, 0.00062
+local BOLD_PASSES = {
+    { 0.0, 0.0 },
+    { -BOLD_OFFSET_X, 0.0 }, { BOLD_OFFSET_X, 0.0 },
+    { 0.0, -BOLD_OFFSET_Y }, { 0.0, BOLD_OFFSET_Y },
+}
 
 local function hexColor(hex)
     hex = tostring(hex or '#FFFFFF'):gsub('#','')
@@ -35,9 +42,9 @@ local function textWidth(text, font, scale)
 end
 
 local function rawText(text, x, y, font, scale, r, g, b, a, outline)
-    -- GTA does not expose a bold toggle for HUD text. Two tightly offset
-    -- passes create a stable bold weight for every headtag, gang tag and ID.
-    for pass = 0, 1 do
+    -- Always apply the synthetic bold weight. The tag's outline preference
+    -- controls only contrast and can never disable bold rendering.
+    for _, offset in ipairs(BOLD_PASSES) do
         SetTextFont(font)
         SetTextScale(0.0, scale)
         SetTextProportional(true)
@@ -45,7 +52,7 @@ local function rawText(text, x, y, font, scale, r, g, b, a, outline)
         if outline then SetTextOutline() end
         BeginTextCommandDisplayText('STRING')
         AddTextComponentSubstringPlayerName(text)
-        EndTextCommandDisplayText(x + pass * BOLD_OFFSET, y)
+        EndTextCommandDisplayText(x + offset[1], y + offset[2])
     end
 end
 
