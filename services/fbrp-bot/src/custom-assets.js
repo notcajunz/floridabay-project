@@ -245,12 +245,17 @@ export function createCustomAssets({ personals, audit, db }) {
   });
 
   async function portalData(discordId) {
-    if (!(await personals.canManage(discordId))) return null;
+    if (!(await personals.canManage(discordId))) {
+      // Everyone else sees only the packs they added, read-only.
+      const mine = await db.query("SELECT * FROM custom_eup WHERE created_by=? ORDER BY label,id", [String(discordId)]).catch(() => []);
+      return mine.length ? { readOnly: true, eup: mine.map(eupView), liveries: [] } : null;
+    }
     const [eup, liveries] = await Promise.all([
       db.query("SELECT * FROM custom_eup ORDER BY label,id").catch(() => []),
       db.query("SELECT id,personal_id,label,files,builtin,detail,added_by,added_at FROM personal_liveries ORDER BY label,id").catch(() => []),
     ]);
     return {
+      readOnly: false,
       eup: eup.map(eupView),
       liveries: liveries.map(liveryRow),
     };

@@ -982,17 +982,17 @@ function eupView() {
   const query = filter("eup-q");
   const rows = d.eup.filter((p) => matches(query, p.label, p.name, p.notes));
   $("#portal-content").innerHTML = `
-    <div class="toolbar">${searchBox("eup-q", "Search EUP packs")}<span style="flex:1"></span><button class="btn btn-sun" type="button" data-eup-new>${icon("plus")} Add EUP pack</button></div>
-    <div class="callout">${icon("shirt")}<div>Upload a clothing or uniform pack as a <b>.zip</b>. It is security scanned, rebuilt as its own server resource and started live. The AI also checks the file names, renames and numbers them the way FiveM expects, writes a basic shop meta when one is missing and lists addon peds, so the clothing shows in the vMenu appearance menu. FiveM streams it to every player, so it cannot be limited to certain people. Players already online reconnect to see new clothing, and a pack that is already running reloads at the next server restart while anyone is online. Liveries for a personal vehicle are added from that vehicle's <b>Edit</b> dialog.</div></div>
+    <div class="toolbar">${searchBox("eup-q", "Search EUP packs")}<span style="flex:1"></span>${d.readOnly ? "" : `<button class="btn btn-sun" type="button" data-eup-new>${icon("plus")} Add EUP pack</button>`}</div>
+    ${d.readOnly ? `<div class="callout">${icon("shirt")}<div>These are the custom EUP packs you added. They are view only here. Ask a personal vehicle manager to replace, edit or remove one.</div></div>` : `<div class="callout">${icon("shirt")}<div>Upload a clothing or uniform pack as a <b>.zip</b>. It is security scanned, rebuilt as its own server resource and started live. The AI also checks the file names, renames and numbers them the way FiveM expects, writes a basic shop meta when one is missing and lists addon peds, so the clothing shows in the vMenu appearance menu. FiveM streams it to every player, so it cannot be limited to certain people. Players already online reconnect to see new clothing, and a pack that is already running reloads at the next server restart while anyone is online. Liveries for a personal vehicle are added from that vehicle's <b>Edit</b> dialog.</div></div>`}
     ${rows.length ? `<div class="personal-grid">${rows.map((p) => `<article class="card personal"><div class="personal-main">
       <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.resource)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill">${p.files} file${p.files === 1 ? "" : "s"}</span><span class="pill">${mb(p.bytes)}</span></div></div>
       ${p.notes ? `<div class="personal-section"><small>Notes</small><p>${esc(p.notes)}</p></div>` : ""}
       <div class="personal-section"><small>Added by</small>${person(p.created_by)}</div>
-      <div class="personal-actions">
+      ${d.readOnly ? "" : `<div class="personal-actions">
         <button class="btn btn-glass btn-sm" type="button" data-eup-replace="${p.id}">Replace pack</button>
         <button class="btn btn-ghost btn-sm" type="button" data-eup-edit="${p.id}">Edit</button>
         <button class="btn btn-ghost btn-sm" type="button" data-eup-delete="${p.id}">Delete</button>
-      </div></div></article>`).join("")}</div>` : `<section class="card">${empty(query ? "No packs match" : "No custom EUP yet", "Add a pack to get started.", "shirt")}</section>`}`;
+      </div>`}</div></article>`).join("")}</div>` : `<section class="card">${empty(query ? "No packs match" : "No custom EUP yet", "Add a pack to get started.", "shirt")}</section>`}`;
 }
 
 const eupById = (id) => state.data.customAssets?.eup.find((p) => String(p.id) === String(id));
@@ -1510,7 +1510,7 @@ function personalEditDialog(id) {
           <div id="personal-replace-result"></div>
         </div>
       </details>
-      ${state.data.customAssets ? liveryDetails(p) : ""}` });
+      ${state.data.customAssets && !state.data.customAssets.readOnly ? liveryDetails(p) : ""}` });
 }
 
 function personalOwnerDialog(id) {
