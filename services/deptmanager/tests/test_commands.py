@@ -79,3 +79,8 @@ def test_armed_forces_config_loads():
     assert list(config.positions)[0] == "Commander in Chief"
     assert config.level_roles["manager"] == tuple(list(config.positions.values())[:5])
     assert config.coord_team_role_id in config.coordinator_role_set()
+
+
+def test_armed_forces_limits_department_role_changes():
+    raw = tomllib.loads((ROOT / "config.armedforces.toml").read_text())
+    assert Config.from_mapping(raw, token="x").strict_department_roles

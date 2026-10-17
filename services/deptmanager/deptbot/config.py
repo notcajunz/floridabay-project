@@ -83,6 +83,8 @@ class Config:
     positions: dict[str, int] = field(default_factory=dict)
     # Position names after which the chain of command leaves a gap.
     position_breaks: tuple[str, ...] = ()
+    # Only coordinators, positions and the department's own high command may change department roles.
+    strict_department_roles: bool = False
     # Lowest coordination rank that approves or denies email database access requests.
     email_approver_rank: str = "Senior Department Coordinator"
     launch_group_role_id: int = 0
@@ -257,6 +259,7 @@ class Config:
             level_ranks=level_ranks,
             level_roles={str(k): _ids(v) for k, v in bot.get("level_roles", {}).items()},
             positions=_id_map(bot.get("positions")),
+            strict_department_roles=bool(bot.get("strict_department_roles", False)),
             position_breaks=tuple(str(v) for v in bot.get("position_breaks", [])),
             email_approver_rank=email_approver_rank,
             launch_group_role_id=channel("launch_group_role_id"),

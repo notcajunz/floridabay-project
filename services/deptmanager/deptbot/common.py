@@ -270,13 +270,21 @@ async def require_role_manager(
         raise app_commands.CheckFailure("This command can only be used in a server.")
     member = interaction.user
     role_ids = {role.id for role in member.roles}
-    if meets_level(member, config, "manager") or await _has_permission_override(interaction, member):
-        return
     db = interaction.client.db  # type: ignore[attr-defined]
     department = await db.fetch_one(
         "SELECT * FROM departments WHERE guild_id=? AND base_role_id=?",
         (interaction.guild_id, managed_role.id),
     )
+    if department and config.strict_department_roles:
+        if meets_level(member, config, "coordinator") or (
+            department["command_role_id"] and department["command_role_id"] in role_ids
+        ):
+            return
+        raise app_commands.CheckFailure(
+            f"Only coordinators, the chain of command and {department['name']} High Command can change {managed_role.mention}."
+        )
+    if meets_level(member, config, "manager") or await _has_permission_override(interaction, member):
+        return
     if department and (
         meets_level(member, config, "coordinator")
         or member.id == department["head_id"]
