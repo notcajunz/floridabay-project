@@ -39,7 +39,6 @@ export const SECURITY_SETTINGS = {
   antispam: { type: "bool", label: "Anti-spam", default: true },
   spam_messages: { type: "int", label: "Anti-spam: messages", default: 6, min: 3, max: 50 },
   spam_window: { type: "int", label: "Anti-spam: window (seconds)", default: 5, min: 2, max: 60 },
-  spam_mentions: { type: "int", label: "Anti-spam: mentions in one message", default: 6, min: 2, max: 50 },
   spam_duplicates: { type: "int", label: "Anti-spam: identical messages", default: 4, min: 2, max: 20 },
   spam_channels: { type: "int", label: "Anti-spam: same message across channels", default: 3, min: 2, max: 20 },
   spam_lines: { type: "int", label: "Anti-spam: lines in one message (wall of text)", default: 40, min: 10, max: 200 },
@@ -1484,7 +1483,7 @@ async function raidDetected(guild, cause, s, log) {
 }
 
 /* ------------------------------------------------------------------------------------------------
- * Anti-spam (floods, mass mentions, repeats, cross-channel copies, walls of text, scam links),
+ * Anti-spam (floods, repeats, cross-channel copies, walls of text, scam links),
  * webhook spam, message raids and the invite filter. Everyone is scanned except exempt accounts.
  * ---------------------------------------------------------------------------------------------- */
 
@@ -1575,8 +1574,6 @@ export async function guardMessage(message, log) {
     const rate = list.filter((item) => Date.now() - item.at < s.spam_window * 1000);
     const limit = bot ? s.spam_messages * 4 : s.spam_messages;
     if (rate.length >= limit) reasons.push(`${rate.length} messages in ${s.spam_window}s`);
-    const mentionCount = message.mentions.users.size + message.mentions.roles.size + (message.mentions.everyone ? 5 : 0);
-    if (mentionCount >= s.spam_mentions) reasons.push(`${mentionCount} mentions in one message${message.mentions.everyone ? " (incl. @everyone/@here)" : ""}`);
     if (!bot && content) {
       const duplicates = rate.filter((item) => item.content === content).length;
       if (duplicates >= s.spam_duplicates) reasons.push(`Same message ${duplicates} times`);
