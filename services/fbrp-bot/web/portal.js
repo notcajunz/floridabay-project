@@ -147,6 +147,7 @@ function nav() {
       ...(data.profile ? [["profile", "My staff profile", "user"]] : []),
       ...(orgs.length || access.orgAdmin ? [["organizations", "Organizations", "wallet"]] : []),
       ...(data.personals && ((data.personals.mine || []).length || data.personals.manage) ? [["personals", "Personal vehicles", "car"]] : []),
+      ...(data.customAssets ? [["eup", "Custom EUP", "shirt"]] : []),
     ]],
     ...(showExams ? [["Career", [["exams", "Staff exams", "exam", (exams.exams || []).filter((e) => e.eligible).length]]]] : []),
     ...(access.staff || exams.reviewer || access.commandReference || access.investigate ? [["Staff workspace", [
@@ -967,6 +968,187 @@ function orgLeaderDialog(id) {
 const PERSONAL_VIA = { owner: ["Yours", "good"], trusted: ["Trusted", "sea"], tag: ["Tag access", "sun"], manage: ["Management", ""] };
 const personalById = (id) => [...(state.data.personals?.all || []), ...(state.data.personals?.mine || [])].find((p) => Number(p.id) === Number(id));
 
+/* ---------- custom EUP packs and personal liveries (personal vehicle manager) ---------- */
+
+const mb = (bytes) => `${(Number(bytes) / 1048576).toFixed(bytes > 10485760 ? 0 : 1)} MB`;
+const dropZone = (name, hint = "Up to 600 MB") => `<label class="personal-drop">${icon("plus")}<span>Choose a .zip or drop it here<small>${hint}</small></span><input name="${name}" type="file" accept=".zip,application/zip,application/x-zip-compressed"></label>`;
+const assetNote = (kind, message) => `<div class="callout${kind === "warn" ? " warn" : ""}">${icon(kind === "warn" ? "alert" : "check")}<div>${message}</div></div>`;
+const noteList = (notes) => notes?.length ? `<ul class="personal-import-list notes">${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : "";
+
+function eupView() {
+  const d = state.data.customAssets;
+  if (!d) return go("dashboard");
+  setTitle("Community", "Custom EUP");
+  const query = filter("eup-q");
+  const rows = d.eup.filter((p) => matches(query, p.label, p.name, p.notes));
+  $("#portal-content").innerHTML = `
+    <div class="toolbar">${searchBox("eup-q", "Search EUP packs")}<span style="flex:1"></span><button class="btn btn-sun" type="button" data-eup-new>${icon("plus")} Add EUP pack</button></div>
+    <div class="callout">${icon("shirt")}<div>Upload a clothing or uniform pack as a <b>.zip</b>. It is security scanned, rebuilt as its own server resource and started live. FiveM streams it to every player, so it cannot be limited to certain people. Players already online reconnect to see new clothing, and a pack that is already running reloads at the next server restart while anyone is online. Liveries for a personal vehicle are added from that vehicle's <b>Edit</b> dialog.</div></div>
+    ${rows.length ? `<div class="personal-grid">${rows.map((p) => `<article class="card personal"><div class="personal-main">
+      <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.resource)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill">${p.files} file${p.files === 1 ? "" : "s"}</span><span class="pill">${mb(p.bytes)}</span></div></div>
+      ${p.notes ? `<div class="personal-section"><small>Notes</small><p>${esc(p.notes)}</p></div>` : ""}
+      <div class="personal-section"><small>Added by</small>${person(p.created_by)}</div>
+      <div class="personal-actions">
+        <button class="btn btn-glass btn-sm" type="button" data-eup-replace="${p.id}">Replace pack</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-eup-edit="${p.id}">Edit</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-eup-delete="${p.id}">Delete</button>
+      </div></div></article>`).join("")}</div>` : `<section class="card">${empty(query ? "No packs match" : "No custom EUP yet", "Add a pack to get started.", "shirt")}</section>`}`;
+}
+
+const eupById = (id) => state.data.customAssets?.eup.find((p) => String(p.id) === String(id));
+
+function eupInstallDialog(id = null) {
+  const p = id ? eupById(id) : null;
+  openDialog({ kicker: p ? p.label : "Management", title: p ? "Replace EUP pack" : "Add a custom EUP pack", submit: "Done", tone: "btn-glass", action: "eup-done",
+    body: `<div class="field">Clothing pack${dropZone("eupFile")}</div>
+      ${p ? "" : `<label class="field">Pack name <small>(letters, numbers and underscores, becomes the server resource)</small><input name="eupName" required minlength="2" maxlength="40" placeholder="sheriff_class_a" autocapitalize="off"></label>`}
+      <label class="field">Name shown here<input name="eupLabel" maxlength="60" value="${esc(p?.label || "")}" placeholder="Sheriff Class A uniforms"></label>
+      <label class="field">Notes <small>(optional)</small><textarea name="eupNotes" maxlength="300" placeholder="Who it is for, where it came from">${esc(p?.notes || "")}</textarea></label>
+      <button class="btn btn-glass" type="button" data-eup-install="${p ? p.id : ""}">${icon("sparkle")} ${p ? "Replace with AI scan" : "Scan and install"}</button>
+      <div id="eup-install-result"></div>` });
+}
+
+async function eupInstall(button) {
+  const form = button.closest("form") || $("#portal-dialog form") || $("#portal-dialog");
+  const out = $("#eup-install-result");
+  const get = (name) => form.querySelector(`[name="${name}"]`)?.value ?? "";
+  const file = form.querySelector('[name="eupFile"]')?.files?.[0];
+  const warn = (message) => void (out.innerHTML = assetNote("warn", esc(message)));
+  const replaceId = button.dataset.eupInstall;
+  const existing = replaceId ? eupById(replaceId) : null;
+  if (!file) return warn("Choose the pack's .zip file first.");
+  if (!/\.zip$/i.test(file.name)) return warn("Upload a .zip file. Extract RAR or 7z packs and zip them again.");
+  if (file.size > 600 * 1024 * 1024) return warn("Zip files can be up to 600 MB.");
+  if (!existing && !get("eupName").trim()) return warn("Give the pack a name.");
+  const label = button.innerHTML;
+  button.disabled = true;
+  out.innerHTML = "";
+  try {
+    if (!personalUpload || personalUpload.file !== file) {
+      personalUpload = null;
+      const id = await uploadPersonalZip(file, (done) => { button.innerHTML = `<span class="spinner"></span> Uploading ${Math.round(done * 100)}%`; });
+      personalUpload = { file, id };
+    }
+    button.innerHTML = `<span class="spinner"></span> AI security scan & install… this can take a minute`;
+    const response = await api("portal/eup/install", { method: "POST", body: JSON.stringify({
+      uploadId: personalUpload.id, uploadName: file.name,
+      name: existing ? existing.name : get("eupName").trim(), replace: Boolean(existing),
+      label: get("eupLabel").trim(), notes: get("eupNotes").trim(),
+    }) }).catch((error) => {
+      if (/expired/i.test(error.message)) personalUpload = null;
+      throw error;
+    });
+    if (response.data) state.data = response.data;
+    personalUpload = null;
+    const { result } = response;
+    out.innerHTML = assetNote("ok", `<b>Security check passed.</b> <code>${esc(result.eup.resource)}</code> has ${result.eup.files} file${result.eup.files === 1 ? "" : "s"} (${mb(result.eup.bytes)}). ${esc(result.summary || "")}${noteList(result.notes)}`);
+    toast(`${result.eup.label} installed.`);
+    render();
+  } catch (error) {
+    warn(error.message);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = label;
+  }
+}
+
+function eupEditDialog(id) {
+  const p = eupById(id);
+  if (!p) return;
+  openDialog({ kicker: p.resource, title: "Edit EUP pack", submit: "Save", action: "eup-edit", data: { id: p.id },
+    body: `<label class="field">Name shown here<input name="label" required maxlength="60" value="${esc(p.label)}"></label>
+      <label class="field">Notes <small>(optional)</small><textarea name="notes" maxlength="300">${esc(p.notes)}</textarea></label>` });
+}
+
+function eupDeleteDialog(id) {
+  const p = eupById(id);
+  if (!p) return;
+  openDialog({ kicker: p.label, title: "Delete this EUP pack?", submit: "Delete", tone: "btn-danger", action: "eup-delete", data: { id: p.id },
+    body: `<div class="callout warn">${icon("alert")}<div>The pack is stopped and its server files are permanently removed. Clothing from it disappears for players the next time they join.</div></div>` });
+}
+
+/** Livery section of the personal edit dialog. */
+function liveryDetails(p) {
+  const list = (state.data.customAssets?.liveries || []).filter((l) => Number(l.personal_id) === Number(p.id));
+  return `<details class="personal-import">
+    <summary>${icon("car")}<span><b>Liveries</b><small>Personal manager · add livery files to this vehicle and take them out again · ${list.length} added</small></span></summary>
+    <div class="personal-import-body">
+      <div id="livery-list">${liveryList(list)}</div>
+      <div class="field">Livery files${dropZone("liveryPack", "A .zip with .yft, .ytd, .ydr or .ydd files · up to 600 MB")}</div>
+      <label class="field">Livery name<input name="liveryLabel" maxlength="60" placeholder="Blue stripe"></label>
+      <label class="check-row"><input type="checkbox" name="liveryReplace"><span><b>Replace files with the same name</b><small>Needed when the livery swaps the vehicle's own textures. The originals are kept so removing the livery restores them.</small></span></label>
+      <button class="btn btn-glass" type="button" data-livery-add="${p.id}">${icon("car")} Scan and add livery</button>
+      <div id="livery-result"></div>
+    </div>
+  </details>`;
+}
+
+function liveryList(list) {
+  return list.length
+    ? `<div class="feed">${list.map((l) => `<div class="feed-row"><div><b>${esc(l.label)}</b><br><small>${l.files.length} file${l.files.length === 1 ? "" : "s"}${l.files.some((f) => f.replaced) ? " · replaces some originals" : ""}</small></div><div class="row-end"><button class="btn btn-ghost btn-sm" type="button" data-livery-remove="${l.id}">Remove</button></div></div>`).join("")}</div>`
+    : `<p class="personal-none">No liveries added.</p>`;
+}
+
+async function liveryAdd(button) {
+  const form = button.closest("form") || $("#portal-dialog form") || $("#portal-dialog");
+  const out = $("#livery-result");
+  const file = form.querySelector('[name="liveryPack"]')?.files?.[0];
+  const label = form.querySelector('[name="liveryLabel"]')?.value.trim();
+  const warn = (message) => void (out.innerHTML = assetNote("warn", esc(message)));
+  if (!file) return warn("Choose the livery's .zip file first.");
+  if (!/\.zip$/i.test(file.name)) return warn("Upload a .zip file.");
+  if (file.size > 600 * 1024 * 1024) return warn("Zip files can be up to 600 MB.");
+  if (!label) return warn("Give the livery a name.");
+  const original = button.innerHTML;
+  button.disabled = true;
+  out.innerHTML = "";
+  try {
+    if (!personalUpload || personalUpload.file !== file) {
+      personalUpload = null;
+      const id = await uploadPersonalZip(file, (done) => { button.innerHTML = `<span class="spinner"></span> Uploading ${Math.round(done * 100)}%`; });
+      personalUpload = { file, id };
+    }
+    button.innerHTML = `<span class="spinner"></span> AI security scan & install…`;
+    const response = await api("portal/livery/add", { method: "POST", body: JSON.stringify({
+      personalId: Number(button.dataset.liveryAdd), uploadId: personalUpload.id, uploadName: file.name, label,
+      replaceExisting: form.querySelector('[name="liveryReplace"]')?.checked === true,
+    }) }).catch((error) => {
+      if (/expired/i.test(error.message)) personalUpload = null;
+      throw error;
+    });
+    if (response.data) state.data = response.data;
+    personalUpload = null;
+    out.innerHTML = assetNote("ok", `<b>Security check passed.</b> Added <b>${esc(response.result.livery.label)}</b> (${response.result.livery.files.length} file${response.result.livery.files.length === 1 ? "" : "s"}). ${esc(response.result.summary || "")}${noteList(response.result.notes)}`);
+    const list = state.data.customAssets.liveries.filter((l) => Number(l.personal_id) === Number(button.dataset.liveryAdd));
+    $("#livery-list").innerHTML = liveryList(list);
+    form.querySelector('[name="liveryLabel"]').value = "";
+    toast("Livery added.");
+  } catch (error) {
+    warn(error.message);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = original;
+  }
+}
+
+async function liveryRemove(button) {
+  const id = Number(button.dataset.liveryRemove);
+  const livery = state.data.customAssets?.liveries.find((l) => l.id === id);
+  if (!livery || !confirm(`Remove the ${livery.label} livery? Files it replaced are put back.`)) return;
+  button.disabled = true;
+  try {
+    const response = await api("portal/livery/remove", { method: "POST", body: JSON.stringify({ id }) });
+    if (response.data) state.data = response.data;
+    const list = state.data.customAssets.liveries.filter((l) => Number(l.personal_id) === Number(livery.personal_id));
+    $("#livery-list").innerHTML = liveryList(list);
+    $("#livery-result").innerHTML = response.result.notes?.length ? assetNote("ok", `<b>Removed.</b>${noteList(response.result.notes)}`) : "";
+    toast("Livery removed.");
+  } catch (error) {
+    toast(error.message, true);
+    button.disabled = false;
+  }
+}
+
 function personalCardHtml(p, d) {
   const edit = p.viewer === "owner" || d.manage;
   const trustLimit = p.tags.length ? d.taggedLimit : d.limit;
@@ -1322,7 +1504,8 @@ function personalEditDialog(id) {
           <button class="btn btn-glass" type="button" data-personal-replace-pack="${p.id}">${icon("car")} Replace vehicle files</button>
           <div id="personal-replace-result"></div>
         </div>
-      </details>` });
+      </details>
+      ${state.data.customAssets ? liveryDetails(p) : ""}` });
 }
 
 function personalOwnerDialog(id) {
@@ -1578,7 +1761,7 @@ function investigationView() {
     <section class="card"><div class="card-head"><div><h2>Punishment history</h2><p>${fmt(pun.total)} record${pun.total === 1 ? "" : "s"} across moderation, mutes, blacklists, role strips, restorations, staff, IAA and DevOps discipline.${pun.failed?.length ? ` Could not read: ${esc(pun.failed.join(", "))}.` : ""}</p></div></div>${pun.entries.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Ref</th><th>Type</th><th>Status</th><th>Reason</th><th>By</th><th>Date</th></tr></thead><tbody>${pun.entries.map((row) => `<tr><td class="strong mono">${esc(row.ref)}</td><td>${esc(titleCase(row.kind))}${row.scope === "network" ? ' <span class="pill plain">Network</span>' : ""}</td><td>${pill(punState(row.status))}${row.expiresAt ? `<br><small>${row.status === "active" ? "Ends" : "Ended"} ${esc(day(row.expiresAt))}</small>` : ""}</td><td class="wrap reason" title="${esc(row.reason)}">${esc(row.reason || "-")}${row.endReason ? `<br><small>Ended: ${esc(row.endReason)}</small>` : ""}</td><td>${esc(record.people?.[row.actorId]?.name || row.actorId || "-")}</td><td>${esc(day(row.at))}</td></tr>`).join("")}</tbody></table></div>` : empty("Clean record", "No punishments are recorded for this account.", "check", "61 220 151")}</section>`
 }
 
-const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, personals: personalsView, commands: commandReferenceView, investigation: investigationView, cases: caseLookupView };
+const renders = { dashboard, punishments, support, roster, profile: profileView, banlog: banLog, appeals: appealsQueue, ticketops: ticketOps, liveops: liveOps, settings, exams: examsView, examreviews: examReviews, organizations: organizationsView, personals: personalsView, eup: eupView, commands: commandReferenceView, investigation: investigationView, cases: caseLookupView };
 function render() {
   nav();
   (renders[state.view] || dashboard)();
@@ -1896,6 +2079,13 @@ $("#portal-content").addEventListener("click", async (event) => {
   const orgLeader = target.closest("[data-org-leader]");
   if (orgLeader) return orgLeaderDialog(orgLeader.dataset.orgLeader);
   if (target.closest("[data-personal-new]")) return personalCreateDialog();
+  if (target.closest("[data-eup-new]")) return eupInstallDialog();
+  const eupReplace = target.closest("[data-eup-replace]");
+  if (eupReplace) return eupInstallDialog(eupReplace.dataset.eupReplace);
+  const eupEdit = target.closest("[data-eup-edit]");
+  if (eupEdit) return eupEditDialog(eupEdit.dataset.eupEdit);
+  const eupDelete = target.closest("[data-eup-delete]");
+  if (eupDelete) return eupDeleteDialog(eupDelete.dataset.eupDelete);
   const personalEdit = target.closest("[data-personal-edit]");
   if (personalEdit) return personalEditDialog(personalEdit.dataset.personalEdit);
   const personalOwner = target.closest("[data-personal-owner]");
@@ -2046,7 +2236,7 @@ document.addEventListener("error", (event) => {
 }, true);
 
 $("#portal-dialog").addEventListener("change", (event) => {
-  if (event.target.name === "importFile" || event.target.name === "replacePack") {
+  if (["importFile", "replacePack", "eupFile", "liveryPack"].includes(event.target.name)) {
     const file = event.target.files?.[0];
     event.target.closest(".personal-drop")?.classList.toggle("has-file", Boolean(file));
     event.target.closest(".personal-drop").querySelector("span").innerHTML = file
@@ -2084,6 +2274,12 @@ $("#portal-dialog").addEventListener("click", (event) => {
   if (convert && !convert.disabled) personalConvert(convert);
   const retuneButton = event.target.closest?.("[data-personal-retune]");
   if (retuneButton && !retuneButton.disabled) personalRetune(retuneButton);
+  const eupInstallButton = event.target.closest?.("[data-eup-install]");
+  if (eupInstallButton && !eupInstallButton.disabled) eupInstall(eupInstallButton);
+  const liveryAddButton = event.target.closest?.("[data-livery-add]");
+  if (liveryAddButton && !liveryAddButton.disabled) liveryAdd(liveryAddButton);
+  const liveryRemoveButton = event.target.closest?.("[data-livery-remove]");
+  if (liveryRemoveButton && !liveryRemoveButton.disabled) liveryRemove(liveryRemoveButton);
   const replaceButton = event.target.closest?.("[data-personal-replace-pack]");
   if (replaceButton && !replaceButton.disabled) personalReplacePack(replaceButton);
   const renameButton = event.target.closest?.("[data-personal-rename]");
@@ -2177,6 +2373,12 @@ $("#dialog-form").addEventListener("submit", async (event) => {
     } else if (action === "personal-edit") {
       result = await api("portal/personal/update", { method: "POST", body: JSON.stringify({ id: data.id, label: form.get("label"), model: form.get("model"), plate: form.get("plate"), enabled: form.get("enabled") === "on", bulletproof: form.get("bulletproof") === "on" }) });
       toast(`Saved ${result.result.label}.`);
+    } else if (action === "eup-edit") {
+      result = await api("portal/eup/update", { method: "POST", body: JSON.stringify({ id: data.id, label: form.get("label"), notes: form.get("notes") }) });
+      toast(`Saved ${result.result.label}.`);
+    } else if (action === "eup-delete") {
+      result = await api("portal/eup/delete", { method: "POST", body: JSON.stringify({ id: data.id }) });
+      toast(`Deleted ${result.result.label}.`);
     } else if (action === "personal-owner") {
       result = await api("portal/personal/owner", { method: "POST", body: JSON.stringify({ id: data.id, ownerId: form.get("ownerId") }) });
       toast("Ownership transferred.");

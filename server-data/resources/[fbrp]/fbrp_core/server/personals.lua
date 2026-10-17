@@ -461,13 +461,19 @@ AddEventHandler('fbrp:personals:reload', reload)
 -- streamed vehicles under players can crash them.
 function FBRP.Personals.install(resource, model)
     resource = tostring(resource or '')
-    if not resource:match('^fbrp_pv_[a-z0-9_]+$') then return { ok = false, error = 'bad resource' } end
+    local eup = resource:match('^fbrp_eup_[a-z0-9_]+$') ~= nil
+    if not eup and not resource:match('^fbrp_pv_[a-z0-9_]+$') then return { ok = false, error = 'bad resource' } end
     ExecuteCommand('refresh')
     local state = GetResourceState(resource)
     if state == 'started' or state == 'starting' then
-        local modelHash = GetHashKey(tostring(model or resource:sub(9)))
-        for _, vehicle in ipairs(GetAllVehicles()) do
-            if GetEntityModel(vehicle) == modelHash then return { ok = true, state = 'in_use' } end
+        if eup then
+            -- A clothing pack cannot be reloaded under players wearing it, so it waits for a quiet moment.
+            if #GetPlayers() > 0 then return { ok = true, state = 'in_use' } end
+        else
+            local modelHash = GetHashKey(tostring(model or resource:sub(9)))
+            for _, vehicle in ipairs(GetAllVehicles()) do
+                if GetEntityModel(vehicle) == modelHash then return { ok = true, state = 'in_use' } end
+            end
         end
         StopResource(resource)
         StartResource(resource)
@@ -480,7 +486,7 @@ end
 -- Stop an imported personal resource before the website removes its files from disk.
 function FBRP.Personals.uninstall(resource)
     resource = tostring(resource or '')
-    if not resource:match('^fbrp_pv_[a-z0-9_]+$') then return { ok = false, error = 'bad resource' } end
+    if not resource:match('^fbrp_pv_[a-z0-9_]+$') and not resource:match('^fbrp_eup_[a-z0-9_]+$') then return { ok = false, error = 'bad resource' } end
     local state = GetResourceState(resource)
     if state == 'started' or state == 'starting' then StopResource(resource) end
     return { ok = true, state = GetResourceState(resource) }

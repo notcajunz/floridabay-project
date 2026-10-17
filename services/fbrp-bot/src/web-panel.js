@@ -981,7 +981,7 @@ export function startWebPanel(context) {
     bindSyncRole, setGlobalSyncOrder, pushGlobalSyncs, ensureTicketPanel,
     createWebsiteTicket, websiteTicketAction, websiteTicketTypes,
     websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard,
-    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, personalImporter, log,
+    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, personalImporter, customAssets, log,
   } = context;
 
   const cookieFor = (request, name, value, maxAge) => {
@@ -1557,10 +1557,11 @@ export function startWebPanel(context) {
       websiteTicketPriorities(),
     ]);
     const appealData = await appeals.memberData(session.id, punishments);
-    const [exams, orgEconomy, personalVehicles] = await Promise.all([
+    const [exams, orgEconomy, personalVehicles, customAssetData] = await Promise.all([
       staffExams ? staffExams.portalData(session.id).catch((error) => { console.error("[FBRP panel] exams:", error); return null; }) : null,
       economy ? economy.portalData(session.id).catch((error) => { console.error("[FBRP panel] economy:", error); return null; }) : null,
       personals ? personals.portalData(session.id).catch((error) => { console.error("[FBRP panel] personals:", error); return null; }) : null,
+      customAssets ? customAssets.portalData(session.id).catch((error) => { console.error("[FBRP panel] custom assets:", error); return null; }) : null,
     ]);
     const data = {
       user,
@@ -1568,6 +1569,7 @@ export function startWebPanel(context) {
       exams,
       economy: orgEconomy,
       personals: personalVehicles,
+      customAssets: customAssetData,
       verified: { discord: true, game: Boolean(player), gameName: player?.name || null, lastSeen: player?.last_seen || null },
       roster,
       profile,
@@ -1979,6 +1981,11 @@ export function startWebPanel(context) {
         else if (url.pathname === "/api/portal/personal/retune") result = await personalImporter.retune(session.id, input);
         else if (url.pathname === "/api/portal/personal/import/rename") result = await personalImporter.rename(session.id, input);
         else if (url.pathname === "/api/portal/personal/replace-pack") result = await personalImporter.replacePack(session.id, input);
+        else if (url.pathname === "/api/portal/eup/install") result = await customAssets.installEup(session.id, input);
+        else if (url.pathname === "/api/portal/eup/update") result = await customAssets.updateEup(session.id, input);
+        else if (url.pathname === "/api/portal/eup/delete") result = await customAssets.deleteEup(session.id, input);
+        else if (url.pathname === "/api/portal/livery/add") result = await customAssets.addLivery(session.id, input);
+        else if (url.pathname === "/api/portal/livery/remove") result = await customAssets.removeLivery(session.id, input);
         else if (url.pathname === "/api/portal/ticket/request-close") {
           const ticket = await db.one("SELECT * FROM support_tickets WHERE id=? AND author_id=?", [Number(input.ticketId), session.id]);
           if (!ticket || ticket.status === "closed") throw new Error("That open ticket was not found.");

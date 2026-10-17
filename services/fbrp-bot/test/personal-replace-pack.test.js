@@ -52,6 +52,7 @@ await writeFile(path.join(resource, "data", "vehicles.meta"), vehiclesMeta("oldc
 await writeFile(path.join(resource, ".fbrp-import.json"), JSON.stringify({ model: "oldcar" }));
 
 const audits = [];
+const queries = [];
 const importer = createPersonalImporter({
   personals: {
     assertManager: async (id) => { if (id !== "manager") throw new Error("Only the designated personal-vehicle manager can do that."); },
@@ -59,7 +60,7 @@ const importer = createPersonalImporter({
     modelOf: (value) => String(value).toLowerCase(),
   },
   audit: async (...args) => { audits.push(args); },
-  db: {},
+  db: { query: async (sql, params) => { queries.push([sql, params]); return { affectedRows: 2 }; } },
 });
 
 test("only the manager can replace a personal's vehicle", async () => {
@@ -87,6 +88,9 @@ test("replacing installs the new pack under the personal's own model and keeps a
   assert.equal(backups.length, 1);
   assert.deepEqual((await readdir(path.join(dir, backups[0], "stream"))).sort(), ["leftover.ydr", "oldcar.yft"]);
   assert.ok(audits.some(([, action]) => action === "personal.replace_pack"));
+  // Liveries added to the old files are gone with them, and the result says so.
+  assert.deepEqual(queries.at(-1), ["DELETE FROM personal_liveries WHERE personal_id=?", [7]]);
+  assert.ok(result.notes.some((note) => /2 livery bundles on the old files were removed/.test(note)));
 });
 
 test("replacing again keeps only the last two backups", async () => {

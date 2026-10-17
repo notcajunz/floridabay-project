@@ -136,6 +136,7 @@ import { createStaffExams } from "./staff-exams.js";
 import { createEconomy } from "./economy.js";
 import { createPersonals } from "./personals.js";
 import { createPersonalImporter } from "./personal-import.js";
+import { createCustomAssets } from "./custom-assets.js";
 import { createGiveaways } from "./giveaways.js";
 import { createStatusBoard } from "./status-board.js";
 import { enforceRoleBundle, reconcileRoleBundleHolders } from "./role-bundle.js";
@@ -247,6 +248,7 @@ const staffExams = createStaffExams({ client, db, audit, log });
 const economy = createEconomy({ client, db, audit, log, hasPermission });
 const personals = createPersonals({ db, audit, hasPermission });
 const personalImporter = createPersonalImporter({ personals, audit, db });
+const customAssets = createCustomAssets({ personals, audit, db });
 const giveaways = createGiveaways({ client, db, audit, clean });
 const statusBoard = createStatusBoard({ client, db, callGame, publicBase, connectUrl });
 const chainOfCommand = createChainOfCommand({ client, db, audit, hasPermission });
@@ -4683,6 +4685,7 @@ client.once("clientReady", async () => {
     economy,
     personals,
     personalImporter,
+    customAssets,
     log,
   });
   // Commands are registered per guild (instant updates) in every server the bot is in, plus any

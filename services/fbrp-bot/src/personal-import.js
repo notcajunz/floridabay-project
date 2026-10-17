@@ -314,7 +314,7 @@ async function askStructured(input, { instructions, schema, name }) {
 }
 
 const askOpenAI = (input) => askStructured(input, { instructions: AI_INSTRUCTIONS, schema: AI_SCHEMA, name: "personal_vehicle_import" });
-const askSecurityAI = (input) => askStructured(input, { instructions: SECURITY_INSTRUCTIONS, schema: SECURITY_SCHEMA, name: "vehicle_security_review" });
+const askSecurityAI = (input, instructions = SECURITY_INSTRUCTIONS) => askStructured(input, { instructions, schema: SECURITY_SCHEMA, name: "vehicle_security_review" });
 
 async function readPrefix(file, limit) {
   if (!file.size || limit < 1) return Buffer.alloc(0);
@@ -340,7 +340,7 @@ function executableSignature(buffer) {
 }
 
 /** Deterministic inspection plus a separate, fail-closed AI security review. */
-async function reviewVehicleSecurity(files) {
+async function reviewVehicleSecurity(files, options = {}) {
   const localFindings = [];
   const automaticRepairs = [];
   const samples = [];
@@ -426,8 +426,8 @@ async function reviewVehicleSecurity(files) {
     textExcerpts: samples,
     deterministicFindings: localFindings,
     automaticallyAppliedRepairs: automaticRepairs,
-    installationBoundary: "Only .yft/.ytd/.ydr/.ydd assets and recognized vehicle metadata are copied. The importer creates a new manifest and copies no uploaded scripts.",
-  });
+    installationBoundary: options.boundary || "Only .yft/.ytd/.ydr/.ydd assets and recognized vehicle metadata are copied. The importer creates a new manifest and copies no uploaded scripts.",
+  }, options.subject ? SECURITY_INSTRUCTIONS.replace("personal-vehicle importer", options.subject) : SECURITY_INSTRUCTIONS);
   const aiFindings = (ai.findings || []).slice(0, 50).map((finding) => securityFinding(finding.severity, finding.file, finding.reason));
   const aiRepairs = (ai.repairs || []).slice(0, 50).map((repair) => securityRepair(repair.file, repair.issue, repair.action));
   const repairs = [...automaticRepairs, ...aiRepairs].filter((repair, index, all) =>
@@ -939,7 +939,7 @@ export function createPersonalImporter({ personals, audit, db }) {
     await personals.assertManager(actorId);
     const current = await personals.find(input.id);
     const model = personals.modelOf(current.model);
-    return convert(actorId, {
+    const result = await convert(actorId, {
       uploadId: input.uploadId,
       uploadName: input.uploadName,
       model: input.packModel,
@@ -948,6 +948,10 @@ export function createPersonalImporter({ personals, audit, db }) {
       installAs: model,
       keepBackup: true,
     });
+    // The resource folder was rebuilt, so liveries added to the old files are gone with it.
+    const dropped = await db.query("DELETE FROM personal_liveries WHERE personal_id=?", [current.id]).catch(() => null);
+    if (dropped?.affectedRows) result.notes = [...result.notes, `${dropped.affectedRows} livery bundle${dropped.affectedRows === 1 ? "" : "s"} on the old files ${dropped.affectedRows === 1 ? "was" : "were"} removed with them. Add them again if you still want them.`];
+    return result;
   }
 
   /** Personal edits that change the model of an imported vehicle carry its resource along. */
@@ -964,3 +968,6 @@ export function createPersonalImporter({ personals, audit, db }) {
 
   return { convert, replacePack, rename, retune, followModelChange, uploadChunk };
 }
+
+/** Shared with the custom EUP and livery tools, which use the same upload folder and security gate. */
+export { reviewVehicleSecurity, walk, unzip, UPLOAD_DIR, UPLOAD_ID, MAX_BYTES, STREAM_EXT, MARKER as PERSONAL_MARKER };
