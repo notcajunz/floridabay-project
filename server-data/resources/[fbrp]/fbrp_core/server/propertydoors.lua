@@ -138,10 +138,11 @@ local function isCommand(source, orgId)
     return row ~= nil and (row.manager == 1 or row.manager == true or row.can_roster == 1 or row.can_roster == true)
 end
 
--- Staff on duty may edit any property, the command of the owning organization its own.
+-- Staff on duty at Community Manager or above may edit any property, the command of the
+-- owning organization its own.
 local function canEdit(source, prop)
     local s = sessions[source]
-    if s and s.staffDuty then return true end
+    if s and s.staffDuty and S.hasStaffGroupAtLeast(source, 'community_manager') then return true end
     return prop ~= nil and prop.owner ~= nil and isCommand(source, prop.owner)
 end
 
@@ -194,7 +195,7 @@ CreateThread(function()
     end
 end)
 
--- /propset <point> [property key], /propset list, /propset clear <point>: staff on duty, or the
+-- /propset <point> [property key], /propset list, /propset clear <point>: Community Manager+ on duty, or the
 -- command of the owning gang or business, stand where the spot belongs. Without a key the
 -- nearest property within 150 metres that the player may edit is used.
 RegisterCommand('propset', function(src, args)
@@ -216,7 +217,7 @@ RegisterCommand('propset', function(src, args)
     end
     if action == 'list' then
         local prop = nearest(args[2])
-        if not prop then return S.notify(src, 'No property you can edit within 150 metres. Staff on duty or the command of the owning gang or business only.', 'error') end
+        if not prop then return S.notify(src, 'No property you can edit within 150 metres. Community Manager+ staff on duty, or the command of the owning gang or business, only.', 'error') end
         local parts = {}
         for name in pairs(points[prop.key] or {}) do parts[#parts + 1] = name end
         table.sort(parts)
@@ -228,7 +229,7 @@ RegisterCommand('propset', function(src, args)
         return S.notify(src, 'Use /propset door|door2|door3|terminal|stash|armory|wardrobe [key], /propset list, or /propset clear <point>.', 'info')
     end
     local prop = nearest(clearing and args[3] or args[2])
-    if not prop then return S.notify(src, 'No property you can edit within 150 metres. Staff on duty or the command of the owning gang or business only.', 'error') end
+    if not prop then return S.notify(src, 'No property you can edit within 150 metres. Community Manager+ staff on duty, or the command of the owning gang or business, only.', 'error') end
     if clearing then
         MySQL.query.await('DELETE FROM property_points WHERE property_key=? AND point=?', { prop.key, point })
     else

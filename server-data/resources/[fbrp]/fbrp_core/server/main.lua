@@ -1612,6 +1612,7 @@ FBRP.Server = {
     playersNear = playersNear,
     displayName = displayName,
     isStaffMember = isStaffMember,
+    hasStaffGroupAtLeast = hasStaffGroupAtLeast,
     sendDispatch = sendDispatch,
     recentCalls = recentCalls,
     isReady = function() return ready end,

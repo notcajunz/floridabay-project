@@ -58,3 +58,9 @@ test('leaving noclip never forces anyone invisible', () => {
   assert.match(tags, /wasNoclipActive and not noclipActive/);
   assert.match(tags, /ResetEntityAlpha\(ped\)/);
 });
+
+test('staff need Community Manager or above to edit any property', () => {
+  const doors = read('server/propertydoors.lua');
+  assert.match(doors, /hasStaffGroupAtLeast\(source, 'community_manager'\)/);
+  assert.match(read('server/main.lua'), /hasStaffGroupAtLeast = hasStaffGroupAtLeast/);
+});
