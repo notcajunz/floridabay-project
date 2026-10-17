@@ -983,7 +983,7 @@ function eupView() {
   const rows = d.eup.filter((p) => matches(query, p.label, p.name, p.notes));
   $("#portal-content").innerHTML = `
     <div class="toolbar">${searchBox("eup-q", "Search EUP packs")}<span style="flex:1"></span><button class="btn btn-sun" type="button" data-eup-new>${icon("plus")} Add EUP pack</button></div>
-    <div class="callout">${icon("shirt")}<div>Upload a clothing or uniform pack as a <b>.zip</b>. It is security scanned, rebuilt as its own server resource and started live. FiveM streams it to every player, so it cannot be limited to certain people. Players already online reconnect to see new clothing, and a pack that is already running reloads at the next server restart while anyone is online. Liveries for a personal vehicle are added from that vehicle's <b>Edit</b> dialog.</div></div>
+    <div class="callout">${icon("shirt")}<div>Upload a clothing or uniform pack as a <b>.zip</b>. It is security scanned, rebuilt as its own server resource and started live. The AI also checks the file names, renames and numbers them the way FiveM expects, writes a basic shop meta when one is missing and lists addon peds, so the clothing shows in the vMenu appearance menu. FiveM streams it to every player, so it cannot be limited to certain people. Players already online reconnect to see new clothing, and a pack that is already running reloads at the next server restart while anyone is online. Liveries for a personal vehicle are added from that vehicle's <b>Edit</b> dialog.</div></div>
     ${rows.length ? `<div class="personal-grid">${rows.map((p) => `<article class="card personal"><div class="personal-main">
       <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.resource)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill">${p.files} file${p.files === 1 ? "" : "s"}</span><span class="pill">${mb(p.bytes)}</span></div></div>
       ${p.notes ? `<div class="personal-section"><small>Notes</small><p>${esc(p.notes)}</p></div>` : ""}
@@ -1041,7 +1041,11 @@ async function eupInstall(button) {
     if (response.data) state.data = response.data;
     personalUpload = null;
     const { result } = response;
-    out.innerHTML = assetNote("ok", `<b>Security check passed.</b> <code>${esc(result.eup.resource)}</code> has ${result.eup.files} file${result.eup.files === 1 ? "" : "s"} (${mb(result.eup.bytes)}). ${esc(result.summary || "")}${noteList(result.notes)}`);
+    const groupLine = (g) => `<li><b>${g.ped === "mp_f_freemode_01" ? "Female" : "Male"}</b> ${g.dlc ? `· pack <code>${esc(g.dlc)}</code>` : "· replaces base game clothing"}: ${g.drawables + g.props} item${g.drawables + g.props === 1 ? "" : "s"}, ${g.textures} texture${g.textures === 1 ? "" : "s"}${g.meta === "generated" ? " · basic shop meta written" : ""}${g.dlc && !g.ymt ? " · no creature metadata" : ""}</li>`;
+    out.innerHTML = assetNote("ok", `<b>Security check passed.</b> <code>${esc(result.eup.resource)}</code> has ${result.eup.files} file${result.eup.files === 1 ? "" : "s"} (${mb(result.eup.bytes)}). ${esc(result.summary || "")}
+      ${result.groups.length ? `<p>Shows up in the vMenu appearance menu (Player Appearance → Character Customization):</p><ul class="personal-import-list">${result.groups.map(groupLine).join("")}</ul>` : ""}
+      ${result.addonPeds.length ? `<p>Addon peds for vMenu (Player Appearance → Addon Peds, after the next server restart): ${result.addonPeds.map((n) => `<code>${esc(n)}</code>`).join(" ")}</p>` : ""}${noteList(result.notes)}`)
+      + (result.warnings.length ? assetNote("warn", `<b>Check these:</b>${noteList(result.warnings)}`) : "");
     toast(`${result.eup.label} installed.`);
     render();
   } catch (error) {

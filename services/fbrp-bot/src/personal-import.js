@@ -970,4 +970,4 @@ export function createPersonalImporter({ personals, audit, db }) {
 }
 
 /** Shared with the custom EUP and livery tools, which use the same upload folder and security gate. */
-export { reviewVehicleSecurity, walk, unzip, UPLOAD_DIR, UPLOAD_ID, MAX_BYTES, STREAM_EXT, MARKER as PERSONAL_MARKER };
+export { askStructured, reviewVehicleSecurity, walk, unzip, UPLOAD_DIR, UPLOAD_ID, MAX_BYTES, STREAM_EXT, MARKER as PERSONAL_MARKER };

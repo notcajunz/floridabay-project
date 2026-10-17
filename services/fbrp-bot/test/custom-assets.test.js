@@ -10,6 +10,8 @@ const run = promisify(execFile);
 const root = await mkdtemp(path.join(tmpdir(), "fbrp-assets-"));
 process.env.FBRP_VEHICLES_DIR = path.join(root, "vehicles");
 process.env.FBRP_EUP_DIR = path.join(root, "eup");
+process.env.FBRP_VMENU_ADDONS = path.join(root, "addons.json");
+await writeFile(process.env.FBRP_VMENU_ADDONS, JSON.stringify({ vehicles: [], peds: ["addonpedname1"], weapons: ["weapon_x"] }, null, 2));
 process.env.OPENAI_API_KEY = "test-key";
 process.env.FBRP_FIVEM_ORIGIN = "http://127.0.0.1:9/fbrp_core"; // never reach the live game server from a test
 const { createCustomAssets, eupSlug, streamPath } = await import("../src/custom-assets.js");
@@ -17,8 +19,14 @@ const { createPersonalImporter } = await import("../src/personal-import.js");
 
 const realFetch = globalThis.fetch;
 let verdict = "safe";
+let packagingPlan = { summary: "Looks fine.", dlcName: "", renames: [], notes: [] };
+const aiCalls = [];
 globalThis.fetch = async (url, options) => {
   if (!String(url).startsWith("https://api.openai.com")) return realFetch(url, options);
+  const body = JSON.parse(options.body);
+  aiCalls.push({ name: body.text.format.name, input: JSON.parse(body.input) });
+  if (body.text.format.name === "eup_packaging_review")
+    return new Response(JSON.stringify({ output: [{ content: [{ type: "output_text", text: JSON.stringify(packagingPlan) }] }] }), { status: 200 });
   const answer = verdict === "safe"
     ? { verdict: "safe", summary: "Only game assets.", findings: [], repairs: [] }
     : { verdict: "unsafe", summary: "Hidden payload.", findings: [{ severity: "critical", file: "x.ydd", reason: "Embedded script." }], repairs: [] };
@@ -129,10 +137,10 @@ test("an EUP pack is scanned, rebuilt as its own resource, and can be replaced a
   assert.equal((await assets.portalData("manager")).eup[0].label, "Sheriff");
 
   // The same name again needs the replace flag, and replacing keeps a backup.
-  const again = await stageZip({ "stream/a.ydd": asset(9) });
+  const again = await stageZip({ "stream/mp_m_freemode_01_mp_m_sheriff^jbib_000_u.ydd": asset(9), "stream/mp_m_freemode_01_mp_m_sheriff^jbib_diff_000_a_uni.ytd": asset(9) });
   await assert.rejects(assets.installEup("manager", { uploadId: again.id, name: "sheriff_class_a" }), /already exists/);
   const replaced = await assets.installEup("manager", { uploadId: again.id, name: "sheriff_class_a", replace: true, label: "Sheriff v2" });
-  assert.equal(replaced.eup.files, 1);
+  assert.equal(replaced.eup.files, 2);
   assert.equal(db.eup[0].label, "Sheriff v2");
   assert.equal((await readdir(process.env.FBRP_EUP_DIR)).filter((n) => n.startsWith(".replaced-fbrp_eup_sheriff_class_a-")).length, 1);
 
@@ -203,4 +211,79 @@ test("liveries need an importer-made vehicle", async () => {
   await mkdir(path.join(process.env.FBRP_VEHICLES_DIR, "fbrp_pv_handmade"));
   const staged = await stageZip({ "a.ytd": asset(2) });
   await assert.rejects(handmade.addLivery("manager", { personalId: 6, uploadId: staged.id, label: "X" }), /not made by the importer/);
+});
+
+test("loose clothing in male and female folders is renamed into a vMenu-ready pack with a shop meta", async () => {
+  aiCalls.length = 0;
+  packagingPlan = { summary: "Placed the loose files.", dlcName: "deputy", renames: [], notes: [] };
+  const staged = await stageZip({
+    "Deputy/male/uppr_000_u.ydd": asset(1),
+    "Deputy/male/uppr_diff_000_a_uni.ytd": asset(2),
+    "Deputy/male/uppr_003_u.ydd": asset(3),
+    "Deputy/male/uppr_diff_003_a_uni.ytd": asset(4),
+    "Deputy/Female/jbib_000_u.ydd": asset(5),
+    "Deputy/Female/jbib_diff_000_a_uni.ytd": asset(6),
+  });
+  const result = await assets.installEup("manager", { uploadId: staged.id, name: "deputy_pack" });
+  const dir = path.join(process.env.FBRP_EUP_DIR, "fbrp_eup_deputy_pack", "stream");
+  const names = [];
+  const walkDir = async (d, prefix = "") => { for (const e of await readdir(d, { withFileTypes: true })) e.isDirectory() ? await walkDir(path.join(d, e.name), `${prefix}${e.name}/`) : names.push(`${prefix}${e.name}`); };
+  await walkDir(dir);
+  assert.deepEqual(names.sort(), [
+    "Deputy/Female/mp_f_freemode_01_deputy_pack^jbib_000_u.ydd",
+    "Deputy/Female/mp_f_freemode_01_deputy_pack^jbib_diff_000_a_uni.ytd",
+    "Deputy/male/mp_m_freemode_01_deputy_pack^uppr_000_u.ydd",
+    "Deputy/male/mp_m_freemode_01_deputy_pack^uppr_001_u.ydd",
+    "Deputy/male/mp_m_freemode_01_deputy_pack^uppr_diff_000_a_uni.ytd",
+    "Deputy/male/mp_m_freemode_01_deputy_pack^uppr_diff_001_a_uni.ytd",
+  ]);
+  assert.deepEqual(result.groups.map((g) => [g.ped, g.dlc, g.drawables, g.textures, g.meta]).sort(), [["mp_f_freemode_01", "deputy_pack", 1, 1, "generated"], ["mp_m_freemode_01", "deputy_pack", 2, 2, "generated"]]);
+  const manifest = await readFile(path.join(dir, "..", "fxmanifest.lua"), "utf8");
+  assert.equal((manifest.match(/SHOP_PED_APPAREL_META_FILE/g) || []).length, 2);
+  const meta = await readFile(path.join(dir, "..", "data", "shoppedapparel_mp_m_freemode_01_deputy_pack.meta"), "utf8");
+  assert.match(meta, /<fullDlcName>mp_m_freemode_01_deputy_pack<\/fullDlcName>/);
+  assert.ok(result.notes.some((n) => /Renamed 6 files/.test(n)));
+  assert.ok(result.notes.some((n) => /renumbered 2 files/.test(n)));
+  assert.ok(aiCalls.some((c) => c.name === "eup_packaging_review"));
+});
+
+test("AI renames are applied only when they are safe clothing names", async () => {
+  packagingPlan = {
+    summary: "Mapped the shirts.", dlcName: "shirts",
+    renames: [
+      { from: "Shirt_Blue.ydd", to: "mp_m_freemode_01_shirts^jbib_000_u.ydd", reason: "male shirt" },
+      { from: "Shirt_Blue_tex.ytd", to: "mp_m_freemode_01_shirts^jbib_diff_000_a_uni.ytd", reason: "its texture" },
+      { from: "Hat.ydd", to: "mp_m_freemode_01^p_head_000.ydd", reason: "replaces base game hat" },
+      { from: "../../etc/passwd", to: "mp_m_freemode_01_shirts^jbib_001_u.ydd", reason: "bad source" },
+    ],
+    notes: [],
+  };
+  const staged = await stageZip({ "Shirt_Blue.ydd": asset(1), "Shirt_Blue_tex.ytd": asset(2), "Hat.ydd": asset(3) });
+  const result = await assets.installEup("manager", { uploadId: staged.id, name: "shirts" });
+  assert.equal(result.eup.files, 2);
+  assert.ok(result.warnings.some((w) => /2 AI renames were ignored/.test(w)));
+  assert.ok(result.warnings.some((w) => /1 file was left out/.test(w)));
+  const placed = await readdir(path.join(process.env.FBRP_EUP_DIR, "fbrp_eup_shirts", "stream"));
+  assert.deepEqual(placed.sort(), ["mp_m_freemode_01_shirts^jbib_000_u.ydd", "mp_m_freemode_01_shirts^jbib_diff_000_a_uni.ytd"]);
+  packagingPlan = { summary: "Looks fine.", dlcName: "", renames: [], notes: [] };
+});
+
+test("files that only pretend to be game assets are blocked before the AI sees them", async () => {
+  aiCalls.length = 0;
+  const staged = await stageZip({ "stream/mp_m_freemode_01_fake^jbib_000_u.ydd": "print('hello')   not a resource" });
+  await assert.rejects(assets.installEup("manager", { uploadId: staged.id, name: "fake_pack" }), /not a real ydd game asset/);
+  assert.equal(aiCalls.filter((c) => c.name === "eup_packaging_review").length, 0);
+});
+
+test("addon peds from peds.meta are listed in vMenu and removed with the pack", async () => {
+  const peds = "<CPedModelInfo__InitDataList><InitDatas><Item><Name>deputy_m</Name></Item><Item><Name>deputy_f</Name></Item></InitDatas></CPedModelInfo__InitDataList>";
+  const staged = await stageZip({ "stream/deputy_m.ydd": asset(1), "stream/deputy_m.ytd": asset(2), "stream/deputy_f.ydd": asset(3), "data/peds.meta": peds, "stream/mp_m_freemode_01_peds^jbib_000_u.ydd": asset(4), "stream/mp_m_freemode_01_peds^jbib_diff_000_a_uni.ytd": asset(5) });
+  const result = await assets.installEup("manager", { uploadId: staged.id, name: "peds" });
+  assert.deepEqual(result.addonPeds.sort(), ["deputy_f", "deputy_m"]);
+  assert.match(await readFile(path.join(process.env.FBRP_EUP_DIR, "fbrp_eup_peds", "fxmanifest.lua"), "utf8"), /PED_METADATA_FILE/);
+  const addons = () => readFile(process.env.FBRP_VMENU_ADDONS, "utf8").then(JSON.parse);
+  assert.deepEqual((await addons()).peds.sort(), ["addonpedname1", "deputy_f", "deputy_m"]);
+  assert.deepEqual((await addons()).weapons, ["weapon_x"]);
+  await assets.deleteEup("manager", { id: db.eup.find((r) => r.name === "peds").id });
+  assert.deepEqual((await addons()).peds, ["addonpedname1"]);
 });
