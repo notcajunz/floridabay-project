@@ -1106,10 +1106,10 @@ let personalUpload = null; // { file, id } of the zip already on the server, so 
 let personalConverted = null; // { pack, current }: the model the pack names and the spawn name it is installed under
 
 /** Sends the zip in chunks small enough for the proxy. Returns the server's upload id. */
-async function uploadPersonalZip(file, progress) {
+async function uploadPersonalZip(file, progress, kind = "") {
   let id = "";
   for (let offset = 0; offset < file.size; offset += UPLOAD_CHUNK) {
-    const query = new URLSearchParams({ offset, total: file.size, name: file.name, ...(id ? { id } : {}) });
+    const query = new URLSearchParams({ offset, total: file.size, name: file.name, ...(kind ? { kind } : {}), ...(id ? { id } : {}) });
     let response;
     for (let attempt = 0; attempt < 3; attempt++) {
       response = await fetch(`api/portal/personal/upload?${query}`, {
@@ -1175,6 +1175,52 @@ async function personalRetune(button) {
       ${result.changes.length ? `<ul class="personal-import-list">${result.changes.map((c) => `<li><code>${esc(c.field)}</code> ${esc(c.from)} → <b>${esc(c.to)}</b>${c.reason ? ` <small>${esc(c.reason)}</small>` : ""}</li>`).join("")}</ul>` : ""}
       ${result.notes.length ? `<ul class="personal-import-list notes">${result.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div></div>`;
     toast("Vehicle files updated.");
+  } catch (error) {
+    out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(error.message)}</div></div>`;
+  } finally {
+    button.disabled = false;
+    button.innerHTML = label;
+  }
+}
+
+/** Fills the "Replace a file" list with the files of this personal's installed resource. */
+async function personalLoadFiles(id) {
+  const select = $("#personal-replace-target");
+  const out = $("#personal-replace-result");
+  if (!select) return;
+  try {
+    const { result } = await api("portal/personal/files", { method: "POST", body: JSON.stringify({ id }) });
+    if ($("#personal-replace-target") !== select) return;
+    select.innerHTML = result.files.length
+      ? result.files.map((file) => `<option value="${esc(file.path)}">${esc(file.path)} (${(file.size / 1048576).toFixed(2)} MB)</option>`).join("")
+      : `<option value="">No replaceable files</option>`;
+  } catch (error) {
+    select.innerHTML = `<option value="">Not available</option>`;
+    if (out) out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(error.message)}</div></div>`;
+  }
+}
+
+/** Uploads one file and swaps it in for the chosen file of the installed vehicle. */
+async function personalReplaceFile(button) {
+  const form = button.closest("form") || $("#portal-dialog form") || $("#portal-dialog");
+  const target = form.querySelector("#personal-replace-target")?.value;
+  const file = form.querySelector("#personal-replace-file")?.files?.[0];
+  const out = $("#personal-replace-result");
+  if (!target) return void (out.innerHTML = `<div class="callout warn">${icon("alert")}<div>Pick the file to replace.</div></div>`);
+  if (!file) return void (out.innerHTML = `<div class="callout warn">${icon("alert")}<div>Choose the new file first.</div></div>`);
+  const label = button.innerHTML;
+  button.disabled = true;
+  out.innerHTML = "";
+  try {
+    button.innerHTML = `<span class="spinner"></span> Uploading…`;
+    const uploadId = await uploadPersonalZip(file, (done) => { button.innerHTML = `<span class="spinner"></span> Uploading ${Math.round(done * 100)}%`; }, "file");
+    button.innerHTML = `<span class="spinner"></span> Checking and installing…`;
+    const { result } = await api("portal/personal/replace-file", { method: "POST", body: JSON.stringify({ id: Number(button.dataset.personalReplace), target, uploadId, uploadName: file.name }) });
+    out.innerHTML = `<div class="callout">${icon("check")}<div><b>Replaced ${esc(result.file)}.</b> ${(result.previousSize / 1048576).toFixed(2)} MB → ${(result.size / 1048576).toFixed(2)} MB. The old file was kept as a backup.
+      ${result.notes.length ? `<ul class="personal-import-list notes">${result.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}</div></div>`;
+    toast("Vehicle file replaced.");
+    form.querySelector("#personal-replace-file").value = "";
+    personalLoadFiles(Number(button.dataset.personalReplace));
   } catch (error) {
     out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(error.message)}</div></div>`;
   } finally {
@@ -1268,7 +1314,17 @@ function personalEditDialog(id) {
           <button class="btn btn-glass" type="button" data-personal-retune="${p.id}">${icon("sparkle")} Apply with AI</button>
           <div id="personal-retune-result"></div>
         </div>
+      </details>
+      <details class="personal-import">
+        <summary>${icon("car")}<span><b>Replace a vehicle file</b><small>Personal manager · swap one model, texture or meta file and reload it live</small></span></summary>
+        <div class="personal-import-body">
+          <label class="field">File to replace<select id="personal-replace-target"><option value="">Loading…</option></select></label>
+          <label class="field">New file <small>(must be the same type: .yft, .ytd, .ydr, .ydd or .meta)</small><input id="personal-replace-file" type="file" accept=".yft,.ytd,.ydr,.ydd,.meta,.xml"></label>
+          <button class="btn btn-glass" type="button" data-personal-replace="${p.id}">${icon("car")} Replace file</button>
+          <div id="personal-replace-result"></div>
+        </div>
       </details>` });
+  personalLoadFiles(p.id);
 }
 
 function personalOwnerDialog(id) {
@@ -2029,6 +2085,8 @@ $("#portal-dialog").addEventListener("click", (event) => {
   if (convert && !convert.disabled) personalConvert(convert);
   const retuneButton = event.target.closest?.("[data-personal-retune]");
   if (retuneButton && !retuneButton.disabled) personalRetune(retuneButton);
+  const replaceButton = event.target.closest?.("[data-personal-replace]");
+  if (replaceButton && !replaceButton.disabled) personalReplaceFile(replaceButton);
   const renameButton = event.target.closest?.("[data-personal-rename]");
   if (renameButton && !renameButton.disabled) personalRename(renameButton);
 });

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFile, cp, mkdir, mkdtemp, open, readFile, readdir, realpath, rename as rename_, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, cp, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename as rename_, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +33,10 @@ const MAX_FILES = 3000;
 const MAX_BYTES = 1.5 * 1024 ** 3;
 const STREAM_EXT = new Set([".yft", ".ytd", ".ydr", ".ydd"]);
 const AUDIO_EXT = new Set([".awc", ".rel", ".nametable"]);
+/** Files the website may swap inside an installed vehicle: streamed assets and its meta files. */
+const REPLACEABLE_EXT = new Set([...STREAM_EXT, ".meta", ".xml"]);
+const REPLACE_DIRS = ["stream", "data"];
+const BACKUPS_KEPT = 5;
 const UNSUPPORTED = { ".rar": "RAR", ".7z": "7-Zip", ".oiv": "OIV installer", ".rpf": "RPF archive" };
 const SECURITY_SCRIPT_EXT = new Set([".lua", ".js", ".mjs", ".cjs", ".ts", ".py", ".rb", ".php", ".pl", ".sh", ".bash", ".ps1", ".bat", ".cmd", ".vbs", ".wsf", ".hta"]);
 const SECURITY_EXEC_EXT = new Set([".exe", ".dll", ".so", ".dylib", ".com", ".scr", ".msi", ".jar", ".class"]);
@@ -561,18 +565,26 @@ export function createPersonalImporter({ personals, audit, db }) {
     const body = await readChunk(request);
     if (!body.length) throw new Error("Empty upload chunk.");
     let id = String(params.get("id") || "");
+    // kind=file stages one replacement vehicle file instead of a whole pack.
+    const single = params.get("kind") === "file";
+    const suffix = single ? "bin" : "zip";
     if (offset === 0) {
-      if (!String(params.get("name") || "").toLowerCase().endsWith(".zip")) throw new Error("Upload a .zip file.");
-      if (body.subarray(0, 4).toString("binary") !== "PK\x03\x04") throw new Error("That file is not a zip archive.");
+      const fileName = String(params.get("name") || "").toLowerCase();
+      if (single) {
+        if (!REPLACEABLE_EXT.has(path.extname(fileName))) throw new Error(`Upload one of: ${[...REPLACEABLE_EXT].join(", ")}.`);
+      } else {
+        if (!fileName.endsWith(".zip")) throw new Error("Upload a .zip file.");
+        if (body.subarray(0, 4).toString("binary") !== "PK\x03\x04") throw new Error("That file is not a zip archive.");
+      }
       await mkdir(UPLOAD_DIR, { recursive: true, mode: 0o700 });
       await sweepUploads();
       id = randomBytes(12).toString("hex");
-      await writeFile(path.join(UPLOAD_DIR, `${id}.zip`), body, { mode: 0o600 });
+      await writeFile(path.join(UPLOAD_DIR, `${id}.${suffix}`), body, { mode: 0o600 });
     } else {
       if (!UPLOAD_ID.test(id)) throw new Error("Bad upload id.");
-      const file = path.join(UPLOAD_DIR, `${id}.zip`);
+      const file = path.join(UPLOAD_DIR, `${id}.${suffix}`);
       const info = await stat(file).catch(() => null);
-      if (!info) throw new Error("That upload expired. Upload the zip again.");
+      if (!info) throw new Error(`That upload expired. Upload the ${single ? "file" : "zip"} again.`);
       if (info.size !== offset) throw new Error("Upload out of order. Upload the zip again.");
       if (offset + body.length > total) throw new Error("Upload is larger than announced.");
       await appendFile(file, body);
@@ -912,6 +924,110 @@ export function createPersonalImporter({ personals, audit, db }) {
     return { model, resource, summary, changes, notes, shrunk };
   }
 
+  /** The importer-made resource folder of a personal vehicle, or an error when its files are not managed here. */
+  async function managedResource(personalId) {
+    const current = await personals.find(personalId);
+    const model = personals.modelOf(current.model);
+    const resource = personalResourceName(model);
+    const dir = path.join(VEHICLES_DIR, resource);
+    const marker = JSON.parse((await readFile(path.join(dir, MARKER), "utf8").catch(() => "null")) || "null");
+    if (!marker) throw new Error(`${resource} was not made by the importer, so its files are not managed here.`);
+    return { model, resource, dir, marker };
+  }
+
+  /** Files of an installed personal that can be replaced from the website (stream assets and meta files). */
+  async function listFiles(actorId, input) {
+    await personals.assertManager(actorId);
+    const { resource, dir } = await managedResource(input.id);
+    const files = [];
+    for (const sub of REPLACE_DIRS) {
+      for (const entry of await readdir(path.join(dir, sub), { withFileTypes: true }).catch(() => [])) {
+        if (!entry.isFile() || entry.name.startsWith(".") || !REPLACEABLE_EXT.has(path.extname(entry.name).toLowerCase())) continue;
+        files.push({ path: `${sub}/${entry.name}`, size: (await stat(path.join(dir, sub, entry.name))).size });
+      }
+    }
+    files.sort((a, b) => a.path.localeCompare(b.path));
+    return { resource, files };
+  }
+
+  /**
+   * Designated personal manager only: replaces one file of an installed vehicle with an uploaded one.
+   * The new file must be the same kind as the old one, passes the same security review as a pack, the
+   * old file is kept in .backup, and the vehicle is reloaded live.
+   */
+  async function replaceFile(actorId, input) {
+    await personals.assertManager(actorId);
+    const { model, resource, dir, marker } = await managedResource(input.id);
+    const target = String(input.target || "");
+    const match = /^(stream|data)\/([^/\\\0]+)$/.exec(target);
+    if (!match || match[2].startsWith(".") || !REPLACEABLE_EXT.has(path.extname(match[2]).toLowerCase()))
+      throw new Error("Pick a file from the list.");
+    const [, sub, name] = match;
+    const ext = path.extname(name).toLowerCase();
+    const targetPath = path.join(dir, sub, name);
+    const existing = await lstat(targetPath).catch(() => null);
+    if (!existing?.isFile()) throw new Error(`${target} is not in ${resource}.`);
+
+    if (!UPLOAD_ID.test(String(input.uploadId || ""))) throw new Error("Bad upload id.");
+    const uploaded = path.join(UPLOAD_DIR, `${input.uploadId}.bin`);
+    const info = await stat(uploaded).catch(() => null);
+    if (!info) throw new Error("That upload expired. Upload the file again.");
+    const uploadName = text(input.uploadName, 120);
+    if (path.extname(uploadName).toLowerCase() !== ext) throw new Error(`${name} is a ${ext} file, so the replacement must be a ${ext} file too.`);
+    if (info.size < 16) throw new Error("That file is empty.");
+
+    if (STREAM_EXT.has(ext)) {
+      const head = await readFile(uploaded).then((buffer) => buffer.subarray(0, 4).toString("binary"));
+      if (!head.startsWith("RSC")) throw new Error(`That is not a valid ${ext} game asset.`);
+    } else {
+      if (info.size > 8 * 1024 * 1024) throw new Error("Meta files can be up to 8 MB.");
+      const xml = await readFile(uploaded, "utf8");
+      const oldXml = await readFile(targetPath, "utf8");
+      const kind = META_TYPES.find((t) => new RegExp(`<\\s*${t.root}\\b`).test(oldXml));
+      if (kind && !new RegExp(`<\\s*${kind.root}\\b`).test(xml)) throw new Error(`${name} must be a ${kind.dataFile} meta file (<${kind.root}>).`);
+      if (/<!(?:ENTITY|DOCTYPE)/i.test(xml)) throw new Error("Meta files cannot declare XML entities or doctypes.");
+    }
+
+    // Same gate as a whole pack: the file is checked alone, under the name it will have.
+    const scratch = await mkdtemp(path.join(tmpdir(), "fbrp-pv-replace-"));
+    try {
+      const staged = path.join(scratch, name);
+      await cp(uploaded, staged);
+      const security = await reviewVehicleSecurity([{ full: staged, rel: name, name, ext, size: info.size }]);
+      if (!security.passed) {
+        await audit(actorId, "personal.replace.blocked", target, { resource, verdict: security.verdict, summary: security.summary, findings: security.findings.slice(0, 20) }).catch(() => null);
+        const reasons = security.findings.filter((f) => f.severity === "critical" || f.severity === "warning").slice(0, 3).map((f) => `${f.file}: ${f.reason}`);
+        throw new Error(`Security check blocked this file. ${reasons.join(" ") || security.summary || "The AI could not verify that it is safe."}`);
+      }
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+
+    const backupDir = path.join(dir, ".backup");
+    await mkdir(backupDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    await cp(targetPath, path.join(backupDir, `${stamp}__${sub}__${name}`));
+    const old = (await readdir(backupDir)).filter((entry) => entry.endsWith(`__${sub}__${name}`)).sort();
+    for (const entry of old.slice(0, Math.max(0, old.length - BACKUPS_KEPT))) await rm(path.join(backupDir, entry), { force: true });
+
+    const next = path.join(dir, `.replace-${randomBytes(6).toString("hex")}`);
+    await cp(uploaded, next);
+    await rename_(next, targetPath);
+    await rm(uploaded, { force: true });
+
+    const history = Array.isArray(marker.replacements) ? marker.replacements : [];
+    history.push({ at: Date.now(), by: String(actorId), file: target, from: existing.size, to: info.size });
+    await writeFile(path.join(dir, MARKER), JSON.stringify({ ...marker, replacements: history.slice(-50) }, null, 2));
+
+    const notes = [];
+    const started = await callGame("/personals/install", { resource, model }).catch(() => null);
+    if (started?.state === "in_use") notes.push("Someone has this vehicle spawned right now, so the new file loads after the next server restart.");
+    else if (!(started?.ok && (started.state === "started" || started.state === "restarted"))) notes.push("Could not reload it live. It loads on the next server restart.");
+    else notes.push("It was reloaded live. Players already online should reconnect to get the change.");
+    await audit(actorId, "personal.replace", resource, { file: target, from: existing.size, to: info.size, live: notes.length === 1 && notes[0].startsWith("It was reloaded") });
+    return { model, resource, file: target, size: info.size, previousSize: existing.size, notes };
+  }
+
   /** Personal edits that change the model of an imported vehicle carry its resource along. */
   async function followModelChange(actorId, input) {
     if (input.model === undefined) return null;
@@ -924,5 +1040,5 @@ export function createPersonalImporter({ personals, audit, db }) {
     return rename(actorId, { model: current.model, newModel: next });
   }
 
-  return { convert, rename, retune, followModelChange, uploadChunk };
+  return { convert, rename, retune, listFiles, replaceFile, followModelChange, uploadChunk };
 }
