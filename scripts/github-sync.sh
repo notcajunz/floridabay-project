@@ -127,6 +127,9 @@ for path in sys.argv[1:]:
         if not match or not secret_key.search(match.group(1)):
             continue
         value = match.group(2).strip().strip("\"'")
+        # Paths to key files (FBRP_GAME_SSH_KEY=/home/...) are configuration, not secret material.
+        if re.match(r"^(/|~/|\./|\.\./)[^\s]*$", value):
+            continue
         if len(value) >= 12:
             print(value)
 PY
