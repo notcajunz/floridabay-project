@@ -17,6 +17,7 @@ test("coordination ranks and manager rules use distinct snowflakes", () => {
   ]);
   const dev = config.MANAGER_ROLE_RULES.find((rule) => rule.key === "dev");
   assert.equal(dev.devopsMinLevel, 5);
+  assert.equal(dev.networkTop, false, "Owner/Co-Owner are not dev managers");
 });
 
 test("Dev Manager+ comes from active DevOps roster members at Development Manager or above", async () => {

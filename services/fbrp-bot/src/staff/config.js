@@ -94,6 +94,8 @@ export const MANAGER_ROLE_RULES = [
     devopsMinLevel: 5,
     sourceGuild: null,
     sourceRoles: [],
+    // Only the dev team: network leadership (Owner, Co-Owner) does not get this role by outranking it.
+    networkTop: false,
   },
 ];
 
