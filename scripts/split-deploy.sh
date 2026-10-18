@@ -11,6 +11,7 @@ readonly GAME_KEY=/home/ubuntu/.ssh/fbrp-game
 readonly REMOTE=agent-origin
 readonly -a CONTROL_USER_UNITS=(
   businesses-bot.service
+  departments-armedforces-bot.service
   departments-bot.service
   dohs-bot.service
   devops-bot.service

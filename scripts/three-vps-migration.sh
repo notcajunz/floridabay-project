@@ -21,6 +21,7 @@ readonly GAME_REVERSE_SSH_PORT="2222"
 
 readonly -a CONTROL_USER_UNITS=(
   businesses-bot.service
+  departments-armedforces-bot.service
   departments-bot.service
   dohs-bot.service
   devops-bot.service
@@ -573,6 +574,8 @@ EOF
 }
 
 write_user_unit businesses-bot 'FBRP Business Manager Discord bot' "$root/services/businessmanager" "$root/services/businessmanager/.venv/bin/python -m businessbot"
+write_user_unit departments-armedforces-bot 'FBRP Department Manager Discord bot (Armed Forces)' "$root/services/deptmanager" "$root/services/deptmanager/.venv/bin/python -m deptbot" "Environment=CONFIG_PATH=config.armedforces.toml
+Environment=DATABASE_PATH=department_manager_armedforces.db"
 write_user_unit departments-bot 'FBRP Department Manager Discord bot' "$root/services/deptmanager" "$root/services/deptmanager/.venv/bin/python -m deptbot"
 write_user_unit dohs-bot 'FBRP DOHS Assistant Discord bot' "$root/services/dohsbot" "$root/services/dohsbot/.venv/bin/python -m dohsbot" "EnvironmentFile=-$root/services/deptmanager/.env
 EnvironmentFile=$root/services/dohsbot/.env"
@@ -627,7 +630,7 @@ sudo systemctl daemon-reload
 sudo systemctl disable --now fbrp-bot.service caddy.service 2>/dev/null || true
 systemctl --user daemon-reload
 systemctl --user disable --now \
-  businesses-bot.service departments-bot.service dohs-bot.service devops-bot.service \
+  businesses-bot.service departments-armedforces-bot.service departments-bot.service dohs-bot.service devops-bot.service \
   gangs-bot.service iaa-bot.service personals-bot.service \
   role-manager-bot.service staff-bot.service 2>/dev/null || true
 
@@ -950,7 +953,7 @@ for attempt in $(seq 1 60); do
 done
 curl -fsS http://127.0.0.1:8080/ >/dev/null
 systemctl --user enable --now \
-  businesses-bot.service departments-bot.service dohs-bot.service devops-bot.service \
+  businesses-bot.service departments-armedforces-bot.service departments-bot.service dohs-bot.service devops-bot.service \
   gangs-bot.service iaa-bot.service personals-bot.service \
   role-manager-bot.service staff-bot.service
 sudo systemctl enable --now caddy.service
@@ -991,7 +994,7 @@ set -Eeuo pipefail
 db_port="$1"
 game_port="$2"
 required_system=(fbrp-bot.service caddy.service)
-required_user=(fbrp-game-tunnel.service fbrp-vehicles-sshfs.service fbrp-eup-sshfs.service fbrp-vmenu-config-sshfs.service businesses-bot.service departments-bot.service dohs-bot.service devops-bot.service gangs-bot.service iaa-bot.service personals-bot.service role-manager-bot.service staff-bot.service)
+required_user=(fbrp-game-tunnel.service fbrp-vehicles-sshfs.service fbrp-eup-sshfs.service fbrp-vmenu-config-sshfs.service businesses-bot.service departments-armedforces-bot.service departments-bot.service dohs-bot.service devops-bot.service gangs-bot.service iaa-bot.service personals-bot.service role-manager-bot.service staff-bot.service)
 for unit in "${required_system[@]}"; do
   state="$(sudo systemctl is-active "$unit" 2>/dev/null || true)"
   printf '%-42s %s\n' "$unit" "$state"
@@ -1109,7 +1112,7 @@ rollback() {
 set -Eeuo pipefail
 sudo systemctl disable --now caddy.service fbrp-bot.service 2>/dev/null || true
 systemctl --user disable --now \
-  businesses-bot.service departments-bot.service dohs-bot.service devops-bot.service \
+  businesses-bot.service departments-armedforces-bot.service departments-bot.service dohs-bot.service devops-bot.service \
   gangs-bot.service iaa-bot.service personals-bot.service \
   role-manager-bot.service staff-bot.service fbrp-vehicles-sshfs.service \
   fbrp-eup-sshfs.service fbrp-vmenu-config-sshfs.service \
