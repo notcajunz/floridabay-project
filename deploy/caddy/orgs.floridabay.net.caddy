@@ -1,0 +1,19 @@
+# Organization website. Append to /etc/caddy/Caddyfile on the control VPS and
+# reload Caddy. It needs a DNS A record for orgs.floridabay.net pointing at the
+# control VPS. Until that host answers, the same app is served at
+# https://floridabay.net/orgs and the site links there automatically.
+orgs.floridabay.net {
+	encode zstd gzip
+	request_body {
+		max_size 2MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8080
+}

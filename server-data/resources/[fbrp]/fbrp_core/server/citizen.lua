@@ -91,7 +91,7 @@ function C.details(characterId)
         heightCm=tonumber(row.height_cm), weightKg=tonumber(row.weight_kg),
         eyeColor=row.eye_color, hairColor=row.hair_color, bloodType=row.blood_type,
         organDonor=truthy(row.organ_donor), occupation=row.occupation, address=row.address,
-        phone=row.phone, emergencyContact=row.emergency_contact, marks=row.marks,
+        phone=row.phone, phoneFromDevice=truthy(row.phone_from_device), emergencyContact=row.emergency_contact, marks=row.marks,
         theme=row.id_theme or 'classic',
         showAddress=truthy(row.show_address), showPhone=truthy(row.show_phone),
         showLicenses=row.show_licenses == nil or truthy(row.show_licenses),
@@ -285,7 +285,11 @@ ACTIONS.saveDetails = function(src, characterId, data, row)
         if not blood then return fail(src, 'Pick a blood type from the list.') end
     end
     local phone = optional(data.phone, 16)
-    if phone then
+    -- The character's phone (sky_phone) owns its number once one is issued.
+    local issued = MySQL.single.await('SELECT phone FROM character_profiles WHERE character_id=? AND phone_from_device=TRUE', { row.id })
+    if issued then
+        phone = issued.phone
+    elseif phone then
         if not phone:match('^[%d%s%-%(%)%+]+$') then return fail(src, 'Phone numbers use digits, spaces, dashes and brackets.') end
         local digits = #phone:gsub('%D', '')
         if digits < 7 or digits > 11 then return fail(src, 'Phone numbers need 7 to 11 digits.') end
@@ -422,3 +426,17 @@ RegisterNetEvent('fbrp:citizen:action', function(kind, data)
 end)
 
 AddEventHandler('playerDropped', function() lastAction[source] = nil end)
+
+-- sky_phone issues every character a persistent number when it is selected.
+-- Mirror it onto the citizen record so the ID card and MDT phone lookup match.
+AddEventHandler('fbrp:phone:number', function(source, characterId, number)
+    if GetInvokingResource() ~= 'sky_phone' then return end
+    source, characterId = tonumber(source), tonumber(characterId)
+    local digits = tostring(number or ''):gsub('%D', '')
+    if not source or not characterId or characterOf(source) ~= characterId or #digits < 7 or #digits > 11 then return end
+    local phone = formatPhone(digits)
+    MySQL.prepare.await([[
+        INSERT INTO character_profiles(character_id,phone,phone_from_device,updated_at) VALUES(?,?,TRUE,?)
+        ON DUPLICATE KEY UPDATE phone=VALUES(phone),phone_from_device=TRUE,updated_at=VALUES(updated_at)
+    ]], { characterId, phone, now() })
+end)

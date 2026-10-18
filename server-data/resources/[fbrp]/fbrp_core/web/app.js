@@ -2043,7 +2043,7 @@ function citizenDetails(p) {
   return `<form id="citizen-details-form" class="mdt-form">
       <div class="eyebrow">About you</div>
       <div class="mdt-form-row"><label>Nickname<input class="mdt-input" name="nickname" maxlength="40" value="${esc(d.nickname || "")}" placeholder="Optional"></label><label>Nationality<input class="mdt-input" name="nationality" maxlength="40" value="${esc(d.nationality || "")}" placeholder="American"></label></div>
-      <div class="mdt-form-row"><label>Occupation<input class="mdt-input" name="occupation" maxlength="60" value="${esc(d.occupation || "")}" placeholder="Charter captain"></label><label>Phone<input class="mdt-input" name="phone" maxlength="16" value="${esc(d.phone || "")}" placeholder="555-0123"></label></div>
+      <div class="mdt-form-row"><label>Occupation<input class="mdt-input" name="occupation" maxlength="60" value="${esc(d.occupation || "")}" placeholder="Charter captain"></label><label>Phone${d.phoneFromDevice ? " (your phone)" : ""}<input class="mdt-input" name="phone" maxlength="16" value="${esc(d.phone || "")}" placeholder="555-0123"${d.phoneFromDevice ? " readonly title=\"This is your phone's number. Open the phone with the Up arrow or /phone.\"" : ""}></label></div>
       <label>Home address<input class="mdt-input" name="address" maxlength="120" value="${esc(d.address || "")}" placeholder="12 Seagrape Way, Florida Bay"></label>
       <label>Emergency contact<input class="mdt-input" name="emergencyContact" maxlength="80" value="${esc(d.emergencyContact || "")}" placeholder="Name and number"></label>
       <div class="eyebrow spaced">Description</div>

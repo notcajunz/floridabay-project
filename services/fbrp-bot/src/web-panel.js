@@ -16,6 +16,7 @@ import { findLinkedAccounts } from "./alts.js";
 import { organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
 import { lookupAnyCase } from "./case-lookup.js";
 import { MAX_TRUSTED, MAX_TRUSTED_WITH_TAG } from "./personals.js";
+import { createOrgsSite, orgsApiAllowed, orgsStaticPath, safeNext } from "./orgs-site.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -926,10 +927,12 @@ async function bodyJson(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function serveStatic(request, response) {
+async function serveStatic(request, response, forced = null) {
   const url = new URL(request.url, "http://localhost");
   const aliases = {
     "/": "index.html",
+    "/orgs": "orgs/index.html",
+    "/orgs/": "orgs/index.html",
     "/portal": "portal.html",
     "/verify": "verify.html",
     "/transcript": "transcript.html",
@@ -938,7 +941,7 @@ async function serveStatic(request, response) {
     "/auth/callback.html": "callback.html",
     "/assets/fbrp-logo.png": "@logo",
   };
-  const requested = aliases[url.pathname] || url.pathname.slice(1);
+  const requested = forced || aliases[url.pathname] || url.pathname.slice(1);
   const filename = requested === "@logo" ? logoFile : path.resolve(webRoot, requested);
   if (!filename.startsWith(`${webRoot}${path.sep}`) && filename !== path.join(webRoot, "index.html")) {
     if (filename !== logoFile) {
@@ -983,6 +986,10 @@ export function startWebPanel(context) {
     websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard,
     hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, personalImporter, customAssets, log,
   } = context;
+  const orgsSite = createOrgsSite({ db, economy, client, resolvePeople: (...args) => resolvePeople(...args), publicLocation });
+  void orgsSite.probe();
+  setInterval(() => void orgsSite.probe(), 300000).unref();
+  const requestHost = (request) => String((trustedProxy(request) && request.headers["x-forwarded-host"]) || request.headers.host || "").split(",")[0].trim().toLowerCase();
 
   const cookieFor = (request, name, value, maxAge) => {
     const base = baseFor(request);
@@ -1129,6 +1136,22 @@ export function startWebPanel(context) {
       gameUnban: Boolean(gameUnban),
       commandReference,
     };
+  }
+
+  /** Start Discord sign-in: the authorize URL and the state cookie that must come back with it. */
+  function discordAuthorize(request, next) {
+    if (oauthStates.size > 1000)
+      for (const [key, value] of oauthStates) if (value.expires < Date.now()) oauthStates.delete(key);
+    const state = randomBytes(24).toString("base64url");
+    oauthStates.set(state, { expires: Date.now() + 10 * 60000, address: clientAddress(request), next });
+    const authorize = new URL("https://discord.com/oauth2/authorize");
+    authorize.searchParams.set("client_id", String(process.env.DISCORD_APPLICATION_ID || client.application?.id || client.user.id));
+    authorize.searchParams.set("redirect_uri", `${baseUrl(request)}/auth/callback.html`);
+    authorize.searchParams.set("response_type", "token");
+    authorize.searchParams.set("scope", "identify connections guilds guilds.join");
+    authorize.searchParams.set("state", state);
+    authorize.searchParams.set("prompt", "consent");
+    return { url: authorize.toString(), cookie: stateCookie(request, state) };
   }
 
   function sameOrigin(request) {
@@ -1559,9 +1582,9 @@ export function startWebPanel(context) {
       websiteTicketPriorities(),
     ]);
     const appealData = await appeals.memberData(session.id, punishments);
-    const [exams, orgEconomy, personalVehicles, customAssetData] = await Promise.all([
+    const [exams, orgCount, personalVehicles, customAssetData] = await Promise.all([
       staffExams ? staffExams.portalData(session.id).catch((error) => { console.error("[FBRP panel] exams:", error); return null; }) : null,
-      economy ? economy.portalData(session.id).catch((error) => { console.error("[FBRP panel] economy:", error); return null; }) : null,
+      economy ? economy.memberships(session.id).then((rows) => rows.length).catch(() => 0) : 0,
       personals ? personals.portalData(session.id).catch((error) => { console.error("[FBRP panel] personals:", error); return null; }) : null,
       customAssets ? customAssets.portalData(session.id).catch((error) => { console.error("[FBRP panel] custom assets:", error); return null; }) : null,
     ]);
@@ -1569,7 +1592,8 @@ export function startWebPanel(context) {
       user,
       access,
       exams,
-      economy: orgEconomy,
+      // Organizations live on their own website (orgs.floridabay.net).
+      orgsSite: { url: orgsSite.url(), count: orgCount },
       personals: personalVehicles,
       customAssets: customAssetData,
       verified: { discord: true, game: Boolean(player), gameName: player?.name || null, lastSeen: player?.last_seen || null },
@@ -1604,7 +1628,6 @@ export function startWebPanel(context) {
       ...appealData.appeals.map((row) => row.reviewed_by),
       ...(exams?.reviewQueue || []).flatMap((row) => [row.discord_id, row.reviewer_id]),
       ...(personalVehicles?.all || personalVehicles?.mine || []).flatMap((row) => [row.owner_id, ...row.trusted.map((item) => item.discord_id)]),
-      ...(orgEconomy?.organizations || []).flatMap((org) => [...org.leaders, ...org.transactions.map((row) => row.actor_id), ...org.purchases.map((row) => row.purchased_by), ...(org.roster || []).map((row) => row.discord_id)]),
     ]);
     return data;
   }
@@ -1645,6 +1668,31 @@ export function startWebPanel(context) {
         return sendJson(response, 429, { error: "Too many requests. Try again shortly." }, { "Retry-After": "10" });
       }
       const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+      if (orgsSite.isOrgsHost(requestHost(request))) {
+        // The organization website's own host: one-time sign-in handoff, its app and its API only.
+        if (request.method === "GET" && url.pathname === "/auth/handoff") {
+          const discordId = orgsSite.redeemTicket(url.searchParams.get("ticket"));
+          if (!discordId) {
+            response.writeHead(302, { Location: "/?signin=expired", "Cache-Control": "no-store" });
+            return response.end();
+          }
+          const user = await client.users.fetch(discordId).catch(() => null);
+          const raw = await createSession(user || { id: discordId, username: discordId });
+          await audit(discordId, "portal.login", discordId, { method: "orgs_handoff" });
+          response.writeHead(302, { Location: safeNext(url.searchParams.get("next")), "Set-Cookie": sessionCookie(request, raw), "Cache-Control": "no-store" });
+          return response.end();
+        }
+        if (url.pathname === "/api/orgs/handoff") {
+          response.writeHead(302, { Location: `${publicLocation.origin}${url.pathname}${url.search}`, "Cache-Control": "no-store" });
+          return response.end();
+        }
+        if (!url.pathname.startsWith("/api/")) {
+          const file = orgsStaticPath(url.pathname);
+          if (!file) return response.writeHead(404).end("Not found");
+          return serveStatic(request, response, file);
+        }
+        if (!orgsApiAllowed(url.pathname)) return sendJson(response, 404, { error: "Not found." });
+      }
       if (!url.pathname.startsWith("/api/")) {
         if (["/control", "/control.html"].includes(url.pathname)) {
           const session = await sessionFor(request);
@@ -1784,20 +1832,30 @@ export function startWebPanel(context) {
       }
 
       if (request.method === "GET" && url.pathname === "/api/auth/start") {
-        if (oauthStates.size > 1000)
-          for (const [key, value] of oauthStates) if (value.expires < Date.now()) oauthStates.delete(key);
-        const state = randomBytes(24).toString("base64url");
         const requestedNext = String(url.searchParams.get("next") || "");
-        const next = requestedNext === "verify" ? "verify" : /^transcript:\d{1,20}$/.test(requestedNext) ? requestedNext : "portal";
-        oauthStates.set(state, { expires: Date.now() + 10 * 60000, address: clientAddress(request), next });
-        const authorize = new URL("https://discord.com/oauth2/authorize");
-        authorize.searchParams.set("client_id", String(process.env.DISCORD_APPLICATION_ID || client.application?.id || client.user.id));
-        authorize.searchParams.set("redirect_uri", `${baseUrl(request)}/auth/callback.html`);
-        authorize.searchParams.set("response_type", "token");
-        authorize.searchParams.set("scope", "identify connections guilds guilds.join");
-        authorize.searchParams.set("state", state);
-        authorize.searchParams.set("prompt", "consent");
-        return sendJson(response, 200, { url: authorize.toString() }, { "Set-Cookie": stateCookie(request, state) });
+        const next = ["verify", "orgs"].includes(requestedNext) ? requestedNext : /^transcript:\d{1,20}$/.test(requestedNext) ? requestedNext : "portal";
+        const authorize = discordAuthorize(request, next);
+        return sendJson(response, 200, { url: authorize.url }, { "Set-Cookie": authorize.cookie });
+      }
+
+      // Organization website. Public directory first, then the sign-in handoff from this (main) host.
+      if (request.method === "GET" && url.pathname === "/api/orgs/public") {
+        return sendJson(response, 200, { ...(await orgsSite.directory()), links: { signin: `${publicLocation.origin}/api/orgs/handoff`, home: publicLocation.origin, orgs: orgsSite.url() } });
+      }
+      if (request.method === "GET" && url.pathname === "/api/orgs/handoff") {
+        const next = safeNext(url.searchParams.get("next"));
+        const current = await sessionFor(request);
+        if (!current) {
+          const authorize = discordAuthorize(request, "orgs");
+          response.writeHead(302, { Location: authorize.url, "Set-Cookie": authorize.cookie, "Cache-Control": "no-store" });
+          return response.end();
+        }
+        const target = orgsSite.url();
+        const location = target.startsWith(`https://${orgsSite.host}`)
+          ? `${target}/auth/handoff?ticket=${encodeURIComponent(orgsSite.issueTicket(current))}&next=${encodeURIComponent(next)}`
+          : target;
+        response.writeHead(302, { Location: location, "Cache-Control": "no-store" });
+        return response.end();
       }
 
       if (request.method === "POST" && url.pathname === "/api/auth/discord") {
@@ -1881,8 +1939,15 @@ export function startWebPanel(context) {
 
       if (request.method === "GET" && url.pathname === "/api/portal/bootstrap")
         return sendJson(response, 200, await portalBootstrap(session));
-      if (request.method === "GET" && url.pathname === "/api/portal/org/live")
-        return sendJson(response, 200, { economy: await economy.portalData(session.id), generatedAt: Date.now() });
+      if (request.method === "GET" && url.pathname === "/api/orgs/data")
+        return sendJson(response, 200, await orgsSite.data(session));
+      if (request.method === "GET" && url.pathname === "/api/orgs/roles")
+        return sendJson(response, 200, { servers: await orgsSite.roles(session, url.searchParams.get("org")) });
+      if (url.pathname.startsWith("/api/orgs/")) {
+        if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
+        const result = await orgsSite.action(session, url.pathname.slice("/api/orgs/".length), await bodyJson(request));
+        return sendJson(response, 200, { ok: true, result: JSON.parse(JSON.stringify(result ?? null, (key, value) => (key === "org" ? undefined : value))), data: await orgsSite.data(session) });
+      }
       if (request.method === "GET" && url.pathname === "/api/portal/command-reference") {
         const access = await accessFor(session.id);
         if (!access.commandReference)
@@ -1957,15 +2022,6 @@ export function startWebPanel(context) {
         else if (url.pathname === "/api/portal/exam/submit") result = await staffExams.submit(session, input);
         else if (url.pathname === "/api/portal/exam/review") result = await staffExams.review(session, input);
         else if (url.pathname === "/api/portal/exam/withdraw") result = await staffExams.withdraw(session, input);
-        else if (url.pathname === "/api/portal/org/purchase") result = await economy.purchase(session, input);
-        else if (url.pathname === "/api/portal/org/sell") result = await economy.sellItem(session, input);
-        else if (url.pathname === "/api/portal/org/transfer") result = await economy.transfer(session.id, input);
-        else if (url.pathname === "/api/portal/org/rank") result = await economy.saveRank(session.id, input);
-        else if (url.pathname === "/api/portal/org/rank/delete") result = await economy.deleteRank(session.id, input);
-        else if (url.pathname === "/api/portal/org/member") result = await economy.setMemberRank(session.id, input);
-        else if (url.pathname === "/api/portal/org/motd") result = await economy.setMotd(session.id, input);
-        else if (url.pathname === "/api/portal/org/adjust") result = await economy.adjust(session.id, input);
-        else if (url.pathname === "/api/portal/org/leader") result = await economy.setLeader(session.id, input);
         else if (url.pathname === "/api/portal/personal/create") result = await personals.create(session.id, input);
         else if (url.pathname === "/api/portal/personal/update") {
           // Changing the model of an imported vehicle renames its files too, or the garage would say "not installed".

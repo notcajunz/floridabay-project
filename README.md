@@ -19,6 +19,7 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 - Police MDT (`/mdt`): dispatch dashboard (calls with priorities and a recently-closed list, units, inmates, fugitives), citizen lookup by name, former name, nickname, citizen number, phone, birth date or plate, with citizen details, aliases, criminal history, warrants and registered vehicles, citations and sentencing against a Florida penal code, warrants, BOLOs (auto-close after 72h), plate lookups, report addenda, and license suspension/revocation controls. Also `/runplate` (vehicle ahead), `/impound`, `/spikes`, GSR swabs, `/bodycam`, and `/respond <call>` for GPS to any 911/311/EMS call.
 - Vehicle registry: garage spawns register automatically; `/registervehicle`, `/myvehicles`, `/reportstolen`, `/recovered`.
 - Medical: players go down instead of dying, can send an EMS distress signal (G), and after 3 minutes bleed out to a hospital respawn (or the prison infirmary). EMS revive, treat and diagnose through the third eye; staff `/revive`. `/911` now reaches police and EMS; `/311` is non-emergency.
+- Character phone (sky_phone 1.1.7 with a Florida Bay bridge; Up arrow or `/phone`): calls over pma-voice, contacts, messages and group chats, mail, camera and photos, notes, social apps, the company directory (law enforcement on duty answers 911, fire/rescue answers 913) and per-device settings. Every character picked at spawn has its own phone: number, contacts, messages, accounts and settings switch with the character. The number is issued on selection and shown on the citizen record and ID card. See `sky_phone/FLORIDA_BAY.md`.
 - ID cards (`/showid`, third eye "Show my ID"; police checks flag active warrants). Civilians use `/citizen` (or the interaction menu) to edit their character: name, birth date and gender (once every 7 days, former names stay visible to police), descriptors, address and phone, ID card design and what it shows, instantly issue, restrict or surrender licenses, and report their vehicles stolen.
 - Emotes: F3 menu or `/e <name>` (55 emotes, some with props), X hands up / cancel, B point.
 - Fishing (`/fish`): salt- and freshwater species around Florida Bay, a reel-in mini-game, personal bests, server records (`/fishlog`, `/fishtop`).
@@ -78,6 +79,23 @@ manager, and ticket operations workspace.
 New members who have not verified are kept in an `FBRP | Unverified` waiting
 role instead of being kicked. That role can only see the configured verification
 channel; completing verification swaps it for the community-member role.
+
+Organizations have their own website at `orgs.floridabay.net` (served by the
+same process; until that host answers over HTTPS the app runs at
+`floridabay.net/orgs` and every link points there). It has a public directory
+of every gang, business and department and, after Discord sign-in, each
+organization's wallet, transfers, shop, properties, ledger, roster, activity
+and a customizable rank ladder. The owner recorded by `/gang add`,
+`/business add` or `/dept add` (the department head) and every holder of the
+organization's command role run it with full access: they create, edit, delete
+and reorder ranks, choose each rank's colour, description and permissions
+(spend with a daily limit, sell, manage the roster, edit lower ranks, message of
+the day, ledger, armory, garage), bind up to six Discord roles to each rank and
+appoint leaders. Role sync gives members their rank's roles and removes other
+ranks' roles; auto-rank instead ranks members by the bound roles they hold in
+Discord. Owners and command are read read-only from the manager bots' SQLite
+registries (`FBRP_GANG_DB`, `FBRP_BUSINESS_DB`, `FBRP_DEPARTMENT_DBS`
+override the default paths). The main portal links out to it.
 
 The original live configuration plane remains available inside the portal and
 is hard-restricted to Discord user `1090083387638812755`. It covers global role
@@ -157,6 +175,7 @@ Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11
 | Control | Action |
 |---|---|
 | F1 | vMenu |
+| Up arrow | Phone (`/phone`) |
 | M | Florida Bay interaction menu |
 | F4 | Coastal Passport and daily field notes |
 | Hold Left Alt | Third-eye player interactions (hover the eye over a nearby player) |
@@ -198,6 +217,8 @@ The stock vMenu vehicle spawner is not granted. Players use the F7 garage; edit 
 - `services/fbrp-bot/src/role-manager-bot.js`: dedicated delegated-role bot.
 - `server-data/resources/[discord]`: Badger compatibility adapters.
 - `server-data/resources/[standalone]/fbrp_chat`: Florida Bay's custom proximity roleplay chat resource.
+- `server-data/resources/[standalone]/sky_phone`: the character phone; `server-data/config/phone.cfg` starts it.
+- `services/fbrp-bot/web/orgs`, `src/orgs-site.js`, `src/org-authority.js`: the organization website.
 - `server-data/resources/[fbrp]/fbrp_loading`: loading screen and primary logo.
 - `server-data/config`: vMenu, voice, EasyAdmin, and static ACE configuration.
 - `docker-compose.yml`: local MariaDB deployment.

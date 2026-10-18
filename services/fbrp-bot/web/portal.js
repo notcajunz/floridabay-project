@@ -70,7 +70,6 @@ const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[name
 
 /* ---------- state ---------- */
 const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, investigation: null, investigationLoading: false, caseLookup: null, caseLookupLoading: false, filters: {}, commandReference: null };
-let economySyncing = false;
 const filter = (key, fallback = "") => state.filters[key] ?? fallback;
 
 async function api(path, options = {}) {
@@ -135,7 +134,7 @@ function nav() {
   const exams = data.exams || {};
   const showExams = (exams.exams || []).length > 0 || (exams.applications || []).length > 0;
   const pendingExams = (exams.reviewQueue || []).filter((row) => ["submitted", "under_review"].includes(row.status)).length;
-  const orgs = data.economy?.organizations || [];
+  const orgCount = Number(data.orgsSite?.count || 0);
   const groups = [
     ["Account", [
       ["dashboard", "Dashboard", "home"],
@@ -145,7 +144,7 @@ function nav() {
     ["Community", [
       ["roster", "Staff roster", "users"],
       ...(data.profile ? [["profile", "My staff profile", "user"]] : []),
-      ...(orgs.length || access.orgAdmin ? [["organizations", "Organizations", "wallet"]] : []),
+      ...(orgCount || access.orgAdmin ? [["organizations", "Organizations", "wallet"]] : []),
       ...(data.personals && ((data.personals.mine || []).length || data.personals.manage) ? [["personals", "Personal vehicles", "car"]] : []),
       ...(data.customAssets ? [["eup", "Custom EUP", "shirt"]] : []),
     ]],
@@ -225,6 +224,7 @@ function dashboard() {
           <button type="button" data-open-ticket style="--tone:255 122 69"><span class="feed-ico">${icon("life")}</span><div><b>Get support</b><small>Open a private ticket with staff</small></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>
           <button type="button" data-view="punishments" style="--tone:143 124 255"><span class="feed-ico">${icon("scale")}</span><div><b>Appeal a punishment</b><small>Use the case ID from your DM</small></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>
           <button type="button" data-view="roster" style="--tone:53 226 205"><span class="feed-ico">${icon("users")}</span><div><b>Meet the staff</b><small>Live roster with activity</small></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>
+          <a href="${esc(d.orgsSite?.url || "/orgs")}" target="_blank" rel="noopener" style="--tone:255 122 69"><span class="feed-ico">${icon("building")}</span><div><b>Organizations</b><small>Gangs, businesses and departments</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>
           ${d.access.owner ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Live configuration</b><small>Owner control plane</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : d.access.orgAdmin ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Organization admin</b><small>Create and edit every organization</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : ""}
         </div>
       </section>
@@ -771,219 +771,20 @@ function examReviewDialog(id) {
   });
 }
 
-/* ---------- organizations ---------- */
-const TYPE_LABEL = { gang: "Gang", business: "Business", leo: "Law enforcement", fire: "Fire & rescue", government: "Government", other: "Organization" };
-const BUSINESS_LABEL = { mechanic: "Mechanic", bar: "Bar", club: "Nightclub", restaurant: "Restaurant", warehouse: "Warehouse", lab: "Drug lab", hideout: "Hideout" };
-const PROPERTY_SPOTS = [
-  ["door, door2, door3", "Where the property's entrances are. Every door within about 12 m of one is locked. Members of the owning gang or business press E at it to unlock or lock the doors, and anyone with an explosive can breach a locked one."],
-  ["terminal", "The work spot. On duty, press E here to run a shift and earn for the organization. Mechanics and serving businesses also use it for repairs and customers."],
-  ["bar", "The bar counter at a bar, club or restaurant. Aim at it with the third eye to serve drinks and meals to customers. Without a bar spot nobody can serve."],
-  ["stash", "A hideout's stash. Members guard it here for a small income. It replaces the terminal at a hideout."],
-  ["armory", "Where members open the organization armory and draw their permitted loadout, if their rank allows it."],
-  ["wardrobe", "Where members change into the organization's outfits."],
-];
-
-function propertySetupGuide(org) {
-  const rows = PROPERTY_SPOTS.map(([name, text]) => `<div class="feed-row"><div class="feed-ico">${icon("pin")}</div><div class="txt"><b class="mono">${esc(name)}</b><small>${esc(text)}</small></div></div>`).join("");
-  return `<section class="card">
-    <div class="card-head"><div><h2>Set up a property</h2><p>A new property does nothing, and its doors stay unlocked, until its spots are placed by hand. Nothing is guessed.</p></div></div>
-    <div class="card-body">
-      <div class="callout">${icon("info")}<div><b>Leaders and ranks that manage the roster</b> can place spots for ${esc(org.name)} themselves in game. Go to the exact spot, run <kbd>/propset terminal</kbd> (or another spot name below), check the preview marker under your feet, then press <kbd>E</kbd> to confirm or <kbd>Backspace</kbd> to cancel. Run <kbd>/propset list</kbd> to see what is placed and <kbd>/propset clear terminal</kbd> to remove one. Doors that were missed or wrongly locked are fixed with <kbd>/propdoors</kbd>.</div></div>
-      <div class="callout warn">${icon("alert")}<div><b>Cannot do it yourself?</b> Open a ticket in the <b>FBRP | DevOps</b> server and ask for the <b>Development Director</b> to set up your property. Include the property name, where each spot goes (door, terminal, bar, stash, armory, wardrobe) and a screenshot of the entrance. Community Manager and above staff can also place spots.</div></div>
-    </div>
-    <div class="feed">${rows}</div>
-  </section>`;
-}
-
-const KIND_ICON = { property: "building", vehicle: "car", weapon: "target", outfit: "shirt", perk: "bolt" };
-const TX_TONE = { drug_sale: "143 124 255", business: "53 226 205", purchase: "255 122 69", adjust: "255 194 77", refund: "61 220 151", service: "85 196 255", transfer_in: "61 220 151", transfer_out: "255 122 69", seizure: "85 196 255", stipend: "53 226 205" };
-const TX_LABEL = { drug_sale: "Product sale", transfer_in: "Transfer in", transfer_out: "Transfer out", seizure: "Seizure bounty", stipend: "Duty pay" };
-const hoursText = (seconds) => `${(Number(seconds || 0) / 3600).toFixed(1)}h`;
-const selectedOrg = () => { const orgs = state.data.economy?.organizations || []; return orgs.find((o) => String(o.id) === String(filter("org-id", orgs[0]?.id))) || orgs[0]; };
-const money = (value) => `$${fmt(Math.round(Number(value || 0)))}`;
+/* ---------- organizations (moved to the orgs website) ---------- */
+const orgsUrl = () => state.data.orgsSite?.url || "/orgs";
 
 function organizationsView() {
-  const eco = state.data.economy;
-  const orgs = eco?.organizations || [];
-  if (!orgs.length && state.data.access.orgAdmin) {
-    setTitle("Community", "Organizations");
-    $("#portal-content").innerHTML = `<section class="card">${empty("No organizations yet", "Create the first gang, business or department in organization admin.", "building")}<div style="padding:0 20px 20px"><a class="btn btn-sun" href="control.html">${icon("plus")} Organization admin</a></div></section>`;
-    return;
-  }
-  if (!orgs.length) return go("dashboard");
   setTitle("Community", "Organizations");
-  const selected = orgs.find((o) => String(o.id) === String(filter("org-id", orgs[0].id))) || orgs[0];
-  const kind = filter("shop-kind", "property");
-  const shopRows = (eco.shop || []).filter((row) => row.kind === kind && row.org_types.includes(selected.type));
-  const owned = new Set(selected.purchases.map((row) => row.item_key));
-  const perms = selected.perms || {};
-  const dept = Boolean(selected.department);
-  const itemLabel = (key) => (eco.shop || []).find((row) => row.item_key === key)?.label || key;
-  const week = selected.earningsWeek.reduce((sum, row) => sum + Number(row.total || 0), 0);
-  const drugs = selected.drugWeek || [];
-  const delivered = drugs.filter((r) => r.status === "delivered");
-  const seized = drugs.filter((r) => r.status !== "delivered").reduce((sum, row) => sum + Number(row.units || 0), 0);
-  const byKind = (k) => Number(selected.earningsWeek.find((row) => row.kind === k)?.total || 0);
-  const ledger = selected.transactions;
-  const roster = selected.roster || [];
-  const ranks = selected.ranks || [];
-  const seizedByUs = (selected.seizuresWeek || []).reduce((n, r) => n + Number(r.units || 0), 0);
-  const seizureRuns = (selected.seizuresWeek || []).reduce((n, r) => n + Number(r.runs || 0), 0);
-  const shopCard = (row) => {
-    const mine = owned.has(row.item_key);
-    const taken = row.kind === "property" && eco.owners?.[row.item_key] && !mine;
-    const left = row.stock == null ? null : Math.max(0, Number(row.stock) - Number(eco.ownedCount?.[row.item_key] || 0));
-    const soldOut = !mine && left === 0;
-    const locked = !mine && row.requires && !owned.has(row.requires);
-    const short = Number(selected.wallet.balance) < Number(row.price);
-    const data = row.data || {};
-    const facts = row.kind === "property" ? [BUSINESS_LABEL[data.business] || titleCase(data.business), data.area, data.drug ? `${titleCase(data.drug)} lab` : null]
-      : row.kind === "vehicle" ? [data.model] : row.kind === "weapon" ? (data.weapons || []).map((w) => titleCase(String(w.name).replace(/^WEAPON_/, "").toLowerCase()))
-      : row.kind === "perk" ? [`+${data.value}${["capacity"].includes(data.perk) ? " units" : "%"}`] : [];
-    if (left != null) facts.push(soldOut ? "Sold out" : `${left} of ${row.stock} left`);
-    if (row.requires) facts.push(`Requires ${itemLabel(row.requires)}`);
-    const button = mine ? (perms.ranks ? `<button class="btn btn-ghost btn-sm" type="button" data-org-sell="${esc(row.item_key)}">Sell (50%)</button>` : `<span class="pill pill-good">Owned</span>`)
-      : taken ? `<span class="pill plain" title="Owned by ${esc(eco.owners[row.item_key])}">Owned by ${esc(eco.owners[row.item_key])}</span>`
-      : soldOut ? `<span class="pill plain">Sold out</span>`
-      : locked ? `<span class="pill plain" title="Buy ${esc(itemLabel(row.requires))} first">Locked</span>`
-      : perms.spend ? `<button class="btn ${short ? "btn-ghost" : "btn-sun"} btn-sm" type="button" data-org-buy="${esc(row.item_key)}" ${short ? "disabled title=\"Not enough money\"" : ""}>Buy · ${money(row.price)}</button>`
-      : `<span class="pill plain">${money(row.price)}</span>`;
-    return `<article class="shop-card${mine ? " owned" : ""}${taken || soldOut || locked ? " taken" : ""}">
-      <div class="shop-ico" style="--tone:${row.kind === "property" ? "255 122 69" : row.kind === "vehicle" ? "85 196 255" : row.kind === "weapon" ? "255 95 109" : row.kind === "outfit" ? "143 124 255" : "255 194 77"}">${icon(KIND_ICON[row.kind] || "sparkle")}</div>
-      <div class="shop-main"><b>${esc(row.label)}</b><p>${esc(row.description)}</p><div class="chips">${facts.filter(Boolean).map((f) => `<span class="pill plain">${esc(f)}</span>`).join("")}</div></div>
-      <div class="shop-buy"><strong>${money(row.price)}</strong>${button}</div>
-    </article>`;
-  };
-  $("#portal-content").innerHTML = `
-    ${orgs.length > 1 || state.data.access.orgAdmin ? `<div class="toolbar">${orgs.length > 1 ? seg("org-id", orgs.map((o) => [String(o.id), o.name]), String(selected.id)) : '<span style="flex:1"></span>'}${state.data.access.orgAdmin ? `<a class="btn btn-glass" href="control.html">${icon("gear")} Organization admin</a>` : ""}</div>` : ""}
-    <section class="org-hero" style="--org:${esc(selected.color || "#35e2cd")}">
-      <div class="org-hero-bg"></div>
-      <div class="org-id"><span class="org-mark">${esc(initials(selected.name))}</span><div><small>${esc(TYPE_LABEL[selected.type] || titleCase(selected.type))} · ${esc(perms.member || perms.leader ? perms.rank : "Staff view")}</small><h2>${esc(selected.name)}</h2></div></div>
-      <div class="org-balance"><small>${dept ? "Department budget" : "Organization wallet"}</small><strong>${money(selected.wallet.balance)}</strong><span>${icon("trend")} ${money(week)} earned this week</span></div>
-      ${perms.spend || perms.ranks || selected.manage ? `<div class="org-manage">${perms.spend ? `<button class="btn btn-glass btn-sm" type="button" data-org-transfer="${selected.id}">${icon("external")} Transfer</button>` : ""}${perms.ranks ? `<button class="btn btn-glass btn-sm" type="button" data-org-motd="${selected.id}">${icon("info")} Message of the day</button>` : ""}${selected.manage ? `<button class="btn btn-glass btn-sm" type="button" data-org-adjust="${selected.id}">${icon("wallet")} Adjust</button><button class="btn btn-glass btn-sm" type="button" data-org-leader="${selected.id}">${icon("users")} Leaders</button>` : ""}</div>` : ""}
-    </section>
-    ${selected.motd ? `<div class="callout">${icon("info")}<div><b>Message of the day.</b> ${esc(selected.motd)}</div></div>` : ""}
-    ${dept ? `<div class="stats">
-      <div class="stat-tile tone-sea"><div class="ico">${icon("clock")}</div><span>Duty pay · 7d</span><strong>${money(byKind("stipend"))}</strong><small>${hoursText(roster.reduce((n, r) => n + r.week_seconds, 0))} on duty across the roster</small></div>
-      <div class="stat-tile tone-dusk"><div class="ico">${icon("badge")}</div><span>Seizure bounties · 7d</span><strong>${money(byKind("seizure"))}</strong><small>${fmt(seizedByUs)} units seized in ${fmt(seizureRuns)} search${seizureRuns === 1 ? "" : "es"}</small></div>
-      <div class="stat-tile tone-good"><div class="ico">${icon("users")}</div><span>Roster</span><strong>${fmt(roster.length)}</strong><small>${fmt(roster.filter((r) => r.on_duty).length)} on duty now</small></div>
-      <div class="stat-tile tone-sun"><div class="ico">${icon("wallet")}</div><span>Lifetime spent</span><strong>${money(selected.wallet.lifetime_spent)}</strong><small>${fmt(selected.purchases.length)} items owned</small></div>
-    </div>` : `<div class="stats">
-      <div class="stat-tile tone-dusk"><div class="ico">${icon("leaf")}</div><span>Product sales · 7d</span><strong>${money(byKind("drug_sale"))}</strong><small>${fmt(delivered.reduce((n, r) => n + Number(r.units || 0), 0))} units delivered · ${fmt(seized)} seized</small></div>
-      <div class="stat-tile tone-sea"><div class="ico">${icon("building")}</div><span>Business income · 7d</span><strong>${money(byKind("business") + byKind("service"))}</strong><small>${fmt(selected.properties.length)} propert${selected.properties.length === 1 ? "y" : "ies"} owned</small></div>
-      <div class="stat-tile tone-good"><div class="ico">${icon("trend")}</div><span>Lifetime earned</span><strong>${money(selected.wallet.lifetime_earned)}</strong><small>All sources</small></div>
-      <div class="stat-tile tone-sun"><div class="ico">${icon("wallet")}</div><span>Lifetime spent</span><strong>${money(selected.wallet.lifetime_spent)}</strong><small>${fmt(selected.purchases.length)} items owned</small></div>
-    </div>`}
-    <div class="grid-2">
-      <section class="card">
-        <div class="card-head"><div><h2>Roster</h2><p>Everyone holding the access role. Hours are this week's duty time.</p></div></div>
-        ${roster.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Member</th><th>Rank</th><th>Hours · 7d</th><th>Last shift</th>${perms.roster ? "<th></th>" : ""}</tr></thead><tbody>${roster.map((r) => {
-          const editable = perms.roster && (perms.ranks || (!r.leader && r.level < perms.level && r.discord_id !== state.data.user?.id));
-          return `<tr><td class="strong"><span class="row-person">${r.on_duty ? '<span class="duty-dot on" title="On duty now"></span>' : '<span class="duty-dot" title="Off duty"></span>'}${person(r.discord_id)}</span></td><td>${r.leader ? '<span class="pill pill-sun">Leader</span>' : r.rank_id ? `<span class="pill pill-sea">${esc(r.rank)}</span>` : '<span class="pill plain">Member</span>'}</td><td class="mono">${hoursText(r.week_seconds)}</td><td>${r.on_duty ? '<span class="pill pill-good">On duty</span>' : r.last_shift ? esc(ago(r.last_shift)) : "Never"}</td>${perms.roster ? `<td><div class="actions">${editable && !r.leader ? `<button class="btn btn-ghost btn-sm" type="button" data-org-member="${esc(r.discord_id)}">Set rank</button>` : ""}</div></td>` : ""}</tr>`;
-        }).join("")}</tbody></table></div>` : empty("Nobody on the roster", "Members appear here once they hold the organization's Discord role.", "users")}
-      </section>
-      <section class="card">
-        <div class="card-head"><div><h2>Ranks</h2><p>Leaders set what each rank may do. Unranked members can use the armory and garage.</p></div>${perms.ranks ? `<button class="btn btn-sun btn-sm" type="button" data-org-rank="new">${icon("plus")} Add rank</button>` : ""}</div>
-        ${ranks.length ? `<div class="feed">${ranks.map((r) => `<div class="feed-row"><div class="feed-ico">${icon("badge")}</div><div class="txt"><b>${esc(r.name)} <small class="mono">· level ${Number(r.level)}</small></b><small>${[r.can_spend ? `Spends${r.spend_limit != null ? ` up to ${money(r.spend_limit)}/day` : ""}` : null, r.can_roster ? "Manages roster" : null, r.can_armory ? "Armory" : null, r.can_garage ? "Garage" : null].filter(Boolean).join(" · ") || "No permissions"} · ${fmt(r.members)} member${r.members === 1 ? "" : "s"}</small></div>${perms.ranks ? `<div class="row-end"><button class="btn btn-ghost btn-sm" type="button" data-org-rank="${r.id}">Edit</button></div>` : ""}</div>`).join("")}</div>` : empty("No ranks yet", perms.ranks ? "Add ranks to give officers spending, roster or equipment access." : "Leaders can add ranks here.", "badge")}
-      </section>
+  const count = Number(state.data.orgsSite?.count || 0);
+  $("#portal-content").innerHTML = `<section class="card orgs-moved">
+    <div class="card-body">
+      <span class="kicker">New home</span>
+      <h2>Organizations have their own website.</h2>
+      <p>Wallets, the shop, properties, the roster and fully customizable ranks, rank roles and permissions for every gang, business and department now live on the Florida Bay organization site.${count ? ` You are in ${fmt(count)} organization${count === 1 ? "" : "s"}.` : ""}</p>
+      <div class="chips" style="margin-top:16px"><a class="btn btn-sun btn-lg" href="${esc(orgsUrl())}" target="_blank" rel="noopener">Open the organization site ${icon("external")}</a>${state.data.access.orgAdmin ? `<a class="btn btn-glass btn-lg" href="control.html">${icon("gear")} Organization admin</a>` : ""}</div>
     </div>
-    <div class="grid-2">
-      <section class="card">
-        <div class="card-head"><div><h2>Properties</h2><p>Run them in game: on duty, go to the terminal and press <kbd>E</kbd>, or open <kbd>F2</kbd>.</p></div></div>
-        ${selected.properties.length ? `<div class="prop-list">${selected.properties.map((p) => `<div class="prop-row"><span class="feed-ico">${icon(p.data?.business === "lab" ? "leaf" : "building")}</span><div><b>${esc(p.label || p.item_key)}</b><small>${esc(BUSINESS_LABEL[p.data?.business] || "Property")}${p.data?.area ? ` · ${esc(p.data.area)}` : ""} · since ${esc(day(p.purchased_at))}</small><small>${(p.spots || []).length ? `Spots placed: ${(p.spots || []).map((name) => `<span class="pill plain">${esc(name)}</span>`).join(" ")}` : `<span class="pill pill-warn">Not set up yet</span> nothing works here until its spots are placed`}</small></div></div>`).join("")}</div>` : empty("No property yet", dept ? "Departments draw from station armories; properties are optional." : "Buy an MLO below to start a legitimate business or a private lab.", "building")}
-        ${selected.purchases.filter((p) => p.kind !== "property").length ? `<div class="asset-chips">${selected.purchases.filter((p) => p.kind !== "property").map((p) => `<span class="pill plain">${icon(KIND_ICON[p.kind] || "sparkle")}${esc(p.label)}</span>`).join("")}</div>` : ""}
-      </section>
-      <section class="card">
-        <div class="card-head"><div><h2>Ledger</h2><p>Every dollar in and out.</p></div></div>
-        ${ledger.length ? `<div class="feed ledger">${ledger.slice(0, 14).map((t) => `<div class="feed-row"><div class="feed-ico" style="color:rgb(${TX_TONE[t.kind] || "166 179 195"});background:rgba(${(TX_TONE[t.kind] || "166 179 195").replaceAll(" ", ",")},.1)">${icon(Number(t.amount) >= 0 ? "trend" : "wallet")}</div><div class="txt"><b>${esc(t.description)}</b><small>${esc(TX_LABEL[t.kind] || titleCase(t.kind))}${t.actor_id && /^\d{15,24}$/.test(String(t.actor_id)) ? ` · ${esc(state.data.people?.[t.actor_id]?.name || "member")}` : ""}</small></div><div class="row-end"><span class="amount ${Number(t.amount) >= 0 ? "up" : "down"}">${Number(t.amount) >= 0 ? "+" : "−"}${money(Math.abs(Number(t.amount)))}</span><time>${esc(ago(t.created_at))}</time></div></div>`).join("")}</div>` : empty("No transactions", dept ? "Go on duty and make seizures to fund the department." : "Deliver product or work your business in game to earn money.", "wallet")}
-      </section>
-    </div>
-    ${selected.properties.length ? propertySetupGuide(selected) : ""}
-    <section class="card">
-      <div class="card-head"><div><h2>Organization shop</h2><p>${perms.spend ? `Purchases apply in game instantly.${perms.spendLimit != null ? ` Your rank may spend ${money(perms.spendLimit)} a day.` : ""}` : "Your rank cannot buy. Ask a leader to pick something up."}</p></div>${seg("shop-kind", Object.entries(eco.kinds || {}).map(([k, label]) => [k, label, (eco.shop || []).filter((row) => row.kind === k && row.org_types.includes(selected.type)).length]), kind)}</div>
-      <div class="shop-grid">${shopRows.map(shopCard).join("") || empty("Nothing in this aisle", "No items of this kind are available to this organization type.", "sparkle")}</div>
-    </section>
-    ${dept ? `<section class="card how-card">
-      <div class="card-head"><div><h2>How department funding works</h2><p>The budget lives on the website and Discord - never in anyone's pockets in game.</p></div></div>
-      <div class="how-grid">
-        <div><span class="feed-ico">${icon("clock")}</span><b>Duty pay</b><small>Every member on <kbd>/duty</kbd> earns the department budget by the minute.</small></div>
-        <div><span class="feed-ico">${icon("badge")}</span><b>Seizures</b><small>Searching a suspect and seizing product pays a bounty on its street value.</small></div>
-        <div><span class="feed-ico">${icon("target")}</span><b>Station armories</b><small>Bought loadouts are drawn at any department station from <kbd>F2</kbd>.</small></div>
-        <div><span class="feed-ico">${icon("wallet")}</span><b>Spend</b><small>Leaders and ranks with spending buy vehicles, loadouts and perks here.</small></div>
-      </div>
-    </section>` : `<section class="card how-card">
-      <div class="card-head"><div><h2>How the money works</h2><p>Organization money lives only on the website and Discord - never in your pockets in game.</p></div></div>
-      <div class="how-grid">
-        <div><span class="feed-ico">${icon("leaf")}</span><b>Produce</b><small>Gangs on <kbd>/duty</kbd> cook or harvest at a lab (public or owned).</small></div>
-        <div><span class="feed-ico">${icon("pin")}</span><b>Deliver</b><small>Start a run from <kbd>F2</kbd>, drive the product to the drop-off and hand it over. Police may get a tip.</small></div>
-        <div><span class="feed-ico">${icon("building")}</span><b>Run a business</b><small>Work shifts at your property terminal, <kbd>/repair</kbd> or <kbd>/serve</kbd> customers.</small></div>
-        <div><span class="feed-ico">${icon("wallet")}</span><b>Spend</b><small>Leaders buy MLOs, cars, armory permits, outfits and perks here. Check <kbd>/orgbank</kbd> in Discord.</small></div>
-      </div>
-    </section>`}`;
-}
-
-function orgAdjustDialog(id) {
-  const org = (state.data.economy?.organizations || []).find((o) => Number(o.id) === Number(id));
-  if (!org) return;
-  openDialog({ kicker: "Wallet management", title: `Adjust ${org.name}`, submit: "Apply adjustment", action: "org-adjust", data: { orgId: org.id },
-    body: `<div class="kv"><div><small>Current balance</small><b>${money(org.wallet.balance)}</b></div></div><label class="field">Amount (negative removes money)<input name="amount" type="number" step="1" required placeholder="5000"></label><label class="field">Reason<input name="reason" maxlength="160" minlength="3" required placeholder="Event prize, refund, correction…"></label>` });
-}
-
-function orgTransferDialog() {
-  const org = selectedOrg();
-  if (!org) return;
-  const others = (state.data.economy?.directory || []).filter((o) => Number(o.id) !== Number(org.id));
-  openDialog({ kicker: org.name, title: "Send money", submit: "Send transfer", action: "org-transfer", data: { orgId: org.id },
-    body: `<div class="kv"><div><small>Available</small><b>${money(org.wallet.balance)}</b></div>${org.perms?.spendLimit != null ? `<div><small>Your daily limit</small><b>${money(org.perms.spendLimit)}</b></div>` : ""}</div>
-      <label class="field">Send to<select name="toOrgId" required>${others.map((o) => `<option value="${o.id}">${esc(o.name)} · ${esc(TYPE_LABEL[o.type] || o.type)}</option>`).join("")}</select></label>
-      <label class="field">Amount<input name="amount" type="number" min="1" step="1" required placeholder="2500"></label>
-      <label class="field">Memo<input name="memo" minlength="3" maxlength="120" required placeholder="Payment for repairs, event prize split…"></label>
-      <div class="callout">${icon("info")}<div>The memo appears in both organizations' ledgers and in the staff log.</div></div>` });
-}
-
-function orgMotdDialog() {
-  const org = selectedOrg();
-  if (!org) return;
-  openDialog({ kicker: org.name, title: "Message of the day", submit: "Save", action: "org-motd", data: { orgId: org.id },
-    body: `<label class="field">Shown to members when they clock in and in the F2 hub. Leave blank to clear.<textarea name="motd" maxlength="300" placeholder="Briefing at Mission Row 8pm. Bodycams on.">${esc(org.motd || "")}</textarea></label>` });
-}
-
-function orgRankDialog(rankId) {
-  const org = selectedOrg();
-  if (!org) return;
-  const rank = (org.ranks || []).find((r) => String(r.id) === String(rankId));
-  const box = (name, label, hint, on) => `<label class="check-row"><input type="checkbox" name="${name}" ${on ? "checked" : ""}><span><b>${label}</b><small>${hint}</small></span></label>`;
-  openDialog({ kicker: org.name, title: rank ? `Edit ${rank.name}` : "Add a rank", submit: rank ? "Save rank" : "Create rank", action: "org-rank", data: { orgId: org.id, rankId: rank?.id || null },
-    body: `<label class="field">Rank name<input name="name" minlength="2" maxlength="40" required value="${esc(rank?.name || "")}" placeholder="Sergeant, Lieutenant, Shot caller…"></label>
-      <label class="field">Level (1-99, higher outranks lower; leaders are 100)<input name="level" type="number" min="1" max="99" step="1" required value="${Number(rank?.level || 10)}"></label>
-      <div style="display:grid;gap:8px">
-        ${box("canSpend", "Spend the wallet", "Buy from the shop and send transfers.", rank?.can_spend)}
-        ${box("canRoster", "Manage the roster", "Promote and demote members ranked below this level.", rank?.can_roster)}
-        ${box("canArmory", "Armory", "Draw weapon loadouts in game.", rank ? rank.can_armory : true)}
-        ${box("canGarage", "Garage", "Spawn the organization's vehicles from F7.", rank ? rank.can_garage : true)}
-      </div>
-      <label class="field">Daily spend limit <small>(blank = unlimited)</small><input name="spendLimit" type="number" min="0" step="1" value="${rank?.spend_limit ?? ""}" placeholder="25000"></label>
-      ${rank ? `<label class="check-row"><input type="checkbox" name="deleteRank"><span><b>Delete this rank</b><small>Its ${fmt(rank.members)} member${rank.members === 1 ? "" : "s"} go back to Member.</small></span></label>` : ""}` });
-}
-
-function orgMemberDialog(discordId) {
-  const org = selectedOrg();
-  if (!org) return;
-  const row = (org.roster || []).find((r) => r.discord_id === discordId);
-  const perms = org.perms || {};
-  const ranks = (org.ranks || []).filter((r) => perms.ranks || r.level < perms.level);
-  openDialog({ kicker: org.name, title: "Set rank", submit: "Save", action: "org-member", data: { orgId: org.id, discordId },
-    body: `<div class="feed"><div class="feed-row">${person(discordId)}<div class="row-end"><span class="pill plain">${esc(row?.rank || "Member")}</span></div></div></div>
-      <label class="field">New rank<select name="rankId"><option value="">Member (no rank)</option>${ranks.map((r) => `<option value="${r.id}" ${row?.rank_id === r.id ? "selected" : ""}>${esc(r.name)} · level ${Number(r.level)}</option>`).join("")}</select></label>` });
-}
-
-function orgLeaderDialog(id) {
-  const org = (state.data.economy?.organizations || []).find((o) => Number(o.id) === Number(id));
-  if (!org) return;
-  openDialog({ kicker: "Organization leaders", title: `${org.name} leaders`, submit: "Save", action: "org-leader", data: { orgId: org.id },
-    body: `${org.leaders.length ? `<div class="feed">${org.leaders.map((l) => `<div class="feed-row">${person(l)}<div class="row-end"><span class="pill pill-sun">Leader</span></div></div>`).join("")}</div>` : `<div class="callout">${icon("info")}<div>No leaders yet - nobody can spend this wallet.</div></div>`}
-      <label class="field">Discord user ID<input name="discordId" inputmode="numeric" pattern="[0-9]{15,24}" required placeholder="123456789012345678"></label>
-      <div class="field">Access<div class="choice"><label class="approve"><input type="radio" name="leader" value="1" checked><span>Make leader<small>Can buy from the shop</small></span></label><label class="deny"><input type="radio" name="leader" value="0"><span>Remove<small>Back to member</small></span></label></div></div>` });
+  </section>`;
 }
 
 /* ---------- personal vehicles ---------- */
@@ -1832,22 +1633,6 @@ async function load({ quiet = false } = {}) {
   render();
 }
 
-// Organization wallets can also change in FiveM and in the gang/business manager bots. Keep the
-// open economy screen current without making members manually refresh the whole portal.
-setInterval(async () => {
-  if (!state.data || state.view !== "organizations" || document.hidden || economySyncing) return;
-  economySyncing = true;
-  try {
-    const result = await api("portal/org/live");
-    state.data.economy = result.economy;
-    if (state.view === "organizations") render();
-  } catch {
-    // A transient service failure is retried on the next tick; keep the last rendered screen.
-  } finally {
-    economySyncing = false;
-  }
-}, 10_000);
-
 async function investigate(discordId) {
   state.investigationLoading = true;
   render();
@@ -2087,36 +1872,6 @@ $("#portal-content").addEventListener("click", async (event) => {
     } catch (error) { toast(error.message, true); }
     return;
   }
-  const orgBuy = target.closest("[data-org-buy]");
-  if (orgBuy) {
-    const eco = state.data.economy;
-    const row = (eco.shop || []).find((item) => item.item_key === orgBuy.dataset.orgBuy);
-    const orgs = eco.organizations || [];
-    const org = orgs.find((o) => String(o.id) === String(filter("org-id", orgs[0]?.id))) || orgs[0];
-    if (!row || !org) return;
-    openDialog({ kicker: org.name, title: `Buy ${row.label}?`, submit: `Buy for ${money(row.price)}`, action: "org-buy", data: { orgId: org.id, itemKey: row.item_key },
-      body: `<div class="kv"><div><small>Price</small><b>${money(row.price)}</b></div><div><small>Wallet after</small><b>${money(Number(org.wallet.balance) - Number(row.price))}</b></div><div class="wide"><small>What you get</small><b>${esc(row.description)}</b></div></div><div class="callout">${icon("info")}<div>${row.kind === "property" ? "The property is yours until you sell it (50% refund). It appears in game for members on duty within a minute." : "Applies in game for every member on duty."}</div></div>` });
-    return;
-  }
-  const orgSell = target.closest("[data-org-sell]");
-  if (orgSell) {
-    const orgs = state.data.economy?.organizations || [];
-    const org = orgs.find((o) => String(o.id) === String(filter("org-id", orgs[0]?.id))) || orgs[0];
-    const row = (state.data.economy.shop || []).find((item) => item.item_key === orgSell.dataset.orgSell);
-    openDialog({ kicker: org.name, title: `Sell ${row?.label || "item"}?`, submit: "Sell", tone: "btn-danger", action: "org-sell", data: { orgId: org.id, itemKey: orgSell.dataset.orgSell },
-      body: `<div class="callout warn">${icon("alert")}<div>You get <b>${money(Math.floor(Number(row?.price || 0) / 2))}</b> back${row?.kind === "property" || row?.stock != null ? " and it is released for any organization to buy" : ""}. It stops working in game within a minute.</div></div>` });
-    return;
-  }
-  const orgAdjust = target.closest("[data-org-adjust]");
-  if (orgAdjust) return orgAdjustDialog(orgAdjust.dataset.orgAdjust);
-  if (target.closest("[data-org-transfer]")) return orgTransferDialog();
-  if (target.closest("[data-org-motd]")) return orgMotdDialog();
-  const orgRank = target.closest("[data-org-rank]");
-  if (orgRank) return orgRankDialog(orgRank.dataset.orgRank);
-  const orgMember = target.closest("[data-org-member]");
-  if (orgMember) return orgMemberDialog(orgMember.dataset.orgMember);
-  const orgLeader = target.closest("[data-org-leader]");
-  if (orgLeader) return orgLeaderDialog(orgLeader.dataset.orgLeader);
   if (target.closest("[data-personal-new]")) return personalCreateDialog();
   if (target.closest("[data-eup-new]")) return eupInstallDialog();
   const eupReplace = target.closest("[data-eup-replace]");
@@ -2377,35 +2132,6 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       result = await api("portal/exam/review", { method: "POST", body: JSON.stringify({ applicationId: data.applicationId, decision, score: form.get("score"), notes: form.get("notes") }) });
       const r = result.result || {};
       toast(decision === "passed" ? (r.roleGranted ? "Passed - role granted in the staff Discord and logged." : `Passed and logged. Role not granted: ${r.roleNote || "unknown"}`) : decision === "failed" ? "Marked as failed and logged." : "Marked as in review.", decision === "passed" && !r.roleGranted);
-    } else if (action === "org-buy") {
-      result = await api("portal/org/purchase", { method: "POST", body: JSON.stringify(data) });
-      toast(`Purchased. Wallet balance: ${money(result.result.balance)}.`);
-    } else if (action === "org-sell") {
-      result = await api("portal/org/sell", { method: "POST", body: JSON.stringify(data) });
-      toast(`Sold ${result.result.label} for ${money(result.result.refund)}.`);
-    } else if (action === "org-adjust") {
-      result = await api("portal/org/adjust", { method: "POST", body: JSON.stringify({ orgId: data.orgId, amount: Number(form.get("amount")), reason: form.get("reason") }) });
-      toast(`Wallet adjusted. New balance ${money(result.result.balance)}.`);
-    } else if (action === "org-transfer") {
-      result = await api("portal/org/transfer", { method: "POST", body: JSON.stringify({ orgId: data.orgId, toOrgId: form.get("toOrgId"), amount: Number(form.get("amount")), memo: form.get("memo") }) });
-      toast(`Sent ${money(result.result.amount)} to ${result.result.target.name}.`);
-    } else if (action === "org-motd") {
-      result = await api("portal/org/motd", { method: "POST", body: JSON.stringify({ orgId: data.orgId, motd: form.get("motd") }) });
-      toast(result.result.motd ? "Message of the day saved." : "Message of the day cleared.");
-    } else if (action === "org-rank") {
-      if (data.rankId && form.get("deleteRank") === "on") {
-        result = await api("portal/org/rank/delete", { method: "POST", body: JSON.stringify({ orgId: data.orgId, rankId: data.rankId }) });
-        toast(`Deleted ${result.result.name}.`);
-      } else {
-        result = await api("portal/org/rank", { method: "POST", body: JSON.stringify({ orgId: data.orgId, rankId: data.rankId, name: form.get("name"), level: Number(form.get("level")), canSpend: form.get("canSpend") === "on", canRoster: form.get("canRoster") === "on", canArmory: form.get("canArmory") === "on", canGarage: form.get("canGarage") === "on", spendLimit: form.get("spendLimit") }) });
-        toast(`Saved ${result.result.name}.`);
-      }
-    } else if (action === "org-member") {
-      result = await api("portal/org/member", { method: "POST", body: JSON.stringify({ orgId: data.orgId, discordId: data.discordId, rankId: form.get("rankId") }) });
-      toast(`Rank set to ${result.result.rank}.`);
-    } else if (action === "org-leader") {
-      result = await api("portal/org/leader", { method: "POST", body: JSON.stringify({ orgId: data.orgId, discordId: form.get("discordId"), leader: form.get("leader") === "1" }) });
-      toast(result.result.leader ? "Leader added." : "Leader removed.");
     } else if (action === "personal-create") {
       result = await api("portal/personal/create", { method: "POST", body: JSON.stringify({ model: form.get("model"), label: form.get("label"), ownerId: form.get("ownerId"), plate: form.get("plate"), bulletproof: form.get("bulletproof") === "on" }) });
       toast(`${result.result.label} added.`);

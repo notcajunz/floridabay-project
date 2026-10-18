@@ -136,6 +136,7 @@ import {
 import { startWebPanel } from "./web-panel.js";
 import { createStaffExams } from "./staff-exams.js";
 import { createEconomy } from "./economy.js";
+import { createOrgAuthority } from "./org-authority.js";
 import { createPersonals } from "./personals.js";
 import { createPersonalImporter } from "./personal-import.js";
 import { createCustomAssets } from "./custom-assets.js";
@@ -255,7 +256,8 @@ async function log(guild, entry, purpose = "staff_audit") {
 const auditMirror = createAuditMirror({ client, db });
 
 const staffExams = createStaffExams({ client, db, audit, log });
-const economy = createEconomy({ client, db, audit, log, hasPermission });
+const orgAuthority = createOrgAuthority({ client, db });
+const economy = createEconomy({ client, db, audit, log, hasPermission, authority: orgAuthority });
 const personals = createPersonals({ db, audit, hasPermission });
 const personalImporter = createPersonalImporter({ personals, audit, db });
 const customAssets = createCustomAssets({ personals, audit, db });
@@ -4791,6 +4793,8 @@ client.once("clientReady", async () => {
   await db.query("DELETE FROM discord_pending_role_restores WHERE expires_at<?", [Date.now()]).catch((error) =>
     console.error("[FBRP global] pending restore cleanup:", error),
   );
+  // Organizations with auto-rank follow the Discord roles bound to their ranks.
+  setInterval(() => void economy.reconcileAutoRanks().catch((error) => console.error("[FBRP orgs] auto-rank:", error)), 300000).unref();
   setInterval(() => void expireGlobalCases().catch((error) => console.error("[FBRP global] expiry:", error)), 60000).unref();
   setInterval(() => void sweepLinkedAlts().catch((error) => console.error("[FBRP global] alt sweep:", error)), 300000).unref();
   setInterval(() => void db.query("DELETE FROM discord_pending_role_restores WHERE expires_at<?", [Date.now()]).catch((error) => console.error("[FBRP global] pending restore cleanup:", error)), 3600000).unref();

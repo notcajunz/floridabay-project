@@ -89,6 +89,8 @@ RegisterNetEvent('fbrp:characters:select', function(rawId)
     end
     for _, spawn in ipairs(FBRP.SpawnLocations or {}) do spawns[#spawns+1]=spawn end
     TriggerClientEvent('fbrp:characters:spawns',src,{character={id=id,name=name},spawns=spawns})
+    -- Per-character systems (the phone) switch to this character.
+    TriggerEvent('fbrp:characterSelected',src,id,{firstName=row.first_name,lastName=row.last_name,dateOfBirth=row.date_of_birth})
     FBRP.DB.audit(discord(src) or license,'character.select',id,{name=name})
 end)
 

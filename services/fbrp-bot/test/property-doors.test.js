@@ -89,10 +89,11 @@ test('/propset previews the spot and only saves after confirmation', () => {
   assert.match(read('client/propertydoors.lua'), /Confirm.*Cancel/);
 });
 
-test('a bar is a placeable spot and the portal explains every spot', () => {
+test('a bar is a placeable spot and the organization site explains every spot', () => {
   assert.match(read('server/propertydoors.lua'), /bar=true/);
   assert.match(read('server/economy.lua'), /points\.bar/);
   assert.match(read('client/economy.lua'), /bar = \{ color/);
-  const portal = fs.readFileSync(path.resolve(here, '../web/portal.js'), 'utf8');
+  // The property guide moved with the Organizations tab to orgs.floridabay.net.
+  const portal = fs.readFileSync(path.resolve(here, '../web/orgs/orgs.js'), 'utf8');
   for (const word of ['door, door2, door3', 'terminal', 'bar', 'stash', 'armory', 'wardrobe', 'Development Director', 'FBRP | DevOps']) assert.ok(portal.includes(word), word);
 });

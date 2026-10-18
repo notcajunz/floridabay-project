@@ -1,6 +1,7 @@
 import { staffLevel, superuserIds } from "./database.js";
 import { callGame } from "./sync.js";
 import { COLORS, who } from "./ui.js";
+import { MAX_RANKS, RANK_PERMISSIONS } from "./org-authority.js";
 
 /**
  * Organization economy (website + Discord side).
@@ -135,7 +136,8 @@ const text = (value, max) => String(value ?? "").replace(/[\u0000-\u001f]/g, " "
 const money = (value) => `$${Number(value || 0).toLocaleString("en-US")}`;
 
 const DEPARTMENT_TYPES = new Set(["leo", "fire", "government"]);
-const MAX_RANKS = 12;
+const RANK_COLUMNS = RANK_PERMISSIONS.map((perm) => perm.column);
+const HEX = /^#[0-9a-f]{6}$/i;
 const dayStart = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.getTime(); };
 const flag = (value) => value === true || value === 1 || value === "1" || value === "on" || value === "true";
 
@@ -156,7 +158,35 @@ export function managedOrgTypesForRoleIds(roleIds) {
   );
 }
 
-export function createEconomy({ client, db, audit, log }) {
+/**
+ * What a viewer may do in one organization. `full` is everyone who runs the organization: its
+ * leaders, its owner and command (from the gang/business/department manager registries) and the
+ * staff who manage its type. Ranked members follow their rank's permissions; unranked members have
+ * the default member access (ledger, armory and garage). Exported for tests.
+ */
+export function permissionsFor(row, manage, standing = {}) {
+  const leader = Boolean(Number(row?.leader || 0));
+  const owner = Boolean(standing.owner);
+  const command = Boolean(standing.command);
+  const full = leader || manage || owner || command;
+  const ranked = row?.rank_id != null && row?.rank_name != null;
+  const has = (column, fallback) => full || (ranked ? flag(row[column]) : fallback);
+  return {
+    leader, manage, owner, command, full, member: Boolean(row?.member),
+    rank: owner ? "Owner" : command ? "Command" : leader ? "Leader" : ranked ? row.rank_name : "Member",
+    rankId: ranked ? Number(row.rank_id) : null,
+    level: full ? 100 : ranked ? Number(row.level) : 0,
+    spend: has("can_spend", false),
+    sell: has("can_sell", false),
+    roster: has("can_roster", false),
+    ranks: has("can_ranks", false),
+    motd: has("can_motd", false),
+    ledger: full || (ranked ? row.can_ledger == null || flag(row.can_ledger) : true),
+    spendLimit: full || !ranked || row.spend_limit == null ? null : Number(row.spend_limit),
+  };
+}
+
+export function createEconomy({ client, db, audit, log, authority = null }) {
   async function seed() {
     for (const row of DEFAULT_SHOP)
       await db.query(
@@ -202,25 +232,8 @@ export function createEconomy({ client, db, audit, log }) {
     return orgType == null ? access.all : managesType(access, orgType);
   };
 
-  /**
-   * What a viewer may do in one organization. Leaders and managers can do everything; ranked members follow
-   * their rank; everyone else has the default member access (armory and garage, no spending or roster).
-   */
-  function permsFrom(row, manage) {
-    const leader = Boolean(Number(row?.leader || 0));
-    const full = leader || manage;
-    const ranked = row?.rank_id != null && row?.rank_name != null;
-    return {
-      leader, manage, member: Boolean(row?.member),
-      rank: leader ? "Leader" : ranked ? row.rank_name : "Member",
-      rankId: ranked ? Number(row.rank_id) : null,
-      level: leader ? 100 : manage && !ranked ? 100 : ranked ? Number(row.level) : 0,
-      spend: full || (ranked && flag(row.can_spend)),
-      roster: full || (ranked && flag(row.can_roster)),
-      ranks: full,
-      spendLimit: full || !ranked || row.spend_limit == null ? null : Number(row.spend_limit),
-    };
-  }
+  const permsFrom = permissionsFor;
+  const standingOf = async (discordId, org) => (authority ? authority.standing(discordId, org).catch(() => ({})) : {});
 
   /**
    * Organizations the member belongs to with their rank. As with /duty, membership is holding the
@@ -229,7 +242,7 @@ export function createEconomy({ client, db, audit, log }) {
   async function memberships(discordId) {
     const rows = await db.query(
       `SELECT o.id,o.slug,o.name,o.type,o.color,o.motd,1 member,
-              m.manager leader,m.rank_id,r.name rank_name,r.level,r.can_spend,r.can_roster,r.spend_limit
+              m.manager leader,m.rank_id,r.name rank_name,r.level,r.can_spend,r.can_roster,r.can_ranks,r.can_motd,r.can_sell,r.can_ledger,r.spend_limit
          FROM organizations o
          LEFT JOIN organization_members m ON m.org_id=o.id AND m.discord_id=?
          LEFT JOIN org_ranks r ON r.id=m.rank_id AND r.org_id=o.id
@@ -252,19 +265,19 @@ export function createEconomy({ client, db, audit, log }) {
   }
 
   async function findOrg(ref) {
-    const org = await db.one("SELECT id,slug,name,type,color,motd,active FROM organizations WHERE id=? OR slug=?", [Number(ref) || 0, String(ref || "").toLowerCase()]);
+    const org = await db.one("SELECT id,slug,name,type,color,motd,active,guild_id FROM organizations WHERE id=? OR slug=?", [Number(ref) || 0, String(ref || "").toLowerCase()]);
     if (!org || !Number(org.active)) throw new Error("Organization not found.");
     return org;
   }
 
   async function accessTo(discordId, orgRef) {
     const org = await findOrg(orgRef);
-    const [access, memberOrgs] = await Promise.all([managementAccess(discordId), memberships(discordId)]);
+    const [access, memberOrgs, standing] = await Promise.all([managementAccess(discordId), memberships(discordId), standingOf(discordId, org)]);
     const manage = managesType(access, org.type);
     const mine = memberOrgs.find((row) => Number(row.id) === Number(org.id));
-    if (!mine && !manage) throw new Error("You are not a member of that organization.");
-    const perms = permsFrom(mine || {}, manage);
-    return { org, member: Boolean(mine), leader: perms.leader || manage, manage, perms };
+    if (!mine && !manage && !standing.owner && !standing.command) throw new Error("You are not a member of that organization.");
+    const perms = permsFrom(mine || {}, manage, standing);
+    return { org, member: Boolean(mine), leader: perms.full, manage, perms };
   }
 
   async function wallet(orgId) {
@@ -400,7 +413,7 @@ export function createEconomy({ client, db, audit, log }) {
       db.query("SELECT drug,status,SUM(units) units,SUM(payout) payout,COUNT(*) runs FROM org_drug_runs WHERE org_id=? AND created_at>=? GROUP BY drug,status", [org.id, week]),
       db.query("SELECT kind,SUM(amount) total FROM org_transactions WHERE org_id=? AND created_at>=? AND amount>0 GROUP BY kind", [org.id, week]),
       db.query("SELECT discord_id FROM organization_members WHERE org_id=? AND manager=TRUE", [org.id]),
-      db.query("SELECT r.id,r.name,r.level,r.can_spend,r.can_roster,r.can_armory,r.can_garage,r.spend_limit,COUNT(m.discord_id) members FROM org_ranks r LEFT JOIN organization_members m ON m.org_id=r.org_id AND m.rank_id=r.id WHERE r.org_id=? GROUP BY r.id ORDER BY r.level DESC,r.name", [org.id]),
+      db.query(`SELECT r.id,r.name,r.level,r.color,r.description,${RANK_COLUMNS.map((column) => `r.${column}`).join(",")},r.spend_limit,COUNT(m.discord_id) members FROM org_ranks r LEFT JOIN organization_members m ON m.org_id=r.org_id AND m.rank_id=r.id WHERE r.org_id=? GROUP BY r.id ORDER BY r.level DESC,r.name`, [org.id]),
       db.query(
         `SELECT m.discord_id,m.manager,m.rank_id,r.name rank_name,r.level,m.added_at,
                 COALESCE(SUM(CASE WHEN s.started_at>=? THEN COALESCE(NULLIF(s.seconds,0),GREATEST(0,FLOOR((s.heartbeat_at-s.started_at)/1000))) ELSE 0 END),0) week_seconds,
@@ -425,12 +438,23 @@ export function createEconomy({ client, db, audit, log }) {
         ).catch(() => [])
       : [];
     const spotsOf = (key) => placed.filter((row) => row.property_key === key).map((row) => row.point);
+    const [leadership, rosterSettings, rankRoles, activity] = await Promise.all([
+      authority ? authority.leadership(org).catch(() => null) : null,
+      authority ? authority.settings(org.id).catch(() => null) : null,
+      authority ? authority.bindings(org.id).catch(() => []) : [],
+      db.query("SELECT id,actor_id,action,target_id,detail,created_at FROM org_roster_log WHERE org_id=? ORDER BY id DESC LIMIT 30", [org.id]).catch(() => []),
+    ]);
+    const roleName = (guildId, roleId) => client.guilds.cache.get(String(guildId))?.roles.cache.get(String(roleId));
+    const commandSet = new Set(leadership?.commandMembers || []);
     return {
       id: org.id, slug: org.slug, name: org.name, type: org.type, color: org.color, motd: org.motd || "",
       department,
       leader: perms.spend, manage: perms.manage, perms,
       wallet: purse,
-      transactions,
+      transactions: perms.ledger ? transactions : [],
+      leadership,
+      rosterSettings,
+      activity: activity.map((row) => ({ ...row, detail: parse(row.detail, {}), created_at: Number(row.created_at) })),
       purchases,
       properties: properties.map((row) => ({ ...row, data: parse(row.data, {}), spots: spotsOf(row.item_key) })),
       drugWeek: runs,
@@ -439,11 +463,17 @@ export function createEconomy({ client, db, audit, log }) {
       leaders: leaders.map((row) => String(row.discord_id)),
       ranks: ranks.map((row) => ({
         id: Number(row.id), name: row.name, level: Number(row.level), members: Number(row.members),
-        can_spend: flag(row.can_spend), can_roster: flag(row.can_roster), can_armory: flag(row.can_armory), can_garage: flag(row.can_garage),
+        color: row.color || null, description: row.description || "",
+        ...Object.fromEntries(RANK_PERMISSIONS.map((perm) => [perm.column, row[perm.column] == null ? perm.default : flag(row[perm.column])])),
         spend_limit: row.spend_limit == null ? null : Number(row.spend_limit),
+        roles: rankRoles.filter((binding) => Number(binding.rank_id) === Number(row.id)).map((binding) => {
+          const role = roleName(binding.guild_id, binding.role_id);
+          return { guildId: String(binding.guild_id), roleId: String(binding.role_id), name: role?.name || "Deleted role", color: role && role.hexColor !== "#000000" ? role.hexColor : null, guildName: client.guilds.cache.get(String(binding.guild_id))?.name || null };
+        }),
       })),
       roster: roster.map((row) => ({
         discord_id: String(row.discord_id), leader: flag(row.manager), rank_id: row.rank_id == null ? null : Number(row.rank_id),
+        owner: Boolean(leadership?.ownerId && leadership.ownerId === String(row.discord_id)), command: commandSet.has(String(row.discord_id)),
         rank: flag(row.manager) ? "Leader" : row.rank_name || "Member", level: flag(row.manager) ? 100 : Number(row.level || 0),
         week_seconds: Number(row.week_seconds || 0), last_shift: row.last_shift ? Number(row.last_shift) : null, on_duty: flag(row.on_duty), added_at: Number(row.added_at || 0),
       })),
@@ -461,21 +491,25 @@ export function createEconomy({ client, db, audit, log }) {
         types,
       );
     }
-    const byId = new Map([...mine, ...managed].map((org) => [Number(org.id), org]));
+    // Owners and command (manager registries) run their organization even without its access role.
+    const active = authority ? await db.query("SELECT id,slug,name,type,color,motd,guild_id FROM organizations WHERE active=TRUE") : [];
+    const standing = authority ? await authority.standings(discordId, active).catch(() => new Map()) : new Map();
+    const led = active.filter((org) => standing.has(Number(org.id)));
+    const byId = new Map([...mine, ...managed, ...led].map((org) => [Number(org.id), org]));
     const orgRows = [...byId.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
     const manage = access.all || access.types.size > 0;
-    if (!orgRows.length) return { organizations: [], shop: [], owners: {}, ownedCount: {}, manage };
+    if (!orgRows.length) return { organizations: [], shop: [], owners: {}, ownedCount: {}, manage, permissions: RANK_PERMISSIONS };
     const organizations = [];
     for (const org of orgRows) {
       const membership = mine.find((row) => Number(row.id) === Number(org.id));
-      organizations.push(await orgDetail(org, permsFrom(membership || {}, managesType(access, org.type))));
+      organizations.push(await orgDetail(org, permsFrom(membership || {}, managesType(access, org.type), standing.get(Number(org.id)) || {})));
     }
     const owners = Object.fromEntries(
       (await db.query("SELECT p.item_key,o.name FROM org_properties p JOIN organizations o ON o.id=p.org_id")).map((row) => [row.item_key, row.name]),
     );
     const ownedCount = Object.fromEntries((await db.query("SELECT item_key,COUNT(*) n FROM org_purchases GROUP BY item_key")).map((row) => [row.item_key, Number(row.n)]));
     const directory = (await db.query("SELECT id,name,type FROM organizations WHERE active=TRUE ORDER BY name")).map((row) => ({ id: Number(row.id), name: row.name, type: row.type }));
-    return { organizations, shop: await shop(), owners, ownedCount, directory, manage, kinds: KIND_LABEL };
+    return { organizations, shop: await shop(), owners, ownedCount, directory, manage, kinds: KIND_LABEL, permissions: RANK_PERMISSIONS };
   }
 
   async function notifyGame() {
@@ -541,7 +575,7 @@ export function createEconomy({ client, db, audit, log }) {
   /** Anything owned can be sold back for half its price; properties and limited stock are freed for others. */
   async function sellItem(session, input) {
     const { org, perms } = await accessTo(session.id, input.orgId);
-    if (!perms.ranks) throw new Error("Only organization leaders can sell what the organization owns.");
+    if (!perms.sell) throw new Error("Your rank cannot sell what the organization owns.");
     const key = String(input.itemKey || "");
     const stamp = Date.now();
     const result = await db.transaction(async (query) => {
@@ -625,9 +659,11 @@ export function createEconomy({ client, db, audit, log }) {
     return { org, amount, balance: after };
   }
 
+  /** Staff who manage the type, the owner and command appoint leaders. */
   async function setLeader(actorId, input) {
     const org = await findOrg(input.orgId);
-    if (!(await canManage(actorId, org.type))) throw new Error(`You do not manage ${org.type} organization leaders.`);
+    const standing = await standingOf(actorId, org);
+    if (!standing.owner && !standing.command && !(await canManage(actorId, org.type))) throw new Error(`Only ${org.name}'s owner, command or ${org.type} management can change leaders.`);
     const target = String(input.discordId || "").trim();
     if (!/^\d{15,24}$/.test(target)) throw new Error("Enter a Discord user ID.");
     // The role sync deletes roster rows of anyone without the access role, so a leader must hold it.
@@ -641,59 +677,127 @@ export function createEconomy({ client, db, audit, log }) {
       );
     } else await db.query("UPDATE organization_members SET manager=FALSE,rank_name=COALESCE((SELECT name FROM org_ranks WHERE id=organization_members.rank_id),'Member') WHERE org_id=? AND discord_id=?", [org.id, target]);
     await audit(actorId, input.leader ? "economy.leader_add" : "economy.leader_remove", org.id, { member: target });
+    await rosterLog(org.id, actorId, input.leader ? "leader_add" : "leader_remove", target, {});
     await postLog({ title: `${input.leader ? "Leader added" : "Leader removed"} · ${org.name}`, color: COLORS.primary, fields: [["Member", who(target)], ["By", who(actorId)]] });
     await notifyGame();
     return { org, discordId: target, leader: Boolean(input.leader) };
   }
 
-  /** Leaders define the rank ladder: name, level (1-99) and what the rank may do. */
+  async function rosterLog(orgId, actorId, action, targetId = null, detail = {}) {
+    await db.query("INSERT INTO org_roster_log(org_id,actor_id,action,target_id,detail,created_at) VALUES(?,?,?,?,?,?)",
+      [Number(orgId), String(actorId), action, targetId == null ? null : String(targetId), JSON.stringify(detail), Date.now()]).catch(() => {});
+  }
+
+  /** Ranks below the editor's own level, unless they run the organization. */
+  function assertRankReach(perms, level, verb = "edit") {
+    if (!perms.full && Number(level) >= perms.level) throw new Error(`You can only ${verb} ranks below your own (${perms.rank}).`);
+  }
+
+  /**
+   * Rank editor: name, level (1-99), colour, description, permissions, daily spend limit and the
+   * Discord roles bound to the rank. Owners, command and leaders edit every rank; ranks with "Edit
+   * ranks" edit ranks below their own and can only grant permissions they hold themselves.
+   */
   async function saveRank(actorId, input) {
     const { org, perms } = await accessTo(actorId, input.orgId);
-    if (!perms.ranks) throw new Error("Only leaders can edit ranks.");
+    if (!perms.ranks) throw new Error("Your rank cannot edit ranks.");
     const name = text(input.name, 40);
     if (name.length < 2) throw new Error("Give the rank a name (2-40 characters).");
-    if (/^(leader|member)$/i.test(name)) throw new Error(`"${name}" is reserved. Pick another rank name.`);
+    if (/^(leader|member|owner|command)$/i.test(name)) throw new Error(`"${name}" is reserved. Pick another rank name.`);
     const level = Math.round(Number(input.level));
     if (!Number.isFinite(level) || level < 1 || level > 99) throw new Error("Rank level must be between 1 and 99 (leaders are 100).");
+    assertRankReach(perms, level, "create or move");
     const limitRaw = String(input.spendLimit ?? "").trim();
     const spendLimit = limitRaw === "" ? null : Math.round(Number(limitRaw));
     if (spendLimit != null && (!Number.isFinite(spendLimit) || spendLimit < 0 || spendLimit > 100000000)) throw new Error("Daily spend limit must be blank (unlimited) or between $0 and $100,000,000.");
-    const values = [name, level, flag(input.canSpend), flag(input.canRoster), flag(input.canArmory), flag(input.canGarage), spendLimit];
-    const rankId = Number(input.rankId) || 0;
+    const color = text(input.color, 7);
+    if (color && !HEX.test(color)) throw new Error("Rank colour must be a hex colour like #35e2cd.");
+    const description = text(input.description, 160);
+    const granted = Object.fromEntries(RANK_PERMISSIONS.map((perm) => {
+      const raw = input.perms && Object.hasOwn(input.perms, perm.key) ? input.perms[perm.key] : input[`can${perm.key[0].toUpperCase()}${perm.key.slice(1)}`];
+      return [perm.key, raw == null ? perm.default : flag(raw)];
+    }));
+    if (!perms.full)
+      for (const perm of RANK_PERMISSIONS)
+        if (granted[perm.key] && ["spend", "sell", "roster", "ranks", "motd"].includes(perm.key) && !perms[perm.key])
+          throw new Error(`You cannot grant "${perm.label}" because your own rank does not have it.`);
+    const values = [name, level, color || null, description || null, ...RANK_PERMISSIONS.map((perm) => granted[perm.key]), spendLimit];
+    const setters = ["name=?", "level=?", "color=?", "description=?", ...RANK_COLUMNS.map((column) => `${column}=?`), "spend_limit=?"].join(",");
+    let rankId = Number(input.rankId) || 0;
     try {
       if (rankId) {
-        const result = await db.query("UPDATE org_ranks SET name=?,level=?,can_spend=?,can_roster=?,can_armory=?,can_garage=?,spend_limit=? WHERE id=? AND org_id=?", [...values, rankId, org.id]);
-        if (!result.affectedRows) throw new Error("That rank no longer exists.");
+        const existing = await db.one("SELECT id,level FROM org_ranks WHERE id=? AND org_id=?", [rankId, org.id]);
+        if (!existing) throw new Error("That rank no longer exists.");
+        assertRankReach(perms, existing.level);
+        await db.query(`UPDATE org_ranks SET ${setters} WHERE id=? AND org_id=?`, [...values, rankId, org.id]);
         await db.query("UPDATE organization_members SET rank_name=? WHERE org_id=? AND rank_id=? AND manager=FALSE", [name, org.id, rankId]);
       } else {
         const [count] = await db.query("SELECT COUNT(*) n FROM org_ranks WHERE org_id=?", [org.id]);
         if (Number(count?.n || 0) >= MAX_RANKS) throw new Error(`An organization can have up to ${MAX_RANKS} ranks.`);
-        await db.query("INSERT INTO org_ranks(org_id,name,level,can_spend,can_roster,can_armory,can_garage,spend_limit,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", [org.id, ...values, String(actorId), Date.now()]);
+        const result = await db.query(
+          `INSERT INTO org_ranks(org_id,name,level,color,description,${RANK_COLUMNS.join(",")},spend_limit,created_by,created_at) VALUES(?,?,?,?,?,${RANK_COLUMNS.map(() => "?").join(",")},?,?,?)`,
+          [org.id, ...values, String(actorId), Date.now()],
+        );
+        rankId = Number(result.insertId);
       }
     } catch (error) {
       if (error?.code === "ER_DUP_ENTRY") throw new Error(`${org.name} already has a rank called ${name}.`);
       throw error;
     }
-    await audit(actorId, rankId ? "organization.rank_update" : "organization.rank_create", org.id, { name, level, spendLimit });
+    let roles = null;
+    if (authority && Array.isArray(input.roles)) roles = await authority.setRankBindings(org, rankId, input.roles, actorId);
+    await audit(actorId, input.rankId ? "organization.rank_update" : "organization.rank_create", org.id, { name, level, spendLimit, perms: granted, roles: roles?.map((role) => role.roleId) });
+    await rosterLog(org.id, actorId, input.rankId ? "rank_update" : "rank_create", rankId, { name, level, roles: roles?.map((role) => role.name) });
     await notifyGame();
-    return { org, name };
+    return { org, name, rankId, roles };
   }
 
   async function deleteRank(actorId, input) {
     const { org, perms } = await accessTo(actorId, input.orgId);
-    if (!perms.ranks) throw new Error("Only leaders can edit ranks.");
-    const rank = await db.one("SELECT id,name FROM org_ranks WHERE id=? AND org_id=?", [Number(input.rankId), org.id]);
+    if (!perms.ranks) throw new Error("Your rank cannot edit ranks.");
+    const rank = await db.one("SELECT id,name,level FROM org_ranks WHERE id=? AND org_id=?", [Number(input.rankId), org.id]);
     if (!rank) throw new Error("That rank no longer exists.");
+    assertRankReach(perms, rank.level, "delete");
     await db.transaction(async (query) => {
       await query("UPDATE organization_members SET rank_id=NULL,rank_name=IF(manager,'Leader','Member') WHERE org_id=? AND rank_id=?", [org.id, rank.id]);
+      await query("DELETE FROM org_rank_roles WHERE org_id=? AND rank_id=?", [org.id, rank.id]);
       await query("DELETE FROM org_ranks WHERE id=? AND org_id=?", [rank.id, org.id]);
     });
     await audit(actorId, "organization.rank_delete", org.id, { name: rank.name });
+    await rosterLog(org.id, actorId, "rank_delete", rank.id, { name: rank.name });
     await notifyGame();
     return { org, name: rank.name };
   }
 
-  /** Leaders, and ranks with roster access, promote and demote members below their own level. */
+  /** Re-number the ladder in one go: `order` lists rank ids from highest to lowest. */
+  async function reorderRanks(actorId, input) {
+    const { org, perms } = await accessTo(actorId, input.orgId);
+    if (!perms.full) throw new Error("Only the owner, command and leaders can reorder the whole ladder.");
+    const ranks = await db.query("SELECT id FROM org_ranks WHERE org_id=?", [org.id]);
+    const order = (Array.isArray(input.order) ? input.order : []).map(Number);
+    const known = new Set(ranks.map((row) => Number(row.id)));
+    if (order.length !== known.size || order.some((id) => !known.has(id)) || new Set(order).size !== order.length)
+      throw new Error("The new order must list every rank exactly once.");
+    const step = Math.max(1, Math.floor(98 / Math.max(1, order.length)));
+    await db.transaction(async (query) => {
+      for (let index = 0; index < order.length; index += 1)
+        await query("UPDATE org_ranks SET level=? WHERE id=? AND org_id=?", [Math.max(1, 99 - index * step), order[index], org.id]);
+    });
+    await audit(actorId, "organization.rank_reorder", org.id, { order });
+    await rosterLog(org.id, actorId, "rank_reorder", null, { count: order.length });
+    await notifyGame();
+    return { org };
+  }
+
+  async function applyRank(org, target, rank, actorId) {
+    await db.query(
+      `INSERT INTO organization_members(org_id,discord_id,rank_name,rank_id,manager,added_by,added_at) VALUES(?,?,?,?,FALSE,?,?)
+       ON DUPLICATE KEY UPDATE rank_id=VALUES(rank_id),rank_name=IF(manager,'Leader',VALUES(rank_name))`,
+      [org.id, target, rank?.name || "Member", rank?.id || null, String(actorId), Date.now()],
+    );
+  }
+
+  /** Owners, command, leaders and ranks with roster access promote and demote members below them. */
   async function setMemberRank(actorId, input) {
     const { org, perms } = await accessTo(actorId, input.orgId);
     if (!perms.roster) throw new Error("Your rank cannot manage the roster.");
@@ -704,31 +808,85 @@ export function createEconomy({ client, db, audit, log }) {
     const rankId = input.rankId === "" || input.rankId == null ? null : Number(input.rankId);
     const rank = rankId ? await db.one("SELECT id,name,level FROM org_ranks WHERE id=? AND org_id=?", [rankId, org.id]) : null;
     if (rankId && !rank) throw new Error("That rank no longer exists.");
-    if (!perms.ranks) {
+    if (!perms.full) {
       if (target === String(actorId)) throw new Error("You cannot change your own rank.");
-      if (flag(current?.manager)) throw new Error("Leaders can only be changed by staff.");
+      if (flag(current?.manager)) throw new Error("Only the owner, command or staff can change a leader.");
       if (Number(current?.level || 0) >= perms.level) throw new Error("You can only manage members ranked below you.");
       if (rank && rank.level >= perms.level) throw new Error(`You can only assign ranks below your own (${perms.rank}).`);
     }
-    await db.query(
-      `INSERT INTO organization_members(org_id,discord_id,rank_name,rank_id,manager,added_by,added_at) VALUES(?,?,?,?,FALSE,?,?)
-       ON DUPLICATE KEY UPDATE rank_id=VALUES(rank_id),rank_name=IF(manager,'Leader',VALUES(rank_name))`,
-      [org.id, target, rank?.name || "Member", rank?.id || null, String(actorId), Date.now()],
-    );
-    await audit(actorId, "organization.member_rank", org.id, { member: target, rank: rank?.name || "Member" });
+    await applyRank(org, target, rank, actorId);
+    const roles = authority
+      ? await authority.syncMemberRoles(org, target, rank?.id ?? null, `Rank set to ${rank?.name || "Member"} on the orgs website`).catch((error) => ({ added: 0, removed: 0, errors: [error.message] }))
+      : null;
+    await audit(actorId, "organization.member_rank", org.id, { member: target, rank: rank?.name || "Member", roles });
+    await rosterLog(org.id, actorId, "member_rank", target, { rank: rank?.name || "Member", added: roles?.added || 0, removed: roles?.removed || 0 });
     await postLog({ title: `Rank change · ${org.name}`, color: COLORS.primary, fields: [["Member", who(target)], ["Rank", rank?.name || "Member"], ["By", who(actorId)]] });
     await notifyGame();
-    return { org, discordId: target, rank: rank?.name || "Member" };
+    return { org, discordId: target, rank: rank?.name || "Member", roles };
   }
 
   async function setMotd(actorId, input) {
     const { org, perms } = await accessTo(actorId, input.orgId);
-    if (!perms.ranks) throw new Error("Only leaders can set the message of the day.");
+    if (!perms.motd) throw new Error("Your rank cannot set the message of the day.");
     const motd = text(input.motd, 300);
     await db.query("UPDATE organizations SET motd=? WHERE id=?", [motd || null, org.id]);
     await audit(actorId, "organization.motd", org.id, { motd });
+    await rosterLog(org.id, actorId, "motd", null, {});
     await notifyGame();
     return { org, motd };
+  }
+
+  /** Roster settings: push rank roles to Discord, and/or rank members from the roles they hold. */
+  async function saveRosterSettings(actorId, input) {
+    const { org, perms } = await accessTo(actorId, input.orgId);
+    if (!perms.full) throw new Error("Only the owner, command and leaders can change roster settings.");
+    const roleSync = flag(input.roleSync);
+    const autoRank = flag(input.autoRank);
+    await db.query(
+      `INSERT INTO org_roster_settings(org_id,role_sync,auto_rank,updated_by,updated_at) VALUES(?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE role_sync=VALUES(role_sync),auto_rank=VALUES(auto_rank),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)`,
+      [org.id, roleSync, autoRank, String(actorId), Date.now()],
+    );
+    await audit(actorId, "organization.roster_settings", org.id, { roleSync, autoRank });
+    await rosterLog(org.id, actorId, "settings", null, { roleSync, autoRank });
+    return { org, roleSync, autoRank };
+  }
+
+  /** Rank every roster member by the highest bound role they hold in Discord. */
+  async function importRanksFromDiscord(actorId, input) {
+    const { org, perms } = await accessTo(actorId, input.orgId);
+    if (!perms.full) throw new Error("Only the owner, command and leaders can import ranks from Discord.");
+    if (!authority) throw new Error("Rank roles are unavailable.");
+    const changes = await authority.rankChangesFromDiscord(org, { demote: flag(input.demote) });
+    for (const change of changes) await applyRank(org, change.discordId, change.rank, actorId);
+    await audit(actorId, "organization.rank_import", org.id, { changed: changes.length });
+    await rosterLog(org.id, actorId, "rank_import", null, { changed: changes.length });
+    if (changes.length) await notifyGame();
+    return { org, changed: changes.length };
+  }
+
+  /** Auto-rank organizations follow their bound Discord roles. Runs on a timer from index.js. */
+  async function reconcileAutoRanks() {
+    if (!authority) return 0;
+    const rows = await db.query("SELECT o.id,o.slug,o.name,o.type,o.guild_id FROM org_roster_settings s JOIN organizations o ON o.id=s.org_id WHERE s.auto_rank=TRUE AND o.active=TRUE").catch(() => []);
+    let changed = 0;
+    for (const org of rows) {
+      const changes = await authority.rankChangesFromDiscord(org, { demote: true }).catch(() => []);
+      for (const change of changes) {
+        await applyRank(org, change.discordId, change.rank, "auto-rank");
+        await rosterLog(org.id, "auto-rank", "member_rank", change.discordId, { rank: change.rank?.name || "Member", auto: true });
+      }
+      changed += changes.length;
+    }
+    if (changed) await notifyGame();
+    return changed;
+  }
+
+  /** Discord roles this organization can bind to ranks, for the rank editor. */
+  async function bindableRoles(actorId, orgRef) {
+    const { org, perms } = await accessTo(actorId, orgRef);
+    if (!perms.ranks) throw new Error("Your rank cannot edit ranks.");
+    return authority ? authority.bindableRoles(org) : [];
   }
 
   /** Discord: one organization's wallet summary. */
@@ -750,6 +908,7 @@ export function createEconomy({ client, db, audit, log }) {
 
   return {
     seed, portalData, purchase, sellItem, sellProperty: sellItem, transfer, adjust, setLeader,
-    saveRank, deleteRank, setMemberRank, setMotd, summary, memberships, canManage, wallet, serviceBatch, money, KIND_LABEL,
+    saveRank, deleteRank, reorderRanks, setMemberRank, setMotd, saveRosterSettings, importRanksFromDiscord, reconcileAutoRanks, bindableRoles,
+    summary, memberships, canManage, wallet, serviceBatch, money, KIND_LABEL, accessTo,
   };
 }
