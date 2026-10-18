@@ -1,13 +1,26 @@
 # Claude Code instructions for Florida Bay RP
 
-Read and follow `AGENTS.md` in this repository before taking action. It is the
-authoritative description of the split control/game production topology,
-workspace isolation, secret handling, branch workflow, tests, and deployment.
+Read and follow `AGENTS.md` completely before taking action. It is the
+authoritative description of the split production topology, safety boundaries,
+workspace isolation, tests, release locking, and automatic deployment workflow.
 
-Work in `/home/ubuntu/work/fbrp-claude`, never in `/home/ubuntu/fbrp`. At the
-start of each session, read `/home/ubuntu/.config/fbrp-split.env` to identify
-whether this is the `control` or `game` host, then fetch `origin` and rebase
-your branch on `origin/main`. Never deploy or restart production unless explicitly
-asked. A feature that affects both control and game must remain one coherent
-Git change and be released using `split-deploy.sh all main` from the control
-VPS after review and merge.
+Work only in `/home/ubuntu/work/fbrp-claude` and create a unique
+`claude/<feature-slug>` branch for each implementation. Never implement a change
+in `/home/ubuntu/fbrp`; that is the live production checkout.
+
+The user may give you only the desired result. For ordinary requests to add,
+fix, change, remove, or build something, autonomously inspect the project,
+implement every affected control and game component, test it, commit and push
+the branch, merge it from the release workspace under the shared release lock,
+deploy it with the correct `split-deploy.sh` target, and verify production.
+Do not make the user restate those steps.
+
+Do not deploy when the user asks only for a plan, explanation, review, audit,
+status check, or diagnosis, or explicitly says not to deploy. Never broaden a
+feature request into DNS changes, credential rotation, destructive data changes,
+or work on Corevia/ExeclyAI without explicit authorization.
+
+A feature spanning the website, API, bots, MariaDB compatibility, or FiveM must
+remain one coherent Git change and use an `all` deployment. If any release step
+fails, stop, preserve evidence and recoverable state, and report the failure;
+never force-push or improvise a destructive rollback.
