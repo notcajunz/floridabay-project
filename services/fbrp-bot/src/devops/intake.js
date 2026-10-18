@@ -1,6 +1,6 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder } from "discord.js";
 import { db } from "./store.js";
-import { C, card, clip } from "./util.js";
+import { C, UserError, card, clip, ts } from "./util.js";
 
 /**
  * Direct-message intake for the FBRP | DevOps bot. Anyone can DM the bot to file a bug report or
@@ -9,6 +9,8 @@ import { C, card, clip } from "./util.js";
  */
 
 export const INTAKE_LOG_CHANNEL_ID = "1561220286555099236";
+export const REMINDER_USER_ID = "1090083387638812755";
+const REMINDER_EVERY_MS = 12 * 3600_000;
 const ANSWER_TIMEOUT_MS = 10 * 60_000;
 const COOLDOWN_MS = 2 * 60_000;
 const DAILY_LIMIT = 10;
@@ -259,11 +261,94 @@ async function log(client, user, session) {
   const embed = summaryEmbed(session, `${kind.label}${id ? ` #${id}` : ""}`)
     .setAuthor({ name: `${user.username} (${user.id})`, iconURL: user.displayAvatarURL() });
   embed.addFields({ name: "Submitted by", value: `<@${user.id}>`, inline: true });
-  const message = await channel.send({ allowedMentions: { parse: [] }, content: `${kind.emoji} New ${kind.label.toLowerCase()}`, embeds: [embed] }).catch((error) => {
+  embed.addFields({ name: "Status", value: STATUS.open.text, inline: true });
+  const message = await channel.send({ allowedMentions: { parse: [] }, content: `${kind.emoji} New ${kind.label.toLowerCase()}`, embeds: [embed], components: id ? logButtons("open", id) : [] }).catch((error) => {
     console.warn(`[DevOps] intake log failed: ${error.message}`);
     return null;
   });
   if (!message) return null;
   if (id) await db.query("UPDATE devops_intake SET log_message_id=? WHERE id=?", [message.id, id]).catch(() => null);
   return { id: id ?? "—" };
+}
+
+/* ------------------------------------------------------------------ log buttons and reminders */
+
+const LOG_PREFIX = "dv:ilog";
+
+/** Unfinished statuses are reminded about; resolved ones are not. */
+export const STATUS = {
+  open: { text: "🟢 Open", color: null, resolved: false },
+  progress: { text: "🔧 In progress", color: C.amber, resolved: false },
+  done: { text: "✅ Done", color: C.green, resolved: true },
+  wontdo: { text: "🚫 Won't do", color: C.grey, resolved: true },
+};
+
+/** Buttons shown under a logged submission for its current status. */
+export function logButtons(status, id) {
+  const b = (action, label, style) => button(`${LOG_PREFIX}:${action}:${id}`, label, style);
+  if (STATUS[status]?.resolved) return [row(b("open", "↩️ Reopen", ButtonStyle.Secondary))];
+  const buttons = [b("done", "✅ Mark as done", ButtonStyle.Success)];
+  if (status !== "progress") buttons.push(b("progress", "🔧 In progress", ButtonStyle.Primary));
+  buttons.push(b("wontdo", "🚫 Won't do", ButtonStyle.Danger));
+  return [row(...buttons)];
+}
+
+/** Applies the log-channel buttons. Only development team members (or admins) may use them. */
+export async function onLogButton(i, actor) {
+  const [, , action, rawId] = i.customId.split(":");
+  const id = Number(rawId);
+  if (!STATUS[action] || !Number.isInteger(id)) throw new UserError("This button has expired.");
+  if (!actor?.admin && !(actor?.level > 0)) throw new UserError("Only development team members can update these reports.");
+  const entry = await db.one("SELECT id,status FROM devops_intake WHERE id=?", [id]);
+  if (!entry) throw new UserError("That submission no longer exists.");
+  const resolved = STATUS[action].resolved;
+  await db.query("UPDATE devops_intake SET status=?,resolved_by=?,resolved_at=? WHERE id=?", [action, resolved ? i.user.id : null, resolved ? Date.now() : null, id]);
+  const embed = EmbedBuilder.from(i.message.embeds[0]);
+  const fields = (embed.data.fields || []).filter((f) => f.name !== "Status" && f.name !== "Resolved by");
+  fields.push({ name: "Status", value: STATUS[action].text, inline: true });
+  if (resolved) fields.push({ name: "Resolved by", value: `<@${i.user.id}> ${ts(Date.now(), "R")}`, inline: true });
+  embed.setFields(fields);
+  if (STATUS[action].color !== null) embed.setColor(STATUS[action].color);
+  await i.update({ embeds: [embed], components: logButtons(action, id), allowedMentions: { parse: [] } });
+}
+
+const age = (ms) => {
+  const hours = Math.floor((Date.now() - Number(ms)) / 3600_000);
+  return hours < 48 ? `${Math.max(hours, 0)}h` : `${Math.floor(hours / 24)}d`;
+};
+
+/** Embed listing every unfinished submission, or null when there are none. */
+export async function reminderEmbed(guildId) {
+  const rows = await db.query("SELECT id,kind,username,answers,status,log_message_id,created_at FROM devops_intake WHERE status IN ('open','progress') ORDER BY created_at ASC");
+  if (!rows.length) return null;
+  const lines = [];
+  for (const row of rows.slice(0, 20)) {
+    let answers = {};
+    try { answers = JSON.parse(row.answers) || {}; } catch { /* keep empty */ }
+    const title = clip(answers.title || KINDS[row.kind]?.label || "Untitled", 70);
+    const link = row.log_message_id ? ` · [open](https://discord.com/channels/${guildId}/${INTAKE_LOG_CHANNEL_ID}/${row.log_message_id})` : "";
+    lines.push(`${KINDS[row.kind]?.emoji || "•"} **#${row.id}** ${title} — ${STATUS[row.status].text}, ${age(row.created_at)} old, from ${clip(row.username, 32)}${link}`);
+  }
+  if (rows.length > 20) lines.push(`…and ${rows.length - 20} more in <#${INTAKE_LOG_CHANNEL_ID}>.`);
+  const bugs = rows.filter((row) => row.kind === "bug").length;
+  return card(`⏰ ${rows.length} unfinished report${rows.length === 1 ? "" : "s"}`, {
+    color: C.amber,
+    description: lines.join("\n"),
+    fields: [["Bugs", String(bugs)], ["Suggestions", String(rows.length - bugs)]],
+    footer: "Mark items done with the buttons in the log channel",
+  });
+}
+
+/** DMs the reminder at most once every 12 hours (about twice a day), surviving restarts. */
+export async function sendReminder(client, { force = false } = {}) {
+  const row = await db.one("SELECT config_value FROM devops_config WHERE config_key='intake_reminder'").catch(() => null);
+  const last = Number(row?.config_value) || 0;
+  if (!force && Date.now() - last < REMINDER_EVERY_MS) return false;
+  const channel = client.channels.cache.get(INTAKE_LOG_CHANNEL_ID) || (await client.channels.fetch(INTAKE_LOG_CHANNEL_ID).catch(() => null));
+  const embed = await reminderEmbed(channel?.guildId || process.env.DEVOPS_GUILD_ID);
+  if (!embed) return false;
+  const user = await client.users.fetch(REMINDER_USER_ID);
+  await user.send({ embeds: [embed] });
+  await db.query("INSERT INTO devops_config(config_key,config_value,updated_at) VALUES('intake_reminder',?,?) ON DUPLICATE KEY UPDATE config_value=VALUES(config_value),updated_at=VALUES(updated_at)", [String(Date.now()), Date.now()]);
+  return true;
 }

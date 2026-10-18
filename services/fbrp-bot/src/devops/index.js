@@ -210,6 +210,7 @@ client.on(Events.InteractionCreate, async (i) => {
     }
     const member = await i.guild.members.fetch(i.user.id);
     const actor = await authority(member);
+    if (i.isButton() && id.startsWith("dv:ilog:")) return await intake.onLogButton(i, actor);
     if (i.isAutocomplete()) return await autocomplete(i, actor);
     if (i.isChatInputCommand()) {
       const setupCommand = i.commandName === "devops-admin" && i.options.getSubcommand(false) === "setup";
@@ -312,6 +313,8 @@ client.once(Events.ClientReady, async () => {
     await renderPanel(gg, "chain");
   }, 40_000);
   every(3_600_000, "task reminders", tasks.remind, 120_000);
+  // Twice a day (every 12 hours, persisted across restarts) DM the owner the unfinished reports.
+  every(600_000, "intake reminder", () => intake.sendReminder(client), 90_000);
 });
 
 client.on(Events.Error, (e) => console.error("[DevOps] client error:", e.message));
