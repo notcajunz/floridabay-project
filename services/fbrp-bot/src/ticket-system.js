@@ -19,13 +19,12 @@ export const TICKET_TYPES = {
   store: { label: "Store / Purchase", description: "Package grants, purchases, and missing items.", priority: 1, fields: [["transaction","Transaction or receipt ID","short",false,80],["item","Package or item","short",true,100],["issue","What went wrong?","paragraph",true,1000]] },
   report: { label: "Player Report", description: "Rule violations, exploits, or abuse by another player.", priority: 0, fields: [["player","Player name or server ID","short",true,80],["scene","Scene, time, or server ID","short",false,80],["what","What happened?","paragraph",true,1000],["evidence","Evidence links","paragraph",false,500]] },
   iaa: { label: "IAA Ticket", description: "Transfer and merge requests for staff, departments, gangs, and other server roles.", priority: 2, fields: [["subject","Transfer or merge request","short",true,100],["origin","Current server, department, or role","short",true,120],["request","Describe the transfer or merge","paragraph",true,1000],["evidence","Proof or supporting links","paragraph",false,500]] },
-  bug: { label: "Bug Report", description: "Report a reproducible server or bot problem.", priority: 3, fields: [["what","What is broken?","paragraph",true,1000],["steps","Steps to reproduce","paragraph",true,1000],["clip","Screenshot or video link","short",false,300]] },
   creator: { label: "Partnership / Creator", description: "Creator, community, or partnership proposals.", priority: 2, fields: [["organisation","Organization or channel","short",true,100],["audience","Audience and reach","short",true,100],["proposal","Your proposal","paragraph",true,1000],["links","Relevant links","paragraph",false,500]] },
   security: { label: "Security Ticket", description: "Privately disclose a security concern.", priority: 1, fields: [["subject","Security concern","short",true,100],["description","Detailed description","paragraph",true,1000],["affected","Affected systems","short",false,200],["evidence","Private evidence links","paragraph",false,500]] },
   management: { label: "Management Ticket", description: "Escalations and requests for server management.", priority: 2, fields: [["subject","Subject","short",true,100],["description","Detailed request","paragraph",true,1000],["area","Department or area","short",false,100],["outcome","Requested outcome","paragraph",false,500]] },
 };
 const PRIORITY_DEFAULTS = [{label:"Critical",sla:10},{label:"High",sla:30},{label:"Priority",sla:60},{label:"Standard",sla:240}];
-const TYPE_EMOJI = { support: "🛠️", store: "🛒", report: "🚨", appeal: "⚖️", iaa: "🔄", bug: "🐛", creator: "🎥", security: "🔐", management: "📋" };
+const TYPE_EMOJI = { support: "🛠️", store: "🛒", report: "🚨", appeal: "⚖️", iaa: "🔄", creator: "🎥", security: "🔐", management: "📋" };
 const PRIORITY_EMOJI = ["🔴", "🟠", "🟡", "🔵"];
 const STATUS = {
   open: { icon: "🟢", label: "Open", color: 0x43e8d8 },

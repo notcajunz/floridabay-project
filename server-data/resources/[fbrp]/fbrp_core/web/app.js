@@ -1122,8 +1122,25 @@ function renderMenu() {
   $("#menu").classList.toggle("radio-mode", currentView === "radio");
   const content = $("#menu-content");
   const scroll = content.scrollTop;
+  // The radio refreshes itself every couple of seconds. Rebuilding its HTML replays the
+  // entrance animation (a quick off/on flash) and wipes typing and transmit state, so a
+  // refresh of an already-open handset is rendered without the animation and restored.
+  const oldRadio = currentView === "radio" && !$("#menu").classList.contains("hidden") ? $("#radio-console") : null;
+  const radioKeep = oldRadio ? {
+    channel: oldRadio.querySelector('#radio-tune [name="channel"]')?.value || "",
+    focused: document.activeElement?.closest?.("#radio-tune") ? document.activeElement.name : "",
+    transmitting: oldRadio.classList.contains("transmitting"),
+  } : null;
   content.innerHTML = renderers[currentView] ? renderers[currentView](currentPayload) : "";
   content.scrollTop = scroll;
+  if (radioKeep) {
+    const handset = $("#radio-console");
+    handset?.classList.add("no-anim");
+    handset?.classList.toggle("transmitting", radioKeep.transmitting);
+    const field = handset?.querySelector('#radio-tune [name="channel"]');
+    if (field && radioKeep.channel) field.value = radioKeep.channel;
+    if (field && radioKeep.focused === "channel") field.focus();
+  }
   hydrate(content);
 }
 

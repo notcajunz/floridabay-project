@@ -17,6 +17,7 @@ import * as ranksync from "./ranksync.js";
 import * as status from "./status.js";
 import * as lookups from "./lookups.js";
 import * as restart from "./restart.js";
+import * as intake from "./intake.js";
 import { refreshPanels, renderPanel } from "./panels.js";
 
 /**
@@ -35,8 +36,8 @@ if (!TOKEN || !GUILD_ID) {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages],
-  partials: [Partials.GuildMember],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
+  partials: [Partials.GuildMember, Partials.Channel, Partials.Message],
 });
 tickets.init(client);
 status.setClient(client);
@@ -71,6 +72,7 @@ const HELP = [
   ["🚨 Incidents · `/incident`", "`open` · `update` · `resolve` · `commander` · `list` · `view`\nDevelopers and up. Posts to the public status page."],
   ["📣 Comms", "`/release post` · `/announce` · `/standup`"],
   ["🎫 Tickets · `/ticket` `/support`", "General Support and Purchase Support. Staff claim, prioritise, note and close from the buttons."],
+  ["📨 Bug reports & suggestions · DM this bot", "Message the bot privately. It asks for the details, shows a summary, and logs it for the development team."],
   ["🟢 Status · `/devops status`", "Live game server, website, database and bot health."],
   ["♻️ Restarts · `/restart`", "Owner-only restart controls for every FBRP production service."],
   ["🔎 Public lookups", "`/vehicle lookup` · `/personals owned` · `/eup lookup` · `/eup added` · `/eup list` · `/headtag info` · `/headtag owned`\nAvailable to everyone in this server."],
@@ -186,6 +188,11 @@ async function component(i, actor) {
 }
 
 client.on(Events.InteractionCreate, async (i) => {
+  // The DM bug-report / suggestion flow runs outside the guild.
+  if (i.isButton() && i.customId.startsWith("dv:intake:")) {
+    await intake.onButton(client, i).catch((error) => console.warn(`[DevOps] intake button: ${error.message}`));
+    return;
+  }
   if (!i.isAutocomplete()) void recordInteraction((sql, args) => pool.query(sql, args), "devops", i).catch(() => {});
   if (!i.inGuild() || i.guildId !== GUILD_ID) {
     if (i.isRepliable()) await i.reply({ content: "The DevOps bot only works inside the FBRP | DevOps server.", flags: MessageFlags.Ephemeral }).catch(() => null);
@@ -259,6 +266,10 @@ client.on(Events.GuildMemberUpdate, (before, after) => {
 });
 
 client.on(Events.MessageCreate, (message) => {
+  if (!message.guildId) {
+    intake.onDirectMessage(client, message).catch((error) => console.warn(`[DevOps] intake message: ${error.message}`));
+    return;
+  }
   if (message.guildId !== GUILD_ID) return;
   tickets.onMessage(message).catch(() => null);
 });
