@@ -78,7 +78,7 @@ Requires=fbrp-game-tunnel.service
 [Service]
 Type=simple
 ExecStartPre=/usr/bin/mkdir -p $local_path
-ExecStart=/usr/bin/sshfs -f -o reconnect,nonempty,ServerAliveInterval=15,ServerAliveCountMax=3,IdentityFile=$KEY,IdentitiesOnly=yes,StrictHostKeyChecking=yes $GAME_TARGET:$remote_path $local_path
+ExecStart=/usr/bin/sshfs -f -o reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,IdentityFile=$KEY,IdentitiesOnly=yes,StrictHostKeyChecking=yes $GAME_TARGET:$remote_path $local_path
 ExecStop=/bin/fusermount3 -u $local_path
 Restart=on-failure
 RestartSec=5
@@ -88,9 +88,31 @@ WantedBy=default.target
 EOF
 }
 
+prepare_mountpoint() {
+  local name="$1" local_path="$2" backup_path="${2}.pre-game-mount"
+  systemctl --user stop "${name}.service" 2>/dev/null || true
+  if mountpoint -q "$local_path"; then
+    fusermount3 -u "$local_path"
+  fi
+  if [[ -d "$local_path" ]] && find "$local_path" -mindepth 1 -print -quit | grep -q .; then
+    [[ ! -e "$backup_path" ]] \
+      || die "Cannot preserve nonempty mountpoint because backup already exists: $backup_path"
+    mv "$local_path" "$backup_path"
+  fi
+  mkdir -p "$local_path"
+}
+
 vehicles="$ROOT/server-data/resources/[vehicles]"
 eup="$ROOT/server-data/resources/[eup]"
 vmenu="$ROOT/server-data/resources/[standalone]/vMenu/config"
+for remote_path in "$vehicles" "$eup" "$vmenu"; do
+  ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes \
+    "$GAME_TARGET" 'test -d "$1"' _ "$remote_path" \
+    || die "Missing authoritative game directory: $remote_path"
+done
+prepare_mountpoint fbrp-vehicles-sshfs "$vehicles"
+prepare_mountpoint fbrp-eup-sshfs "$eup"
+prepare_mountpoint fbrp-vmenu-config-sshfs "$vmenu"
 write_mount_unit fbrp-vehicles-sshfs "$vehicles" "$vehicles"
 write_mount_unit fbrp-eup-sshfs "$eup" "$eup"
 write_mount_unit fbrp-vmenu-config-sshfs "$vmenu" "$vmenu"
