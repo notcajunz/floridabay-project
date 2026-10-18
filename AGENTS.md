@@ -95,9 +95,11 @@ After implementation and tests succeed:
 1. Fetch `origin` again. Incorporate the latest `origin/main` without rewriting
    published history, resolve conflicts carefully, and rerun affected tests.
 2. Commit the complete feature and push its branch to `origin`.
-3. Acquire `/home/ubuntu/.local/state/fbrp-release.lock` with `flock`. Hold this
-   lock continuously through merge, push, deployment, and verification so that
-   Codex and Claude cannot release simultaneously.
+3. Create `/home/ubuntu/.local/state` with mode `0700`, then acquire
+   `/home/ubuntu/.local/state/fbrp-release.lock` with `flock`. Treat failure to
+   create or acquire the lock as fatal. Hold the lock continuously through
+   merge, push, deployment, and verification so that Codex and Claude cannot
+   release simultaneously.
 4. In `/home/ubuntu/work/fbrp-release`, fetch `origin`, switch to `main`, and
    fast-forward to `origin/main`.
 5. Merge the feature with `git merge --ff-only origin/<feature-branch>`. If this
