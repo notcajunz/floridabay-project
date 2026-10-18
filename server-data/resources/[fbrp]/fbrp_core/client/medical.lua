@@ -101,9 +101,15 @@ local function resurrectInPlace(settleMs)
     downedAnim(ped)
 end
 
+-- pma-voice stops sending proximity, call and radio audio while this state bag is set.
+local function setVoiceMuted(muted)
+    LocalPlayer.state:set('isDead', muted == true, true)
+end
+
 local function leaveDowned()
     downed = nil
     holdStart = nil
+    setVoiceMuted(false)
     setDownedProtection(false)
     ui({ type='downed', active=false })
 end
@@ -158,16 +164,22 @@ local function goDown()
     local ped = PlayerPedId()
     local cause = causeOfDeath(ped)
     downed = { since=GetGameTimer(), cause=cause }
+    setVoiceMuted(true)
     TriggerEvent('fbrp:cancelActivities')
     TriggerServerEvent('fbrp:medical:downed', { cause=cause })
     resurrectInPlace(1500)
     downedLoop()
 end
 
+setVoiceMuted(false) -- clear a flag left behind by a restart of this resource
+
 AddEventHandler('fbrp:characterSpawned', function() spawned = true end)
 
 AddEventHandler('onClientResourceStop', function(resource)
-    if resource == GetCurrentResourceName() then setDownedProtection(false) end
+    if resource == GetCurrentResourceName() then
+        setDownedProtection(false)
+        setVoiceMuted(false)
+    end
 end)
 
 CreateThread(function()

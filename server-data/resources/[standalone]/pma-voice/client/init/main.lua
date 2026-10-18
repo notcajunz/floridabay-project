@@ -191,6 +191,8 @@ end
 ---@diagnostic disable-next-line: undefined-doc-param
 ---@param targets table expects multiple tables to be sent over
 function addVoiceTargets(...)
+	-- Dead players transmit to nobody (see addNearbyPlayers); call and radio targets are not added either.
+	if LocalPlayer.state.isDead then return end
 	local targets = { ... }
 	local addedPlayers = {
 		[playerServerId] = true

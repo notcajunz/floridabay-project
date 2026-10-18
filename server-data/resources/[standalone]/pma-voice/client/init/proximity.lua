@@ -35,6 +35,11 @@ function addNearbyPlayers()
 	currentTargets = {}
 	MumbleClearVoiceTargetChannels(voiceTarget)
 	if LocalPlayer.state.disableProximity then return end
+	-- A dead (downed) player cannot talk to anyone: no proximity, call or radio targets at all.
+	if LocalPlayer.state.isDead then
+		MumbleClearVoiceTargetPlayers(voiceTarget)
+		return
+	end
 	local assignedChannel = tonumber(LocalPlayer.state.assignedChannel)
 	if not assignedChannel or assignedChannel <= 0 then
 		isInitialized = false
