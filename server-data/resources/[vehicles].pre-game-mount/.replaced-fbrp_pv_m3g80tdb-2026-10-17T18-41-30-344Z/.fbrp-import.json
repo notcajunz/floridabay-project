@@ -1,0 +1,111 @@
+{
+  "source": "FiveM.zip",
+  "model": "m3g80tdb",
+  "by": "1090083387638812755",
+  "at": 1792017704406,
+  "request": {
+    "topSpeedMph": 300,
+    "acceleration": "much_higher",
+    "braking": "much_higher",
+    "grip": "much_higher",
+    "drivetrain": "rwd",
+    "instructions": "keep it stable at high speed, easy and good turning at high and low speed, high mass to allow for better handling, fast acceleration"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fMass",
+      "from": "1760.000000",
+      "to": "1850.000000",
+      "reason": "Increase vehicle mass for better planted, stable high-speed behavior."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fSteeringLock",
+      "from": "40.500000",
+      "to": "42.500000",
+      "reason": "Support easy turning at both low and high speed."
+    },
+    {
+      "file": "handling.meta",
+      "field": "vecInertiaMultiplier",
+      "from": "1.000000,1.600000,1.780000",
+      "to": "1.000000,1.700000,1.900000",
+      "reason": "Improve yaw and roll stability for high-speed driving."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fAntiRollBarForce",
+      "from": "0.925000",
+      "to": "1.050000",
+      "reason": "Reduce body roll and improve cornering stability."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fAntiRollBarBiasFront",
+      "from": "0.38000",
+      "to": "0.400000",
+      "reason": "Keep the car balanced through turns."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionBiasFront",
+      "from": "0.492000",
+      "to": "0.490000",
+      "reason": "Slightly favor rear stability while preserving agile turning."
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "157.95000",
+      "to": "365.853659",
+      "reason": "Top speed about 300 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.364500",
+      "to": "0.473850",
+      "reason": "Acceleration much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "0.950000",
+      "to": "1.235000",
+      "reason": "Braking much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "2.585000",
+      "to": "3.360500",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "2.410000",
+      "to": "3.133000",
+      "reason": "Grip much higher (30%)"
+    }
+  ],
+  "security": {
+    "verdict": "safe",
+    "summary": "The pack contains only vehicle assets and metadata, plus a benign legacy __resource.lua with data-only declarations. No executable scripts, webhooks, downloads, process execution, or obfuscated payloads were found.",
+    "findings": [
+      {
+        "severity": "info",
+        "file": "FiveM/__resource.lua",
+        "reason": "Legacy manifest is data-only and does not contain executable logic; stale optional reference to vehiclelayouts.meta is harmless because the importer rebuilds the manifest from existing files."
+      }
+    ],
+    "repairs": [
+      {
+        "file": "FiveM/__resource.lua",
+        "issue": "References an optional metadata file not present in the inventory (vehiclelayouts.meta).",
+        "action": "Omit the missing path when generating the fresh manifest."
+      }
+    ]
+  }
+}

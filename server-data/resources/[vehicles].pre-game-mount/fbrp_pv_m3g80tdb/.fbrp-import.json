@@ -1,0 +1,27 @@
+{
+  "source": "fbrp_pv_m3g80tdb.zip",
+  "model": "m3g80tdb",
+  "by": "1090083387638812755",
+  "at": 1792262490344,
+  "request": {},
+  "changes": [],
+  "liveries": [],
+  "security": {
+    "verdict": "safe",
+    "summary": "This pack contains only vehicle assets, metadata, and a benign data-only fxmanifest. No executable behavior, downloads, webhooks, obfuscation, or hidden payloads were found.",
+    "findings": [
+      {
+        "severity": "info",
+        "file": "fbrp_pv_m3g80tdb/fxmanifest.lua",
+        "reason": "Manifest is declarative only and lists recognized vehicle metadata files; no runtime scripts or web UI assets are loaded."
+      }
+    ],
+    "repairs": [
+      {
+        "file": "fbrp_pv_m3g80tdb/fxmanifest.lua",
+        "issue": "The manifest is safe but the importer does not rely on uploaded manifests.",
+        "action": "Rebuild the manifest from the actual copied vehicle assets and metadata."
+      }
+    ]
+  }
+}

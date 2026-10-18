@@ -1,0 +1,169 @@
+{
+  "source": "scar_ram.zip",
+  "model": "scar_ram",
+  "by": "1090083387638812755",
+  "at": 1792006278325,
+  "request": {
+    "topSpeedMph": 250,
+    "acceleration": "higher",
+    "braking": "higher",
+    "grip": "higher"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "250.0",
+      "to": "304.878049",
+      "reason": "Top speed about 250 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.34",
+      "to": "0.391000",
+      "reason": "Acceleration higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "6.0",
+      "to": "6.900000",
+      "reason": "Braking higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "2.8",
+      "to": "3.220000",
+      "reason": "Grip higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "3.6",
+      "to": "4.140000",
+      "reason": "Grip higher (15%)"
+    }
+  ],
+  "security": {
+    "verdict": "safe",
+    "summary": "No executable or malicious behavior was found. The pack contains only vehicle model/texture assets and metadata; the uploaded manifest had a stale reference to a missing metadata file, which is a harmless packaging issue and will be omitted during import.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "scar_ram/__resource.lua",
+        "issue": "References missing vehiclelayouts.meta.",
+        "action": "Dropped the stale reference; the importer rebuilds the manifest using only metadata files that are actually present."
+      }
+    ]
+  },
+  "retunes": [
+    {
+      "at": 1792016001670,
+      "by": "1090083387638812755",
+      "request": {
+        "instructions": "make it less stable at high speeds, harder to turn, lower acceleration"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.391000",
+          "to": "0.330000",
+          "reason": "Lowered acceleration as requested."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fInitialDragCoeff",
+          "from": "0.1",
+          "to": "0.180000",
+          "reason": "Adds a bit more drag to further blunt acceleration and top-end buildup without making it undrivable."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fDownforceModifier",
+          "from": "0.1",
+          "to": "0.050000",
+          "reason": "Reduces high-speed planted feel to make the vehicle less stable at speed."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "60.0",
+          "to": "52.000000",
+          "reason": "Makes the vehicle harder to turn."
+        },
+        {
+          "file": "handling.meta",
+          "field": "vecCentreOfMassOffset",
+          "from": "-0.0,-0.60000002384186,0.0",
+          "to": "0.000000,-0.350000,0.100000",
+          "reason": "Raises the center of mass slightly and reduces rearward bias to increase high-speed instability while keeping it usable."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fAntiRollBarForce",
+          "from": "0.7",
+          "to": "0.500000",
+          "reason": "Softens roll resistance so the vehicle feels less composed in fast cornering."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "3.220000",
+          "to": "3.050000",
+          "reason": "Slightly reduces overall grip to match the requested less-stable behavior."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "4.140000",
+          "to": "3.900000",
+          "reason": "Supports the slight grip reduction without making low-speed handling excessively poor."
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1792016255253,
+      "by": "1090083387638812755",
+      "request": {
+        "topSpeedMph": 195,
+        "drivetrain": "awd",
+        "instructions": "slower acceleration, worse steering"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.330000",
+          "to": "0.270000",
+          "reason": "Slower acceleration."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "52.000000",
+          "to": "44.000000",
+          "reason": "Worse steering / less responsive turning."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveMaxFlatVel",
+          "from": "304.878049",
+          "to": "237.804878",
+          "reason": "Top speed about 195 mph"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fDriveBiasFront",
+          "from": "0.5",
+          "to": "0.500000",
+          "reason": "AWD drivetrain"
+        }
+      ],
+      "shrink": false
+    }
+  ]
+}

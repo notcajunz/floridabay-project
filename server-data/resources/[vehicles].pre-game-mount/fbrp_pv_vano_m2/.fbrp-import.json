@@ -1,0 +1,95 @@
+{
+  "source": "vanz23m2.zip",
+  "model": "vano_m2",
+  "by": "1090083387638812755",
+  "at": 1792103670381,
+  "request": {
+    "grip": "lower",
+    "drivetrain": "rwd"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "2.675000",
+      "to": "2.273750",
+      "reason": "Grip lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "2.580000",
+      "to": "2.193000",
+      "reason": "Grip lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fDriveBiasFront",
+      "from": "0.500000",
+      "to": "0.000000",
+      "reason": "RWD drivetrain"
+    }
+  ],
+  "security": {
+    "verdict": "safe",
+    "summary": "This pack contains only vehicle models/textures and vehicle metadata, plus a simple legacy resource manifest. No executable scripts, downloads, callbacks, obfuscation, or other malicious behavior are present. The manifest references some optional files that are not included, but those are harmless and will be omitted by the importer.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "vanz23m2/__resource.lua",
+        "issue": "References optional metadata files that are not present in the upload (e.g. carcols.meta, vehiclelayouts.meta).",
+        "action": "Ignored missing paths when rebuilding the resource manifest; only existing recognized vehicle assets and metadata will be installed."
+      }
+    ]
+  },
+  "renamedFrom": "vanz23m2",
+  "renamedBy": "1090083387638812755",
+  "renamedAt": 1792103689416,
+  "retunes": [
+    {
+      "at": 1792109056272,
+      "by": "1090083387638812755",
+      "request": {
+        "instructions": "make the car turn badly, and barely turn at high speeds"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "38.000000",
+          "to": "24.000000",
+          "reason": "Makes the car turn badly as requested."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveLateral",
+          "from": "22.500000",
+          "to": "16.500000",
+          "reason": "Reduces cornering grip so it barely turns at higher speeds."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "2.273750",
+          "to": "2.120000",
+          "reason": "Supports the reduced cornering behavior while keeping the car drivable."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "2.193000",
+          "to": "2.040000",
+          "reason": "Keeps grip changes balanced after lowering lateral traction."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionLossMult",
+          "from": "1.000000",
+          "to": "1.120000",
+          "reason": "Adds a bit more slip to reinforce poor turning without making it uncontrollable."
+        }
+      ],
+      "shrink": false
+    }
+  ]
+}

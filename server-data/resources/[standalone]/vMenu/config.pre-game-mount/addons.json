@@ -1,0 +1,45 @@
+{
+  "vehicles": [
+    "addonvehiclename1",
+    "addonvehiclename2"
+  ],
+  "peds": [
+    "addonpedname1",
+    "addonpedname2"
+  ],
+  "extra_blendable_faces": [],
+  "weapons": [
+    "weapon_mp9a",
+    "weapon_fbiarb",
+    "weapon_hk416b",
+    "weapon_mm4",
+    "weapon_m700",
+    "weapon_ghostarp",
+    "weapon_ghostglock",
+    "weapon_tacticalcarbine"
+  ],
+  "weapon_components": [
+    "component_mp9a_clip_02",
+    "component_at_scope_mp9a",
+    "component_at_mp9a_flsh",
+    "component_at_mp9a_supp_02",
+    "component_fbiarb_clip_01",
+    "component_at_scope_fbiarb",
+    "component_at_fbiarb_flsh",
+    "component_at_fbiarb_afgrip",
+    "component_hk416b_clip_01",
+    "component_at_scope_hk416b",
+    "component_at_hk416b_supp",
+    "component_at_hk416b_flsh",
+    "component_mm4_clip_01",
+    "component_m700_clip_01",
+    "component_at_ar_supp_m700",
+    "component_at_scope_m700",
+    "component_ghostarp_scope_01",
+    "component_ghostarp_mag_01",
+    "component_ghostglock_clip_01",
+    "component_ghostglock_clip_02",
+    "component_ghostglock_supp_01",
+    "component_carbine_sight_01"
+  ]
+}
