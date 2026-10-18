@@ -13,8 +13,28 @@ test("coordination ranks and manager rules use distinct snowflakes", () => {
     assert.match(id, /^\d{17,20}$/);
   assert.ok(config.COORD_RANKS.some((rank) => rank.name === config.MANAGER_RANK));
   assert.deepEqual(config.MANAGER_ROLE_RULES.map((rule) => rule.targetRole).sort(), [
-    "1558270212267184178", "1558270290822299778", "1558270406484557944", "1560450541509677186",
+    "1558270212267184178", "1558270290822299778", "1558270406484557944", "1559120256788861008", "1560450541509677186",
   ]);
+  const dev = config.MANAGER_ROLE_RULES.find((rule) => rule.key === "dev");
+  assert.equal(dev.devopsMinLevel, 5);
+});
+
+test("Dev Manager+ comes from active DevOps roster members at Development Manager or above", async () => {
+  const { devopsManagerIds } = await import("../src/staff/roles.js");
+  const calls = [];
+  const fake = (ranks, members) => ({
+    async query(sql, params) {
+      calls.push([sql, params]);
+      return /FROM devops_ranks WHERE/.test(sql) ? ranks : members;
+    },
+  });
+  assert.equal(await devopsManagerIds(5, fake([], [{ discord_id: "1" }])), null);
+  const ids = await devopsManagerIds(5, fake([{ role_id: "9" }], [{ discord_id: 1 }, { discord_id: "2" }]));
+  assert.deepEqual([...ids].sort(), ["1", "2"]);
+  const roster = calls.at(-1)[0];
+  assert.match(roster, /m\.status='active'/);
+  assert.match(roster, /r\.level>=\?/);
+  assert.equal(calls.at(-1)[1][0], 5);
 });
 
 test("the staff bot owns the staff commands and /coord has only team subcommands", () => {

@@ -30,6 +30,23 @@ async function saveGranted(state) {
   );
 }
 
+/**
+ * Active DevOps roster members whose rank is `minLevel` or higher (Map-compatible Set of Discord IDs),
+ * or null when the rank ladder is empty so an unconfigured DevOps server can never strip the role.
+ */
+export async function devopsManagerIds(minLevel, database = db) {
+  const ranks = await database.query("SELECT role_id FROM devops_ranks WHERE level>=?", [minLevel]).catch(() => []);
+  if (!ranks.length) return null;
+  const rows = await database
+    .query(
+      `SELECT m.discord_id FROM devops_members m JOIN devops_ranks r ON r.role_id=m.rank_role_id
+        WHERE m.status='active' AND r.level>=?`,
+      [minLevel],
+    )
+    .catch(() => null);
+  return rows ? new Set(rows.map((row) => String(row.discord_id))) : null;
+}
+
 /** Returns one report row per rule: { key, label, wanted, added, removed, skipped }. */
 export async function reconcileManagerRoles({ requestedBy = "staff-bot-managers", dryRun = false } = {}) {
   const staff = await cachedRoles(STAFF_GUILD_ID);
@@ -38,12 +55,21 @@ export async function reconcileManagerRoles({ requestedBy = "staff-bot-managers"
   const granted = await loadGranted();
   const report = [];
   for (const rule of MANAGER_ROLE_RULES) {
-    const members = await cachedRoles(rule.sourceGuild);
-    if (!members.size) {
-      report.push({ ...rule, wanted: [], added: [], removed: [], skipped: "no member data for the source server" });
-      continue;
+    let wanted;
+    if (rule.devopsMinLevel) {
+      wanted = await devopsManagerIds(rule.devopsMinLevel);
+      if (!wanted) {
+        report.push({ ...rule, wanted: [], added: [], removed: [], skipped: "no DevOps roster data" });
+        continue;
+      }
+    } else {
+      const members = await cachedRoles(rule.sourceGuild);
+      if (!members.size) {
+        report.push({ ...rule, wanted: [], added: [], removed: [], skipped: "no member data for the source server" });
+        continue;
+      }
+      wanted = new Set([...members].filter(([, roles]) => rule.sourceRoles.some((id) => roles.has(id))).map(([id]) => id));
     }
-    const wanted = new Set([...members].filter(([, roles]) => rule.sourceRoles.some((id) => roles.has(id))).map(([id]) => id));
     if (rule.networkTop !== false) for (const id of top) wanted.add(id);
     const tracked = new Set((granted[rule.key] || []).map(String));
     const inMain = (id) => main.has(id);

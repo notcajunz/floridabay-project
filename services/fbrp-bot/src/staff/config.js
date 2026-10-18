@@ -85,6 +85,16 @@ export const MANAGER_ROLE_RULES = [
     // Head of Businesses, Business Director, Assistant Business Director, Business Manager
     sourceRoles: ["1559701131905728532", "1559701134686556190", "1559701141053513798", "1559701149475536947"],
   },
+  {
+    key: "dev",
+    label: "Dev Manager+",
+    targetRole: "1559120256788861008",
+    // The DevOps server's own roster decides: active members at Development Manager (level 5) or above,
+    // which is Development Manager and Development Director.
+    devopsMinLevel: 5,
+    sourceGuild: null,
+    sourceRoles: [],
+  },
 ];
 
 /** Private channel for the staff bot to main bot request log: Community Director and above only. */
