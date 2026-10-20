@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { callGame } from "./sync.js";
 import { PERSONAL_VEHICLES_DIR, personalResourceName } from "./personal-resources.js";
 import { MAX_BYTES, PERSONAL_MARKER, STREAM_EXT, UPLOAD_DIR, UPLOAD_ID, askStructured, reviewVehicleSecurity, unzip, walk } from "./personal-import.js";
-import { addonPedNames, analyze, assetHeaderProblem, classify, closeGaps, genderHint, shopMetaTarget, shopPedMeta, validateRenames, withPrefix } from "./eup-packaging.js";
+import { addonPedNames, analyze, assetHeaderProblem, classify, closeGaps, eupPieces, genderHint, shopMetaTarget, shopPedMeta, validateRenames, withPrefix } from "./eup-packaging.js";
 
 /**
  * Custom EUP and personal vehicle liveries (website side, personal vehicle manager only).
@@ -28,6 +28,8 @@ const BACKUPS_KEPT = 2;
 const EUP_META_TYPES = [
   { root: "ShopPedApparel", dataFile: "SHOP_PED_APPAREL_META_FILE" },
   { root: "CPedModelInfo__InitDataList", dataFile: "PED_METADATA_FILE" },
+  { root: "CAlternateVariations", dataFile: "ALTERNATE_VARIATIONS_FILE" },
+  { root: "FirstPersonAlternateData", dataFile: "PED_FIRST_PERSON_ALTERNATE_DATA" },
 ];
 const liveryRow = (row) => ({
   id: Number(row.id), personal_id: Number(row.personal_id), label: row.label, added_by: row.added_by, added_at: Number(row.added_at),
@@ -239,6 +241,23 @@ export function createCustomAssets({ personals, audit, db }) {
 
   /* ------------------------------------------------------------------ EUP */
 
+  /** Stream files of an installed pack (no sizes), for packs installed before pieces were recorded. */
+  const streamNames = async (dir, prefix = "") => {
+    const out = [];
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      if (entry.isDirectory()) out.push(...(await streamNames(path.join(dir, entry.name), `${prefix}${entry.name}/`)));
+      else if (entry.isFile()) out.push({ rel: `${prefix}${entry.name}`, size: 0 });
+    }
+    return out;
+  };
+  /** The clothing pieces the installer recorded in a pack's marker, or worked out from its files for an older pack. */
+  const eupPieceList = async (row) => {
+    const dir = path.join(EUP_DIR, eupResourceName(row.name));
+    const marker = JSON.parse((await readFile(path.join(dir, EUP_MARKER), "utf8").catch(() => "null")) || "null");
+    if (Array.isArray(marker?.pieces)) return marker.pieces;
+    return marker ? eupPieces(analyze(await streamNames(path.join(dir, "stream"))).entries) : [];
+  };
+  const eupPackView = async (row) => ({ ...eupView(row), pieces: await eupPieceList(row) });
   const eupView = (row) => ({
     id: Number(row.id), name: row.name, label: row.label, notes: row.notes || "", resource: eupResourceName(row.name),
     files: Number(row.file_count), bytes: Number(row.size_bytes), created_by: row.created_by, created_at: Number(row.created_at), updated_at: Number(row.updated_at),
@@ -248,7 +267,7 @@ export function createCustomAssets({ personals, audit, db }) {
     if (!(await personals.canManage(discordId))) {
       // Everyone else sees only the packs they added, read-only.
       const mine = await db.query("SELECT * FROM custom_eup WHERE created_by=? ORDER BY label,id", [String(discordId)]).catch(() => []);
-      return mine.length ? { readOnly: true, eup: mine.map(eupView), liveries: [] } : null;
+      return mine.length ? { readOnly: true, eup: await Promise.all(mine.map(eupPackView)), liveries: [] } : null;
     }
     const [eup, liveries] = await Promise.all([
       db.query("SELECT * FROM custom_eup ORDER BY label,id").catch(() => []),
@@ -256,7 +275,7 @@ export function createCustomAssets({ personals, audit, db }) {
     ]);
     return {
       readOnly: false,
-      eup: eup.map(eupView),
+      eup: await Promise.all(eup.map(eupPackView)),
       liveries: liveries.map(liveryRow),
     };
   }
@@ -282,7 +301,7 @@ export function createCustomAssets({ personals, audit, db }) {
     try {
       const files = await walk(scratch);
       if (files.length > MAX_ASSET_FILES) throw new Error(`The pack has more than ${MAX_ASSET_FILES} files.`);
-      if (files.reduce((sum, file) => sum + file.size, 0) > MAX_BYTES) throw new Error("The pack is larger than 1.5 GB.");
+      if (files.reduce((sum, file) => sum + file.size, 0) > MAX_BYTES) throw new Error(`The pack is larger than ${+(MAX_BYTES / 1024 ** 3).toFixed(1)} GB.`);
       const security = await reviewVehicleSecurity(files, {
         subject: "custom clothing (EUP) importer",
         boundary: "Only .ydd/.ytd/.ymt/.yld/.yft/.ydr clothing assets and clothing or ped metadata are copied. The importer creates a new manifest and copies no uploaded scripts.",
@@ -361,7 +380,8 @@ export function createCustomAssets({ personals, audit, db }) {
           ...(dataFiles.length ? ["files {", ...dataFiles.map(([, rel]) => `  '${rel}',`), "}", "", ...dataFiles.map(([type, rel]) => `data_file '${type}'${" ".repeat(Math.max(1, 28 - type.length))}'${rel}'`), ""] : []),
         ].join("\n");
         await writeFile(path.join(build, "fxmanifest.lua"), manifest);
-        await writeFile(path.join(build, EUP_MARKER), JSON.stringify({ name, label, by: String(actorId), at: Date.now(), files: placed.length, bytes, groups: ready.groups, addonPeds: ready.addonPeds, security: { verdict: security.verdict, summary: security.summary, repairs: security.repairs } }, null, 2));
+        const pieces = eupPieces(analyze(placed.map(({ file, out }) => ({ rel: out, size: file.size }))).entries);
+        await writeFile(path.join(build, EUP_MARKER), JSON.stringify({ name, label, by: String(actorId), at: Date.now(), files: placed.length, bytes, pieces, groups: ready.groups, addonPeds: ready.addonPeds, security: { verdict: security.verdict, summary: security.summary, repairs: security.repairs } }, null, 2));
         if (existing) await backupResource(EUP_DIR, resource, notes);
         if (existing) await rm(target, { recursive: true, force: true });
         await rename_(build, target);
@@ -387,7 +407,7 @@ export function createCustomAssets({ personals, audit, db }) {
       await rm(source.file, { force: true });
       await audit(actorId, input.replace ? "eup.replace" : "eup.import", resource, { files: placed.length, bytes, metas: metas.length, groups: ready.groups.length, addonPeds: ready.addonPeds.length, security: security.verdict });
       const row = await db.one("SELECT * FROM custom_eup WHERE name=?", [name]);
-      return { eup: eupView(row), summary: ready.summary || security.summary, notes, warnings: ready.warnings, groups: ready.groups, addonPeds: ready.addonPeds, security: { verdict: security.verdict, repairs: security.repairs } };
+      return { eup: await eupPackView(row), summary: ready.summary || security.summary, notes, warnings: ready.warnings, groups: ready.groups, addonPeds: ready.addonPeds, security: { verdict: security.verdict, repairs: security.repairs } };
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
@@ -401,7 +421,7 @@ export function createCustomAssets({ personals, audit, db }) {
     if (!label) throw new Error("Give the pack a label.");
     await db.query("UPDATE custom_eup SET label=?,notes=?,updated_at=? WHERE id=?", [label, text(input.notes, 300) || null, Date.now(), row.id]);
     await audit(actorId, "eup.update", eupResourceName(row.name), { label });
-    return eupView(await db.one("SELECT * FROM custom_eup WHERE id=?", [row.id]));
+    return eupPackView(await db.one("SELECT * FROM custom_eup WHERE id=?", [row.id]));
   }
 
   async function deleteEup(actorId, input) {

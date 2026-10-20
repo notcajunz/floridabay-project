@@ -166,7 +166,14 @@ local function goDown()
     downed = { since=GetGameTimer(), cause=cause }
     setVoiceMuted(true)
     TriggerEvent('fbrp:cancelActivities')
-    TriggerServerEvent('fbrp:medical:downed', { cause=cause })
+    -- Who put this player down, for the in-game kill log (server id only for real players).
+    local killer, weapon = nil, GetPedCauseOfDeath(ped)
+    local source = GetPedSourceOfDeath(ped)
+    if source and source ~= 0 and source ~= ped and IsEntityAPed(source) then
+        local index = NetworkGetPlayerIndexFromPed(source)
+        if index and index ~= -1 and index ~= PlayerId() then killer = GetPlayerServerId(index) end
+    end
+    TriggerServerEvent('fbrp:medical:downed', { cause=cause, killer=killer, weapon=weapon and u32(weapon) or nil })
     resurrectInPlace(1500)
     downedLoop()
 end
@@ -258,4 +265,14 @@ RegisterNetEvent('fbrp:medical:cpr', function(ms, short)
     ui({ type='progress', label=short and 'Treating wounds' or 'Performing CPR', ms=ms })
     Wait(ms)
     ClearPedTasks(ped)
+end)
+
+-- Fistfights should wound, not kill: scale unarmed damage down. The modifier is
+-- applied by the attacker's client, so every client sets it for its own punches.
+CreateThread(function()
+    local unarmed = joaat('WEAPON_UNARMED')
+    while true do
+        SetWeaponDamageModifier(unarmed, M.punchDamageMultiplier or 0.4)
+        Wait(5000)
+    end
 end)

@@ -4,6 +4,18 @@ FBRP.Config = {
     serverName = 'Florida Bay Roleplay',
     discordInvite = GetConvar('fbrp_discordInvite', ''),
     serviceToken = GetConvar('fbrp_serviceToken', ''),
+    -- Discord rich presence (client/discord_presence.lua). The application id is public. Images
+    -- may be Rich Presence art-asset names uploaded in the Discord developer portal or direct
+    -- https image URLs; organization logos come from the website. Override any of these with
+    -- the matching convar, or set fbrp_discordAppId to an empty value to turn presence off.
+    discordPresence = {
+        appId = GetConvar('fbrp_discordAppId', '1558518806417117305'),
+        largeImage = GetConvar('fbrp_discordLargeImage', 'https://floridabay.net/logo-720.webp'),
+        logoBase = GetConvar('fbrp_discordLogoBase', 'https://floridabay.net/api/orgs/logo/'),
+        joinUrl = GetConvar('fbrp_discordJoinUrl', 'https://join.floridabay.net'),
+        inviteUrl = GetConvar('fbrp_discordInviteUrl', 'https://discord.gg/floridabayrp'),
+        refreshMs = 15000, -- Discord rate-limits presence updates; do not go much lower
+    },
     -- Keep overhead identity close enough to support a scene without carrying
     -- player information across a street or through a large interior.
     tagDistance = 10.0,
@@ -17,6 +29,11 @@ FBRP.Config = {
     defaultPeacetime = false,
     maxTagLabel = 40,
     vehicleSpawnCooldownMs = 3500,
+    -- Base-game vehicles are spawned from the vMenu Vehicle Spawner. The F7 garage lists
+    -- only personal vehicles (and organization garages); set this to true to offer the
+    -- FBRP.VehicleCatalog sections there again. The catalog is still used to tell which
+    -- models are public, so keep it.
+    garageCatalogEnabled = false,
     ownedVehicleDeleteDistance = 15.0,
     healCooldownSeconds = 3 * 60,
     armourCooldownSeconds = 5 * 60,

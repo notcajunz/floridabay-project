@@ -197,7 +197,7 @@ RegisterNUICallback('hubAction', function(data, cb)
     local commands = {
         fish='fish', prisonwork='prisonwork', passport='passport', scenes='scenes',
         emotes='emotes', radio='radio', vehicles='vehicles', tags='tags',
-        pastimes='pastimes', interactions='interactions', carcontrols='carcontrols', carradio='carradio', showid='showid',
+        pastimes='pastimes', interactions='thirdeyemenu', carcontrols='carcontrols', carradio='carradio', showid='showid',
         org='org', bodycam='bodycam', spikes='spikes', handsup='handsup', point='point',
     }
     if action == 'activities' then

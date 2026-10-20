@@ -298,6 +298,11 @@ const organization = new SlashCommandBuilder()
           .setName("access_role")
           .setDescription("Role in this server required to clock in"),
       )
+      .addAttachmentOption((o) =>
+        o
+          .setName("logo")
+          .setDescription("Logo image (PNG, JPEG, WebP or GIF, up to 512 KB) shown on the website and in Discord"),
+      )
       .addStringOption((o) =>
         o
           .setName("network_role_id")
@@ -307,6 +312,17 @@ const organization = new SlashCommandBuilder()
         o
           .setName("network_guild_id")
           .setDescription("Server ID that owns network_role_id"),
+      ),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("logo")
+      .setDescription("Set or remove an organization's logo")
+      .addStringOption((o) =>
+        o.setName("slug").setDescription("Organization slug").setRequired(true),
+      )
+      .addAttachmentOption((o) =>
+        o.setName("image").setDescription("The new logo (PNG, JPEG, WebP or GIF, up to 512 KB). Leave empty to remove it"),
       ),
   )
   .addSubcommand((s) =>
@@ -927,6 +943,13 @@ const global = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s.setName("unrolestrip").setDescription("Community Director+: restore a role-strip snapshot across the network")
       .addUserOption(globalUser).addStringOption(globalReason(false)),
+  )
+  .addSubcommand((s) =>
+    s.setName("transfer").setDescription("Assistant Community Director+: move an account to its replacement")
+      .addUserOption((o) => o.setName("from_account").setDescription("Old Discord account to empty").setRequired(true))
+      .addUserOption((o) => o.setName("to_account").setDescription("Verified replacement Discord account").setRequired(true))
+      .addStringOption(globalReason())
+      .addBooleanOption((o) => o.setName("confirm").setDescription("Confirm this permanent account transfer").setRequired(true)),
   )
   .addSubcommand((s) =>
     s.setName("nick").setDescription("Set your nickname in every Florida Bay network server")

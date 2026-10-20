@@ -14,12 +14,19 @@ import { OWNER_DISCORD_ID } from "./access-control.js";
 export const MAX_TRUSTED = 3;
 export const MAX_TRUSTED_WITH_TAG = 2;
 export const PERSONALS_MANAGER_ID = OWNER_DISCORD_ID;
+export const EMERGENCY_CLASSES = new Set(["civilian", "leo", "fire", "ems"]);
 
 const MODEL = /^[a-z0-9_]{2,40}$/;
 const PLATE = /^[A-Z0-9 ]{1,8}$/;
 const SNOWFLAKE = /^\d{15,24}$/;
 const text = (value, max) => String(value ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
 const flag = (value) => value === true || value === 1 || value === "1" || value === "on" || value === "true";
+
+export function emergencyClassOf(value) {
+  const emergencyClass = text(value, 16).toLowerCase() || "civilian";
+  if (!EMERGENCY_CLASSES.has(emergencyClass)) throw new Error("Vehicle type must be civilian, law enforcement, fire, or EMS.");
+  return emergencyClass;
+}
 
 /** Accepts a raw ID or a Discord mention (<@123>). */
 export function discordIdOf(value) {
@@ -61,6 +68,7 @@ export function createPersonals({ db, audit }) {
       owner_id: String(row.owner_id),
       enabled: Boolean(Number(row.enabled)),
       bulletproof: Boolean(Number(row.bulletproof)),
+      emergencyClass: emergencyClassOf(row.emergency_class),
       locked: Boolean(Number(row.locked)),
       locked_by: row.locked_by ? String(row.locked_by) : null,
       locked_at: row.locked_at ? Number(row.locked_at) : null,
@@ -164,13 +172,14 @@ export function createPersonals({ db, audit }) {
     const ownerId = discordIdOf(input.ownerId);
     const plate = await plateOf(input.plate);
     const bulletproof = flag(input.bulletproof);
+    const emergencyClass = emergencyClassOf(input.emergencyClass);
     const result = await db.query(
-      "INSERT INTO personal_vehicles(model,label,plate,owner_id,enabled,bulletproof,created_by,created_at) VALUES(?,?,?,?,TRUE,?,?,?)",
-      [model, label, plate, ownerId, bulletproof, String(actorId), Date.now()],
+      "INSERT INTO personal_vehicles(model,label,plate,owner_id,enabled,bulletproof,emergency_class,created_by,created_at) VALUES(?,?,?,?,TRUE,?,?,?,?)",
+      [model, label, plate, ownerId, bulletproof, emergencyClass, String(actorId), Date.now()],
     );
     // Liveries the imported vehicle pack already contains are listed for the new personal.
     const liveries = await registerDetectedLiveries(db, result.insertId, model).catch((error) => { console.error("[FBRP personals] livery detection:", error.message); return 0; });
-    await audit(actorId, "personal.create", result.insertId, { model, label, plate, ownerId, bulletproof, liveries });
+    await audit(actorId, "personal.create", result.insertId, { model, label, plate, ownerId, bulletproof, emergencyClass, liveries });
     await notifyGame();
     return find(result.insertId);
   }
@@ -183,8 +192,9 @@ export function createPersonals({ db, audit }) {
     const plate = input.plate !== undefined ? await plateOf(input.plate, current.id) : current.customPlate ? current.plate : null;
     const enabled = input.enabled !== undefined ? flag(input.enabled) : current.enabled;
     const bulletproof = input.bulletproof !== undefined ? flag(input.bulletproof) : current.bulletproof;
-    await db.query("UPDATE personal_vehicles SET model=?,label=?,plate=?,enabled=?,bulletproof=? WHERE id=?", [model, label, plate, enabled, bulletproof, current.id]);
-    await audit(actorId, "personal.update", current.id, { model, label, plate, enabled, bulletproof });
+    const emergencyClass = input.emergencyClass !== undefined ? emergencyClassOf(input.emergencyClass) : current.emergencyClass;
+    await db.query("UPDATE personal_vehicles SET model=?,label=?,plate=?,enabled=?,bulletproof=?,emergency_class=? WHERE id=?", [model, label, plate, enabled, bulletproof, emergencyClass, current.id]);
+    await audit(actorId, "personal.update", current.id, { model, label, plate, enabled, bulletproof, emergencyClass });
     await notifyGame();
     return find(current.id);
   }

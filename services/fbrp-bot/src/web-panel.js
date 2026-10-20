@@ -5,7 +5,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { ChannelType } from "discord.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { NETWORK_KINDS, callGame } from "./sync.js";
+import { NETWORK_KINDS, callGame, enrollNewGuild } from "./sync.js";
 import { PERMISSION_BUNDLES, PERMISSION_CATALOG, VMENU_BUNDLES } from "./permission-catalog.js";
 import { connectUrl } from "./site-url.js";
 import { queueServiceRoles, serviceRoleHolders } from "./service-roles.js";
@@ -17,6 +17,10 @@ import { organizationActivity, ownedAssets, punishmentHistory } from "./investig
 import { lookupAnyCase } from "./case-lookup.js";
 import { MAX_TRUSTED, MAX_TRUSTED_WITH_TAG } from "./personals.js";
 import { createOrgsSite, orgsApiAllowed, orgsStaticPath, safeNext } from "./orgs-site.js";
+import { createOrgLogos, decodeDataUrl } from "./org-logos.js";
+import { MAX_BADGE_REQUEST_BYTES } from "./org-badges.js";
+import { createTebexStore, TebexStoreError } from "./tebex-store.js";
+import { TebexWebhookError } from "./tebex-fulfillment.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -134,6 +138,10 @@ export const PANEL_RESOURCES = {
     pk: ["guild_id"],
     order: `FIELD(kind,${NETWORK_KINDS.map((kind) => `'${kind}'`).join(",")}),name`,
     effect: "network",
+    // New servers (or a changed type) pick up their type's coordinator role before the network re-sync.
+    afterSave: async (_context, values, original) => {
+      if (!original || original.kind !== values.kind) await enrollNewGuild({ id: String(values.guild_id) }, values.kind);
+    },
     fields: [
       field("guild_id", "Discord server", "guild", { required: true }),
       field("name", "Server name", "text", { required: true }),
@@ -389,6 +397,8 @@ export const PANEL_RESOURCES = {
       field("name", "Display name", "text", { required: true }),
       field("type", "Type", "select", { options: ["gang", "business", "leo", "fire", "government", "other"], default: "other" }),
       field("color", "Color", "color", { default: "#43E8D8" }),
+      // Not a column: the picture lives in org_logos and is applied by saveRecord after the row is saved.
+      field("logo", "Logo", "logo", { virtual: true, help: "Shown on the organization website and in Discord. PNG, JPEG, WebP or GIF; it is scaled to 256 pixels." }),
       field("tag_id", "Headtag ID", "relation", { source: "headtags", value: "id", display: "label", required: true }),
       field("ace_group", "Duty ACE group", "relation", { source: "ace-groups", value: "name", display: "label" }),
       field("guild_id", "Home server", "guild"),
@@ -915,16 +925,21 @@ function sendJson(response, status, body, extraHeaders = {}) {
   response.end(JSON.stringify(body));
 }
 
-async function bodyJson(request) {
+async function bodyBuffer(request, limit = 1024 * 1024) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 1024 * 1024) throw new Error("Request body is too large.");
+    if (size > limit) throw new Error("Request body is too large.");
     chunks.push(chunk);
   }
-  if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return Buffer.concat(chunks);
+}
+
+async function bodyJson(request, limit) {
+  const body = await bodyBuffer(request, limit);
+  if (!body.length) return {};
+  return JSON.parse(body.toString("utf8"));
 }
 
 async function serveStatic(request, response, forced = null) {
@@ -933,6 +948,8 @@ async function serveStatic(request, response, forced = null) {
     "/": "index.html",
     "/orgs": "orgs/index.html",
     "/orgs/": "orgs/index.html",
+    "/store": "store/index.html",
+    "/store/": "store/index.html",
     "/portal": "portal.html",
     "/verify": "verify.html",
     "/transcript": "transcript.html",
@@ -954,11 +971,12 @@ async function serveStatic(request, response, forced = null) {
     response.writeHead(404).end("Not found");
     return;
   }
-  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".woff2": "font/woff2" };
+  const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".woff2": "font/woff2", ".ttf": "font/ttf" };
+  const storeAsset = filename.startsWith(`${path.join(webRoot, "store")}${path.sep}`);
   response.writeHead(200, {
     "Content-Type": types[path.extname(filename)] || "application/octet-stream",
-    "Cache-Control": filename.endsWith(".html") ? "no-cache" : /\.(woff2|webp)$/.test(filename) ? "public, max-age=604800, immutable" : "public, max-age=300",
-    "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https://cdn.discordapp.com https://media.discordapp.net; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    "Cache-Control": filename.endsWith(".html") ? "no-cache" : /\.(woff2|ttf|webp)$/.test(filename) ? "public, max-age=604800, immutable" : "public, max-age=300",
+    "Content-Security-Policy": `default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: ${storeAsset ? "https:" : "https://cdn.discordapp.com https://media.discordapp.net"}; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
   });
@@ -970,6 +988,8 @@ export function startWebPanel(context) {
   const port = Number(process.env.FBRP_PANEL_PORT || 8080);
   const publicUrl = String(process.env.FBRP_PUBLIC_URL || `http://${host}:${port}`).replace(/\/$/, "");
   const publicLocation = new URL(publicUrl);
+  const storeHost = String(process.env.FBRP_STORE_HOST || "store.floridabay.net").trim().toLowerCase();
+  const tebex = createTebexStore();
   // The old address (for example https://cixnservices.xyz/fbrp) keeps working beside the main one.
   const legacyLocation = process.env.FBRP_LEGACY_URL ? new URL(String(process.env.FBRP_LEGACY_URL).replace(/\/$/, "")) : null;
   const baseFor = (request) => {
@@ -977,16 +997,27 @@ export function startWebPanel(context) {
     return legacyLocation && host === legacyLocation.host.toLowerCase() ? legacyLocation : publicLocation;
   };
   const baseUrl = (request) => baseFor(request).href.replace(/\/$/, "");
+  const isStoreHost = (request) => requestHost(request) === storeHost;
+  const storeUrl = (request) => isStoreHost(request) ? `https://${storeHost}/` : `${baseUrl(request)}/store`;
+  const storeStaticPath = (pathname) => {
+    const common = pathname === "/logo-128.webp" || pathname === "/logo-720.webp" || pathname === "/ui.js" || pathname === "/ui.css" || pathname.startsWith("/fonts/");
+    if (common) return path.resolve(webRoot, pathname.slice(1));
+    const name = pathname === "/" ? "index.html" : pathname.slice(1);
+    if (!["index.html", "store.css", "store.js"].includes(name)) return null;
+    return path.resolve(webRoot, "store", name);
+  };
   const ownerDiscordId = String(context.ownerDiscordId || OWNER_DISCORD_ID);
   const oauthStates = new Map();
+  const storeAuthTickets = new Map();
   const {
     client, db, audit, refreshGame, syncAll, saveGlobalSync, deleteGlobalSync,
     bindSyncRole, setGlobalSyncOrder, pushGlobalSyncs, ensureTicketPanel,
     createWebsiteTicket, websiteTicketAction, websiteTicketTypes,
     websiteTicketPriorities, websiteTicketTranscript, ensureProtectedRoleBoard,
-    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, personalImporter, customAssets, log,
+    hasPermission, liftAppealedCase, liftEasyAdminCase, recordVerification, staffExams, economy, personals, personalImporter, customAssets, tebexFulfillment, log,
   } = context;
-  const orgsSite = createOrgsSite({ db, economy, client, resolvePeople: (...args) => resolvePeople(...args), publicLocation });
+  const panelLogos = createOrgLogos({ db, audit });
+  const orgsSite = createOrgsSite({ db, economy, client, resolvePeople: (...args) => resolvePeople(...args), publicLocation, audit });
   void orgsSite.probe();
   setInterval(() => void orgsSite.probe(), 300000).unref();
   const requestHost = (request) => String((trustedProxy(request) && request.headers["x-forwarded-host"]) || request.headers.host || "").split(",")[0].trim().toLowerCase();
@@ -1026,6 +1057,21 @@ export function startWebPanel(context) {
     );
     await db.query("DELETE FROM portal_sessions WHERE expires_at<?", [stamp]).catch(() => {});
     return raw;
+  }
+
+  function issueStoreTicket(session) {
+    const ticket = randomBytes(32).toString("base64url");
+    storeAuthTickets.set(sha256(ticket), { discordId: String(session.id), expires: Date.now() + 60000 });
+    if (storeAuthTickets.size > 1000)
+      for (const [key, value] of storeAuthTickets) if (value.expires < Date.now()) storeAuthTickets.delete(key);
+    return ticket;
+  }
+
+  function redeemStoreTicket(ticket) {
+    const key = sha256(String(ticket || ""));
+    const pending = storeAuthTickets.get(key);
+    storeAuthTickets.delete(key);
+    return pending && pending.expires > Date.now() ? pending.discordId : null;
   }
 
   /**
@@ -1195,6 +1241,10 @@ export function startWebPanel(context) {
     for (const [id, resource] of Object.entries(PANEL_RESOURCES).filter(allowed)) {
       const rows = await db.query(`SELECT * FROM \`${resource.table}\` ORDER BY ${resource.order} LIMIT 1000`);
       records[id] = parseJsonColumns(rows, resource);
+      if (id === "organizations") {
+        const versions = await panelLogos.versions();
+        for (const row of records[id]) row.logo = versions.get(Number(row.id)) || null;
+      }
     }
     if (scoped)
       for (const [id, columns] of Object.entries(ORG_ADMIN_LOOKUPS)) {
@@ -1202,11 +1252,12 @@ export function startWebPanel(context) {
         records[id] = await db.query(`SELECT ${columns.map((name) => `\`${name}\``).join(",")} FROM \`${resource.table}\` ORDER BY ${resource.order} LIMIT 1000`);
       }
     const orgActions = [...ORG_ADMIN_RESOURCES].map((id) => `panel.${id}.%`);
-    const [syncs, syncGuilds, syncRoles, syncGuildSettings, auditRows] = await Promise.all([
+    const [syncs, syncGuilds, syncRoles, syncGuildSettings, syncAnchors, auditRows] = await Promise.all([
       scoped ? [] : db.query("SELECT * FROM network_syncs ORDER BY sort_order,id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_guilds ORDER BY sync_id,guild_id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_roles ORDER BY sync_id,guild_id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_guild_settings ORDER BY sync_id,guild_id"),
+      scoped ? [] : db.query("SELECT * FROM network_sync_anchors ORDER BY sync_id,guild_id"),
       scoped
         ? db.query(`SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log WHERE ${orgActions.map(() => "action LIKE ?").join(" OR ")} ORDER BY id DESC LIMIT 80`, orgActions)
         : db.query("SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log ORDER BY id DESC LIMIT 80"),
@@ -1248,6 +1299,7 @@ export function startWebPanel(context) {
         guild_ids: syncGuilds.filter((item) => Number(item.sync_id) === Number(row.id)).map((item) => String(item.guild_id)),
         roles: syncRoles.filter((item) => Number(item.sync_id) === Number(row.id)),
         server_settings: syncGuildSettings.filter((item) => Number(item.sync_id) === Number(row.id)),
+        anchors: syncAnchors.filter((item) => Number(item.sync_id) === Number(row.id)),
       })),
       guilds,
       audit: auditRows.map((row) => {
@@ -1262,7 +1314,11 @@ export function startWebPanel(context) {
     const resource = PANEL_RESOURCES[id];
     if (!resource) throw new Error("Unknown configuration resource.");
     const values = {};
+    // A new or replacement logo is checked before anything is written, so a bad image saves nothing.
+    const logoInput = id === "organizations" ? String(record.logo ?? "") : "";
+    const logoImage = logoInput.startsWith("data:") ? decodeDataUrl(logoInput) : null;
     for (const meta of resource.fields) {
+      if (meta.virtual) continue;
       if (meta.readonly && meta.auto && !record[meta.name]) continue;
       let value = meta.alwaysNow ? now() : record[meta.name];
       if ((value === undefined || value === "") && meta.default !== undefined)
@@ -1289,6 +1345,13 @@ export function startWebPanel(context) {
       );
     }
     await audit(actor, `panel.${id}.${exists ? "edit" : "create"}`, resource.pk.map((key) => values[key]).join(":"), values);
+    if (id === "organizations" && (logoImage || logoInput === "remove")) {
+      const saved = await db.one("SELECT id FROM organizations WHERE slug=?", [values.slug]);
+      if (saved) {
+        if (logoImage) await panelLogos.save(saved.id, logoImage, actor);
+        else await panelLogos.remove(saved.id, actor);
+      }
+    }
     await resource.afterSave?.(context, values, exists ? original : null);
     await effects(resource);
   }
@@ -1628,6 +1691,7 @@ export function startWebPanel(context) {
       ...appealData.appeals.map((row) => row.reviewed_by),
       ...(exams?.reviewQueue || []).flatMap((row) => [row.discord_id, row.reviewer_id]),
       ...(personalVehicles?.all || personalVehicles?.mine || []).flatMap((row) => [row.owner_id, ...row.trusted.map((item) => item.discord_id)]),
+      ...(data.customAssets?.eup || []).map((row) => row.created_by).filter((id) => /^\d+$/.test(String(id))),
     ]);
     return data;
   }
@@ -1668,6 +1732,26 @@ export function startWebPanel(context) {
         return sendJson(response, 429, { error: "Too many requests. Try again shortly." }, { "Retry-After": "10" });
       }
       const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+      if (request.method === "GET" && url.pathname === "/store-login") {
+        if (isStoreHost(request)) {
+          response.writeHead(302, { Location: `${publicLocation.origin}/store-login`, "Cache-Control": "no-store" });
+          return response.end();
+        }
+        const current = await sessionFor(request);
+        if (current) {
+          const ticket = issueStoreTicket(current);
+          response.writeHead(302, { Location: `https://${storeHost}/api/store/handoff?ticket=${encodeURIComponent(ticket)}`, "Cache-Control": "no-store" });
+          return response.end();
+        }
+        const authorize = discordAuthorize(request, "store");
+        response.writeHead(302, { Location: authorize.url, "Set-Cookie": authorize.cookie, "Cache-Control": "no-store" });
+        return response.end();
+      }
+      if (isStoreHost(request) && !url.pathname.startsWith("/api/")) {
+        const file = storeStaticPath(url.pathname);
+        if (!file) return response.writeHead(404).end("Not found");
+        return serveStatic(request, response, file);
+      }
       if (orgsSite.isOrgsHost(requestHost(request))) {
         // The organization website's own host: one-time sign-in handoff, its app and its API only.
         if (request.method === "GET" && url.pathname === "/auth/handoff") {
@@ -1693,7 +1777,32 @@ export function startWebPanel(context) {
         }
         if (!orgsApiAllowed(url.pathname)) return sendJson(response, 404, { error: "Not found." });
       }
+      if (request.method === "GET" && url.pathname === "/api/store/handoff") {
+        if (isStoreHost(request)) {
+          const discordId = redeemStoreTicket(url.searchParams.get("ticket"));
+          if (!discordId) {
+            response.writeHead(302, { Location: "/?signin=expired", "Cache-Control": "no-store" });
+            return response.end();
+          }
+          const user = await client.users.fetch(discordId).catch(() => null);
+          const raw = await createSession(user || { id: discordId, username: discordId });
+          response.writeHead(302, { Location: "/?signin=complete", "Set-Cookie": sessionCookie(request, raw), "Cache-Control": "no-store" });
+          return response.end();
+        }
+        const current = await sessionFor(request);
+        if (!current) {
+          response.writeHead(302, { Location: `${publicLocation.origin}/store-login`, "Cache-Control": "no-store" });
+          return response.end();
+        }
+        const ticket = issueStoreTicket(current);
+        response.writeHead(302, { Location: `https://${storeHost}/api/store/handoff?ticket=${encodeURIComponent(ticket)}`, "Cache-Control": "no-store" });
+        return response.end();
+      }
       if (!url.pathname.startsWith("/api/")) {
+        if (url.pathname === "/store") {
+          response.writeHead(308, { Location: `/store/${url.search}`, "Cache-Control": "no-store" });
+          return response.end();
+        }
         if (["/control", "/control.html"].includes(url.pathname)) {
           const session = await sessionFor(request);
           if (!session || !(await panelScope(session.id))) {
@@ -1704,8 +1813,55 @@ export function startWebPanel(context) {
         return serveStatic(request, response);
       }
 
-      if (request.method === "POST" && !sameOrigin(request))
+      const signedTebexWebhook = request.method === "POST" && url.pathname === "/api/store/webhooks/tebex";
+      if (request.method === "POST" && !signedTebexWebhook && !sameOrigin(request))
         return sendJson(response, 403, { error: "Cross-site request blocked." });
+
+      // Public Tebex storefront. Tebex remains authoritative for the catalog, price,
+      // tax, package eligibility and payment; this service only validates and proxies.
+      if (url.pathname.startsWith("/api/store/")) {
+        try {
+          if (request.method === "POST" && url.pathname === "/api/store/webhooks/tebex") {
+            if (!tebexFulfillment) return sendJson(response, 503, { error: "Tebex fulfillment is unavailable." });
+            const result = await tebexFulfillment.handle(await bodyBuffer(request), request.headers["x-signature"]);
+            return sendJson(response, 200, result);
+          }
+          if (request.method === "GET" && url.pathname === "/api/store/identity") {
+            const session = await sessionFor(request);
+            return sendJson(response, 200, { authenticated: Boolean(session), user: session });
+          }
+          if (request.method === "GET" && url.pathname === "/api/store/catalog") {
+            if (!tebex.configured) return sendJson(response, 503, { configured: false, error: "The store is waiting for its Tebex public token." });
+            return sendJson(response, 200, await tebex.catalog(url.searchParams.get("basket") || ""));
+          }
+          if (request.method === "GET" && url.pathname === "/api/store/basket")
+            return sendJson(response, 200, { basket: await tebex.getBasket(url.searchParams.get("id")) });
+          if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
+          const input = await bodyJson(request);
+          if (url.pathname === "/api/store/basket/create") {
+            const session = await sessionFor(request);
+            if (!session) return sendJson(response, 401, { error: "Sign in with Discord before creating a basket." });
+            return sendJson(response, 200, { basket: await tebex.createBasket(storeUrl(request), { discord_id: session.id }) });
+          }
+          if (url.pathname === "/api/store/basket/auth")
+            return sendJson(response, 200, { providers: await tebex.auth(input.basket, `${storeUrl(request)}?auth=complete`) });
+          if (url.pathname === "/api/store/basket/package") {
+            const action = String(input.action || "add");
+            const basket = action === "remove"
+              ? await tebex.removePackage(input.basket, input.package)
+              : action === "quantity"
+                ? await tebex.updateQuantity(input.basket, input.package, input.quantity)
+                : await tebex.addPackage(input.basket, input.package, input.quantity || 1, Boolean(input.dynamic));
+            return sendJson(response, 200, { basket });
+          }
+          if (url.pathname === "/api/store/basket/code")
+            return sendJson(response, 200, { basket: await tebex.promotion(input.basket, input.type, input.code, Boolean(input.remove)) });
+          return sendJson(response, 404, { error: "Store action not found." });
+        } catch (error) {
+          const status = error instanceof TebexStoreError || error instanceof TebexWebhookError ? error.status : 502;
+          return sendJson(response, status, { error: error.message || "Tebex could not complete that request." });
+        }
+      }
 
       // Organization-manager bridge. A shared service token exposes org metadata/hours plus the
       // authoritative wallet API used by both the Gang and Business Manager bots.
@@ -1733,6 +1889,32 @@ export function startWebPanel(context) {
             return sendJson(response, 200, { ok: true, queued });
           } catch (error) {
             return sendJson(response, Number(error.status) || 500, { error: Number(error.status) ? error.message : "Could not process the request." });
+          }
+        }
+        // Badge templates for the Department Manager's /badge commands.
+        const badgeMatch = /^\/api\/gangs\/org\/([^/]{1,80})\/badge(s|\/member\/(\d{15,24})|\/template|\/template\/remove)$/.exec(url.pathname);
+        if (badgeMatch) {
+          try {
+            const ref = decodeURIComponent(badgeMatch[1]);
+            const org = await orgsSite.badges.findOrg(ref);
+            const sub = badgeMatch[2];
+            const actor = (input) => (/^\d{15,24}$/.test(String(input?.actorId || "")) ? String(input.actorId) : "dept-bot");
+            if (request.method === "GET") {
+              if (sub === "s") return sendJson(response, 200, { org: { id: Number(org.id), slug: org.slug, name: org.name }, ...(await orgsSite.badges.overview(org.id)) });
+              if (sub.startsWith("/member/")) return sendJson(response, 200, await orgsSite.badges.memberInfo(org.id, badgeMatch[3]));
+              if (sub === "/template") {
+                const found = await orgsSite.badges.template(org.id, String(url.searchParams.get("tier") || "member"), Number(url.searchParams.get("rank")) || null);
+                if (!found) return sendJson(response, 404, { error: "This organization has not uploaded any badge templates." });
+                return sendJson(response, 200, { ...found, data: undefined, image: found.data.toString("base64") });
+              }
+            } else if (request.method === "POST") {
+              const input = await bodyJson(request, MAX_BADGE_REQUEST_BYTES);
+              if (sub === "/template") return sendJson(response, 200, { ok: true, ...(await orgsSite.badges.save(org.id, input, actor(input))) });
+              if (sub === "/template/remove") return sendJson(response, 200, { ok: true, ...(await orgsSite.badges.remove(org.id, input.tier, actor(input))) });
+            }
+            return sendJson(response, 405, { error: "Method not allowed." });
+          } catch (error) {
+            return sendJson(response, 400, { error: error.message || "Could not process the badge request." });
           }
         }
         const match = /^\/api\/gangs\/org\/([^/]{1,80})(?:\/(hours|economy))?$/.exec(url.pathname);
@@ -1833,7 +2015,7 @@ export function startWebPanel(context) {
 
       if (request.method === "GET" && url.pathname === "/api/auth/start") {
         const requestedNext = String(url.searchParams.get("next") || "");
-        const next = ["verify", "orgs"].includes(requestedNext) ? requestedNext : /^transcript:\d{1,20}$/.test(requestedNext) ? requestedNext : "portal";
+        const next = ["verify", "orgs", "store"].includes(requestedNext) ? requestedNext : /^transcript:\d{1,20}$/.test(requestedNext) ? requestedNext : "portal";
         const authorize = discordAuthorize(request, next);
         return sendJson(response, 200, { url: authorize.url }, { "Set-Cookie": authorize.cookie });
       }
@@ -1842,6 +2024,20 @@ export function startWebPanel(context) {
       if (request.method === "GET" && url.pathname === "/api/orgs/public") {
         return sendJson(response, 200, { ...(await orgsSite.directory()), links: { signin: `${publicLocation.origin}/api/orgs/handoff`, home: publicLocation.origin, orgs: orgsSite.url() } });
       }
+      if (request.method === "GET" && /^\/api\/orgs\/logo\/\d{1,9}$/.test(url.pathname)) {
+        const logo = await orgsSite.logo(Number(url.pathname.split("/").pop()));
+        if (!logo) { response.writeHead(404, { "Cache-Control": "no-store" }); return response.end(); }
+        response.writeHead(200, {
+          "Content-Type": logo.mime,
+          "Cache-Control": url.searchParams.has("v") ? "public, max-age=31536000, immutable" : "public, max-age=300",
+          "Content-Security-Policy": "default-src 'none'",
+          "X-Content-Type-Options": "nosniff",
+          "Cross-Origin-Resource-Policy": "cross-origin",
+        });
+        return response.end(logo.data);
+      }
+      if (request.method === "GET" && url.pathname === "/api/orgs/public/org")
+        return sendJson(response, 200, await orgsSite.publicOrg(url.searchParams.get("ref")));
       if (request.method === "GET" && url.pathname === "/api/orgs/handoff") {
         const next = safeNext(url.searchParams.get("next"));
         const current = await sessionFor(request);
@@ -1941,11 +2137,32 @@ export function startWebPanel(context) {
         return sendJson(response, 200, await portalBootstrap(session));
       if (request.method === "GET" && url.pathname === "/api/orgs/data")
         return sendJson(response, 200, await orgsSite.data(session));
+      if (request.method === "GET" && url.pathname === "/api/orgs/member")
+        return sendJson(response, 200, await orgsSite.memberFile(session, url.searchParams.get("org"), url.searchParams.get("id")));
+      if (request.method === "GET" && url.pathname === "/api/orgs/roster.csv") {
+        const csv = await orgsSite.rosterCsv(session, url.searchParams.get("org"));
+        response.writeHead(200, {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${csv.filename.replace(/[^a-z0-9._-]/gi, "_")}"`,
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+        return response.end(`\ufeff${csv.body}`);
+      }
       if (request.method === "GET" && url.pathname === "/api/orgs/roles")
         return sendJson(response, 200, { servers: await orgsSite.roles(session, url.searchParams.get("org")) });
+      if (request.method === "GET" && url.pathname === "/api/orgs/badges")
+        return sendJson(response, 200, await orgsSite.badges.portalOverview(session.id, url.searchParams.get("org")));
+      if (request.method === "GET" && url.pathname === "/api/orgs/badge-image") {
+        const image = await orgsSite.badges.portalImage(session.id, url.searchParams.get("org"), url.searchParams.get("tier"));
+        if (!image) return sendJson(response, 404, { error: "No badge picture for that tier." });
+        response.writeHead(200, { "Content-Type": image.mime, "Content-Length": image.data.length, "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff" });
+        return response.end(image.data);
+      }
       if (url.pathname.startsWith("/api/orgs/")) {
         if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
-        const result = await orgsSite.action(session, url.pathname.slice("/api/orgs/".length), await bodyJson(request));
+        const actionName = url.pathname.slice("/api/orgs/".length);
+        const result = await orgsSite.action(session, actionName, await bodyJson(request, actionName === "badge" ? MAX_BADGE_REQUEST_BYTES : undefined));
         return sendJson(response, 200, { ok: true, result: JSON.parse(JSON.stringify(result ?? null, (key, value) => (key === "org" ? undefined : value))), data: await orgsSite.data(session) });
       }
       if (request.method === "GET" && url.pathname === "/api/portal/command-reference") {

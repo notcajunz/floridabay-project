@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { describeInteraction, recordInteraction } from "../src/audit-trail.js";
-import { channelName, keyForAction } from "../src/audit-mirror.js";
+import { channelName, groupOf, keyForAction, LOG_GROUPS } from "../src/audit-mirror.js";
 
 const fakeCommand = () => ({
   isChatInputCommand: () => true,
@@ -54,11 +54,31 @@ test("actions route to the right audit channel", () => {
   assert.equal(keyForAction("economy.purchase"), "audit-economy");
 });
 
+test("in-game kills and deaths get their own audit channel", () => {
+  assert.equal(keyForAction("player.kill"), "kill-logs");
+  assert.equal(keyForAction("player.death"), "kill-logs");
+  assert.equal(channelName(keyForAction("player.kill")), "💀│kill-logs");
+  assert.equal(keyForAction("player.join"), "audit-player");
+});
+
+test("every kind of entry is grouped into one of a few channels", () => {
+  assert.equal(groupOf("global-commands"), "command-logs");
+  assert.equal(groupOf("commands-iaa"), "command-logs");
+  assert.equal(groupOf("audit-staff"), "staff-logs");
+  assert.equal(groupOf("log-staff_duty"), "staff-logs");
+  assert.equal(groupOf("audit-medical"), "game-logs");
+  assert.equal(groupOf("audit-economy"), "organization-logs");
+  assert.equal(groupOf("audit-portal"), "system-logs");
+  assert.equal(groupOf("audit-zzz"), "system-logs");
+  assert.equal(groupOf("log-weird kind!"), "system-logs");
+  assert.equal(groupOf("all-activity"), "all-activity");
+  assert.ok(Object.keys(LOG_GROUPS).length <= 7);
+});
+
 test("mirror channels use the emoji, bar and -logs style of the other log channels", () => {
   assert.equal(channelName("all-activity"), "📜│all-activity-logs");
-  assert.equal(channelName("global-commands"), "🌍│global-command-logs");
-  assert.equal(channelName("commands-iaa"), "⌨️│iaa-command-logs");
-  assert.equal(channelName("audit-economy"), "💰│economy-event-logs");
-  assert.equal(channelName("log-staff_duty"), "⏱️│staff-duty-audit-logs");
-  for (const key of ["audit-zzz", "log-weird kind!"]) assert.match(channelName(key), /^.│[a-z0-9-]+-logs$/u);
+  assert.equal(channelName("global-commands"), "⌨️│command-logs");
+  assert.equal(channelName("audit-economy"), "🏢│organization-logs");
+  assert.equal(channelName("log-staff_duty"), "🛡️│staff-logs");
+  for (const key of ["audit-zzz", "log-weird kind!", "commands-iaa"]) assert.match(channelName(key), /^[^a-z0-9-]+│[a-z0-9-]+-logs$/u);
 });

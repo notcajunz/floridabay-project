@@ -42,6 +42,15 @@ def sheet_refs(department) -> list[str]:
     return refs
 
 
+def require_email_open(department) -> None:
+    """Launched departments left the email database; every /email command refuses them."""
+    if department["status"] == "Launched":
+        raise ValueError(
+            f"**{department['name']}** is launched, so it no longer uses the email database "
+            "(its tab was archived when it launched)."
+        )
+
+
 def can_decide(interaction: discord.Interaction) -> bool:
     """Senior Department Coordinators and above (config `email_approver_rank`) decide access requests."""
     if has_bypass(interaction):
@@ -136,6 +145,7 @@ class EmailCog(DeptCog):
         await interaction.response.defer(ephemeral=True)
         guild = require_guild(interaction)
         row = await self.service.department(guild.id, department)
+        require_email_open(row)
         member = interaction.user
         # No staff bypass here: only people who hold the department's own role can register in it.
         if not (isinstance(member, discord.Member) and any(role.id == row["base_role_id"] for role in member.roles)):
@@ -193,6 +203,7 @@ class EmailCog(DeptCog):
         await interaction.response.defer(ephemeral=True)
         guild = require_guild(interaction)
         row = await self.service.department(guild.id, department)
+        require_email_open(row)
         await require_department_access(interaction, row)
         data = await self.dept_call(
             row, "request",
@@ -320,6 +331,7 @@ class EmailCog(DeptCog):
     async def wipe(self, interaction: discord.Interaction, department: str, member: discord.Member) -> None:
         guild = require_guild(interaction)
         row = await self.service.department(guild.id, department)
+        require_email_open(row)
         if not await confirm_action(
             interaction, f"Delete {member.mention} from **{row['name']}** in the email database? Their document sharing is removed."
         ):
@@ -345,6 +357,7 @@ class EmailCog(DeptCog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         row = await self.service.department(guild_id(interaction), department)
+        require_email_open(row)
         await require_department_access(interaction, row)
         flavor = show.value if show else "granted"
         data = await self.dept_call(row, "list", filter=flavor)

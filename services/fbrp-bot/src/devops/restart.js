@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { C, EPHEMERAL, UserError, card, clip, sleep } from "./util.js";
 
 export const RESTART_OWNER_ID = "1090083387638812755";
@@ -42,13 +43,32 @@ const run = (file, args, timeout = 150_000) =>
 
 export const isRestartOwner = (id) => String(id || "") === RESTART_OWNER_ID;
 
+/**
+ * The DevOps bot runs with NoNewPrivileges, so it cannot use sudo. System units are restarted through
+ * a root-owned systemd path unit (deploy/fbrp-main-restart.path) that restarts exactly fbrp-bot.service
+ * whenever this file is written; the bot only needs write access to it.
+ */
+export const SYSTEM_RESTART_TRIGGERS = Object.freeze({ "fbrp-bot.service": "/run/fbrp-restart/main" });
+
+async function restartSystemUnit(target) {
+  const trigger = SYSTEM_RESTART_TRIGGERS[target.unit];
+  if (!trigger) throw new Error(`${target.unit} has no restart trigger`);
+  const stamp = () => run("/usr/bin/systemctl", ["show", target.unit, "-p", "ActiveEnterTimestampMonotonic", "--value"], 10_000);
+  const before = await stamp();
+  await writeFile(trigger, `${Date.now()}\n`);
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await sleep(1000);
+    const state = await run("/usr/bin/systemctl", ["is-active", target.unit], 10_000).catch((error) => String(error.message || "").trim());
+    if (state === "active" && (await stamp()) !== before) return;
+  }
+  throw new Error(`${target.unit} did not come back active within 60 seconds of the restart request`);
+}
+
 async function restartUnit(target) {
+  if (target.manager === "system") return restartSystemUnit(target);
   let file = "/usr/bin/systemctl";
   let prefix = ["--user"];
-  if (target.manager === "system") {
-    file = "/usr/bin/sudo";
-    prefix = ["-n", "/usr/bin/systemctl"];
-  } else if (target.manager === "game" && gameSsh()) {
+  if (target.manager === "game" && gameSsh()) {
     file = "/usr/bin/ssh";
     prefix = ["-i", gameKey(), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", gameSsh(), "/usr/bin/systemctl", "--user"];
   }

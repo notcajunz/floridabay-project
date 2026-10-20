@@ -246,7 +246,9 @@ local function watch_camera_controls()
         while camera_state.active do
             apply_camera_controls()
             update_camera_input_focus()
-            if camera_state.game_input then
+            -- game_input is also true while the cursor owns the mouse (walking with the
+            -- camera open); orbit and wheel zoom belong to the look-around state only.
+            if camera_state.game_input and camera_state.applied_looking then
                 if camera_state.front_camera and not camera_state.locked then
                     update_front_camera_orbit()
                 end

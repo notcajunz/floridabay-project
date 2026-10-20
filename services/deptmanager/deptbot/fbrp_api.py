@@ -34,6 +34,7 @@ class FbrpApi:
         *,
         params: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
+        timeout: int = 10,
     ) -> dict[str, Any]:
         if not self.configured:
             raise FbrpApiError("FBRP_API_URL and FBRP_API_TOKEN are not set.")
@@ -52,7 +53,7 @@ class FbrpApi:
         try:
             for attempt in range(2):
                 try:
-                    with urllib.request.urlopen(request, timeout=10) as response:
+                    with urllib.request.urlopen(request, timeout=timeout) as response:
                         return json.load(response)
                 except urllib.error.HTTPError:
                     raise
@@ -84,4 +85,38 @@ class FbrpApi:
             self._get,
             f"/api/gangs/org/{quoted}/hours",
             {"since": since_ms, "until": until_ms, "discord_id": discord_id},
+        )
+
+    # badge templates (org-badges.js on the website) -------------------------------
+
+    @staticmethod
+    def _org_path(org_ref: str, tail: str) -> str:
+        return f"/api/gangs/org/{urllib.parse.quote(str(org_ref), safe='')}/{tail}"
+
+    async def badge_overview(self, org_ref: str) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get, self._org_path(org_ref, "badges"))
+
+    async def badge_member(self, org_ref: str, discord_id: int) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get, self._org_path(org_ref, f"badge/member/{int(discord_id)}"))
+
+    async def badge_template(self, org_ref: str, tier: str, rank_id: int | None = None) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get, self._org_path(org_ref, "badge/template"), {"tier": tier, "rank": rank_id})
+
+    async def badge_save(
+        self, org_ref: str, tier: str, *, image: str | None = None, fields: dict[str, Any] | None = None,
+        actor_id: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"tier": tier, "actorId": str(actor_id) if actor_id else None}
+        if image:
+            payload["image"] = image
+        if fields:
+            payload["fields"] = fields
+        return await asyncio.to_thread(
+            lambda: self._request("POST", self._org_path(org_ref, "badge/template"), payload=payload, timeout=60)
+        )
+
+    async def badge_remove(self, org_ref: str, tier: str, actor_id: int | None = None) -> dict[str, Any]:
+        payload = {"tier": tier, "actorId": str(actor_id) if actor_id else None}
+        return await asyncio.to_thread(
+            lambda: self._request("POST", self._org_path(org_ref, "badge/template/remove"), payload=payload)
         )

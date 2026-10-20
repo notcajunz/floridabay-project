@@ -31,6 +31,7 @@ member_role_id = 1560393920364544070                 # Member, given on join
 transfer_blacklist_role_id = 1560393498639736834
 suspension_role_id = 0                               # suspensions are logged without a role
 launch_group_role_id = 1560393409942917210           # Department Launch Group: may run /dept add and /dept remove
+roster_spreadsheet_id = "1bRyk4fZTHKFkcXKPtO7jzLls8vQFVwCnOGE131Vc6AI"  # FBRP | Department Coordination: /coord add|remove|job fill its Master Roster
 email_approver_rank = "Senior Department Coordinator"  # SDC and above approve email database access
 coord_team_role_id = 1560393453479657563             # FBRP | Department Coordinator, given with every rank from it up
 multi_department_bypass_role_ids = []
@@ -59,6 +60,12 @@ director = "Assistant Department Director"
 "Senior Department Coordinator" = 1560393402477051914
 "Department Coordinator" = 1560393453479657563
 "Probationary Department Coordinator" = 1560393456323534958
+
+# Rank text in the roster sheet's Rank column when it differs from the ladder name.
+[bot.roster_rank_labels]
+"Department Overseer" = "Head of Departments"
+"Department Manager" = "Department Management"
+"Assistant Department Manager" = "Assistant Department Management"
 
 # DC jobs. Shown under the chain of command and handed out with /coord job.
 [bot.coordinator_job_role_ids]
@@ -125,7 +132,7 @@ commands = ["email adduser", "email list", "email registrar", "email removeuser"
 mode = "inherit"
 users = []
 roles = []
-commands = ["coord activity", "coord add", "coord job", "coord remove", "coord update", "position remove", "position set"]
+commands = ["coord activity", "coord add", "coord job", "coord remove", "coord sync", "coord update", "position remove", "position set"]
 
 [access.categories.members]
 mode = "inherit"
@@ -146,8 +153,16 @@ roles = []
 commands = [
   "admin avatar", "admin info", "admin nick", "admin rolecheck", "admin username",
   "dm send", "embed edit", "embed get", "embed post",
+  "sticky list", "sticky remove", "sticky set",
   "permissions set", "permissions view", "role protection", "useradd", "userdel",
 ]
+
+[access.categories.badges]
+# Self-service /badge get is open to department members; the rest checks for high command inside the command.
+mode = "inherit"
+users = []
+roles = []
+commands = ["badge get", "badge layout", "badge list", "badge preview", "badge remove", "badge upload"]
 
 [access.categories.public_help]
 mode = "inherit"

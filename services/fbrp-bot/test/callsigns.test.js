@@ -83,6 +83,40 @@ test("the leadership callsign policy is idempotent", async () => {
   assert.equal(database.writes.length, 0);
 });
 
+test("Junior Management receives callsigns from their dedicated 150-199 pool", async () => {
+  const database = fakeDatabase([
+    member("manager", 825, 107, {
+      category_id: 1,
+      category_name: "Management",
+      callsign_start: 107,
+      callsign_end: 149,
+    }),
+    member("junior-one", 812, null, {
+      category_id: 2,
+      category_name: "Junior Management",
+      callsign_start: 150,
+      callsign_end: 199,
+    }),
+    member("junior-two", 812, null, {
+      category_id: 2,
+      category_name: "Junior Management",
+      callsign_start: 150,
+      callsign_end: 199,
+      joined_at: 2,
+    }),
+  ], 750);
+
+  const result = await rebalanceCallsigns(database);
+  assert.deepEqual(
+    result.assignments.map(({ discordId, callsign }) => ({ discordId, callsign })),
+    [
+      { discordId: "manager", callsign: 107 },
+      { discordId: "junior-one", callsign: 150 },
+      { discordId: "junior-two", callsign: 151 },
+    ],
+  );
+});
+
 test("a missing Senior Administrator ACE mapping stops rebalancing", async () => {
   const database = fakeDatabase([], null);
   await assert.rejects(

@@ -28,8 +28,8 @@ test("no shipped password pepper is used", () => {
 
 test("apps that need personal money, framework garages or a second radio are off", () => {
   const config = read(`${phone}/config/config.lua`);
-  for (const app of ["banking", "billing", "crypto", "garage", "house", "radio", "skyride"])
-    assert.match(config, new RegExp(`^    ${app} = false,`, "m"), app);
+  for (const app of ["banking", "billing", "crypto", "garage", "house", "radio", "skyride", "citymarkt", "local-pages", "health", "crewlink", "flare"])
+    assert.match(config, new RegExp(`^    (?:\\["${app}"\\]|${app}) = false,`, "m"), app);
   for (const app of ["phone", "messages", "settings", "camera", "photos", "mail", "notes"])
     assert.match(config, new RegExp(`^    ${app} = true,`, "m"), app);
 });

@@ -11,7 +11,7 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
 - F6 tag wardrobe with two independently selected slots. Players can only select tags granted by synchronized Discord roles or direct bot grants. Tags may also be locked to one organization's duty and replace its normal duty tag while worn.
 - Staff `/clockin` and `/clockout`. Staff-only ACE principals - and therefore EasyAdmin/vMenu staff permissions - exist only during an open shift. Every shift has a MariaDB heartbeat and duration.
 - Bot-created organizations for gangs, businesses, LEO, fire/rescue, government, and other groups. Every organization is gated by a required role in any registered network Discord. `/duty` opens a dropdown of every organization you can clock in as and applies its job, ACEs, and organization tag; the same menu clocks you out. Shift hours are reportable from Discord.
-- F7 vehicle garage with server-side model validation and per-section ACE rules, plus engine, locks, seatbelt/ejection, cruise control, doors, and a K-key control panel.
+- F7 personal-vehicle garage with server-side validation (base-game vehicles come from the vMenu Vehicle Spawner), plus engine, locks, seatbelt/ejection, cruise control, doors, and a K-key control panel.
 - Vehicle fuel consumption, empty-tank engine cutoff, synchronized tank levels, and free refuelling at map-marked gas stations.
 - Synchronized vehicle sound systems (`/carradio` or M > Vehicle > Car Audio): paste a YouTube link, then pause, seek, stop, or change volume. Occupants hear full volume and nearby players outside the vehicle hear distance-based falloff up to 45 metres.
 - Original HUD for AOP, priority status, peacetime, road/zone, heading, voice/radio, selected tags, organization duty, staff duty, speed, gear, RPM, fuel, locks, belt, and cruise.
@@ -48,7 +48,7 @@ One bot owns the Discord-facing control plane:
 - `/network`: register and remove network servers (global roles live in `/globalsync`).
 - `/mod`: ban, unban, kick, timeout, warn, and purge with case/audit records.
 - `/server`: live status, AOP, peacetime, and in-game announcements.
-- `/staff`: `add` puts a member in a staff rank's ACE group and DMs their assignment plus a one-use staff-server invite; `move` promotes or demotes existing staff (no welcome DM); `remove` takes access away (all three need `fbrp.staff.assign` and only work on ranks below your own). Callsigns are assigned only to Trial Head Administrator and higher. Assistant Community Manager and higher automatically receive the derived `mgmt_team` ACE group, which is removed on demotion below ACM or staff removal. Also individual hours, leaderboard, and forced clock-out.
+- `/staff`: `add` puts a member in a staff rank's ACE group and DMs their assignment plus a one-use staff-server invite; `move` promotes or demotes existing staff (no welcome DM); `remove` takes access away (all three need `fbrp.staff.assign` and only work on ranks below your own). Callsigns are assigned only to Trial Head Administrator and higher. Every staff rank also carries the ACE group of every rank below it (derived, origin `derived:rank_ladder`, kept in step on promotion, demotion and removal). Assistant Community Manager and higher automatically receive the derived `mgmt_team` ACE group, which is removed on demotion below ACM or staff removal. Also individual hours, leaderboard, and forced clock-out.
 - `/role assign|unassign`: Assistant Community Manager and above can change ordinary role membership in the main server; protected roles keep the stricter protected-role authorization policy.
 - `/global`: Ascent-style network moderation (`warn`, `timeout`, `untimeout`, `kick`, `ban` with optional EasyAdmin game ban, `blacklist`, `unblacklist`, `unban`, `lookup`), plus ACM+ self-service network nicknames with `/global nick`; moderation actions are gated by `fbrp.global.<action>` and the rank hierarchy.
 - `/protectrole`: protect sensitive roles and choose the users/roles allowed to manage them.
@@ -181,7 +181,7 @@ Requirements: Linux, Node.js 22+, Docker with Compose (or an existing MariaDB 11
 | Hold Left Alt | Third-eye player interactions (hover the eye over a nearby player) |
 | Caps Lock | Radio push-to-talk |
 | F6 | Headtag/gang-tag wardrobe |
-| F7 | Custom vehicle garage |
+| F7 | Personal vehicle garage |
 | K | Vehicle control panel |
 | G | Engine |
 | B | Seatbelt |
@@ -198,7 +198,7 @@ Static player permissions live in `server-data/config/permissions.cfg`. Discord-
 
 Staff groups are marked `staff_only`. Holding the Discord role is not sufficient for in-game staff powers: `fbrp_core` attaches those principals only during `/clockin`. The bound Law Enforcement, Fire & Rescue, and Verified Civilian roles create persistent role-sourced ACE memberships automatically (and manual `/ace member-add` memberships still work). Organization ACE groups are applied only while that organization is on duty.
 
-The stock vMenu vehicle spawner is not granted. Players use the F7 garage; edit `FBRP.VehicleCatalog` in `fbrp_core/config.lua` to add sections, models, and ACE requirements.
+Everyone can use the stock vMenu Vehicle Spawner for every base-game vehicle class (`vMenu.VehicleSpawner.Menu` plus each class ACE in `config/permissions.cfg`). `vMenu.VehicleSpawner.All`, `Addon`, `SpawnByName` and whitelisted-model permissions are not granted to everyone. The F7 garage lists only personal vehicles and organization garages; set `garageCatalogEnabled = true` in `fbrp_core/config.lua` to offer `FBRP.VehicleCatalog` there again (the catalog also defines which models count as public for personals).
 
 ## Security notes
 
@@ -214,10 +214,19 @@ The stock vMenu vehicle spawner is not granted. Players use the F7 garage; edit 
 
 - `server-data/resources/[fbrp]/fbrp_core`: gameplay framework, HUD, menus, migrations.
 - `services/fbrp-bot`: centralized Discord bot.
+- `services/fbrp-bot/web/store`, `src/tebex-store.js`: the Florida Bay storefront. Set
+  `TEBEX_PUBLIC_TOKEN` to the webstore's Headless API public token; Tebex remains
+  authoritative for packages, prices, tax, account linking, discounts and payment.
+- `services/fbrp-bot/src/tebex-fulfillment.js`: signed Tebex webhook fulfillment.
+  Set `TEBEX_WEBHOOK_SECRET`, point Tebex at `/api/store/webhooks/tebex`, and
+  subscribe to payment, dispute and recurring-payment events. Store buyers sign
+  in through Florida Bay Discord OAuth; eligible purchases are delivered by the
+  existing bot without adding Tebex's Discord bot.
 - `services/fbrp-bot/src/role-manager-bot.js`: dedicated delegated-role bot.
 - `server-data/resources/[discord]`: Badger compatibility adapters.
 - `server-data/resources/[standalone]/fbrp_chat`: Florida Bay's custom proximity roleplay chat resource.
 - `server-data/resources/[standalone]/sky_phone`: the character phone; `server-data/config/phone.cfg` starts it.
+- `services/fbrp-bot/src/org-logos.js`: organization logos (set with `/organization create logo:`, `/organization logo`, or on the orgs website).
 - `services/fbrp-bot/web/orgs`, `src/orgs-site.js`, `src/org-authority.js`: the organization website.
 - `server-data/resources/[fbrp]/fbrp_loading`: loading screen and primary logo.
 - `server-data/config`: vMenu, voice, EasyAdmin, and static ACE configuration.

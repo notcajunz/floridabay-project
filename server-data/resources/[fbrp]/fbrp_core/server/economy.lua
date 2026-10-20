@@ -143,7 +143,8 @@ local function loadCatalog()
         pointRows[row.property_key] = pointRows[row.property_key] or {}
         pointRows[row.property_key][row.point] = { x=tonumber(row.x), y=tonumber(row.y), z=tonumber(row.z) }
     end
-    for _, row in ipairs(MySQL.query.await('SELECT item_key,org_id FROM org_properties')) do
+    -- A bought property does nothing until DevOps has marked it set up.
+    for _, row in ipairs(MySQL.query.await("SELECT item_key,org_id FROM org_properties WHERE setup_status='ready'")) do
         local item = nextCatalog[row.item_key]
         if item and item.data and tonumber(item.data.x) then
             local d = item.data
@@ -171,7 +172,7 @@ local function propertyByKey(orgId, key)
     end
 end
 
--- Spots placed by hand with /propset (terminal, stash, armory, wardrobe). Nothing is assumed:
+-- Spots placed by hand in the property setup menu (terminal, stash, armory, wardrobe). Nothing is assumed:
 -- a property with no spots has no work spot, armory or wardrobe until someone places them.
 local function atPropertySpot(coords, property, radius)
     for _, kind in ipairs({ 'terminal', 'bar', 'stash', 'armory', 'wardrobe' }) do

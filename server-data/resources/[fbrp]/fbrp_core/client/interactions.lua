@@ -138,16 +138,16 @@ local function worldTarget()
     local door = FBRP.NearestPropertyDoor and FBRP.NearestPropertyDoor() or nil
     if door then
         local actions = {}
-        if door.hasKeys then actions[#actions + 1] = { id = 'w_door', label = door.locked and 'Unlock the doors' or 'Lock the doors' } end
-        if door.locked and FBRP.BreachExplosive and FBRP.BreachExplosive() then
+        if door.hasKeys then actions[#actions + 1] = { id = 'w_door', label = door.locked and 'Unlock this door' or 'Lock this door' } end
+        if door.locked and not door.station and FBRP.BreachExplosive and FBRP.BreachExplosive() then
             actions[#actions + 1] = { id = 'w_breach', label = 'Breach with explosives' }
         end
         if #actions > 0 then
             return {
-                id = 'door:' .. door.key .. ':' .. #actions, name = 'Property doors', actions = actions,
+                id = 'door:' .. door.id .. ':' .. #actions, name = door.station and 'Police station door' or 'Property door', actions = actions,
                 run = function(action)
-                    if action == 'w_door' then TriggerServerEvent('fbrp:doors:toggle', door.key)
-                    elseif action == 'w_breach' then FBRP.StartBreach(door.key) end
+                    if action == 'w_door' then TriggerServerEvent('fbrp:doors:toggle', door.model, door.x, door.y, door.z)
+                    elseif action == 'w_breach' then FBRP.StartBreach(door) end
                 end,
             }
         end
@@ -308,11 +308,13 @@ RegisterCommand('-thirdEye', function()
 end, false)
 RegisterKeyMapping('+thirdEye', 'Hold third eye player targeting', 'keyboard', 'LMENU')
 
-RegisterCommand('interactions', function()
+-- Not named 'interactions': players who bound F5 to the old command keep that stored
+-- keybind, which would keep opening third eye. A renamed command leaves it unbound.
+RegisterCommand('thirdeyemenu', function()
     if thirdEyeOpen or thirdEyeHeld then return closeThirdEye() end
     openThirdEyeTargeting()
 end, false)
-RegisterCommand('rpactions', function() ExecuteCommand('interactions') end, false)
+RegisterCommand('rpactions', function() ExecuteCommand('thirdeyemenu') end, false)
 
 CreateThread(function()
     while true do

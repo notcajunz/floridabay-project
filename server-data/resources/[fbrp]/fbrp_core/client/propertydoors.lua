@@ -1,15 +1,19 @@
--- Property door locks, client side. Doors near each organization property (and near any
--- door spot staff placed with /propset) are found by shape, registered with the game's door
--- system and held shut until someone with the keys unlocks the property: press E at a door.
--- Nothing teleports anyone; a locked door simply will not open. Staff fix mistakes with
--- /propdoors.
+-- Property and police station door locks, client side. Doors near each organization property
+-- (the door spots placed in the property setup menu) are found by shape, and the doors added to
+-- police stations are known exactly. All of them are registered with the game's door system and
+-- held shut until someone who may opens that one door: walk up to it, the lock icon shows
+-- whether it is locked or unlocked, and E flips it. Nothing teleports anyone; a locked door
+-- simply will not open. The setup menu (/propmenu) is at the end of this file.
 
 local props, manualDoors, keys, openNow = {}, {}, {}, {}
-local doors = {}            -- door hash -> { key, model, x, y, z, locked, manual }
-local nearestDoor = nil     -- { key, locked, distance } of the closest door, for the prompt
+local stationList, leo = {}, false
+local doors = {}            -- door id -> { id, hash, group, model, x, y, z, locked, manual, station }
+local nearestDoor = nil     -- closest door within reach, for the prompt and the third eye
 local lastScan = 0           -- game time of the last pool scan
 local showUntil = 0
-local preview = nil          -- /propset placement being previewed, see the end of the file
+local preview = nil          -- placement being previewed, see the end of the file
+local menuIsOpen = false
+local menuSelect = nil       -- property the setup menu returns to after a placement
 
 local function toSet(list)
     local out = {}
@@ -17,8 +21,13 @@ local function toSet(list)
     return out
 end
 
-local function doorHash(model, x, y, z)
-    return joaat(('fbrp_pd_%d_%d_%d_%d'):format(model, math.floor(x * 10), math.floor(y * 10), math.floor(z * 10)))
+-- The same identity the server computes: what the door is and where it stands.
+local function doorId(model, x, y, z)
+    return ('%d_%d_%d_%d'):format(math.floor(model), math.floor(x * 10), math.floor(y * 10), math.floor(z * 10))
+end
+
+local function doorHash(id)
+    return joaat('fbrp_pd_' .. id)
 end
 
 -- Door shaped: 0.8 to 3.2 m wide and 1.8 to 3.2 m tall, or a garage door 3 to 8 m wide and
@@ -49,37 +58,40 @@ local function excluded(model, x, y, z, list)
     return false
 end
 
-local function register(key, model, x, y, z, isManual)
-    local hash = doorHash(model, x, y, z)
-    if doors[hash] then return end
+local function register(group, model, x, y, z, isManual, isStation)
+    local id = doorId(model, x, y, z)
+    if doors[id] then
+        -- A scanned door that is later added by hand or to a station takes that role.
+        if isStation then doors[id].station = true; doors[id].manual = true; doors[id].group = group end
+        return
+    end
+    local hash = doorHash(id)
     if not IsDoorRegisteredWithSystem(hash) then AddDoorToSystem(hash, model, x, y, z, false, false, false) end
-    doors[hash] = { key=key, model=model, x=x, y=y, z=z, locked=nil, manual=isManual == true }
+    doors[id] = { id=id, hash=hash, group=group, model=model, x=x, y=y, z=z, locked=nil, manual=isManual == true, station=isStation == true }
 end
 
-local function allowed(key)
-    return openNow[key] == true
+local function unregister(id)
+    local door = doors[id]
+    if not door then return end
+    DoorSystemSetDoorState(door.hash, 0, false, true)
+    if IsDoorRegisteredWithSystem(door.hash) then RemoveDoorFromSystem(door.hash) end
+    doors[id] = nil
+end
+
+-- May this player use the door right now? The server decides for real, this only shapes the prompt.
+local function usable(door)
+    if door.station then return leo end
+    return keys[door.group] == true
 end
 
 local function applyStates()
-    for hash, door in pairs(doors) do
-        local locked = not allowed(door.key)
+    for _, door in pairs(doors) do
+        local locked = not openNow[door.id]
         if door.locked ~= locked then
             door.locked = locked
-            DoorSystemSetDoorState(hash, locked and 1 or 0, false, true)
+            DoorSystemSetDoorState(door.hash, locked and 1 or 0, false, true)
         end
     end
-end
-
-local function nearestProp(x, y, z)
-    local best, bestDistance
-    for _, prop in ipairs(props) do
-        local dx, dy = x - prop.x, y - prop.y
-        local distance = math.sqrt(dx * dx + dy * dy)
-        if distance <= prop.radius and math.abs(z - prop.z) < 40.0 and (not bestDistance or distance < bestDistance) then
-            best, bestDistance = prop, distance
-        end
-    end
-    return best
 end
 
 -- A door belongs to the property whose hand-placed door spot is within 12 metres. A property
@@ -95,7 +107,6 @@ local function ownerOf(at)
 end
 
 local function scanAll(near)
-    local found = 0
     for _, object in ipairs(GetGamePool('CObject')) do
         if DoesEntityExist(object) and not NetworkGetEntityIsNetworked(object) then
             local at = GetEntityCoords(object)
@@ -105,15 +116,12 @@ local function scanAll(near)
                 if prop then
                     local model = GetEntityModel(object)
                     if doorShaped(model) and not excluded(model, at.x, at.y, at.z, manualDoors[prop.key]) then
-                        local before = next(doors)
-                        register(prop.key, model, at.x, at.y, at.z, false)
-                        found = found + 1
+                        register(prop.key, model, at.x, at.y, at.z, false, false)
                     end
                 end
             end
         end
     end
-    return found
 end
 
 RegisterNetEvent('fbrp:doors:data', function(data)
@@ -121,20 +129,32 @@ RegisterNetEvent('fbrp:doors:data', function(data)
     keys = toSet(data.keys)
     openNow = toSet(data.open)
     manualDoors = data.doors or {}
+    stationList = data.stationDoors or {}
+    leo = data.leo == true
+
     -- Corrections: includes are always registered; excluded doors are released.
+    local included, stationIds = {}, {}
     for key, list in pairs(manualDoors) do
         for _, row in ipairs(list) do
-            if row.kind == 'include' then register(key, row.model, row.x, row.y, row.z, true) end
+            if row.kind == 'include' then
+                included[doorId(row.model, row.x, row.y, row.z)] = true
+                register(key, row.model, row.x, row.y, row.z, true, false)
+            end
         end
     end
-    for hash, door in pairs(doors) do
-        if not door.manual and excluded(door.model, door.x, door.y, door.z, manualDoors[door.key]) then
-            DoorSystemSetDoorState(hash, 0, false, true)
-            if IsDoorRegisteredWithSystem(hash) then RemoveDoorFromSystem(hash) end
-            doors[hash] = nil
+    for _, row in ipairs(stationList) do
+        stationIds[row.id] = true
+        register('station', row.model, row.x, row.y, row.z, true, true)
+    end
+    for id, door in pairs(doors) do
+        if door.station and not stationIds[id] then
+            unregister(id)
+        elseif door.manual and not door.station and not included[id] then
+            unregister(id)
+        elseif not door.manual and excluded(door.model, door.x, door.y, door.z, manualDoors[door.group]) then
+            unregister(id)
         end
     end
-    -- Doors may belong to a different property after a correction.
     applyStates()
 end)
 
@@ -143,66 +163,67 @@ CreateThread(function()
     Wait(3000)
     TriggerServerEvent('fbrp:doors:request')
     local asked = 1
+    local ticks = 0
     while true do
-        Wait(1500)
-        if #props == 0 then
-            asked = asked + 1
-            if asked % 4 == 1 then TriggerServerEvent('fbrp:doors:request') end
-        end
+        Wait(300)
+        ticks = ticks + 1
         local at = GetEntityCoords(PlayerPedId())
-        local now = GetGameTimer()
-        local close = false
-        for _, prop in ipairs(props) do
-            for _, point in ipairs(prop.doorPoints or {}) do
-                if #(at - vector3(point.x, point.y, point.z)) <= 80.0 then close = true break end
+        if ticks % 5 == 0 then
+            if #props == 0 then
+                asked = asked + 1
+                if asked % 4 == 1 then TriggerServerEvent('fbrp:doors:request') end
             end
-            if close then break end
-        end
-        if close and now - lastScan > 5000 then
-            lastScan = now
-            scanAll(at)
-        end
-        applyStates()
-
-        nearestDoor = nil
-        for _, door in pairs(doors) do
-            local distance = #(at - vector3(door.x, door.y, door.z))
-            if distance < 2.6 and (not nearestDoor or distance < nearestDoor.distance) then
-                nearestDoor = { distance = distance, key = door.key, locked = door.locked }
-            end
-        end
-        if not nearestDoor then
-            -- A door spot staff placed counts even when the scan found no door object there.
+            local now = GetGameTimer()
+            local close = false
             for _, prop in ipairs(props) do
                 for _, point in ipairs(prop.doorPoints or {}) do
-                    local distance = #(at - vector3(point.x, point.y, point.z))
-                    if distance < 2.6 then nearestDoor = { distance = distance, key = prop.key, locked = not allowed(prop.key) } end
+                    if #(at - vector3(point.x, point.y, point.z)) <= 80.0 then close = true break end
                 end
+                if close then break end
             end
+            if close and now - lastScan > 5000 then
+                lastScan = now
+                scanAll(at)
+            end
+            applyStates()
         end
+
+        local best
+        for _, door in pairs(doors) do
+            local distance = #(at - vector3(door.x, door.y, door.z))
+            if distance < 2.4 and (not best or distance < best.distance) then best = { door=door, distance=distance } end
+        end
+        nearestDoor = best and best.door or nil
     end
 end)
 
+-- The door prompt: a small lock icon that shows locked or unlocked, and E when the player may use it.
+local promptShown = nil
+local function setPrompt(state)
+    local signature = state and ('%s:%s'):format(state.locked and 'l' or 'u', state.usable and 'y' or 'n') or nil
+    if signature == promptShown then return end
+    promptShown = signature
+    if state then
+        SendNUIMessage({ type = 'doorPrompt', show = true, locked = state.locked, usable = state.usable })
+    else
+        SendNUIMessage({ type = 'doorPrompt', show = false })
+    end
+end
+
 CreateThread(function()
     while true do
-        local door = (not preview) and nearestDoor or nil
+        local door = (not preview and not menuIsOpen) and nearestDoor or nil
         if door then
-            local text
-            if keys[door.key] then
-                text = door.locked and '~INPUT_CONTEXT~ Unlock the property doors' or '~INPUT_CONTEXT~ Lock the property doors'
-            else
-                text = door.locked and '~r~Locked.~s~ Only the property owner can unlock this door.' or 'Unlocked.'
-            end
-            BeginTextCommandDisplayHelp('STRING')
-            AddTextComponentSubstringPlayerName(text)
-            EndTextCommandDisplayHelp(0, false, false, 100)
-            if keys[door.key] and IsControlJustReleased(0, 38) then
-                TriggerServerEvent('fbrp:doors:toggle', door.key)
+            local mayUse = usable(door)
+            setPrompt({ locked = door.locked ~= false, usable = mayUse })
+            if mayUse and IsControlJustReleased(0, 38) then
+                TriggerServerEvent('fbrp:doors:toggle', door.model, door.x, door.y, door.z)
                 Wait(600)
             end
             Wait(0)
         else
-            Wait(300)
+            setPrompt(nil)
+            Wait(150)
         end
     end
 end)
@@ -211,7 +232,10 @@ end)
 function FBRP.NearestPropertyDoor()
     local door = nearestDoor
     if not door then return nil end
-    return { key = door.key, locked = door.locked, hasKeys = keys[door.key] == true }
+    return {
+        key = door.group, id = door.id, model = door.model, x = door.x, y = door.y, z = door.z,
+        locked = door.locked ~= false, hasKeys = usable(door), station = door.station == true,
+    }
 end
 
 -- ─────────────────────── breaching ───────────────────────
@@ -227,14 +251,14 @@ function FBRP.BreachExplosive()
     return nil
 end
 
-function FBRP.StartBreach(key)
+function FBRP.StartBreach(door)
     if not FBRP.BreachExplosive() then
         return TriggerEvent('fbrp:notify', 'You need an explosive (sticky bomb, pipe bomb, grenade or proximity mine).', 'error')
     end
-    TriggerServerEvent('fbrp:doors:breachStart', key)
+    TriggerServerEvent('fbrp:doors:breachStart', door.model, door.x, door.y, door.z)
 end
 
-RegisterNetEvent('fbrp:doors:breachApproved', function(key)
+RegisterNetEvent('fbrp:doors:breachApproved', function(model, x, y, z)
     local ped = PlayerPedId()
     local hash = FBRP.BreachExplosive()
     if not hash then return end
@@ -247,7 +271,7 @@ RegisterNetEvent('fbrp:doors:breachApproved', function(key)
     local ammo = GetAmmoInPedWeapon(ped, hash)
     if ammo <= 1 then RemoveWeaponFromPed(ped, hash) else SetPedAmmo(ped, hash, ammo - 1) end
     TriggerEvent('fbrp:notify', 'Charge planted. Get clear.', 'warning')
-    TriggerServerEvent('fbrp:doors:breachPlanted', key)
+    TriggerServerEvent('fbrp:doors:breachPlanted', model, x, y, z)
 end)
 
 RegisterNetEvent('fbrp:doors:blast', function(x, y, z)
@@ -259,63 +283,7 @@ AddStateBagChangeHandler('fbrp:staffDuty', ('player:%d'):format(GetPlayerServerI
     TriggerServerEvent('fbrp:doors:request')
 end)
 
--- ─────────────────────── staff corrections ───────────────────────
-
-local function nearestRegistered(maxDistance)
-    local at = GetEntityCoords(PlayerPedId())
-    local bestHash, best, bestDistance
-    for hash, door in pairs(doors) do
-        local distance = #(at - vector3(door.x, door.y, door.z))
-        if distance <= maxDistance and (not bestDistance or distance < bestDistance) then
-            bestHash, best, bestDistance = hash, door, distance
-        end
-    end
-    return bestHash, best
-end
-
-RegisterCommand('propdoors', function(_, args)
-    local action = tostring(args[1] or ''):lower()
-    if action == 'show' then
-        showUntil = GetGameTimer() + 20000
-        return TriggerEvent('fbrp:notify', 'Locked doors are marked red and unlocked green for 20 seconds.', 'info')
-    elseif action == 'info' then
-        local at = GetEntityCoords(PlayerPedId())
-        local count, nearCount = 0, 0
-        for _, door in pairs(doors) do
-            count = count + 1
-            if #(at - vector3(door.x, door.y, door.z)) < 60.0 then nearCount = nearCount + 1 end
-        end
-        return TriggerEvent('fbrp:notify', ('Properties known: %d. Doors registered: %d (%d within 60 m). Your keys: %d.'):format(#props, count, nearCount, (function() local n = 0 for _ in pairs(keys) do n = n + 1 end return n end)()), 'info')
-    elseif action == 'exclude' then
-        local _, door = nearestRegistered(4.0)
-        if not door or door.manual then return TriggerEvent('fbrp:notify', 'No scanned door within 4 metres.', 'error') end
-        TriggerServerEvent('fbrp:doors:edit', 'exclude', door.model, door.x, door.y, door.z)
-    elseif action == 'add' then
-        local at = GetEntityCoords(PlayerPedId())
-        local best, bestDistance
-        for _, object in ipairs(GetGamePool('CObject')) do
-            if DoesEntityExist(object) and not NetworkGetEntityIsNetworked(object) then
-                local distance = #(at - GetEntityCoords(object))
-                if distance <= 3.5 and (not bestDistance or distance < bestDistance) then best, bestDistance = object, distance end
-            end
-        end
-        if not best then return TriggerEvent('fbrp:notify', 'No door object within 3.5 metres.', 'error') end
-        local position = GetEntityCoords(best)
-        TriggerServerEvent('fbrp:doors:edit', 'include', GetEntityModel(best), position.x, position.y, position.z)
-    elseif action == 'remove' then
-        local at = GetEntityCoords(PlayerPedId())
-        for _, list in pairs(manualDoors) do
-            for _, row in ipairs(list) do
-                if #(at - vector3(row.x, row.y, row.z)) <= 4.0 then
-                    return TriggerServerEvent('fbrp:doors:edit', 'remove', nil, nil, nil, nil, row.id)
-                end
-            end
-        end
-        TriggerEvent('fbrp:notify', 'No saved correction within 4 metres.', 'error')
-    else
-        TriggerEvent('fbrp:notify', 'Staff: /propdoors info | show | add | exclude | remove, and /propset to place spots', 'info')
-    end
-end, false)
+-- ─────────────────────── door markers ───────────────────────
 
 CreateThread(function()
     while true do
@@ -345,9 +313,124 @@ local function DrawText3D(x, y, z, text)
     EndTextCommandDisplayText(sx, sy)
 end
 
--- ─────────────────────── /propset preview ───────────────────────
--- /propset <point> shows the spot where the player stands, with the property's other spots in
--- grey, until it is confirmed with E or cancelled with Backspace. Nothing is saved before that.
+-- ─────────────────────── property setup menu ───────────────────────
+-- /propmenu opens one menu for everything about setting up a property (door spots, terminal,
+-- bar, stash, armory, wardrobe, door corrections) and for police station doors. The server
+-- decides who sees it: Dev Manager and above for properties, and also Community Director and
+-- above on duty for police station doors.
+
+local function nearestDoorObject(maxDistance)
+    local at = GetEntityCoords(PlayerPedId())
+    local bestShaped, shapedDistance, bestAny, anyDistance
+    for _, object in ipairs(GetGamePool('CObject')) do
+        if DoesEntityExist(object) and not NetworkGetEntityIsNetworked(object) then
+            local distance = #(at - GetEntityCoords(object))
+            if distance <= maxDistance then
+                if doorShaped(GetEntityModel(object)) then
+                    if not shapedDistance or distance < shapedDistance then bestShaped, shapedDistance = object, distance end
+                elseif not anyDistance or distance < anyDistance then
+                    bestAny, anyDistance = object, distance
+                end
+            end
+        end
+    end
+    local object = bestShaped or bestAny
+    if not object then return nil end
+    local position = GetEntityCoords(object)
+    return { model = GetEntityModel(object), x = position.x, y = position.y, z = position.z }
+end
+
+local function nearestRegistered(maxDistance)
+    local at = GetEntityCoords(PlayerPedId())
+    local best, bestDistance
+    for _, door in pairs(doors) do
+        local distance = #(at - vector3(door.x, door.y, door.z))
+        if distance <= maxDistance and (not bestDistance or distance < bestDistance) then best, bestDistance = door, distance end
+    end
+    return best
+end
+
+local function openMenuUi(data)
+    menuIsOpen = true
+    SetNuiFocus(true, true)
+    SendNUIMessage({ type = 'propmenu', open = true, data = data, select = menuSelect })
+    menuSelect = nil
+end
+
+local function closeMenuUi(tellServer)
+    if not menuIsOpen then return end
+    menuIsOpen = false
+    SetNuiFocus(false, false)
+    SendNUIMessage({ type = 'propmenu', open = false })
+    if tellServer ~= false then TriggerServerEvent('fbrp:propmenu:closed') end
+end
+
+RegisterCommand('propmenu', function()
+    if menuIsOpen then return end
+    TriggerServerEvent('fbrp:propmenu:open')
+end, false)
+
+RegisterNetEvent('fbrp:propmenu:data', function(data)
+    if preview then return end
+    openMenuUi(data)
+end)
+
+RegisterNetEvent('fbrp:propmenu:update', function(data)
+    if menuIsOpen then SendNUIMessage({ type = 'propmenu', open = true, data = data, keep = true }) end
+end)
+
+RegisterNetEvent('fbrp:propmenu:reopen', function(key)
+    menuSelect = key
+    Wait(400)
+    TriggerServerEvent('fbrp:propmenu:open')
+end)
+
+RegisterNUICallback('propmenuAction', function(data, cb)
+    cb({ ok = true })
+    if type(data) ~= 'table' then return end
+    local action = data.action
+    if action == 'close' then
+        closeMenuUi()
+    elseif action == 'refresh' then
+        TriggerServerEvent('fbrp:propmenu:refresh')
+    elseif action == 'setpoint' and type(data.key) == 'string' and type(data.point) == 'string' then
+        closeMenuUi()
+        TriggerServerEvent('fbrp:propmenu:setpoint', data.key, data.point)
+    elseif action == 'clearpoint' and type(data.key) == 'string' and type(data.point) == 'string' then
+        TriggerServerEvent('fbrp:propmenu:clearpoint', data.key, data.point)
+    elseif action == 'adddoor' and type(data.key) == 'string' then
+        local object = nearestDoorObject(3.5)
+        if not object then return TriggerEvent('fbrp:notify', 'No door object within 3.5 metres. Stand next to the door.', 'error') end
+        TriggerServerEvent('fbrp:doors:edit', 'include', object.model, object.x, object.y, object.z, nil, data.key)
+    elseif action == 'excludedoor' and type(data.key) == 'string' then
+        local door = nearestRegistered(4.0)
+        if not door or door.manual then return TriggerEvent('fbrp:notify', 'No scanned door within 4 metres.', 'error') end
+        TriggerServerEvent('fbrp:doors:edit', 'exclude', door.model, door.x, door.y, door.z, nil, data.key)
+    elseif action == 'removecorrection' and tonumber(data.id) then
+        TriggerServerEvent('fbrp:doors:edit', 'remove', nil, nil, nil, nil, tonumber(data.id))
+    elseif action == 'showdoors' then
+        showUntil = GetGameTimer() + 20000
+        TriggerEvent('fbrp:notify', 'Locked doors are marked red and unlocked green for 20 seconds.', 'info')
+    elseif action == 'waypoint' and tonumber(data.x) and tonumber(data.y) then
+        SetNewWaypoint(tonumber(data.x) + 0.0, tonumber(data.y) + 0.0)
+        TriggerEvent('fbrp:notify', 'Waypoint set.', 'info')
+    elseif action == 'stationadd' and type(data.station) == 'string' then
+        local object = nearestDoorObject(3.5)
+        if not object then return TriggerEvent('fbrp:notify', 'No door object within 3.5 metres. Stand next to the door.', 'error') end
+        TriggerServerEvent('fbrp:stationdoors:add', data.station, object.model, object.x, object.y, object.z)
+    elseif action == 'stationremove' and tonumber(data.id) then
+        TriggerServerEvent('fbrp:stationdoors:remove', tonumber(data.id))
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource == GetCurrentResourceName() and menuIsOpen then SetNuiFocus(false, false) end
+end)
+
+-- ─────────────────────── placement preview ───────────────────────
+-- Placing a spot from the menu shows where it will go, at the player's feet, with the property's
+-- other spots in grey, until it is confirmed with E or cancelled with Backspace. Nothing is
+-- saved before that.
 
 RegisterNetEvent('fbrp:propset:preview', function(data)
     preview = data

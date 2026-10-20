@@ -614,6 +614,22 @@ www.floridabay.net {
   redir https://floridabay.net{uri} permanent
 }
 
+store.floridabay.net {
+  encode zstd gzip
+  request_body {
+    max_size 1MB
+  }
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    X-Frame-Options DENY
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    -Server
+  }
+  reverse_proxy 127.0.0.1:8080
+}
+
 tx.floridabay.net {
   header {
     Strict-Transport-Security "max-age=31536000"

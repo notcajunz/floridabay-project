@@ -17,7 +17,10 @@ data_file 'WEAPON_ANIMATIONS_FILE' 'meta/weaponanimations_*.meta'
 data_file 'PED_PERSONALITY_FILE' 'meta/pedpersonality_*.meta'
 data_file 'WEAPONINFO_FILE' 'meta/weapon_*.meta'
 
-client_script 'cl_weaponNames.lua'
+client_scripts {
+	'cl_weaponNames.lua',
+	'cl_m203.lua',
+}
 server_scripts {
 	'@oxmysql/lib/MySQL.lua',
 	'sv_access.lua',

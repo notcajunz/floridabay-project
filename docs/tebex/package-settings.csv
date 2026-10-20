@@ -1,0 +1,24 @@
+order,name,category,price_usd,payment,user_limit,slug,image,fulfillment
+1,Founder's Edition,Memberships,49.99,monthly,1 per month,founders-edition,founders-edition.png,automatic Founder bundle excluding Any Organization
+2,VIP Membership,Memberships,14.99,monthly,1 per month,vip-membership,vip-membership.png,automatic Discord role
+3,Australian Vehicle Pack,Vehicle Packs,15.00,one-time,1 lifetime,australian-vehicle-pack,australian-vehicle-pack.png,automatic Discord role
+4,UK Car Pack,Vehicle Packs,15.00,one-time,1 lifetime,uk-car-pack,uk-car-pack.png,automatic Discord role
+5,JDM Car Pack,Vehicle Packs,15.00,one-time,1 lifetime,jdm-car-pack,jdm-car-pack.png,automatic Discord role
+6,Aviation Pack,Vehicle Packs,15.00,one-time,1 lifetime,aviation-pack,aviation-pack.png,automatic Discord role
+7,Queue Bypass,Exclusive Perks,5.00,monthly,1 per month,queue-bypass,queue-bypass.png,automatic Discord role
+8,Whitelist Package,Exclusive Perks,5.00,monthly,1 per month,whitelist-package,whitelist-package.png,automatic Discord role
+9,Streamer Package,Exclusive Perks,10.00,one-time,1 lifetime,streamer-package,streamer-package.png,automatic Discord role
+10,Custom Weapons,Custom Content,15.00,one-time,1 lifetime,custom-weapons,custom-weapons.png,automatic Discord role
+11,Any Organization,Custom Content,25.00,one-time,1 lifetime,any-organization,any-organization.png,automatic Discord role
+12,LEO Department,DevOps Packages,45.00,one-time,none,leo-department,leo-department.png,manual DevOps ticket
+13,Gang,DevOps Packages,40.00,one-time,none,gang,gang.png,manual DevOps ticket
+14,Business,DevOps Packages,35.00,one-time,none,business,business.png,manual DevOps ticket
+15,Headtag/Gangtag,DevOps Packages,20.00,one-time,none,headtag-gangtag,headtag-gangtag.png,manual DevOps ticket
+16,Personal Vehicle,DevOps Packages,30.00,one-time,none,personal-vehicle,personal-vehicle.png,manual DevOps ticket
+17,Bulletproof Add-on,DevOps Packages,10.00,one-time,none,bulletproof-add-on,bulletproof-add-on.png,manual DevOps ticket
+18,Custom Handling Add-on,DevOps Packages,10.00,one-time,none,custom-handling-add-on,custom-handling-add-on.png,manual DevOps ticket
+19,Custom Organization Bot,DevOps Packages,50.00,one-time,none,custom-organization-bot,custom-organization-bot.png,manual DevOps ticket
+20,Car Club,Business Slots,35.00,one-time,none,car-club,car-club.png,manual DevOps ticket
+21,Security,Business Slots,25.00,one-time,none,security,security.png,manual DevOps ticket
+22,Transport,Business Slots,45.00,one-time,none,transport,transport.png,manual DevOps ticket
+23,Miscellaneous Businesses,Business Slots,25.00,one-time,none,miscellaneous-businesses,miscellaneous-businesses.png,manual DevOps ticket

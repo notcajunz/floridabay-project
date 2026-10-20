@@ -78,13 +78,44 @@ game_script() {
     "$FBRP_GAME_SSH" bash -s -- "$@"
 }
 
+# Players tune their personal vehicles at any time, and the personals bot writes those edits straight into the
+# tracked [vehicles] directory. Such edits never block a release on their own. Any other tracked change does,
+# and so does a release that itself changes a file with a live edit (the merge would overwrite it).
+readonly TOLERATED_LIVE_EDITS='^server-data/resources/\[vehicles\]/'
+
+# stdin: changed paths. Prints the ones that block a release.
+blocking_dirty_paths() { grep -v -e '^$' | grep -v -e "$TOLERATED_LIVE_EDITS" || true; }
+
+# args: file of live-edited paths, file of paths the release changes. Prints paths in both.
+overlapping_paths() { comm -12 <(sort -u "$1") <(sort -u "$2"); }
+
 require_clean_live_trees() {
-  [[ -z "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]] \
-    || die "The control live tree has tracked changes. Inspect it before deploying."
-  # The command substitution must run on the game VPS.
-  # shellcheck disable=SC2016
-  game_ssh 'test -z "$(git -C /home/ubuntu/fbrp status --porcelain --untracked-files=no)"' \
-    || die "The game live tree has tracked changes. Inspect it before deploying."
+  CONTROL_LIVE_EDITS="$(git -C "$ROOT" diff --name-only HEAD)"
+  GAME_LIVE_EDITS="$(game_ssh "git -C /home/ubuntu/fbrp diff --name-only HEAD")" \
+    || die "Could not read the game live tree."
+  local blocking
+  blocking="$(blocking_dirty_paths <<<"$CONTROL_LIVE_EDITS")"
+  [[ -z "$blocking" ]] || { printf '%s\n' "$blocking" >&2; die "The control live tree has tracked changes. Inspect it before deploying."; }
+  blocking="$(blocking_dirty_paths <<<"$GAME_LIVE_EDITS")"
+  [[ -z "$blocking" ]] || { printf '%s\n' "$blocking" >&2; die "The game live tree has tracked changes. Inspect it before deploying."; }
+  if [[ -n "$CONTROL_LIVE_EDITS$GAME_LIVE_EDITS" ]]; then
+    warn "Live player edits under [vehicles] are present; they are left untouched unless this release changes the same files."
+  fi
+}
+
+# Run after the target commit is known: refuse only when the release would overwrite a live edit.
+# Checked on each host against its own HEAD, and untracked [vehicles] files count too (a fast-forward
+# aborts when it would overwrite them), so the refusal happens before any service is stopped.
+readonly OVERLAP_SCRIPT='set -Eeuo pipefail; cd "$1"
+comm -12 \
+  <({ git diff --name-only HEAD; git ls-files --others --exclude-standard -- ":(literal)server-data/resources/[vehicles]"; } | sort -u) \
+  <(git diff --name-only HEAD "$2" | sort -u)'
+require_no_live_edit_overlap() {
+  local clash
+  clash="$(bash -c "$OVERLAP_SCRIPT" _ "$ROOT" "$TARGET_COMMIT")" || die "Could not compare live edits on control."
+  [[ -z "$clash" ]] || { printf 'control: %s\n' "$clash" >&2; die "This release changes files that have live edits on the control host. Preserve those edits first."; }
+  clash="$(game_script "$ROOT" "$TARGET_COMMIT" <<<"$OVERLAP_SCRIPT")" || die "Could not compare live edits on game."
+  [[ -z "$clash" ]] || { printf 'game: %s\n' "$clash" >&2; die "This release changes files that have live edits on the game host. Preserve those edits first."; }
 }
 
 fetch_and_resolve() {
@@ -103,6 +134,7 @@ fetch_and_resolve() {
   game_ssh "git -C '$ROOT' merge-base --is-ancestor HEAD '$TARGET_COMMIT'" \
     || die "Game cannot fast-forward to $REF. Reconcile its live branch first."
   printf 'Target commit: %s\n' "$TARGET_COMMIT"
+  require_no_live_edit_overlap
 }
 
 classify_changes() {
@@ -171,6 +203,36 @@ install_control_revision() {
     "$ROOT/services/$manager/.venv/bin/pip" install --disable-pip-version-check \
       -e "${ROOT}/services/${manager}[dev]"
   done
+}
+
+install_control_caddy() {
+  local snippet="$ROOT/deploy/caddy/store.floridabay.net.caddy"
+  local live=/etc/caddy/Caddyfile
+  [[ -f "$snippet" ]] || die "Missing tracked store Caddy configuration: $snippet"
+  [[ -f "$live" ]] || die "Missing live Caddy configuration: $live"
+  if sudo grep -q '^store\.floridabay\.net {' "$live"; then
+    sudo caddy validate --config "$live"
+    return
+  fi
+
+  local candidate
+  candidate="$(mktemp /tmp/fbrp-control-caddy.XXXXXX)"
+  trap 'rm -f -- "$candidate"' RETURN
+  awk -v snippet="$snippet" '
+    /^tx\.floridabay\.net \{/ && !inserted {
+      while ((getline line < snippet) > 0) print line
+      close(snippet)
+      print ""
+      inserted=1
+    }
+    { print }
+    END { if (!inserted) exit 42 }
+  ' "$live" >"$candidate" || die "Could not place the store host before the txAdmin host."
+  sudo caddy validate --config "$candidate" --adapter caddyfile
+  sudo install -o root -g root -m 0644 "$candidate" "$live"
+  sudo caddy reload --config "$live" --adapter caddyfile
+  trap - RETURN
+  rm -f -- "$candidate"
 }
 
 start_control() {
@@ -251,6 +313,10 @@ deploy_control() {
   stop_control
   if ! install_control_revision; then
     warn "Control install failed; services remain stopped for inspection."
+    return 1
+  fi
+  if ! install_control_caddy; then
+    warn "Control Caddy configuration failed; services remain stopped for inspection."
     return 1
   fi
   start_control

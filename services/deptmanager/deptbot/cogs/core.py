@@ -11,8 +11,8 @@ import discord
 from discord import app_commands
 
 from .. import __version__
-from ..common import DeptCog, clean_text, director_only, guild_id, manager_only, reply, send_to, without_embed_emojis
-from ..services import parse_color, parse_message_id
+from ..common import DeptCog, clean_text, director_only, guild_id, manager_only, reply, send_to
+from ..forms import EmbedForm, embed_defaults, parse_message_ref
 
 
 def _download(url: str) -> bytes:
@@ -140,35 +140,25 @@ class CoreCog(DeptCog):
         )
         await reply(interaction, f"Message sent to {user.mention}.")
 
-    @embed.command(name="post", description="Post a custom embed")
+    @embed.command(name="post", description="Write and post an embed in a pop-up form")
     @manager_only
-    async def embed_post(
-        self,
-        interaction: discord.Interaction,
-        channel: discord.TextChannel,
-        title: str,
-        description: str,
-        color: str = "#5865F2",
-    ) -> None:
-        sent = await channel.send(
-            embed=without_embed_emojis(discord.Embed(
-                title=clean_text(title, 256),
-                description=clean_text(description, 4000),
-                color=parse_color(color),
-            ))
-        )
-        await send_to(
-            interaction.guild, self.bot.config.custom_message_log_channel_id,
-            f"Embed posted in {channel.mention} by {interaction.user.mention}: {sent.jump_url}",
-        )
-        await reply(interaction, f"Embed posted: {sent.jump_url}")
+    async def embed_post(self, interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+        async def submit(form_interaction: discord.Interaction, embed: discord.Embed) -> None:
+            sent = await channel.send(embed=embed)
+            await send_to(
+                form_interaction.guild, self.bot.config.custom_message_log_channel_id,
+                f"Embed posted in {channel.mention} by {form_interaction.user.mention}: {sent.jump_url}",
+            )
+            await reply(form_interaction, f"Embed posted: {sent.jump_url}")
+
+        await interaction.response.send_modal(EmbedForm(f"Embed for #{channel.name}", submit))
 
     @embed.command(name="get", description="Get the JSON for an embed message")
     @manager_only
     async def embed_get(
-        self, interaction: discord.Interaction, message: str, channel: discord.TextChannel
+        self, interaction: discord.Interaction, message: str, channel: discord.TextChannel | None = None
     ) -> None:
-        target = await channel.fetch_message(parse_message_id(message))
+        target = await self._embed_message(interaction, message, channel)
         if not target.embeds:
             raise ValueError("That message does not contain an embed.")
         payload = str(target.embeds[0].to_dict())
@@ -178,30 +168,38 @@ class CoreCog(DeptCog):
             file = discord.File(io.BytesIO(payload.encode()), filename="embed.txt")
             await interaction.response.send_message(file=file, ephemeral=True)
 
-    @embed.command(name="edit", description="Edit an embed message sent by this bot")
+    @embed.command(name="edit", description="Edit an embed this bot sent, in a form filled with what it says now")
     @manager_only
     async def embed_edit(
-        self,
-        interaction: discord.Interaction,
-        message: str,
-        channel: discord.TextChannel,
-        title: str,
-        description: str,
-        color: str = "#5865F2",
+        self, interaction: discord.Interaction, message: str, channel: discord.TextChannel | None = None
     ) -> None:
-        target = await channel.fetch_message(parse_message_id(message))
-        await target.edit(
-            embed=without_embed_emojis(discord.Embed(
-                title=clean_text(title, 256),
-                description=clean_text(description, 4000),
-                color=parse_color(color),
-            ))
-        )
-        await send_to(
-            interaction.guild, self.bot.config.custom_message_log_channel_id,
-            f"Embed edited in {channel.mention} by {interaction.user.mention}: {target.jump_url}",
-        )
-        await reply(interaction, f"Embed updated: {target.jump_url}")
+        target = await self._embed_message(interaction, message, channel)
+        if not self.bot.user or target.author.id != self.bot.user.id:
+            raise ValueError("I can only edit embeds that I sent.")
+        if not target.embeds:
+            raise ValueError("That message does not contain an embed.")
+
+        async def submit(form_interaction: discord.Interaction, embed: discord.Embed) -> None:
+            await target.edit(embed=embed)
+            await send_to(
+                form_interaction.guild, self.bot.config.custom_message_log_channel_id,
+                f"Embed edited in {target.channel.mention} by {form_interaction.user.mention}: {target.jump_url}",
+            )
+            await reply(form_interaction, f"Embed updated: {target.jump_url}")
+
+        await interaction.response.send_modal(EmbedForm("Edit embed", submit, embed_defaults(target.embeds[0])))
+
+    async def _embed_message(
+        self, interaction: discord.Interaction, message: str, channel: discord.TextChannel | None
+    ) -> discord.Message:
+        """The message to work on: its link names the channel, otherwise the channel option does."""
+        channel_id, message_id = parse_message_ref(message)
+        if channel is None:
+            found = interaction.guild.get_channel(channel_id) if interaction.guild and channel_id else None
+            if not isinstance(found, discord.abc.Messageable):
+                raise ValueError("Give a message link, or pick the channel the message is in.")
+            channel = found
+        return await channel.fetch_message(message_id)
 
     @app_commands.command(name="help", description="Show the Department Manager command guide")
     async def help_command(self, interaction: discord.Interaction) -> None:
@@ -219,8 +217,9 @@ class CoreCog(DeptCog):
             "Departments": "/dept create, add, update, status, info, list, hours, role, remove, join, leave",
             "Members": "/role add, /role remove, /transfer member, /transfer blacklist, /member logpunishment, history",
             "Cooldowns": "/cooldown apply, clear, view · /temprole extend, delete, list",
-            "Coordination": "/position set, remove · /coord add, remove, job, update, activity",
-            "Administration": "/admin, /permissions, /role protection, /useradd, /userdel, /rolewipe, /embed, /dm",
+            "Coordination": "/position set, remove · /coord add, remove, job, sync, update, activity",
+            "Badges": "/badge get · high command: /badge upload, layout, preview, remove, list",
+            "Administration": "/admin, /permissions, /role protection, /useradd, /userdel, /rolewipe, /embed, /sticky, /dm",
         }
         for name, value in sections.items():
             embed.add_field(name=name, value=value, inline=False)

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addonPedNames, analyze, assetHeaderProblem, classify, closeGaps, genderHint, shopMetaTarget, shopPedMeta, validateRenames, withPrefix } from "../src/eup-packaging.js";
+import { addonPedNames, analyze, assetHeaderProblem, classify, closeGaps, eupPieces, genderHint, shopMetaTarget, shopPedMeta, validateRenames, withPrefix } from "../src/eup-packaging.js";
 
 test("clothing file names are classified by ped, pack, component and number", () => {
   assert.deepEqual(
@@ -90,4 +90,39 @@ test("game asset files must carry a GTA resource header", () => {
   assert.match(assetHeaderProblem("a.ydd", Buffer.from("MZ......")), /not a real ydd game asset/);
   assert.match(assetHeaderProblem("a.ytd", Buffer.from("print(1)")), /not a real ytd/);
   assert.equal(assetHeaderProblem("a.ymt", Buffer.from("PSIN....")), null);
+});
+
+test("a first-person alternate is part of its drawable and a prop set keeps the pack name", () => {
+  const alt = classify("mp_m_freemode_01_mp_m_bcso^jbib_006_u_1.ydd");
+  assert.deepEqual([alt.kind, alt.dlc, alt.comp, alt.index, alt.alt], ["drawable", "mp_m_bcso", "jbib", 6, true]);
+  assert.equal(classify("mp_m_freemode_01_mp_m_bcso^jbib_006_u.ydd").alt, false);
+  // Props are named <ped>_p_<pack>^p_head_000.ydd; the pack is still <pack>.
+  const prop = classify("mp_f_freemode_01_p_mp_f_bcso^p_head_003.ydd");
+  assert.deepEqual([prop.kind, prop.ped, prop.dlc, prop.style, prop.index], ["prop", "mp_f_freemode_01", "mp_f_bcso", "dlc", 3]);
+  assert.equal(classify("mp_f_freemode_01_p_mp_f_bcso^p_head_diff_003_b.ytd").dlc, "mp_f_bcso");
+  assert.equal(classify("mp_f_freemode_01_sheriff^p_head_003.ydd").dlc, "sheriff");
+  const result = analyze([
+    { rel: "mp_m_freemode_01_x^jbib_000_u.ydd" }, { rel: "mp_m_freemode_01_x^jbib_000_u_1.ydd" }, { rel: "mp_m_freemode_01_x^jbib_diff_000_a_uni.ytd" },
+    { rel: "mp_m_freemode_01_p_x^p_head_000.ydd" }, { rel: "mp_m_freemode_01_x.ymt" },
+  ]);
+  assert.equal(result.groups.length, 1);
+  assert.deepEqual([result.groups[0].drawables, result.groups[0].props, result.groups[0].ymt], [1, 1, true]);
+  assert.deepEqual(result.problems, []);
+  assert.deepEqual(result.warnings.filter((w) => /texture|creature/.test(w)), ["mp_m_freemode_01_x: 1 drawable has no texture (for example mp_m_freemode_01_p_x^p_head_000.ydd)."]);
+});
+
+test("every clothing piece is listed once with its textures, alternate and size", () => {
+  const pieces = eupPieces(analyze([
+    { rel: "mp_f_freemode_01_x^jbib_001_u.ydd", size: 100 }, { rel: "mp_f_freemode_01_x^jbib_001_u_1.ydd", size: 50 },
+    { rel: "mp_f_freemode_01_x^jbib_diff_001_a_uni.ytd", size: 10 }, { rel: "mp_f_freemode_01_x^jbib_diff_001_b_uni.ytd", size: 10 },
+    { rel: "mp_f_freemode_01_x^jbib_000_u.ydd", size: 7 },
+    { rel: "mp_m_freemode_01_p_x^p_head_000.ydd", size: 5 }, { rel: "mp_m_freemode_01_p_x^p_head_diff_000_a.ytd", size: 5 },
+    { rel: "mp_m_freemode_01_x.ymt", size: 1 }, { rel: "readme.ydd", size: 1 },
+  ]).entries);
+  assert.deepEqual(pieces.map((p) => [p.ped[3], p.comp, p.index, p.label, p.prop, p.textures, p.alternate, p.bytes]), [
+    ["f", "jbib", 0, "Shirt Overlay & Jackets", false, 0, false, 7],
+    ["f", "jbib", 1, "Shirt Overlay & Jackets", false, 2, true, 170],
+    ["m", "p_head", 0, "Hats & Helmets", true, 1, false, 10],
+  ]);
+  assert.equal(pieces[0].dlc, "x");
 });

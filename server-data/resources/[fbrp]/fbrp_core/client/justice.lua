@@ -77,12 +77,14 @@ end
 local function wearJumpsuit(ped)
     local suit = JUMPSUIT[GetEntityModel(ped)]
     if not suit then return end
+    TriggerEvent('fbrp:appearanceChanged')
     for component, value in pairs(suit) do SetPedComponentVariation(ped, component, value[1], value[2], 0) end
     ClearPedProp(ped, 0)
 end
 
 local function restoreOutfit(ped, saved)
     if not saved or saved.model ~= GetEntityModel(ped) then return end
+    TriggerEvent('fbrp:appearanceChanged')
     for component, value in pairs(saved.components) do SetPedComponentVariation(ped, component, value[1], value[2], 0) end
     if saved.hat[1] and saved.hat[1] >= 0 then SetPedPropIndex(ped, 0, saved.hat[1], saved.hat[2], true) end
 end

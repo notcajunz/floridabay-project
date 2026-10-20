@@ -299,6 +299,7 @@ FBRP.PenalCode = {
 FBRP.Medical = {
     bleedoutSeconds = 180,
     downedHealth = 120,
+    punchDamageMultiplier = 0.4, -- fists only; weapons and melee weapons are unchanged
     respawnHoldMs = 3000,
     distressCooldownSeconds = 60,
     reviveMs = 6000,

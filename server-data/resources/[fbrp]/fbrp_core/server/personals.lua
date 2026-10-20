@@ -10,7 +10,7 @@ local S = FBRP.Server
 local sessions = S.sessions
 local notify, hasPermission = S.notify, S.hasPermission
 
-local personals = {}      -- id -> { id, model, hash, label, plate, owner, ownerName, trust, tags, tagLabels, bulletproof }
+local personals = {}      -- id -> { id, model, hash, label, plate, owner, trust, tags, bulletproof, emergencyClass }
 local holders = {}        -- tag id -> { [discord id] = true }
 local restricted = {}     -- model hash -> { personal ids }; only models not sold in a public garage
 local registry = {}       -- network id -> personal id (set when a personal is spawned)
@@ -19,6 +19,8 @@ local lastEject = {}      -- source -> game timer of the last notice
 local synced = {}         -- source -> true once the client has its first list
 local armored = {}        -- source -> true while they sit in a bulletproof personal
 local pushedBypass = {}   -- source -> the bypass flag the client last received
+
+local handlings = {}      -- model -> { handling.meta scalar -> number } for personals made by the website importer
 
 local BYPASS = 'fbrp.personals.bypass'
 local LOCK_MESSAGE = 'This personal vehicle was locked by the DevOps team.'
@@ -44,9 +46,54 @@ local function publicModels()
     return out
 end
 
+-- FiveM keeps the handling it loaded first for a model, so a restarted vehicle resource does not pick up an
+-- edited handling.meta. The files on disk are the truth: read them here and let each client apply them to the
+-- vehicle directly (see client/personals.lua).
+local HANDLING_FIELDS = {}
+for name in ([[fMass fInitialDragCoeff fDownforceModifier fDriveBiasFront nInitialDriveGears fInitialDriveForce fDriveInertia
+    fClutchChangeRateScaleUpShift fClutchChangeRateScaleDownShift fInitialDriveMaxFlatVel fBrakeForce fBrakeBiasFront fHandBrakeForce
+    fSteeringLock fTractionCurveMax fTractionCurveMin fTractionCurveLateral fTractionSpringDeltaMax fLowSpeedTractionLossMult
+    fTractionBiasFront fTractionLossMult fSuspensionForce fSuspensionCompDamp fSuspensionReboundDamp fSuspensionBiasFront
+    fAntiRollBarForce fAntiRollBarBiasFront fRollCentreHeightFront fRollCentreHeightRear]]):gmatch('%S+') do HANDLING_FIELDS[name] = true end
+
+local function readHandling(model)
+    local resource = 'fbrp_pv_' .. model
+    if not resource:match('^fbrp_pv_[a-z0-9_]+$') then return nil end
+    local vehicles = LoadResourceFile(resource, 'data/vehicles.meta')
+    local meta = LoadResourceFile(resource, 'data/handling.meta')
+    if not vehicles or not meta then return nil end
+    vehicles, meta = vehicles:lower(), meta:lower()
+    local at = vehicles:find('<modelname>%s*' .. model:gsub('%p', '%%%0') .. '%s*</modelname>')
+    local id = at and vehicles:match('<handlingid>%s*([^<%s]+)%s*</handlingid>', at) or model
+    local start = meta:find('<handlingname>%s*' .. id:gsub('%p', '%%%0') .. '%s*</handlingname>')
+    if not start then return nil end
+    local stop = meta:find('<subhandlingdata', start, true) or meta:find('</item>', start, true) or #meta
+    local fields, any = {}, false
+    for field, value in meta:sub(start, stop):gmatch('<(%w+)%s+value="([^"]*)"%s*/>') do
+        local name
+        for known in pairs(HANDLING_FIELDS) do
+            if known:lower() == field then name = known break end
+        end
+        local number = name and tonumber(value)
+        if number then fields[name] = number; any = true end
+    end
+    return any and fields or nil
+end
+
+local function loadHandlings(list)
+    local nextHandlings = {}
+    for _, p in pairs(list) do
+        if not nextHandlings[p.model] then
+            local fields = readHandling(p.model)
+            if fields then nextHandlings[p.model] = fields end
+        end
+    end
+    handlings = nextHandlings
+end
+
 local function load()
     local okRows, rows = pcall(function()
-        return MySQL.query.await('SELECT id,model,label,plate,owner_id,bulletproof,locked FROM personal_vehicles WHERE enabled=TRUE')
+        return MySQL.query.await('SELECT id,model,label,plate,owner_id,bulletproof,emergency_class,locked FROM personal_vehicles WHERE enabled=TRUE')
     end)
     if not okRows then
         -- The lock column arrives with migration 054; keep personals working until it is applied.
@@ -63,6 +110,7 @@ local function load()
             id = id, model = model, hash = hash(model), label = row.label, plate = row.plate and row.plate ~= '' and row.plate or defaultPlate(id),
             owner = tostring(row.owner_id), ownerName = nil, trust = {}, tags = {}, tagLabels = {},
             bulletproof = row.bulletproof == true or tonumber(row.bulletproof) == 1,
+            emergencyClass = ({ leo=true, fire=true, ems=true })[tostring(row.emergency_class)] and tostring(row.emergency_class) or 'civilian',
             locked = row.locked == true or tonumber(row.locked) == 1,
         }
         ids[#ids + 1] = id
@@ -121,6 +169,7 @@ local function load()
         end
     end
     personals, restricted = nextPersonals, nextRestricted
+    loadHandlings(nextPersonals)
 end
 
 -- 'owner', 'trusted', 'tag' or nil.
@@ -245,6 +294,16 @@ local function push(source)
     for id, p in pairs(personals) do
         if p.locked then locked[#locked + 1] = id end
     end
+    local emergency, emergencyModels, seenEmergencyModels = {}, {}, {}
+    for id, p in pairs(personals) do
+        if p.emergencyClass ~= 'civilian' then
+            emergency[id] = p.emergencyClass
+            if not seenEmergencyModels[p.model] then
+                seenEmergencyModels[p.model] = true
+                emergencyModels[#emergencyModels + 1] = { model=p.model, kind=p.emergencyClass }
+            end
+        end
+    end
     for _, ids in pairs(restricted) do
         for _, pid in ipairs(ids) do
             if personals[pid].locked then lockedModels[#lockedModels + 1] = personals[pid].model break end
@@ -256,6 +315,8 @@ local function push(source)
         denied = denied, models = names, bypass = bypass,
         bulletproof = bulletproof, bulletproofModels = bulletproofModels,
         locked = locked, lockedModels = lockedModels,
+        emergency = emergency, emergencyModels = emergencyModels,
+        handling = handlings,
     })
 end
 
@@ -327,7 +388,7 @@ function FBRP.Personals.spawn(source, key)
     end
 
     TriggerClientEvent('fbrp:vehicles:approved', source, p.model, p.label, {
-        plate = p.plate, personal = p.id, register = level == 'owner',
+        plate = p.plate, personal = p.id, register = level == 'owner', emergencyClass = p.emergencyClass,
     })
     FBRP.DB.audit(discord or source, 'vehicle.spawn', p.model, { category = 'personal', personal = p.id, access = level })
 end

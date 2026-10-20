@@ -513,7 +513,7 @@ function renderTags(data) {
 
 function renderVehicles(data) {
   const cats = data.categories || [];
-  if (!cats.length) return `${head("Garage")}<div class="empty">You don't have access to any vehicles right now. Some sections only unlock while you're on duty.</div>`;
+  if (!cats.length) return `${head("Garage")}<div class="empty">You have no personal vehicles. Base-game vehicles are spawned from the vMenu Vehicle Spawner.</div>`;
   if (!cats.some((c) => c.id === ui.garageCategory)) ui.garageCategory = cats[0].id;
   const active = cats.find((c) => c.id === ui.garageCategory);
   const rail = cats
@@ -885,7 +885,7 @@ function renderHub(data) {
     hubCard("handsup", "user", "Hands up", "Raise or lower your hands."),
   ].join("");
   const tools = [
-    hubCard("vehicles", "car", "Vehicle garage", "Browse and spawn approved vehicles."),
+    hubCard("vehicles", "car", "Personal vehicles", "Spawn your personal vehicles."),
     hubCard("carcontrols", "gauge", "Vehicle controls", "Engine, locks, doors, cruise, and seatbelt."),
     ...(data.carRadioAccess ? [hubCard("carradio", "music", "Vehicle sound system", "Play synchronized YouTube audio inside and around your vehicle.")] : []),
     hubCard("radio", "radio", "Radio network", "Join public or organization frequencies."),

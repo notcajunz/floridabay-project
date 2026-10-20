@@ -35,7 +35,8 @@ const UPLOAD_TTL = 6 * 60 * 60 * 1000;
 /** Each chunk stays under Caddy's 2 MB body limit for floridabay.net. */
 export const UPLOAD_CHUNK = 1536 * 1024;
 const MAX_FILES = 3000;
-const MAX_BYTES = 1.5 * 1024 ** 3;
+/** The website's cap. The admin EUP installer may raise it for one run through FBRP_IMPORT_MAX_BYTES. */
+const MAX_BYTES = Number(process.env.FBRP_IMPORT_MAX_BYTES) || 1.5 * 1024 ** 3;
 const STREAM_EXT = new Set([".yft", ".ytd", ".ydr", ".ydd"]);
 const AUDIO_EXT = new Set([".awc", ".rel", ".nametable"]);
 const UNSUPPORTED = { ".rar": "RAR", ".7z": "7-Zip", ".oiv": "OIV installer", ".rpf": "RPF archive" };
@@ -142,8 +143,14 @@ export async function validateStreamAsset(file) {
 const AI_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["label", "summary", "notes", "edits", "liveries"],
+  required: ["label", "summary", "notes", "edits", "liveries", "vehicleType", "vehicleTypeReason"],
   properties: {
+    vehicleType: {
+      type: "string",
+      enum: ["civilian", "leo", "fire", "ems"],
+      description: "What the vehicle visibly and technically is. Use leo for police/sheriff/highway-patrol vehicles, fire for fire/rescue apparatus, ems for ambulance/medical vehicles, otherwise civilian.",
+    },
+    vehicleTypeReason: { type: "string", description: "One short sentence citing the strongest file or metadata evidence for the classification." },
     liveries: {
       type: "array",
       description: "Liveries the pack already contains. Empty when there are none or no liveryEvidence was supplied.",
@@ -228,6 +235,7 @@ Return field edits that:
    - Only when hasCustomAudio is true (the pack shipped its own engine sounds, which are not installed): set audioNameHash to a fitting base game vehicle such as ELEGY, ZENTORNO, BUFFALO, SCHAFTER2, DOMINATOR, KURUMA or BATI. Otherwise never touch audioNameHash.
 3. Never edit modelName or handlingName. Never invent fields that do not exist in GTA V.
 4. Detect liveries the pack already contains from liveryEvidence: names are livery names declared in the vehicle's mod kit (each one is a livery) and files are streamed files whose names hint at liveries. Return each real livery with a short readable label and its source copied exactly from the evidence. Leave out files that are plainly the base texture, a wheel, a part or something else. Never invent a livery that is not in the evidence.
+5. Classify the vehicleType from all supplied evidence. Use leo only for a law-enforcement vehicle (police, sheriff, highway patrol, corrections, marshal, or a clearly unmarked police vehicle), fire only for fire/rescue apparatus, and ems only for an ambulance or medical response vehicle. Emergency light/siren metadata alone is supporting evidence but does not make an ordinary civilian vehicle law enforcement. Use civilian when evidence is weak or ambiguous. Explain the decisive evidence in vehicleTypeReason.
 If no handling changes were asked for and nothing is broken, return an empty edits array.
 The summary must describe only the edits you actually returned.
 Field values must be the final absolute values, not percentages. Use the current values you were given.`;
@@ -258,6 +266,21 @@ function itemBlock(xml, tag, name) {
 }
 
 const tagValue = (xml, tag) => new RegExp(`<${tag}>\\s*([^<]*?)\\s*</${tag}>`, "i").exec(xml)?.[1] ?? null;
+
+/** Compact siren/light/livery evidence from supporting metadata for the AI's vehicle-type decision. */
+function emergencyEvidence(metas, model) {
+  const evidence = [];
+  for (const meta of metas.carvariations) {
+    const item = itemBlock(meta.xml, "modelName", model);
+    if (item) evidence.push(`${meta.rel}:\n${item.text.slice(0, 12000)}`);
+  }
+  const signal = /siren|light|police|sheriff|trooper|patrol|marshal|fire|rescue|ambulance|\bems\b|livery|kitName/i;
+  for (const meta of metas.carcols) {
+    const lines = meta.xml.split(/\r?\n/).filter((line) => signal.test(line));
+    if (lines.length) evidence.push(`${meta.rel}:\n${lines.join("\n").slice(0, 12000)}`);
+  }
+  return evidence.slice(0, 8);
+}
 
 /** Applies one validated edit to an Item block. Returns { block, from } or throws. */
 function applyEdit(block, file, field, rawValue) {
@@ -764,8 +787,11 @@ export function createPersonalImporter({ personals, audit, db }) {
         otherMetaFiles: Object.entries(metas).flatMap(([key, list]) => list.map((m) => `${m.rel} -> ${key}`)),
         hasCustomAudio: files.some((f) => f.ext === ".awc"),
         liveryEvidence: evidence,
+        emergencyMetadata: emergencyEvidence(metas, model),
         sourceNote: "Files outside stream/ and data/ are not installed.",
       });
+      const vehicleType = ["leo", "fire", "ems"].includes(ai.vehicleType) ? ai.vehicleType : "civilian";
+      const vehicleTypeReason = text(ai.vehicleTypeReason, 300) || "No reliable emergency-service evidence was found in the pack.";
 
       // Apply the model's edits one by one; a bad edit is reported, never written.
       const blocks = { vehicles: vehicleItem.text, handling: handlingItem?.text ?? null };
@@ -829,7 +855,7 @@ export function createPersonalImporter({ personals, audit, db }) {
           "",
         ].join("\n");
         await writeFile(path.join(build, "fxmanifest.lua"), manifest);
-        await writeFile(path.join(build, MARKER), JSON.stringify({ source: source.label || source.real, model: installModel, ...(renamedPack ? { packModel: model } : {}), by: String(actorId), at: Date.now(), request, changes, liveries, security: { verdict: security.verdict, summary: security.summary, findings: security.findings, repairs: security.repairs } }, null, 2));
+        await writeFile(path.join(build, MARKER), JSON.stringify({ source: source.label || source.real, model: installModel, ...(renamedPack ? { packModel: model } : {}), by: String(actorId), at: Date.now(), request, changes, liveries, vehicleType, vehicleTypeReason, security: { verdict: security.verdict, summary: security.summary, findings: security.findings, repairs: security.repairs } }, null, 2));
         if (existing && input.keepBackup) await backupResource(target, resource, notes);
         if (existing) await rm(target, { recursive: true, force: true });
         await rename_(build, target);
@@ -845,11 +871,13 @@ export function createPersonalImporter({ personals, audit, db }) {
       else if (!live) notes.push("Could not start it live. It loads on the next server restart.");
 
       if (skipped.length) notes.push(`Not needed and left out: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? ` and ${skipped.length - 8} more` : ""}.`);
-      await audit(actorId, input.keepBackup ? "personal.replace_pack" : "personal.import", resource, { source: source.label || source.real, model: installModel, packModel: model, request, changes: changes.length, security: security.verdict, securityFindings: security.findings.length, securityRepairs: security.repairs.length });
+      await audit(actorId, input.keepBackup ? "personal.replace_pack" : "personal.import", resource, { source: source.label || source.real, model: installModel, packModel: model, vehicleType, vehicleTypeReason, request, changes: changes.length, security: security.verdict, securityFindings: security.findings.length, securityRepairs: security.repairs.length });
       return {
         model: installModel,
         packModel: model,
         label: text(ai.label, 60) || installModel,
+        vehicleType,
+        vehicleTypeReason,
         resource,
         summary: text(ai.summary, 600),
         changes,
@@ -1004,9 +1032,15 @@ export function createPersonalImporter({ personals, audit, db }) {
       history.push({ at: Date.now(), by: String(actorId), request, changes, shrink: shrunk });
       await writeFile(path.join(dir, MARKER), JSON.stringify({ ...marker, retunes: history.slice(-20) }, null, 2));
       const started = await callGame("/personals/install", { resource, model }).catch(() => null);
-      if (started?.state === "in_use") notes.push("Someone has this vehicle spawned right now, so the new files load after the next server restart.");
-      else if (!(started?.ok && (started.state === "started" || started.state === "restarted"))) notes.push("Could not reload it live. It loads on the next server restart.");
-      else notes.push("It was reloaded live. Players already online should reconnect to get the changes.");
+      await callGame("/personals/refresh", {}).catch(() => null);
+      // FiveM keeps the handling it loaded first for a model, so the server pushes the saved handling.meta
+      // values straight onto the vehicle instead of relying on the resource restart.
+      if (changes.length) notes.push("The new handling is applied to the vehicle live within a few seconds. A car that is already out picks it up on its next check, no reconnect needed.");
+      if (shrunk) {
+        if (started?.state === "in_use") notes.push("Someone has this vehicle spawned right now, so the smaller textures load after the next server restart.");
+        else if (!(started?.ok && (started.state === "started" || started.state === "restarted"))) notes.push("Could not reload it live. The smaller textures load on the next server restart.");
+        else notes.push("The smaller textures were reloaded live. Players already online should reconnect to get them.");
+      }
     }
     await audit(actorId, "personal.retune", resource, { request, changes: changes.length, shrink: shrunk });
     return { model, resource, summary, changes, notes, shrunk };
@@ -1034,6 +1068,8 @@ export function createPersonalImporter({ personals, audit, db }) {
     const dropped = await db.query("DELETE FROM personal_liveries WHERE personal_id=?", [current.id]).catch(() => null);
     if (dropped?.affectedRows) result.notes = [...result.notes, `${dropped.affectedRows} livery bundle${dropped.affectedRows === 1 ? "" : "s"} on the old files ${dropped.affectedRows === 1 ? "was" : "were"} removed with them. Add them again if you still want them.`];
     if (result.liveries?.length) await registerDetectedLiveries(db, current.id, model).catch(() => null);
+    await personals.update(actorId, { id: current.id, emergencyClass: result.vehicleType });
+    result.notes = [...result.notes, `Portal vehicle type updated to ${result.vehicleType.toUpperCase()}.`];
     return result;
   }
 

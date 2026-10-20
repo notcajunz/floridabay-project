@@ -96,7 +96,7 @@ class DepartmentsCog(DeptCog):
         )
         return f"Email database: added as `{code}` with its own tab."
 
-    async def _sheet_remove(self, interaction, row: dict) -> str:
+    async def _sheet_remove(self, interaction, row: dict, *, launched: bool = False) -> str:
         refs = [value for value in (row.get("initials"), row["name"]) if value]
         data: dict = {}
         try:
@@ -110,9 +110,12 @@ class DepartmentsCog(DeptCog):
             return f"Email database: not archived ({error})"
         if data.get("ok"):
             await email_log(
-                self.bot, interaction.guild, "Department removed",
-                f"{interaction.user.mention} removed **{row['name']}**; its tab was archived.",
-                color=discord.Color.red(), fields={"Member records kept": str(data.get("members", 0))},
+                self.bot, interaction.guild,
+                "Department launched" if launched else "Department removed",
+                (f"**{row['name']}** was launched; its tab was archived and `/email` no longer works for it."
+                 if launched else f"{interaction.user.mention} removed **{row['name']}**; its tab was archived."),
+                color=discord.Color.green() if launched else discord.Color.red(),
+                fields={"Member records kept": str(data.get("members", 0))},
             )
             return f"Email database: tab archived ({data.get('members', 0)} member record(s) kept)."
         if "Unknown department" in str(data.get("error", "")):
@@ -349,6 +352,7 @@ class DepartmentsCog(DeptCog):
         note: str | None = None,
     ) -> None:
         guild = require_guild(interaction)
+        await interaction.response.defer(ephemeral=True)
         row = await self.service.department(guild.id, department)
         if row["status"] == status.value:
             raise ValueError(f"**{row['name']}** is already `{status.value}`.")
@@ -369,7 +373,12 @@ class DepartmentsCog(DeptCog):
             embed.add_field(name="Note", value=clean_text(note, 1000), inline=False)
         await send_to(guild, self.bot.config.status_channel_id, embed=embed)
         await refresh_panels(self.bot, guild, "hours")
-        await reply(interaction, f"**{row['name']}** is now `{status.value}`.")
+        text = f"**{row['name']}** is now `{status.value}`."
+        if status.value == "Launched":
+            # A launched department runs on its own systems: leave the email database for good.
+            text += "\n" + await self._sheet_remove(interaction, row, launched=True)
+            text += f"\n`/email` commands are now closed for **{row['name']}**."
+        await reply(interaction, text)
 
     @dept.command(name="info", description="Show a department's details")
     @coordinator_only

@@ -1,0 +1,270 @@
+{
+  "source": "22w5_BB.zip",
+  "model": "22w5_bb",
+  "by": "1090083387638812755",
+  "at": 1792441854879,
+  "request": {
+    "topSpeedMph": 225,
+    "acceleration": "higher",
+    "braking": "higher",
+    "grip": "much_higher",
+    "drivetrain": "rwd"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "350.000000",
+      "to": "274.390244",
+      "reason": "Top speed about 225 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.550000",
+      "to": "0.632500",
+      "reason": "Acceleration higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "2.500000",
+      "to": "2.875000",
+      "reason": "Braking higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "5.500000",
+      "to": "7.150000",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "5.000000",
+      "to": "6.500000",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fDriveBiasFront",
+      "from": "0.500000",
+      "to": "0.000000",
+      "reason": "RWD drivetrain"
+    }
+  ],
+  "liveries": [],
+  "vehicleType": "civilian",
+  "vehicleTypeReason": "The metadata identifies it as a BMW M5CS-style sedan with no law-enforcement, fire, or EMS-specific model evidence.",
+  "security": {
+    "verdict": "safe",
+    "summary": "The pack contains only vehicle model/texture assets and standard metadata files, with no scripts, web resources, executables, or other runtime behavior indicated. No security concerns were found in the provided inventory.",
+    "findings": [],
+    "repairs": []
+  },
+  "retunes": [
+    {
+      "at": 1792442932551,
+      "by": "1090083387638812755",
+      "request": {
+        "drivetrain": "rwd",
+        "instructions": "way slower acceleration, harder to turn at higher speeds, way lower braking. the handling is too OP right now"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.632500",
+          "to": "0.455000",
+          "reason": "Reduces acceleration as requested while preserving drivable power."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "42.000000",
+          "to": "36.000000",
+          "reason": "Lowers steering response at speed to make the car harder to turn in fast corners."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "2.875000",
+          "to": "1.850000",
+          "reason": "Cuts braking performance substantially to match the request for way lower braking."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveLateral",
+          "from": "22.000000",
+          "to": "20.000000",
+          "reason": "Slightly reduces high-speed cornering grip to support the harder-to-turn feel without making it uncontrollable."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionLossMult",
+          "from": "0.100000",
+          "to": "0.220000",
+          "reason": "Adds a bit more slip so the vehicle feels less grippy and less overpowered."
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1792443251916,
+      "by": "1090083387638812755",
+      "request": {
+        "topSpeedMph": 214,
+        "acceleration": "lower",
+        "braking": "lower",
+        "grip": "lower",
+        "drivetrain": "rwd",
+        "instructions": "harder to steer, much slower acceleration, much worse braking. make everything a bit worse"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "36.000000",
+          "to": "32.000000",
+          "reason": "Reduced steering response to make it harder to steer while staying controllable."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveMaxFlatVel",
+          "from": "274.390244",
+          "to": "260.975610",
+          "reason": "Top speed about 214 mph"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.455000",
+          "to": "0.386750",
+          "reason": "Acceleration lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "1.850000",
+          "to": "1.572500",
+          "reason": "Braking lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "7.150000",
+          "to": "6.077500",
+          "reason": "Grip lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "6.500000",
+          "to": "5.525000",
+          "reason": "Grip lower (-15%)"
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1792448276283,
+      "by": "1090083387638812755",
+      "request": {
+        "topSpeedMph": 210,
+        "acceleration": "lower",
+        "braking": "lower",
+        "grip": "lower",
+        "drivetrain": "rwd",
+        "instructions": "make it way worse at accelerating, breaking, and turning"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "32.000000",
+          "to": "30.000000",
+          "reason": "Small supporting change to make turning worse."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveMaxFlatVel",
+          "from": "260.975610",
+          "to": "256.097561",
+          "reason": "Top speed about 210 mph"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.386750",
+          "to": "0.328737",
+          "reason": "Acceleration lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "1.572500",
+          "to": "1.336625",
+          "reason": "Braking lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "6.077500",
+          "to": "5.165875",
+          "reason": "Grip lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "5.525000",
+          "to": "4.696250",
+          "reason": "Grip lower (-15%)"
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1792456035534,
+      "by": "1090083387638812755",
+      "request": {
+        "acceleration": "lower",
+        "braking": "lower",
+        "grip": "lower",
+        "drivetrain": "rwd",
+        "instructions": "make it so it spins out when turning at high speeds, lower acceleration, MUCH slower braking"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.328737",
+          "to": "0.279426",
+          "reason": "Acceleration lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "1.336625",
+          "to": "1.136131",
+          "reason": "Braking lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "5.165875",
+          "to": "4.390994",
+          "reason": "Grip lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "4.696250",
+          "to": "3.991812",
+          "reason": "Grip lower (-15%)"
+        }
+      ],
+      "shrink": false
+    }
+  ]
+}

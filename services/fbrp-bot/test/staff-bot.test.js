@@ -86,3 +86,9 @@ test("/staff remove takes a suggested free-text reason that becomes the movement
   assert.equal(removalLabel(""), "Removed");
   assert.equal(removalLabel("x".repeat(200)).length, 80);
 });
+
+test("the roster Staff Member role is looked up by its real name, not the staff server's name", async () => {
+  const source = await readFile(new URL("../src/staff/legacy.js", import.meta.url), "utf8");
+  assert.match(source, /const STAFF_TEAM_ROLE = "FBRP \| Staff Member";/);
+  assert.doesNotMatch(source, /roleName: STAFF_TEAM_ROLE/, "lookups go through staffTeamRoleId so a missing role is reported");
+});

@@ -5,7 +5,7 @@ import { requireOwnerId } from "../access-control.js";
 import { rebalanceCallsigns } from "../callsigns.js";
 import { createStaffExams } from "../staff-exams.js";
 import { SECTORS, clearSectorRoster, sectorCoordRoles } from "./sectors.js";
-import { applyRole, bindRoleOps, noteQueued, cachedRoles, reconcileRole, roleHolders } from "./roleops.js";
+import { applyRole, bindRoleOps, noteQueued, cachedRoles, reconcileRole, resolveRoleId, roleHolders } from "./roleops.js";
 import { COORD_ACE_ORIGIN, COORD_RANKS, COORD_TEAM_GROUP, LEADERSHIP_ROLE_ID, STAFF_GUILD_ID, TEAM_ROLE_ID } from "./config.js";
 import { COLORS, card, chunkLines, humanize, logEmbed, roleRef, when, who } from "../ui.js";
 
@@ -255,7 +255,18 @@ async function dropRankRole(rank, discordId) {
 }
 
 /** Every active roster member wears this role in each staff Discord that has one by this name. */
-const STAFF_TEAM_ROLE = "FBRP | Staff Team";
+const STAFF_TEAM_ROLE = "FBRP | Staff Member";
+// "FBRP | Staff Team" is the name of the staff server itself, not a role; kept as a fallback for any server that names it that way.
+const STAFF_TEAM_ROLE_FALLBACKS = ["FBRP | Staff Team"];
+
+/** The Staff Member role of one staff Discord, or null when that server has none. */
+async function staffTeamRoleId(guildId) {
+  for (const roleName of [STAFF_TEAM_ROLE, ...STAFF_TEAM_ROLE_FALLBACKS]) {
+    const roleId = await resolveRoleId(guildId, { roleName });
+    if (roleId) return roleId;
+  }
+  return null;
+}
 
 async function staffGuildIds() {
   return (await db.query("SELECT guild_id FROM network_guilds WHERE kind='staff'")).map((row) => String(row.guild_id));
@@ -266,14 +277,20 @@ const activeStaff = async (discordId) =>
 
 /** Adds or removes the Staff Team role for one member in every staff Discord (queued where this bot is not). */
 async function setStaffTeamRole(discordId, add) {
-  for (const guildId of await staffGuildIds())
+  for (const guildId of await staffGuildIds()) {
+    const roleId = await staffTeamRoleId(guildId);
+    if (!roleId) {
+      console.error(`[FBRP staff] No "${STAFF_TEAM_ROLE}" role in staff server ${guildId}.`);
+      continue;
+    }
     await applyRole({
       guildId,
       discordId,
-      roleName: STAFF_TEAM_ROLE,
+      roleId,
       add,
       reason: add ? "FBRP staff roster member" : "Removed from the FBRP staff roster",
     }).catch((error) => console.error(`[FBRP staff] Staff Team role for ${discordId}:`, error.message || error));
+  }
 }
 
 /** Keeps a roster member's staff jobs in line with the Discord roles the jobs are bound to. */
@@ -311,10 +328,13 @@ async function reconcileAllRosterJobs() {
 /** Every active roster member wears the Staff Team role in each staff Discord (startup, every 10 minutes, /roster sync). */
 async function syncStaffTeamRoles() {
   const wanted = new Set((await db.query("SELECT discord_id FROM staff_roster_members WHERE status<>'removed'")).map((row) => String(row.discord_id)));
-  for (const guildId of await staffGuildIds())
-    await reconcileRole({ guildId, roleName: STAFF_TEAM_ROLE, wanted, removeOthers: false, reason: "FBRP staff roster member" }).catch((error) =>
+  for (const guildId of await staffGuildIds()) {
+    const roleId = await staffTeamRoleId(guildId);
+    if (!roleId) continue;
+    await reconcileRole({ guildId, roleId, wanted, removeOthers: false, reason: "FBRP staff roster member" }).catch((error) =>
       console.error(`[FBRP staff] Staff Team role in ${guildId}:`, error.message || error),
     );
+  }
 }
 
 /** The rank plus every staff rank whose ACE group sits below it; /staff add grants all of them. */
@@ -383,11 +403,11 @@ async function staffAdd(i, move = false) {
   await reconcileManagementMembership(user.id, i.user.id);
   // The member keeps every lower rank's ACE group but wears only their own rank role (management also wears Head Administrator).
   const wear = staffDisplayGroups(String(rank.ace_group), await staffRankInfo());
-  const wornIds = new Set(ladder.filter((row) => wear.has(String(row.ace_group))).map((row) => Number(row.id)));
-  wornIds.add(Number(rank.id));
-  for (const row of await db.query("SELECT id,discord_role_id,discord_guild_id FROM staff_roster_ranks"))
-    if (!wornIds.has(Number(row.id))) await dropRankRole(row, user.id);
-  for (const row of ladder) if (wornIds.has(Number(row.id))) await setRankRole(row, user.id, true);
+  const allRanks = await db.query("SELECT id,discord_role_id,discord_guild_id,ace_group FROM staff_roster_ranks");
+  for (const row of allRanks) {
+    if (Number(row.id) === Number(rank.id) || wear.has(String(row.ace_group))) await setRankRole(row, user.id, true);
+    else await dropRankRole(row, user.id);
+  }
   await setStaffTeamRole(user.id, true);
   const rebalance = await rebalanceStaffCallsigns(i.user.id);
   const callsign = rebalance.assignments.find((row) => row.discordId === user.id)?.callsign ?? null;

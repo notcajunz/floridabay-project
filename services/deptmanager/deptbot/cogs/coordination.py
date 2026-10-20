@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import discord
 from discord import app_commands
+from discord.ext import tasks
 
 from ..common import (
     DeptCog,
@@ -18,6 +20,9 @@ from ..common import (
 )
 from ..constants import COORDINATOR_RANKS
 from ..role_policy import today
+from ..roster_sheet import RosterResult, RosterSheet, RosterSheetError
+
+log = logging.getLogger(__name__)
 
 RANK_CHOICES = [app_commands.Choice(name=value, value=value) for value in COORDINATOR_RANKS]
 
@@ -33,6 +38,29 @@ async def job_autocomplete(interaction: discord.Interaction, current: str) -> li
 
 class CoordinationCog(DeptCog):
     coord = app_commands.Group(name="coord", description="Department coordination team tools")
+
+    def __init__(self, bot, roster: RosterSheet | None = None):
+        super().__init__(bot)
+        self.roster = roster
+        if roster is None:
+            try:
+                self.roster = RosterSheet.from_config(bot.config)
+            except RosterSheetError as error:
+                log.warning("Coordinator roster sync is off: %s", error)
+
+    async def _roster(self, operation) -> str:
+        """Run a roster sheet update. The Discord change already happened, so this never fails the command."""
+        if self.roster is None:
+            return ""
+        try:
+            result: RosterResult = await operation(self.roster)
+        except RosterSheetError as error:
+            log.warning("Coordinator roster update failed: %s", error)
+            return f"\nRoster sheet: not updated ({error})"
+        except Exception:
+            log.exception("Coordinator roster update failed")
+            return "\nRoster sheet: not updated (unexpected error, logged)."
+        return "\n" + result.line()
 
     def _rank_roles(self, guild: discord.Guild) -> dict[str, discord.Role]:
         roles = {}
@@ -74,6 +102,7 @@ class CoordinationCog(DeptCog):
         self, interaction: discord.Interaction, member: discord.Member, rank: app_commands.Choice[str] | None = None
     ) -> None:
         guild = require_guild(interaction)
+        await interaction.response.defer(ephemeral=True)
         if rank is None:
             configured = list(self.bot.config.coordinator_role_ids)
             if len(configured) != 1:
@@ -105,7 +134,8 @@ class CoordinationCog(DeptCog):
         await self.service.log(guild.id, "coord", "rank", interaction.user.id, str(member.id), rank.value)
         await self._movement(guild, member, action, interaction.user)
         await refresh_panels(self.bot, guild, "chain")
-        await reply(interaction, f"{member.mention}: {action}.")
+        sheet = await self._roster(lambda roster: roster.place(member.id, member.display_name, rank.value))
+        await reply(interaction, f"{member.mention}: {action}.{sheet}")
 
     @coord.command(name="remove", description="Remove every coordination rank and position from a member")
     @manager_only
@@ -117,6 +147,7 @@ class CoordinationCog(DeptCog):
         self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Choice[str]
     ) -> None:
         guild = require_guild(interaction)
+        await interaction.response.defer(ephemeral=True)
         held = [guild.get_role(role_id) for role_id in self.bot.config.coordinator_role_set()]
         held = [role for role in held if role and role in member.roles]
         if not held:
@@ -126,7 +157,8 @@ class CoordinationCog(DeptCog):
         await self.service.log(guild.id, "coord", "remove", interaction.user.id, str(member.id), reason.value)
         await self._movement(guild, member, f"{reason.value} from Department Coordination", interaction.user)
         await refresh_panels(self.bot, guild, "chain")
-        await reply(interaction, f"Removed {len(held)} coordination role(s) from {member.mention}.")
+        sheet = await self._roster(lambda roster: roster.vacate(member.id, member.display_name, reason.value))
+        await reply(interaction, f"Removed {len(held)} coordination role(s) from {member.mention}.{sheet}")
 
     @coord.command(name="job", description="Give or take a coordination position (DC job)")
     @manager_only
@@ -139,6 +171,7 @@ class CoordinationCog(DeptCog):
         self, interaction: discord.Interaction, action: app_commands.Choice[str], member: discord.Member, job: str
     ) -> None:
         guild = require_guild(interaction)
+        await interaction.response.defer(ephemeral=True)
         role = guild.get_role(self.bot.config.coordinator_job_role_ids.get(job, 0))
         if role is None:
             raise ValueError(f"`{job}` is not a configured coordination position.")
@@ -151,7 +184,69 @@ class CoordinationCog(DeptCog):
         await self.service.log(guild.id, "coord", f"job-{action.value}", interaction.user.id, str(member.id), job)
         await self._movement(guild, member, text, interaction.user)
         await refresh_panels(self.bot, guild, "chain")
-        await reply(interaction, f"{member.mention}: {text}.")
+        sheet = await self._roster(lambda roster: roster.set_job(member.id, job, action.value == "add"))
+        await reply(interaction, f"{member.mention}: {text}.{sheet}")
+
+    async def cog_load(self) -> None:
+        if self.roster is not None:
+            self.sheet_sync_loop.start()
+
+    async def cog_unload(self) -> None:
+        self.sheet_sync_loop.cancel()
+
+    async def reconcile(self, guild: discord.Guild, *, clear_missing: bool = True, safety_limit: int | None = 3) -> RosterResult:
+        """Make the roster sheet match the ranks and jobs people hold in Discord right now."""
+        assert self.roster is not None
+        config = self.bot.config
+        holders: dict[str, tuple[str, str]] = {}
+        for rank, role in self._rank_roles(guild).items():  # highest rank first
+            for member in role.members:
+                if not member.bot and str(member.id) not in holders:
+                    holders[str(member.id)] = (member.display_name, rank)
+        jobs: dict[str, set[str]] = {}
+        for job, role_id in config.coordinator_job_role_ids.items():
+            role = guild.get_role(role_id)
+            jobs[job.lower()] = {str(member.id) for member in (role.members if role else []) if not member.bot}
+        return await self.roster.sync(
+            holders, jobs, remove_missing=clear_missing, max_removals=safety_limit,
+            job_names=list(config.coordinator_job_role_ids),
+        )
+
+    @tasks.loop(minutes=30)
+    async def sheet_sync_loop(self) -> None:
+        """Catch role changes made by hand in Discord, so the sheet never drifts for long."""
+        for guild in self.bot.guilds:
+            if not guild.chunked:
+                continue  # an incomplete member list would look like everyone left
+            try:
+                result = await self.reconcile(guild)
+            except RosterSheetError as error:
+                log.warning("Coordinator roster sync skipped for %s: %s", guild.id, error)
+                continue
+            except Exception:
+                log.exception("Coordinator roster sync failed for %s", guild.id)
+                continue
+            if result.changes:
+                log.info("Coordinator roster synced for %s: %s", guild.id, "; ".join(result.changes))
+                await self.service.log(guild.id, "coord", "sheet-sync", None, "", "; ".join(result.changes)[:500])
+
+    @sheet_sync_loop.before_loop
+    async def _before_sheet_sync(self) -> None:
+        await self.bot.wait_until_ready()
+
+    @coord.command(name="sync", description="Make the coordinator roster sheet match the ranks and jobs held in Discord")
+    @manager_only
+    @app_commands.describe(clear_missing="Also empty sheet rows of people who hold no coordinator rank (default yes)")
+    async def coord_sync(self, interaction: discord.Interaction, clear_missing: bool = True) -> None:
+        guild = require_guild(interaction)
+        if self.roster is None:
+            raise ValueError("The coordinator roster sheet is not configured for this server.")
+        if not guild.chunked:
+            raise ValueError("I do not have the full member list yet. Try again in a minute.")
+        await interaction.response.defer(ephemeral=True)
+        result = await self.reconcile(guild, clear_missing=clear_missing, safety_limit=None)
+        await self.service.log(guild.id, "coord", "sync", interaction.user.id, "", "; ".join(result.changes)[:500])
+        await reply(interaction, result.line().replace("Roster sheet:", "Roster sheet synced:"))
 
     @coord.command(name="update", description="Refresh the chain of command and hours leaderboard now")
     @coordinator_only

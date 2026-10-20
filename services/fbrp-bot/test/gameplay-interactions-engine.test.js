@@ -45,19 +45,34 @@ test('jail and community service clear replicated restraint state', () => {
   assert.ok((client.match(/TriggerEvent\('fbrp:restraints:clear'\)/g) || []).length >= 2);
 });
 
-test('crash damage, partial repair, and engine health HUD stay wired together', () => {
+test('RealisticVehicleFailure drives engine damage, /repair, and the engine health HUD', () => {
   const vehicles = read('server-data/resources/[fbrp]/fbrp_core/client/vehicles.lua');
+  const failure = read('server-data/resources/[fbrp]/fbrp_core/client/vehicle_failure.lua');
+  const manifest = read('server-data/resources/[fbrp]/fbrp_core/fxmanifest.lua');
   const economy = read('server-data/resources/[fbrp]/fbrp_core/client/economy.lua');
   const html = read('server-data/resources/[fbrp]/fbrp_core/web/index.html');
   const web = read('server-data/resources/[fbrp]/fbrp_core/web/app.js');
-  assert.match(vehicles, /RegisterCommand\('repair'/);
-  assert.match(vehicles, /health\+175\.0/);
-  assert.match(vehicles, /SetVehicleUndriveable\(vehicle,true\)/);
+  assert.match(manifest, /client\/vehicle_failure\.lua/);
+  assert.match(failure, /RegisterCommand\('repair'/);
+  assert.match(failure, /cascadingFailureThreshold/);
+  assert.match(failure, /SetVehicleUndriveable\(vehicle,true\)/);
+  assert.doesNotMatch(vehicles, /RegisterCommand\('repair'/);
+  assert.doesNotMatch(vehicles, /deadEngines/);
   assert.match(vehicles, /engineHealth=engineHealth/);
   assert.match(economy, /RegisterCommand\('mechanicrepair'/);
   assert.match(economy, /SetVehicleEngineHealth\(vehicle, 1000\.0\)/);
   assert.match(html, /id="engine-health-bar"/);
   assert.match(web, /car\.engineHealth/);
+});
+
+test('unbelted crashes fling the occupant forward with scaled damage, and punches are weakened', () => {
+  const vehicles = read('server-data/resources/[fbrp]/fbrp_core/client/vehicles.lua');
+  const medical = read('server-data/resources/[fbrp]/fbrp_core/client/medical.lua');
+  assert.match(vehicles, /local function ejectFromVehicle/);
+  assert.match(vehicles, /TaskLeaveVehicle\(ped,vehicle,16\)/);
+  assert.match(vehicles, /SetEntityVelocity\(ped,fling\.x,fling\.y,fling\.z\)/);
+  assert.match(vehicles, /SetEntityHealth\(ped,math\.max\(0,GetEntityHealth\(ped\)-damage\)\)/);
+  assert.match(medical, /SetWeaponDamageModifier\(unarmed/);
 });
 
 test('full mechanic repair is public and supports the spaced command', () => {
@@ -79,4 +94,17 @@ test('all existing and new tags use an unconditional strong bold pass', () => {
   assert.match(styles, /#hud-headtag, #hud-gangtag \{ font-weight: 800; \}/);
   assert.match(styles, /\.gta-head, \.gta-sub \{ font: 800/);
   assert.match(styles, /\.tag-row \.name \{[^\n]*font: 800/);
+});
+
+test('bulletproof personals keep their glass in the frame', () => {
+  const personals = read('server-data/resources/[fbrp]/fbrp_core/client/personals.lua');
+  assert.match(personals, /SetVehicleWindowsCanBreak\(vehicle, not on\)/);
+  assert.match(personals, /FixVehicleWindow\(vehicle, window\)/);
+});
+
+test('bulletproof glass stays processed so bullets stop at it, and every pane is re-sealed each frame', () => {
+  const personals = read('server-data/resources/[fbrp]/fbrp_core/client/personals.lua');
+  assert.match(personals, /SetDontProcessVehicleGlass\(vehicle, false\)/);
+  assert.doesNotMatch(personals, /SetDontProcessVehicleGlass\(vehicle, on\)/);
+  assert.match(personals, /Wait\(any and 0 or 500\)/);
 });

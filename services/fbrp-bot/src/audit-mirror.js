@@ -2,47 +2,49 @@ import { ChannelType } from "discord.js";
 import { logEmbed } from "./ui.js";
 
 /**
- * Mirrors every log entry into one Discord category. Each kind of entry gets its own text channel,
- * created on first use, and everything is also copied into #all-activity so nothing depends on a
- * single channel existing. The category holds at most 50 channels, so past MAX_CHANNELS new kinds
- * only appear in #all-activity.
+ * Mirrors every log entry into one Discord category. Entries are grouped into a handful of text
+ * channels (commands, staff, game, organizations, system and in-game kills), created on first use,
+ * and everything is also copied into #all-activity so nothing depends on a single channel existing.
+ * The footer of each embed keeps the exact action name, so grouping loses no detail.
  */
 export const ALL_KEY = "all-activity";
 export const AUDIT_CATEGORY_ID = process.env.FBRP_AUDIT_CATEGORY_ID || "1559447048552587274";
-const MAX_CHANNELS = 45;
-
-const slug = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 // The same look as the other log channels: an emoji, a box-drawing bar, then a hyphenated name ending in -logs.
-const KIND_EMOJI = {
-  network: "🌐", audit: "🧾", character: "🧑", portal: "🖥️", verify: "✅", verification: "✅", economy: "💰",
-  staff: "🛡️", staff_duty: "⏱️", player: "👤", vehicle: "🚗", justice: "⚖️", medical: "🏥", dispatch: "📡",
-  interaction: "🤝", organization: "🏢", organizations: "🏢", game: "🎮", security: "🔒", moderation: "🔨",
-  tickets: "🎫", roster: "📋", role_sync: "🔄", property: "🏠", personal: "🚙", pastime: "🎯", cad: "💻",
-  citizen: "🪪", economy_delivery: "📦", global: "🌍", ace: "🔑", easyadmin: "🛠️", bans: "🔨", unbans: "🔓",
+export const KILL_KEY = "kill-logs";
+export const LOG_GROUPS = {
+  [ALL_KEY]: { emoji: "📜", name: "all-activity-logs" },
+  [KILL_KEY]: { emoji: "💀", name: "kill-logs" },
+  "command-logs": { emoji: "⌨️", name: "command-logs" },
+  "staff-logs": { emoji: "🛡️", name: "staff-logs" },
+  "game-logs": { emoji: "🎮", name: "game-logs" },
+  "organization-logs": { emoji: "🏢", name: "organization-logs" },
+  "system-logs": { emoji: "🖥️", name: "system-logs" },
 };
 
-export function channelName(key) {
+// Which grouped channel a kind of entry lands in. Anything unlisted goes to system-logs.
+const KIND_GROUP = {
+  staff: "staff-logs", staff_duty: "staff-logs", staff_audit: "staff-logs", moderation: "staff-logs", mod: "staff-logs",
+  bans: "staff-logs", unbans: "staff-logs", security: "staff-logs", easyadmin: "staff-logs", ace: "staff-logs",
+  game: "game-logs", player: "game-logs", vehicle: "game-logs", justice: "game-logs", medical: "game-logs",
+  dispatch: "game-logs", interaction: "game-logs", cad: "game-logs", citizen: "game-logs", character: "game-logs",
+  pastime: "game-logs", property: "game-logs", personal: "game-logs", connections: "game-logs",
+  economy: "organization-logs", economy_delivery: "organization-logs", organization: "organization-logs",
+  organizations: "organization-logs", org: "organization-logs", roster: "organization-logs", role_sync: "organization-logs",
+};
+
+/** The grouped channel key for any mirror key (old per-kind keys included). */
+export function groupOf(key) {
   const text = String(key);
-  let emoji = "📋";
-  let base;
-  if (text === ALL_KEY) return "📜│all-activity-logs";
-  if (text === "global-commands") return "🌍│global-command-logs";
-  if (text.startsWith("commands-")) {
-    emoji = "⌨️";
-    base = `${slug(text.slice(9))}-command-logs`;
-  } else if (text.startsWith("audit-")) {
-    const kind = text.slice(6);
-    emoji = KIND_EMOJI[kind] || KIND_EMOJI[kind.replace(/-/g, "_")] || "📋";
-    base = `${slug(kind)}-event-logs`;
-  } else if (text.startsWith("log-")) {
-    const kind = text.slice(4);
-    emoji = KIND_EMOJI[kind] || KIND_EMOJI[kind.replace(/-/g, "_")] || "📋";
-    base = `${slug(kind)}-audit-logs`;
-  } else {
-    base = `${slug(text)}-logs`;
-  }
-  return `${emoji}│${base}`.slice(0, 95);
+  if (LOG_GROUPS[text]) return text;
+  if (text === "global-commands" || text.startsWith("commands-")) return "command-logs";
+  const kind = text.startsWith("audit-") ? text.slice(6) : text.startsWith("log-") ? text.slice(4) : text;
+  return KIND_GROUP[kind.toLowerCase().replace(/[^a-z0-9]+/g, "_")] || "system-logs";
+}
+
+export function channelName(key) {
+  const group = LOG_GROUPS[groupOf(key)];
+  return `${group.emoji}│${group.name}`.slice(0, 95);
 }
 
 // Mirror keys that mean the same thing as a purpose that already has its own log channel.
@@ -57,6 +59,7 @@ export const purposeOf = (key) => PURPOSE_ALIAS[key] || (String(key).startsWith(
 export function keyForAction(action) {
   const parts = String(action || "").split(".");
   if (parts[0] === "cmd") return parts[1] === "main" && parts[2] === "global" ? "global-commands" : `commands-${parts[1] || "other"}`;
+  if (action === "player.kill" || action === "player.death") return KILL_KEY;
   return `audit-${parts[0] || "other"}`;
 }
 
@@ -68,6 +71,7 @@ export function createAuditMirror({ client, db }) {
   let warned = false;
   let chain = Promise.resolve();
   const renamed = new Set();
+  let tidied = null;
 
   const warn = (message) => {
     if (warned) return;
@@ -102,10 +106,11 @@ export function createAuditMirror({ client, db }) {
     return found?.isTextBased() && found.parentId === parent.id ? found : null;
   }
 
-  async function resolve(key) {
+  async function resolve(rawKey) {
     await load();
-    const twin = await existingFor(key);
+    const twin = await existingFor(rawKey);
     if (twin) return twin;
+    const key = groupOf(rawKey);
     const known = ids.get(key);
     if (known) {
       const existing = await client.channels.fetch(known).catch(() => null);
@@ -123,7 +128,6 @@ export function createAuditMirror({ client, db }) {
     const made = (async () => {
       const parent = await categoryChannel();
       if (!parent) return null;
-      if (key !== ALL_KEY && ids.size >= MAX_CHANNELS) return null;
       const created = await parent.guild.channels.create({
         name: channelName(key),
         type: ChannelType.GuildText,
@@ -131,7 +135,7 @@ export function createAuditMirror({ client, db }) {
         topic: `Automatic audit mirror: ${key}`,
         reason: "FBRP audit mirror",
       }).catch((error) => {
-        warn(`could not create #${channelName(key)}: ${error.message || error}`);
+        warn(`could not create #${channelName(key)}: ${error.message || error}${error.rawError?.errors ? ` ${JSON.stringify(error.rawError.errors).slice(0, 300)}` : ""}`);
         return null;
       });
       if (!created) return null;
@@ -160,7 +164,8 @@ export function createAuditMirror({ client, db }) {
    * the entry (the original log destination).
    */
   function post(key, embed, skipIds = null) {
-    chain = chain.then(async () => {
+    // Wait for the startup cleanup so a full category never blocks the grouped channels.
+    chain = chain.then(() => tidied).then(async () => {
       await send(key, embed, skipIds);
       if (key !== ALL_KEY) await send(ALL_KEY, embed, skipIds);
     }).catch(() => {});
@@ -173,17 +178,40 @@ export function createAuditMirror({ client, db }) {
     return post(key, embed, skipIds);
   }
 
-  // Gives every channel the bot made the shared naming, without waiting for traffic.
-  async function tidy() {
+  // Gives every channel the bot made the shared naming, without waiting for traffic. Channels the
+  // mirror made for a single kind of entry (from before entries were grouped) are deleted; their
+  // entries now live in a grouped channel and in #all-activity. Only channels listed in
+  // audit_mirror_channels, inside the audit category and marked as automatic mirrors are touched.
+  function tidy() {
+    tidied ??= runTidy().catch((error) => console.error("[FBRP audit mirror] tidy:", error.message || error));
+    return tidied;
+  }
+
+  async function runTidy() {
     await load();
-    for (const [key, id] of ids) {
+    for (const [key, id] of [...ids]) {
       const channel = await client.channels.fetch(id).catch(() => null);
+      if (groupOf(key) !== key) {
+        const automatic = channel && channel.parentId === AUDIT_CATEGORY_ID && String(channel.topic || "").startsWith("Automatic audit mirror");
+        if (automatic) {
+          const removed = await channel.delete("FBRP audit mirror: entries are grouped into fewer channels").then(() => true, (error) => {
+            console.error(`[FBRP audit mirror] delete ${key}:`, error.message || error);
+            return false;
+          });
+          if (!removed) continue;
+        }
+        ids.delete(key);
+        await db.query("DELETE FROM audit_mirror_channels WHERE channel_key=?", [key]).catch(() => {});
+        continue;
+      }
       const wanted = channelName(key);
       if (channel && channel.name !== wanted) {
         renamed.add(key);
         await channel.setName(wanted, "FBRP audit mirror naming").catch((error) => console.error(`[FBRP audit mirror] rename ${key}:`, error.message || error));
       }
     }
+    // Create every grouped channel now (kill-logs included) instead of waiting for its first entry.
+    for (const key of Object.keys(LOG_GROUPS)) await resolve(key);
   }
 
   return { post, mirrorSpec, resolve, tidy, keyForAction };

@@ -51,3 +51,41 @@ test('the client gate removes the wildcard and voice permissions and polices noc
   const voice = [...read('resources/[fbrp]/fbrp_core/config_vmenu.lua').matchAll(/'(VC\w+)'/g)].map((m) => m[1]).sort();
   assert.deepEqual(voice, ['VCAll', 'VCEnable', 'VCMenu', 'VCShowSpeaker', 'VCStaffChannel']);
 });
+
+const SPAWNER_CLASSES = 'Compacts Sedans SUVs Coupes Muscle SportsClassic Sports Super Motorcycles OffRoad Industrial Utility Vans Cycles Boats Helicopters Planes Service Emergency Military Commercial Trains OpenWheel'.split(' ');
+
+test('everyone can use the vMenu vehicle spawner for every base-game class only', () => {
+  const active = read('config/permissions.cfg');
+  assert.match(active, /^add_ace builtin\.everyone "vMenu\.VehicleSpawner\.Menu" allow$/m);
+  for (const name of SPAWNER_CLASSES) {
+    assert.match(active, new RegExp(`^add_ace builtin\\.everyone "vMenu\\.VehicleSpawner\\.${name}" allow$`, 'm'), name);
+  }
+  // .All is the parent of Addon, SpawnByName and the rate-limit bypasses, so it stays ungranted.
+  for (const name of ['All', 'Addon', 'SpawnByName', 'BypassRateLimit', 'DisableReplacePrevious', 'WhitelistedModels.All']) {
+    assert.doesNotMatch(active, new RegExp(`^add_ace [^\\n]*vMenu\\.VehicleSpawner\\.${name.replace('.', '\\.')}"[^\\n]* allow`, 'm'), name);
+  }
+  assert.doesNotMatch(active, /vMenu\.Everything" allow/);
+  assert.doesNotMatch(active, /^add_ace group\.[^\n]*vMenu\.VehicleSpawner/m);
+});
+
+test('the bundled vMenu permission files grant the same spawner access and stay identical', () => {
+  const config = read('resources/[standalone]/vMenu/config/permissions.cfg');
+  assert.equal(config, read('resources/[standalone]/vMenu/config.pre-game-mount/permissions.cfg'));
+  assert.match(config, /^add_ace builtin\.everyone "vMenu\.VehicleSpawner\.Menu" allow$/m);
+  for (const name of SPAWNER_CLASSES) assert.match(config, new RegExp(`^add_ace builtin\\.everyone "vMenu\\.VehicleSpawner\\.${name}" allow$`, 'm'), name);
+  for (const name of ['All', 'Addon', 'SpawnByName', 'BypassRateLimit', 'DisableReplacePrevious']) {
+    assert.doesNotMatch(config, new RegExp(`^add_ace [^\\n]*vMenu\\.VehicleSpawner\\.${name}" allow`, 'm'), name);
+  }
+});
+
+test('the F7 garage only offers personals unless the catalog is switched back on', () => {
+  const main = read('resources/[fbrp]/fbrp_core/server/main.lua');
+  const request = main.slice(main.indexOf("RegisterNetEvent('fbrp:vehicles:request'"), main.indexOf("RegisterNetEvent('fbrp:vehicles:spawn'"));
+  const spawn = main.slice(main.indexOf("RegisterNetEvent('fbrp:vehicles:spawn'"), main.indexOf("CreateThread(function()", main.indexOf("RegisterNetEvent('fbrp:vehicles:spawn'")));
+  assert.match(request, /if FBRP\.Config\.garageCatalogEnabled then\s+for _,category in ipairs\(FBRP\.VehicleCatalog\)/);
+  assert.match(request, /FBRP\.Personals\.category/);
+  assert.doesNotMatch(request.replace(/if FBRP\.Config\.garageCatalogEnabled then[\s\S]*?\n    end\n/, ''), /VehicleCatalog/);
+  assert.match(spawn, /FBRP\.Config\.garageCatalogEnabled and FBRP\.VehicleCatalog or \{\}/);
+  assert.doesNotMatch(spawn.replace('FBRP.Config.garageCatalogEnabled and FBRP.VehicleCatalog or {}', ''), /VehicleCatalog/);
+  assert.match(read('resources/[fbrp]/fbrp_core/config.lua'), /garageCatalogEnabled = false,/);
+});

@@ -1,0 +1,65 @@
+{
+  "source": "22w5_BB.zip",
+  "model": "22w5_bb",
+  "by": "1090083387638812755",
+  "at": 1792354780007,
+  "request": {
+    "topSpeedMph": 230,
+    "acceleration": "higher",
+    "braking": "lower",
+    "grip": "lower",
+    "drivetrain": "rwd",
+    "instructions": "high acceleration, low braking, low traction"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "200.0",
+      "to": "280.487805",
+      "reason": "Top speed about 230 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.75",
+      "to": "0.862500",
+      "reason": "Acceleration higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "2.0",
+      "to": "1.700000",
+      "reason": "Braking lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "3.0",
+      "to": "2.550000",
+      "reason": "Grip lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "3.0",
+      "to": "2.550000",
+      "reason": "Grip lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fDriveBiasFront",
+      "from": "0.0",
+      "to": "0.000000",
+      "reason": "RWD drivetrain"
+    }
+  ],
+  "liveries": [],
+  "security": {
+    "verdict": "safe",
+    "summary": "The pack contains only vehicle model/texture assets and standard vehicle metadata, with no scripts, executables, web assets, or other runtime behavior. The importer’s boundary also excludes script installation and regenerates the manifest, so no security concern is evident.",
+    "findings": [],
+    "repairs": []
+  }
+}

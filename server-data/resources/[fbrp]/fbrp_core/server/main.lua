@@ -425,7 +425,7 @@ local function publishPlayer(source)
     player.state:set('fbrp:headtag', headtag, true)
     player.state:set('fbrp:gangtag', gangtag, true)
     player.state:set('fbrp:chatTag', chatTag and { id=chatTag.id,label=chatTag.label,color=chatTag.color } or nil, true)
-    player.state:set('fbrp:organization', s.org and { id=s.org.id,slug=s.org.slug,name=s.org.name,type=s.org.type } or nil, true)
+    player.state:set('fbrp:organization', s.org and { id=s.org.id,slug=s.org.slug,name=s.org.name,type=s.org.type,logo=s.org.logo } or nil, true)
 end
 
 local function closeShift(tableName, shift, reason)
@@ -992,8 +992,11 @@ local function clockInOrganization(source, s, requested)
     local id = MySQL.insert.await('INSERT INTO organization_shifts(org_id,discord_id,player_id,name,started_at,heartbeat_at) VALUES(?,?,?,?,?,?)', {
         org.id,s.discord,s.playerId,s.name,started,started
     })
+    -- Logo version (updated_at) lets Discord presence link the website logo; nil means no logo.
+    local okLogo, logo = pcall(MySQL.scalar.await, 'SELECT updated_at FROM org_logos WHERE org_id=?', { org.id })
     s.org = {
         id=tonumber(org.id),slug=org.slug,name=org.name,type=org.type,ace_group=org.ace_group,
+        logo=okLogo and tonumber(logo) or nil,
         tag=tagRow({ id=org.tag_id,label=org.tag_label,color=org.tag_color,kind=org.tag_kind,org_id=org.id,org_name=org.name,outline=org.tag_outline })
     }
     s.orgShift = { id=id,startedAt=started }
@@ -1457,8 +1460,12 @@ end)
 
 RegisterNetEvent('fbrp:vehicles:request', function()
     local src=source; local categories={}
-    for _,category in ipairs(FBRP.VehicleCatalog) do
-        if hasPermission(src,category.ace) and (not category.onDuty or (sessions[src] and sessions[src].staffDuty)) then categories[#categories+1]=category end
+    -- Base-game vehicles are spawned from the vMenu Vehicle Spawner; F7 only lists personals
+    -- (and organization garages) unless the catalog is switched back on in config.lua.
+    if FBRP.Config.garageCatalogEnabled then
+        for _,category in ipairs(FBRP.VehicleCatalog) do
+            if hasPermission(src,category.ace) and (not category.onDuty or (sessions[src] and sessions[src].staffDuty)) then categories[#categories+1]=category end
+        end
     end
     local orgGarage=FBRP.Economy and FBRP.Economy.garageCategory and FBRP.Economy.garageCategory(src)
     if orgGarage then table.insert(categories,1,orgGarage) end
@@ -1482,7 +1489,7 @@ RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
             end
         end
     end
-    for _,category in ipairs(FBRP.VehicleCatalog) do
+    for _,category in ipairs(FBRP.Config.garageCatalogEnabled and FBRP.VehicleCatalog or {}) do
         if category.id==categoryId and hasPermission(src,category.ace) and (not category.onDuty or (sessions[src] and sessions[src].staffDuty)) then
             for _,vehicle in ipairs(category.vehicles) do
                 if vehicle.model:lower()==model then

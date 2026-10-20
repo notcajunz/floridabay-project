@@ -38,7 +38,8 @@ server_scripts {
     'server/pastime_events.lua',
     'server/pastime_duels.lua',
     'server/pastime_skydive.lua',
-    'server/essentials.lua'
+    'server/essentials.lua',
+    'server/discord_presence.lua'
 }
 
 client_scripts {
@@ -51,9 +52,12 @@ client_scripts {
     'client/population.lua',
     'client/vmenu_gate.lua',
     'client/vehicles.lua',
+    'client/vehicle_failure.lua',
+    'client/emergency_vehicles.lua',
     'client/vehicle_radio.lua',
     'client/radio.lua',
     'client/hud.lua',
+    'client/discord_presence.lua',
     'client/justice.lua',
     'client/medical.lua',
     'client/life.lua',
@@ -76,12 +80,15 @@ files {
     'web/index.html',
     'web/styles.css',
     'web/app.js',
+    'web/propmenu.js',
+    'web/propmenu.css',
     'web/fbrp-logo.png',
     'web/fonts/*.woff2',
     'migrations/*.sql'
 }
 
 dependency 'oxmysql'
+dependency 'fbrp_dpclothing'
 
 server_export 'IsStaffOnDuty'
 server_export 'GetActiveOrganization'

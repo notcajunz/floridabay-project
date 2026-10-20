@@ -71,7 +71,7 @@ export function embed(title, description, color = COLORS.primary) {
  * Structured embed. `rows` are [label, value, inline?] triples rendered as fields,
  * which scans far better than a paragraph of `key: value` text.
  */
-export function card(title, { description, color = COLORS.primary, rows = [], footer, author } = {}) {
+export function card(title, { description, color = COLORS.primary, rows = [], footer, author, thumbnail } = {}) {
   const e = new EmbedBuilder()
     .setColor(color)
     .setTitle(clipLine(title, 256))
@@ -79,6 +79,7 @@ export function card(title, { description, color = COLORS.primary, rows = [], fo
     .setTimestamp();
   if (author) e.setAuthor(typeof author === "string" ? { name: clipLine(author, 256) } : { ...author, name: clipLine(author.name, 256) });
   if (description) e.setDescription(clip(description, 4096));
+  if (thumbnail) e.setThumbnail(thumbnail);
   const fields = rows
     .filter(Boolean)
     .slice(0, 25)

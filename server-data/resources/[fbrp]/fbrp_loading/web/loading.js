@@ -1,6 +1,6 @@
 const tips = [
   "Your server ID is always visible above your character.",
-  "Look at a nearby player and press F5 to use the third-eye interaction system.",
+  "Look at a nearby player and hold Left Alt to use the third-eye interaction system.",
   "F6 opens your two-slot tag wardrobe. Discord roles control what you can wear.",
   "F7 opens the ACE-filtered Florida Bay vehicle garage.",
   "Run /duty and pick your organization from the menu to clock in. Every shift is recorded.",

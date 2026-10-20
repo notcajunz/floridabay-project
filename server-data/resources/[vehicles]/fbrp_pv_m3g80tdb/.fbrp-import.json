@@ -23,5 +23,321 @@
         "action": "Rebuild the manifest from the actual copied vehicle assets and metadata."
       }
     ]
-  }
+  },
+  "retunes": [
+    {
+      "at": 1792455986600,
+      "by": "1090083387638812755",
+      "request": {
+        "acceleration": "much_higher",
+        "braking": "much_higher",
+        "grip": "much_higher",
+        "drivetrain": "awd",
+        "instructions": "no drift, perfect steering at all speeds, insanely high acceleration, incredibly high braking"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.473850",
+          "to": "0.616005",
+          "reason": "Acceleration much higher (30%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "1.235000",
+          "to": "1.605500",
+          "reason": "Braking much higher (30%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "3.360500",
+          "to": "4.368650",
+          "reason": "Grip much higher (30%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "3.133000",
+          "to": "4.072900",
+          "reason": "Grip much higher (30%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fDriveBiasFront",
+          "from": "0.000000",
+          "to": "0.500000",
+          "reason": "AWD drivetrain"
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1792456720814,
+      "by": "1090083387638812755",
+      "request": {
+        "instructions": "make it turn flawlessly at high speeds even when accelerating and my foots on the gas, making braking super fast, ALMOST instantaneous, NO DRIFTING, ONLY PERFECT TURNS"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "42.500000",
+          "to": "38.000000",
+          "reason": "Slightly reduced steering angle to improve high-speed cornering stability and reduce drifting."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "1.605500",
+          "to": "2.100000",
+          "reason": "Increased braking strength for much faster stopping."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeBiasFront",
+          "from": "0.435000",
+          "to": "0.470000",
+          "reason": "Moved brake balance slightly forward to keep hard braking stable."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "4.368650",
+          "to": "5.000000",
+          "reason": "Raised peak grip for better turn-in and cornering under power."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "4.072900",
+          "to": "4.700000",
+          "reason": "Raised sustained grip to reduce slide and keep turns clean at speed."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionLossMult",
+          "from": "1.000000",
+          "to": "0.700000",
+          "reason": "Reduced traction loss to minimize drifting and wheelspin in turns."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fLowSpeedTractionLossMult",
+          "from": "1.15000",
+          "to": "0.850000",
+          "reason": "Reduced low-speed wheelspin while accelerating out of corners."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionBiasFront",
+          "from": "0.490000",
+          "to": "0.520000",
+          "reason": "Added a small front bias to help the car hold a straighter line through fast turns."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fAntiRollBarForce",
+          "from": "1.050000",
+          "to": "1.250000",
+          "reason": "Increased roll resistance to keep the chassis flatter and more precise in corners."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fAntiRollBarBiasFront",
+          "from": "0.400000",
+          "to": "0.450000",
+          "reason": "Balanced anti-roll toward the front for steadier high-speed turn-in."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.616005",
+          "to": "0.640000",
+          "reason": "Added a bit more drive force to support the higher-grip setup without hurting drivability."
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1792457251844,
+      "by": "1090083387638812755",
+      "request": {
+        "instructions": "never flips over no matter what"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "vecCentreOfMassOffset",
+          "from": "0.000000,0.05000,-0.30000",
+          "to": "0.000000,0.050000,-0.400000",
+          "reason": "Lowering the center of mass helps the car stay planted and resist flipping."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fRollCentreHeightFront",
+          "from": "0.21900",
+          "to": "0.150000",
+          "reason": "Lower roll center reduces body roll and rollover tendency."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fRollCentreHeightRear",
+          "from": "0.182500",
+          "to": "0.130000",
+          "reason": "Lower roll center helps keep the rear planted in fast direction changes."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fAntiRollBarForce",
+          "from": "1.250000",
+          "to": "1.450000",
+          "reason": "A slightly stiffer anti-roll bar improves stability in corners without making it undriveable."
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1792457365579,
+      "by": "1090083387638812755",
+      "request": {
+        "topSpeedMph": 300,
+        "instructions": "make it so it never flips or rolls over (it does right now), and make acceleration a lot higher and faster"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.640000",
+          "to": "0.780000",
+          "reason": "Raises acceleration substantially to match the requested faster launch and pull."
+        },
+        {
+          "file": "handling.meta",
+          "field": "vecCentreOfMassOffset",
+          "from": "0.000000,0.050000,-0.400000",
+          "to": "0.000000,0.050000,-0.520000",
+          "reason": "Lowering the center of mass helps the car resist flipping and rolling over."
+        },
+        {
+          "file": "handling.meta",
+          "field": "vecInertiaMultiplier",
+          "from": "1.000000,1.700000,1.900000",
+          "to": "1.000000,1.900000,2.200000",
+          "reason": "More roll/yaw inertia improves stability and makes the car less prone to tipping."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fAntiRollBarForce",
+          "from": "1.450000",
+          "to": "1.900000",
+          "reason": "Stiffer anti-roll behavior reduces body roll and rollover tendency."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fRollCentreHeightFront",
+          "from": "0.150000",
+          "to": "0.250000",
+          "reason": "Higher roll center helps keep the chassis flatter in cornering."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fRollCentreHeightRear",
+          "from": "0.130000",
+          "to": "0.230000",
+          "reason": "Higher rear roll center supports rollover resistance."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fSuspensionForce",
+          "from": "2.300000",
+          "to": "2.500000",
+          "reason": "Slightly firmer suspension supports stability at very high speed."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fSuspensionCompDamp",
+          "from": "1.800000",
+          "to": "2.000000",
+          "reason": "Adds damping to reduce abrupt weight transfer that can cause flips."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fSuspensionReboundDamp",
+          "from": "2.100000",
+          "to": "2.300000",
+          "reason": "Helps control chassis rebound and keeps the car settled over bumps."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionLossMult",
+          "from": "0.700000",
+          "to": "0.650000",
+          "reason": "Gives the tires a bit more grip to support the higher acceleration and speed."
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1792457466141,
+      "by": "1090083387638812755",
+      "request": {
+        "instructions": "right now once it hits 100 the acceleration is super slow, make the acceleration super fast until it hits 300mph"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "0.780000",
+          "to": "1.050000",
+          "reason": "Stronger acceleration so the car keeps pulling hard at higher speeds."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fDriveInertia",
+          "from": "1.000000",
+          "to": "1.450000",
+          "reason": "Improves throttle response and helps the car continue accelerating more aggressively at speed."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fClutchChangeRateScaleUpShift",
+          "from": "3.900000",
+          "to": "5.500000",
+          "reason": "Faster shift execution to maintain acceleration through the gears."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fClutchChangeRateScaleDownShift",
+          "from": "3.900000",
+          "to": "5.500000",
+          "reason": "Keeps shift behavior balanced after increasing upshift rate."
+        },
+        {
+          "file": "handling.meta",
+          "field": "nInitialDriveGears",
+          "from": "6",
+          "to": "7",
+          "reason": "Adds one more gear to better support acceleration all the way to a much higher top speed."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveMaxFlatVel",
+          "from": "365.853659",
+          "to": "395.000000",
+          "reason": "Raises the top-speed ceiling so the vehicle can continue accelerating toward the requested 300 mph target."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "2.100000",
+          "to": "2.350000",
+          "reason": "Extra braking support for the higher performance tune."
+        }
+      ],
+      "shrink": false
+    }
+  ]
 }

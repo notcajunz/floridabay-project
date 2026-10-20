@@ -7,6 +7,9 @@
 local lastSpawn = 0
 local since = {}
 local lastFix = 0
+-- A scripted spawn fades out and waits on model and collision streaming, which
+-- can take well over the fade limit on a cold client. Not a stuck screen.
+local graceUntil = 0
 
 local POSTFX = {
     'DeathFailOut', 'DeathFailNeutralIn', 'DeathFailMPDark', 'DeathFailMPIn',
@@ -121,6 +124,11 @@ AddEventHandler('playerSpawned', function()
     lastSpawn = GetGameTimer()
 end)
 
+AddEventHandler('fbrp:screen:expect', function(ms)
+    graceUntil = ms and ms > 0 and GetGameTimer() + math.min(ms, 90000) or 0
+    since.fade = nil
+end)
+
 AddEventHandler('fbrp:screen:fix', function()
     clearAll('command')
     SetTimeout(1500, function() report('after-fix') capture('after-fix') end)
@@ -140,13 +148,16 @@ CreateThread(function()
         local cooled = GetGameTimer() - lastFix > 4000
 
         -- A fade left part way: scripted teleports finish theirs in under 8s.
-        local fade = held('fade', not check(IsScreenFadedIn), 12000)
+        local fade = held('fade', not check(IsScreenFadedIn) and GetGameTimer() >= graceUntil, 12000)
         local switch = held('switch', check(IsPlayerSwitchInProgress), 4000)
         -- Only inside the spawn window, so players can still open the map later.
         local pause = held('pause', postSpawn and check(IsPauseMenuActive), 1500)
+        -- The game's own cinematic camera (idle camera after ~30s without input,
+        -- vehicle cinematic camera) replaces the gameplay camera and is not stuck.
         local stuck = postSpawn and held('stuck', check(GetIsLoadingScreenActive)
             or check(NetworkIsInSpectatorMode)
-            or not check(IsGameplayCamRendering) and (try(GetRenderingCam) or -1) == -1
+            or not check(IsGameplayCamRendering) and not check(IsCinematicCamRendering)
+                and (try(GetRenderingCam) or -1) == -1
             or (try(GetTimecycleModifierIndex) or -1) ~= -1
             or snapshot().postfx ~= 'none', 1500)
 

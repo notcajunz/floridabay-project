@@ -101,6 +101,16 @@ CREATE TABLE IF NOT EXISTS activity_log (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS stickies (
+    guild_id INTEGER NOT NULL,
+    channel_id INTEGER NOT NULL,
+    embed TEXT NOT NULL,
+    message_id INTEGER,
+    created_by INTEGER,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(guild_id, channel_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_departments_guild ON departments(guild_id);
 CREATE INDEX IF NOT EXISTS idx_activity_guild ON activity_log(guild_id, created_at);
 """

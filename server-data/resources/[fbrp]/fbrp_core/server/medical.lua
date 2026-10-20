@@ -34,6 +34,57 @@ local function revive(target, by)
     return true
 end
 
+-- In-game kill log. A real player killer becomes `player.kill`; anything else (NPCs, falls,
+-- drowning, a suicide) becomes `player.death`. The Discord bot sends both to #kill-logs.
+local WEAPON_NAMES = {}
+for _, name in ipairs({
+    'WEAPON_UNARMED','WEAPON_KNIFE','WEAPON_NIGHTSTICK','WEAPON_HAMMER','WEAPON_BAT','WEAPON_CROWBAR','WEAPON_GOLFCLUB',
+    'WEAPON_BOTTLE','WEAPON_DAGGER','WEAPON_HATCHET','WEAPON_MACHETE','WEAPON_SWITCHBLADE','WEAPON_WRENCH','WEAPON_BATTLEAXE',
+    'WEAPON_POOLCUE','WEAPON_PISTOL','WEAPON_PISTOL_MK2','WEAPON_COMBATPISTOL','WEAPON_APPISTOL','WEAPON_STUNGUN',
+    'WEAPON_PISTOL50','WEAPON_SNSPISTOL','WEAPON_SNSPISTOL_MK2','WEAPON_HEAVYPISTOL','WEAPON_VINTAGEPISTOL','WEAPON_REVOLVER',
+    'WEAPON_REVOLVER_MK2','WEAPON_DOUBLEACTION','WEAPON_CERAMICPISTOL','WEAPON_MICROSMG','WEAPON_SMG','WEAPON_SMG_MK2',
+    'WEAPON_ASSAULTSMG','WEAPON_COMBATPDW','WEAPON_MACHINEPISTOL','WEAPON_MINISMG','WEAPON_PUMPSHOTGUN','WEAPON_PUMPSHOTGUN_MK2',
+    'WEAPON_SAWNOFFSHOTGUN','WEAPON_ASSAULTSHOTGUN','WEAPON_BULLPUPSHOTGUN','WEAPON_HEAVYSHOTGUN','WEAPON_DBSHOTGUN',
+    'WEAPON_AUTOSHOTGUN','WEAPON_COMBATSHOTGUN','WEAPON_ASSAULTRIFLE','WEAPON_ASSAULTRIFLE_MK2','WEAPON_CARBINERIFLE',
+    'WEAPON_CARBINERIFLE_MK2','WEAPON_ADVANCEDRIFLE','WEAPON_SPECIALCARBINE','WEAPON_SPECIALCARBINE_MK2','WEAPON_BULLPUPRIFLE',
+    'WEAPON_BULLPUPRIFLE_MK2','WEAPON_COMPACTRIFLE','WEAPON_MILITARYRIFLE','WEAPON_MG','WEAPON_COMBATMG','WEAPON_COMBATMG_MK2',
+    'WEAPON_GUSENBERG','WEAPON_SNIPERRIFLE','WEAPON_HEAVYSNIPER','WEAPON_HEAVYSNIPER_MK2','WEAPON_MARKSMANRIFLE',
+    'WEAPON_MARKSMANRIFLE_MK2','WEAPON_MUSKET','WEAPON_RPG','WEAPON_GRENADELAUNCHER','WEAPON_MINIGUN','WEAPON_GRENADE',
+    'WEAPON_STICKYBOMB','WEAPON_MOLOTOV','WEAPON_PROXMINE','WEAPON_PIPEBOMB','WEAPON_FLARE','WEAPON_FIREEXTINGUISHER',
+    'WEAPON_PETROLCAN','WEAPON_BZGAS','WEAPON_SMOKEGRENADE','WEAPON_FALL','WEAPON_EXPLOSION','WEAPON_FIRE','WEAPON_DROWNING',
+    'WEAPON_DROWNING_IN_VEHICLE','WEAPON_BLEEDING','WEAPON_RUN_OVER_BY_CAR','WEAPON_RAMMED_BY_CAR','WEAPON_ANIMAL',
+    'WEAPON_BARBED_WIRE','WEAPON_ELECTRIC_FENCE','WEAPON_VEHICLE_ROCKET','WEAPON_AIR_DEFENCE_GUN','WEAPON_TRANQUILIZER',
+}) do WEAPON_NAMES[joaat(name) & 0xFFFFFFFF] = name:gsub('^WEAPON_', ''):gsub('_', ' '):lower() end
+
+local function weaponLabel(hash)
+    hash = tonumber(hash)
+    if not hash then return 'Unknown' end
+    hash = math.floor(hash) & 0xFFFFFFFF
+    return WEAPON_NAMES[hash] or ('addon/other (0x%08X)'):format(hash)
+end
+
+local function logKill(victim, info)
+    if type(info) ~= 'table' then info = {} end
+    local vs = sessions[victim]
+    if not vs then return end
+    local killer = tonumber(info.killer)
+    local ks = killer and killer ~= victim and sessions[killer] or nil
+    local vc = pedCoords(victim)
+    local kc = ks and pedCoords(killer) or nil
+    local payload = {
+        victim = vs.name, victim_id = victim, victim_discord = vs.discord,
+        weapon = weaponLabel(info.weapon), cause = downed[victim] and downed[victim].cause or 'Unknown injuries',
+        location = vc and ('%.0f, %.0f, %.0f'):format(vc.x, vc.y, vc.z) or nil,
+    }
+    if ks then
+        payload.killer = ks.name; payload.killer_id = killer; payload.killer_discord = ks.discord
+        payload.distance_m = (vc and kc) and math.floor(#(vc - kc) + 0.5) or nil
+        FBRP.DB.audit(ks.discord or killer, 'player.kill', vs.discord, payload)
+    else
+        FBRP.DB.audit(vs.discord or victim, 'player.death', vs.discord, payload)
+    end
+end
+
 RegisterNetEvent('fbrp:medical:downed', function(info)
     local src = source
     if downed[src] or not sessions[src] then return end
@@ -43,6 +94,7 @@ RegisterNetEvent('fbrp:medical:downed', function(info)
     authorizeDownedProtection(src)
     local s = sessions[src]
     FBRP.DB.audit(s and s.discord or src, 'medical.downed', nil, { cause=downed[src].cause })
+    logKill(src, info)
 end)
 
 -- Downed players are intentionally protected from follow-up damage while they wait for EMS.

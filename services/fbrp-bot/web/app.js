@@ -365,6 +365,7 @@ function displayValue(meta, value) {
   }
   if (meta.type === "boolean") return `<span class="chip ${value ? "on" : ""}">${value ? "Yes" : "No"}</span>`;
   if (meta.type === "color") return `<span class="chip"><span class="swatch" style="background:${esc(value)}"></span>${esc(value)}</span>`;
+  if (meta.type === "logo") return value ? `<span class="chip">Has logo</span>` : `<span class="faint">-</span>`;
   if (meta.type === "timestamp") return `<span title="${esc(time(value))}">${esc(ago(value))}</span>`;
   if (meta.type === "json") return `<span class="cell-json mono">${esc(JSON.stringify(value)).slice(0, 80)}</span>`;
   if (meta.type === "snowflake") return `<span class="mono faint">${esc(value)}</span>`;
@@ -463,6 +464,15 @@ function inputFor(meta, value) {
   const help = helpText ? `<small>${esc(helpText)}</small>` : "";
   const label = `<span>${esc(meta.label)}${meta.required ? "" : ` <span class="opt">optional</span>`}</span>`;
   if (meta.type === "boolean") return `<label class="toggle"><input name="${esc(meta.name)}" type="checkbox" ${current ? "checked" : ""} ${disabled}> ${esc(meta.label)}</label>`;
+  if (meta.type === "logo") {
+    const orgId = state.editor?.original?.id;
+    const src = value && orgId ? `/api/orgs/logo/${Number(orgId)}?v=${Number(value)}` : "";
+    return `<div class="field logo-field" data-logo-field><span>${esc(meta.label)} <span class="opt">optional</span></span>
+      <div class="logo-row"><div class="logo-preview" data-logo-preview>${src ? `<img src="${esc(src)}" alt="Current logo">` : `<span class="faint">No logo</span>`}</div>
+        <div class="logo-actions"><label class="btn sm">${icon("plus")}<span data-logo-label>${src ? "Replace logo" : "Choose logo"}</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-logo-file hidden></label>
+          ${src ? `<button type="button" class="btn ghost sm" data-logo-remove>${icon("trash")}Remove</button>` : ""}</div></div>
+      <input type="hidden" name="${esc(meta.name)}" value="" data-logo-value>${help}</div>`;
+  }
   if (meta.type === "textarea" || meta.type === "json")
     return `<label class="field">${label}<textarea name="${esc(meta.name)}" ${required} ${disabled} ${meta.type === "json" ? 'spellcheck="false" class="code"' : ""}>${esc(meta.type === "json" && typeof current !== "string" ? JSON.stringify(current, null, 2) : meta.type === "json" ? JSON.stringify(current) : current)}</textarea>${help}</label>`;
   if (meta.type === "timestamp")
@@ -540,6 +550,7 @@ function syncForm(sync = null) {
   const pick = sync?.scope === "custom";
   const linked = new Map((sync?.roles || []).filter((link) => !link.managed).map((link) => [String(link.guild_id), String(link.role_id)]));
   const settings = new Map((sync?.server_settings || []).map((item) => [String(item.guild_id), item]));
+  const anchors = new Map((sync?.anchors || []).map((item) => [String(item.guild_id), String(item.below_role_id)]));
   const serverRows = network.map((row) => {
     const id = String(row.guild_id);
     const guild = state.data.guilds.find((item) => item.id === id);
@@ -554,6 +565,7 @@ function syncForm(sync = null) {
       <div class="server-role-settings">
         <select data-role-for="${esc(id)}" aria-label="Role in ${esc(guildName(id))}"><option value="" data-permissions="${esc(sync?.permissions || "0")}">Let the bot create the role</option>${roles.map((role) => `<option value="${esc(role.id)}" data-permissions="${esc(role.permissions || "0")}" ${linked.get(id) === role.id ? "selected" : ""}>Use existing role: ${esc(role.name)}${role.editable ? "" : " (above the bot)"}</option>`).join("")}</select>
         <label class="field compact"><span>Discord permissions</span><input data-permissions-for="${esc(id)}" inputmode="numeric" pattern="[0-9]{1,20}" value="${esc(permissions)}" required></label>
+        <label class="field compact"><span>Position in this server</span><select data-below-for="${esc(id)}" aria-label="Position in ${esc(guildName(id))}"><option value="">${sync?.placement === "below" ? "Default: under Management Team" : "Network order (top of the server)"}</option>${roles.filter((role) => String(role.id) !== linked.get(id)).map((role) => `<option value="${esc(role.id)}" ${anchors.get(id) === role.id ? "selected" : ""}>Directly under: ${esc(role.name)}${role.editable ? "" : " (above the bot)"}</option>`).join("")}</select></label>
         <label class="toggle channel-toggle"><input data-channels-for="${esc(id)}" type="checkbox" ${allChannels ? "checked" : ""}> See and chat in every channel</label>
       </div>
     </div>`;
@@ -599,7 +611,7 @@ function updateServerRows(form) {
     const included = pick ? box.checked : scopeIncludes(scope, row.dataset.kind);
     row.classList.toggle("excluded", !included);
     row.querySelector("[data-excluded-note]").hidden = included;
-    for (const control of $$('[data-role-for], [data-permissions-for], [data-channels-for]', row))
+    for (const control of $$('[data-role-for], [data-permissions-for], [data-channels-for], [data-below-for]', row))
       control.disabled = !included;
   }
 }
@@ -935,6 +947,7 @@ $("#content").addEventListener("submit", async (event) => {
           guild_id: row.dataset.guild,
           permissions: row.querySelector("[data-permissions-for]").value,
           all_channels: row.querySelector("[data-channels-for]").checked,
+          below_role_id: row.querySelector("[data-below-for]").value,
         })),
       };
       await post("globalsync/save", body);
@@ -973,6 +986,43 @@ $("#content").addEventListener("submit", async (event) => {
   } finally {
     restore();
   }
+});
+
+/** Scale a picked image to fit 256x256 and return it as a PNG data URL (a logo never needs more). */
+async function scaleLogo(file) {
+  if (!file || !/^image\/(png|jpeg|webp|gif)$/.test(file.type)) throw new Error("Choose a PNG, JPEG, WebP or GIF image.");
+  if (file.size > 12 * 1024 * 1024) throw new Error("That image is too large. Pick one under 12 MB.");
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 256 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/png");
+}
+
+$("#editor-fields").addEventListener("change", async (event) => {
+  const input = event.target.closest?.("[data-logo-file]");
+  if (!input) return;
+  const field = input.closest("[data-logo-field]");
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  try {
+    const url = await scaleLogo(file);
+    field.querySelector("[data-logo-value]").value = url;
+    field.querySelector("[data-logo-preview]").innerHTML = `<img src="${url}" alt="New logo">`;
+    field.querySelector("[data-logo-label]").textContent = "Choose another";
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#editor-fields").addEventListener("click", (event) => {
+  const button = event.target.closest?.("[data-logo-remove]");
+  if (!button) return;
+  const field = button.closest("[data-logo-field]");
+  field.querySelector("[data-logo-value]").value = "remove";
+  field.querySelector("[data-logo-preview]").innerHTML = `<span class="faint">Logo will be removed</span>`;
+  button.remove();
 });
 
 $("#editor-form").addEventListener("submit", async (event) => {

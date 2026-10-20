@@ -84,6 +84,7 @@ class DepartmentManagerBot(commands.Bot):
     async def setup_hook(self) -> None:
         await self.db.connect()
         from .cogs.coordination import CoordinationCog
+        from .cogs.badges import BadgesCog
         from .cogs.core import CoreCog
         from .cogs.departments import DepartmentsCog
         from .cogs.email import EmailCog
@@ -91,9 +92,10 @@ class DepartmentManagerBot(commands.Bot):
         from .cogs.members import MembersCog
         from .cogs.panels import PanelsCog
         from .cogs.positions import PositionsCog
+        from .cogs.stickies import StickiesCog
         from .tickets import TicketsCog
 
-        for cog in (CoreCog(self), DepartmentsCog(self), CoordinationCog(self), MembersCog(self), EmailCog(self), EventsCog(self), PanelsCog(self), PositionsCog(self), TicketsCog(self)):
+        for cog in (CoreCog(self), BadgesCog(self), DepartmentsCog(self), CoordinationCog(self), MembersCog(self), EmailCog(self), EventsCog(self), PanelsCog(self), PositionsCog(self), StickiesCog(self), TicketsCog(self)):
             await self.add_cog(cog)
 
         self.tree.on_error = self.on_tree_error

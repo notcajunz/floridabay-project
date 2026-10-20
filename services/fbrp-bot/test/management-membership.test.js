@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  STAFF_LADDER_ORIGIN,
+  reconcileStaffLadder,
   MANAGEMENT_MEMBERSHIP_ORIGIN,
   reconcileAllManagementMemberships,
   reconcileManagementMembership,
@@ -11,7 +13,7 @@ function fakeDatabase({ eligible, origins = [] }) {
   return {
     state,
     async one() { return eligible ? { ok: 1 } : null; },
-    async query() { return state.origins.map((origin) => ({ origin })); },
+    async query(sql) { if (sql.includes("staff_roster_ranks") || sql.includes("origin=?")) return []; return state.origins.map((origin) => ({ origin })); },
     async transaction(work) {
       state.transactions += 1;
       return work(async (sql, params) => {
@@ -55,6 +57,7 @@ test("bulk reconciliation adds missing ACM+ members and removes stale members", 
   };
   const database = {
     async query(sql) {
+      if (sql.includes("staff_roster_ranks") || sql.includes("origin=?")) return [];
       return sql.includes("SELECT DISTINCT")
         ? state.eligible.map((discord_id) => ({ discord_id }))
         : state.memberships.map((row) => ({ ...row }));
@@ -79,4 +82,52 @@ test("bulk reconciliation adds missing ACM+ members and removes stale members", 
       { discord_id: "owner", origin: MANAGEMENT_MEMBERSHIP_ORIGIN },
     ],
   );
+});
+
+function ladderDatabase(memberships) {
+  const state = { memberships: memberships.map((row) => ({ ...row })) };
+  const ranks = [["mod", 10], ["admin", 20], ["acm", 30], ["head", 40]];
+  return {
+    state,
+    async query(sql, params) {
+      if (sql.includes("JOIN ace_groups g")) return ranks.map(([name, rank_order]) => ({ name, rank_order }));
+      if (sql.includes("JOIN staff_roster_ranks")) return state.memberships.filter((row) => ranks.some(([name]) => name === row.group_name));
+      return state.memberships.filter((row) => row.origin === params[0]);
+    },
+    async transaction(work) {
+      return work(async (sql, params) => {
+        if (sql.startsWith("DELETE"))
+          state.memberships = state.memberships.filter((row) => !(row.discord_id === params[0] && row.group_name === params[1] && row.origin === params[2]));
+        if (sql.startsWith("INSERT")) state.memberships.push({ discord_id: params[0], group_name: params[1], origin: params[2] });
+        return [];
+      });
+    },
+  };
+}
+const names = (database, id) => database.state.memberships.filter((row) => row.discord_id === id).map((row) => row.group_name).sort();
+
+test("a staff rank also grants the ACE group of every rank below it", async () => {
+  const database = ladderDatabase([{ discord_id: "u", group_name: "acm", origin: "manual" }]);
+  await reconcileStaffLadder("u", "bot", database);
+  assert.deepEqual(names(database, "u"), ["acm", "admin", "mod"]);
+});
+
+test("demotion drops the derived lower ranks that no longer apply", async () => {
+  const database = ladderDatabase([
+    { discord_id: "u", group_name: "admin", origin: "manual" },
+    { discord_id: "u", group_name: "mod", origin: STAFF_LADDER_ORIGIN },
+    { discord_id: "u", group_name: "acm", origin: STAFF_LADDER_ORIGIN },
+  ]);
+  await reconcileStaffLadder("u", "bot", database);
+  assert.deepEqual(names(database, "u"), ["admin", "mod"]);
+});
+
+test("staff removal clears derived ranks, and Discord-synced ranks never derive others", async () => {
+  const database = ladderDatabase([
+    { discord_id: "gone", group_name: "mod", origin: STAFF_LADDER_ORIGIN },
+    { discord_id: "synced", group_name: "head", origin: "discord:1" },
+  ]);
+  await reconcileStaffLadder(null, "bot", database);
+  assert.deepEqual(names(database, "gone"), []);
+  assert.deepEqual(names(database, "synced"), ["head"]);
 });

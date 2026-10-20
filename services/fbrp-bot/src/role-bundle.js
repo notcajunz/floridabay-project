@@ -26,13 +26,16 @@ export function roleBundleTransition(oldMember, newMember) {
   return after ? "add" : "remove";
 }
 
-async function applyBundle(member, action, reason) {
+async function applyBundle(member, action, reason, preserve = null) {
   if (!member || member.user?.bot || !member.guild?.roles?.cache?.has(BUNDLE_SOURCE_ROLE_ID))
     return { action: null, changed: 0, unavailable: [] };
 
-  const roleIds = BUNDLE_ROLE_IDS.filter((roleId) =>
-    action === "add" ? !held(member, roleId) : held(member, roleId),
-  );
+  const roleIds = [];
+  for (const roleId of BUNDLE_ROLE_IDS) {
+    if (action === "add" ? held(member, roleId) : !held(member, roleId)) continue;
+    if (action === "remove" && await preserve?.(roleId)) continue;
+    roleIds.push(roleId);
+  }
   const available = [];
   const unavailable = [];
   for (const roleId of roleIds) {
@@ -46,7 +49,7 @@ async function applyBundle(member, action, reason) {
 }
 
 /** Applies the bundle exactly once when the source role is granted or removed. */
-export async function enforceRoleBundle(oldMember, newMember) {
+export async function enforceRoleBundle(oldMember, newMember, { preserve } = {}) {
   const action = roleBundleTransition(oldMember, newMember);
   if (!action) return { action: null, changed: 0, unavailable: [] };
   return applyBundle(
@@ -55,6 +58,7 @@ export async function enforceRoleBundle(oldMember, newMember) {
     action === "add"
       ? `Automatic role bundle for ${BUNDLE_SOURCE_ROLE_ID}`
       : `Automatic role bundle removed with ${BUNDLE_SOURCE_ROLE_ID}`,
+    preserve,
   );
 }
 

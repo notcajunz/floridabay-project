@@ -147,6 +147,18 @@ function accessFor(channel) {
   return null;
 }
 
+/** Clears only the view/send/connect flags from a role's overwrite, deleting the overwrite when nothing else is left in it. */
+export async function removeAccess(channel, current, access) {
+  const flags = Object.keys(access).map((flag) => PermissionFlagsBits[flag]);
+  const keep = (set) => flags.reduce((bits, flag) => bits & ~flag, set.bitfield);
+  const reason = "Florida Bay global role sync: all-channel access removed";
+  if (!keep(current.allow) && !keep(current.deny))
+    return channel.permissionOverwrites.delete(current.id, reason).then(() => true, () => false);
+  return channel.permissionOverwrites
+    .edit(current.id, Object.fromEntries(Object.keys(access).map((flag) => [flag, null])), { reason })
+    .then(() => true, () => false);
+}
+
 async function applyChannelAccess(guild, roleId, enabled, only = null) {
   const result = { changed: 0, failed: 0 };
   for (const channel of only ? [only] : guild.channels.cache.values()) {
@@ -155,6 +167,7 @@ async function applyChannelAccess(guild, roleId, enabled, only = null) {
     if (!access || !("permissionOverwrites" in channel)) continue;
     const current = channel.permissionOverwrites.cache.get(String(roleId));
     if (!enabled && !current) continue;
+    if (!enabled && !Object.keys(access).some((flag) => current.allow.has(PermissionFlagsBits[flag]) || current.deny.has(PermissionFlagsBits[flag]))) continue;
     // Discord rate-limits overwrite edits, so leave channels that already grant the access alone.
     if (enabled && current && Object.keys(access).every((flag) => current.allow.has(PermissionFlagsBits[flag]) && !current.deny.has(PermissionFlagsBits[flag])))
       continue;
@@ -164,12 +177,7 @@ async function applyChannelAccess(guild, roleId, enabled, only = null) {
             reason: "Florida Bay global role sync: all-channel access",
           })
           .then(() => true, () => false)
-      : await channel.permissionOverwrites
-          .delete(
-            roleId,
-            "Florida Bay global role sync: all-channel access removed",
-          )
-          .then(() => true, () => false);
+      : await removeAccess(channel, current, access);
     if (ok) result.changed += 1;
     else result.failed += 1;
   }
@@ -210,6 +218,9 @@ export async function scopeText(sync) {
 }
 
 /** Creates, restyles or links one sync's role in one server. Linked roles only accept explicit permission edits. */
+/** Rank roles renamed in place: ACE group -> the role name it used to have (lower case). */
+const LEGACY_ROLE_NAMES = { junior_management: "trial manager" };
+
 async function ensureRole(guild, sync, updateLinkedPermissions = false) {
   const saved = await db.one(
     "SELECT role_id,managed FROM network_sync_roles WHERE sync_id=? AND guild_id=?",
@@ -273,6 +284,18 @@ async function ensureRole(guild, sync, updateLinkedPermissions = false) {
       !candidate.managed &&
       candidate.name.toLowerCase() === String(sync.role_name).toLowerCase(),
   );
+  // A renamed rank keeps its existing Discord role: reuse the role under its old name and rename it.
+  const legacyName = LEGACY_ROLE_NAMES[sync.group_name];
+  if (!role && legacyName) {
+    role = guild.roles.cache.find(
+      (candidate) =>
+        candidate.id !== guild.id && !candidate.managed && candidate.name.toLowerCase() === legacyName,
+    );
+    if (role?.editable)
+      await role
+        .setName(String(sync.role_name), `Florida Bay global role sync (${sync.group_name}) renamed from ${legacyName}`)
+        .catch(() => null);
+  }
   let managed = false;
   if (!role) {
     role = await guild.roles
@@ -318,6 +341,66 @@ async function unlinkRole(client, guildId, syncId, deleteManaged = true) {
 }
 
 /**
+ * Discord only lets a bot move or assign roles below its own highest role, and a new integration role
+ * is created at the bottom of the list. Returns a how-to-fix message when the bot's role is not at the top.
+ */
+export function botRoleProblem(guild) {
+  const me = guild.members.me;
+  if (!me) return null;
+  const botPosition = me.roles.highest.position;
+  const above = [...guild.roles.cache.values()].filter((role) => role.id !== guild.id && role.position > botPosition).length;
+  if (!above) return null;
+  return `The bot's role **${clean(me.roles.highest.name)}** is below ${above} role${above === 1 ? "" : "s"} in **${clean(guild.name)}**, so it cannot create, order or assign network roles there. Open Server Settings → Roles, drag **${clean(me.roles.highest.name)}** to the very top, then run **/globalsync push**.`;
+}
+
+/** Every server of these types always carries that type's coordinator role, however its sync is scoped. */
+export const COORDINATOR_SYNC_BY_KIND = {
+  business: "business_coordinator",
+  department: "department_coordinator",
+  gang: "gang_coordination_team",
+};
+
+/**
+ * Brings a newly added server in line with the rest of its type: its type's coordinator role is always
+ * picked here, and individually picked syncs that other servers of this type already use are picked too.
+ */
+export async function enrollNewGuild(guild, kind, database = db) {
+  const enrolled = [];
+  const required = COORDINATOR_SYNC_BY_KIND[kind];
+  const customs = await database.query("SELECT id,group_name FROM network_syncs WHERE scope='custom'");
+  for (const sync of customs) {
+    if (sync.group_name !== required) {
+      const peer = await database.one(
+        `SELECT 1 AS ok FROM network_sync_guilds p
+         JOIN network_guilds n ON n.guild_id=p.guild_id
+         WHERE p.sync_id=? AND n.kind=? AND p.guild_id<>? LIMIT 1`,
+        [sync.id, kind, guild.id],
+      );
+      if (!peer) continue;
+    }
+    const added = await database.query("INSERT IGNORE INTO network_sync_guilds(sync_id,guild_id) VALUES(?,?)", [sync.id, guild.id]);
+    if (added.affectedRows) enrolled.push(sync.group_name);
+  }
+  return enrolled;
+}
+
+/** Anchors 'below' syncs under this server's Management Team role when no anchor was chosen. */
+async function ensureBelowAnchors(guild, database = db) {
+  const mgmt = await database.one(
+    `SELECT r.role_id FROM network_sync_roles r JOIN network_syncs s ON s.id=r.sync_id
+     WHERE r.guild_id=? AND s.group_name='mgmt_team'`,
+    [guild.id],
+  );
+  if (!mgmt) return;
+  await database.query(
+    `INSERT IGNORE INTO network_sync_anchors(sync_id,guild_id,below_role_id)
+     SELECT s.id,r.guild_id,? FROM network_sync_roles r JOIN network_syncs s ON s.id=r.sync_id
+     WHERE r.guild_id=? AND s.placement='below'`,
+    [mgmt.role_id, guild.id],
+  );
+}
+
+/**
  * Puts one server's synced roles at the top of every role the bot can manage, in the network order
  * (sort_order, top first). Every other role below the bot keeps its relative order underneath them.
  * Roles at or above the bot's highest role cannot be moved by the bot and stay where they are.
@@ -326,7 +409,9 @@ export async function applyRoleOrder(guild, database = db) {
   const rows = await database.query(
     `SELECT r.role_id FROM network_sync_roles r
      JOIN network_syncs s ON s.id=r.sync_id
-     WHERE r.guild_id=? AND s.placement='top' ORDER BY s.sort_order,s.id`,
+     WHERE r.guild_id=? AND s.placement='top'
+       AND NOT EXISTS (SELECT 1 FROM network_sync_anchors a WHERE a.sync_id=r.sync_id AND a.guild_id=r.guild_id)
+     ORDER BY s.sort_order,s.id`,
     [guild.id],
   );
   await guild.roles.fetch().catch(() => {});
@@ -385,7 +470,7 @@ async function applyBelowPlacement(guild) {
     `SELECT r.role_id,a.below_role_id FROM network_sync_roles r
      JOIN network_syncs s ON s.id=r.sync_id
      JOIN network_sync_anchors a ON a.sync_id=r.sync_id AND a.guild_id=r.guild_id
-     WHERE r.guild_id=? AND s.placement='below'
+     WHERE r.guild_id=?
      ORDER BY s.sort_order,s.id`,
     [guild.id],
   );
@@ -397,7 +482,7 @@ async function applyBelowPlacement(guild) {
   for (const row of rows) {
     const role = guild.roles.cache.get(String(row.role_id));
     const anchor = guild.roles.cache.get(tail.get(row.below_role_id) || String(row.below_role_id));
-    if (!role || !anchor || !role.editable || anchor.position - 1 >= botPosition) {
+    if (!role || !anchor || role.id === anchor.id || !role.editable || anchor.position - 1 >= botPosition) {
       result.skipped += 1;
       continue;
     }
@@ -430,6 +515,16 @@ async function syncGuildRoles(client, guild, kind) {
     if (await inScope(sync, guild.id, kind)) {
       const effective = effectiveGuildSync(sync, settings.get(Number(sync.id)));
       const { line, role } = await ensureRole(guild, effective, settings.has(Number(sync.id)));
+      // Staff roster ranks normally point at a staff-server role. A migration-created
+      // global sync cannot know the new Discord role ID ahead of time, so remember it
+      // as soon as reconciliation has reused or created the role.
+      if (role && kind === "staff")
+        await db.query(
+          `UPDATE staff_roster_ranks
+              SET discord_role_id=?,discord_guild_id=?
+            WHERE ace_group=? AND discord_role_id IS NULL`,
+          [role.id, guild.id, sync.group_name],
+        );
       let channels = "";
       if (role && effective.all_channels)
         channels = channelNote(await applyChannelAccess(guild, role.id, true));
@@ -439,9 +534,12 @@ async function syncGuildRoles(client, guild, kind) {
       if (removed) lines.push(`\`${sync.group_name}\` → out of scope, ${removed}`);
     }
   }
+  const problem = botRoleProblem(guild);
+  if (problem) lines.unshift(`⚠️ ${problem}`);
   await applyRoleOrder(guild).catch((error) =>
     lines.push(`Role order: ${clean(error?.message ?? error)}`),
   );
+  await ensureBelowAnchors(guild).catch(() => {});
   await applyBelowPlacement(guild).catch((error) =>
     lines.push(`Role placement: ${clean(error?.message ?? error)}`),
   );
@@ -512,6 +610,7 @@ export async function pushGlobalSyncs(client) {
     }
     const checked = await syncGuildRoles(client, guild, network.kind);
     lines.push(`**${clean(guild.name)}** · ${checked.length} role${checked.length === 1 ? "" : "s"} checked`);
+    lines.push(...checked.filter((line) => line.startsWith("⚠️")));
   }
   const swept = await serial(() => sweep(client, "none", { fetch: true }));
   await refreshGame();
@@ -610,10 +709,69 @@ export async function touchesCoordinationSource(oldMember, newMember) {
 
 /** Management and above also wear this rank's Discord roles on top of their own. */
 export const STAFF_MANAGEMENT_EXTRA_GROUP = "head_administrator";
+const STAFF_JUNIOR_MANAGEMENT_GROUP = "junior_management";
 const MANAGEMENT_FLOOR_GROUP = "mgmt_team";
 export const MANAGEMENT_MEMBERSHIP_GROUP = "mgmt_team";
 export const MANAGEMENT_MINIMUM_GROUP = "assistant_community_manager";
 export const MANAGEMENT_MEMBERSHIP_ORIGIN = "derived:acm_plus";
+
+export const STAFF_LADDER_ORIGIN = "derived:rank_ladder";
+
+/**
+ * A staff rank carries the ACE group of every roster rank below it. Rows with this origin are derived from the
+ * member's highest directly granted rank (Discord-synced and previously derived rows never count), so they follow
+ * promotions, demotions and removals no matter which command or panel changed the rank.
+ */
+export async function reconcileStaffLadder(discordId = null, addedBy = "system", database = db) {
+  const only = discordId == null ? "" : " AND m.discord_id=?";
+  const args = discordId == null ? [] : [String(discordId)];
+  const [ranks, held, derived] = await Promise.all([
+    database.query(
+      `SELECT DISTINCT g.name,g.rank_order FROM staff_roster_ranks r JOIN ace_groups g ON g.name=r.ace_group
+       WHERE g.name<>?`,
+      [MANAGEMENT_MEMBERSHIP_GROUP],
+    ),
+    database.query(
+      `SELECT m.discord_id,m.group_name,m.origin FROM ace_memberships m
+       JOIN staff_roster_ranks r ON r.ace_group=m.group_name WHERE 1=1${only}`,
+      args,
+    ),
+    database.query(
+      `SELECT discord_id,group_name FROM ace_memberships m WHERE origin=?${only}`,
+      [STAFF_LADDER_ORIGIN, ...args],
+    ),
+  ]);
+  const order = new Map(ranks.map((row) => [String(row.name), Number(row.rank_order)]));
+  const has = new Map();
+  const top = new Map();
+  for (const row of held) {
+    const id = String(row.discord_id);
+    const name = String(row.group_name);
+    if (!has.has(id)) has.set(id, new Set());
+    has.get(id).add(name);
+    if (String(row.origin) === STAFF_LADDER_ORIGIN || String(row.origin).startsWith("discord:") || !order.has(name)) continue;
+    top.set(id, Math.max(top.get(id) ?? -Infinity, order.get(name)));
+  }
+  const wanted = new Map();
+  for (const [id, rank] of top)
+    wanted.set(id, new Set(ranks.filter((row) => Number(row.rank_order) < rank).map((row) => String(row.name))));
+  const have = new Set(derived.map((row) => `${row.discord_id}\u0000${row.group_name}`));
+  const remove = derived.filter((row) => !wanted.get(String(row.discord_id))?.has(String(row.group_name)));
+  const add = [];
+  for (const [id, names] of wanted)
+    for (const name of names) if (!have.has(`${id}\u0000${name}`) && !has.get(id)?.has(name)) add.push([id, name]);
+  if (!remove.length && !add.length) return { changed: [] };
+  await database.transaction(async (query) => {
+    for (const row of remove)
+      await query("DELETE FROM ace_memberships WHERE discord_id=? AND group_name=? AND origin=?", [String(row.discord_id), String(row.group_name), STAFF_LADDER_ORIGIN]);
+    for (const [id, name] of add)
+      await query(
+        "INSERT IGNORE INTO ace_memberships(discord_id,group_name,origin,added_by,added_at) VALUES(?,?,?,?,?)",
+        [id, name, STAFF_LADDER_ORIGIN, String(addedBy), Date.now()],
+      );
+  });
+  return { changed: [...new Set([...remove.map((row) => String(row.discord_id)), ...add.map(([id]) => id)])] };
+}
 
 /**
  * Makes Management Team membership a derived property of holding ACM or a higher
@@ -622,6 +780,7 @@ export const MANAGEMENT_MEMBERSHIP_ORIGIN = "derived:acm_plus";
  */
 export async function reconcileManagementMembership(discordId, addedBy = "system", database = db) {
   const id = String(discordId);
+  await reconcileStaffLadder(id, addedBy, database);
   const [eligible, existing] = await Promise.all([
     database.one(
       `SELECT 1 ok FROM ace_memberships m
@@ -655,6 +814,7 @@ export async function reconcileManagementMembership(discordId, addedBy = "system
 
 /** Rebuilds the derived group for every account, including accounts no longer in Discord caches. */
 export async function reconcileAllManagementMemberships(addedBy = "system", database = db) {
+  const ladder = await reconcileStaffLadder(null, addedBy, database);
   const [eligibleRows, existing] = await Promise.all([
     database.query(
       `SELECT DISTINCT m.discord_id FROM ace_memberships m
@@ -679,7 +839,7 @@ export async function reconcileAllManagementMemberships(addedBy = "system", data
       ? origins.length !== 1 || origins[0] !== MANAGEMENT_MEMBERSHIP_ORIGIN
       : origins.length > 0;
   }));
-  if (!changed.size) return { eligible: eligible.size, changed: [] };
+  if (!changed.size) return { eligible: eligible.size, changed: ladder.changed };
   await database.transaction(async (query) => {
     for (const id of changed) {
       await query("DELETE FROM ace_memberships WHERE discord_id=? AND group_name=?", [id, MANAGEMENT_MEMBERSHIP_GROUP]);
@@ -690,26 +850,29 @@ export async function reconcileAllManagementMemberships(addedBy = "system", data
         );
     }
   });
-  return { eligible: eligible.size, changed: [...changed] };
+  return { eligible: eligible.size, changed: [...new Set([...changed, ...ladder.changed])] };
 }
 
-let staffRankCache = { at: 0, info: { ranks: new Map(), floor: null } };
+let staffRankCache = { at: 0, info: { ranks: new Map(), floor: null, rankRoleIds: new Set(), rankRoleNames: new Set() } };
 /**
  * Staff rank groups (one per roster rank) with their rank_order, plus the rank_order from which a member counts
  * as management. Cached briefly because every member reconcile reads it.
  */
 export async function staffRankInfo() {
   if (Date.now() - staffRankCache.at < 15000) return staffRankCache.info;
-  const [rows, floor] = await Promise.all([
+  const [rows, floor, roles] = await Promise.all([
     db.query(
       `SELECT DISTINCT g.name,g.rank_order FROM staff_roster_ranks r
        JOIN ace_groups g ON g.name=r.ace_group`,
     ),
     db.one("SELECT rank_order FROM ace_groups WHERE name=?", [MANAGEMENT_FLOOR_GROUP]),
+    db.query("SELECT name,discord_role_id FROM staff_roster_ranks"),
   ]);
   const info = {
     ranks: new Map(rows.map((row) => [String(row.name), Number(row.rank_order)])),
     floor: floor ? Number(floor.rank_order) : null,
+    rankRoleIds: new Set(roles.map((row) => String(row.discord_role_id || "")).filter(Boolean)),
+    rankRoleNames: new Set(roles.map((row) => String(row.name).toLowerCase())),
   };
   staffRankCache = { at: Date.now(), info };
   return info;
@@ -723,20 +886,28 @@ export async function staffRankInfo() {
 export function staffDisplayGroups(top, info) {
   const keep = new Set([top]);
   const topOrder = info.ranks.get(top) ?? -1;
-  if (info.floor !== null && topOrder >= info.floor) {
+  const junior = info.ranks.get(STAFF_JUNIOR_MANAGEMENT_GROUP);
+  if (info.floor !== null && topOrder >= Math.min(info.floor, junior ?? info.floor)) {
+    // Junior Management and up also wear Head Administrator; Assistant Community Manager and up also wear Junior Management.
     keep.add(STAFF_MANAGEMENT_EXTRA_GROUP);
+    if (topOrder >= info.floor && junior !== undefined) keep.add(STAFF_JUNIOR_MANAGEMENT_GROUP);
     for (const [name, order] of info.ranks) if (order >= info.floor && order <= topOrder) keep.add(name);
   }
   return keep;
 }
 
-/** Memberships with every staff rank group except the member's displayed ones taken out (non-staff groups pass). */
+/** True for the per-rank Discord roles (Moderator, Head Administrator...), as opposed to team roles such as Staff Team. */
+export function isRankRole(role, info) {
+  return Boolean(role) && (info.rankRoleIds?.has(String(role.id)) || info.rankRoleNames?.has(String(role.name).toLowerCase()));
+}
+
+/** Staff rank groups the member wears Discord roles for: their display set, even where the ACE group itself is not held (non-staff groups pass). */
 export function visibleMemberships(memberships, info) {
   const held = [...memberships].filter((name) => info.ranks.has(name));
   if (!held.length) return memberships;
   const top = held.reduce((best, name) => (info.ranks.get(name) > info.ranks.get(best) ? name : best));
   const keep = staffDisplayGroups(top, info);
-  return new Set([...memberships].filter((name) => !info.ranks.has(name) || keep.has(name)));
+  return new Set([...[...memberships].filter((name) => !info.ranks.has(name)), ...[...keep].filter((name) => info.ranks.has(name))]);
 }
 
 const lastFullFetch = new Map();
@@ -799,6 +970,13 @@ async function reportViolation(member, role, groups, mode, removed) {
  * Brings one member's gated roles in line with direct ACE membership.
  * alert: "none" (expected change), "live" (someone just granted it), or "sweep" (found later).
  */
+/**
+ * Members a /global blacklist is in the middle of processing. The blacklist case is only written after
+ * their roles are stripped, so without this the role-change event that the strip causes would run a
+ * sync that still sees their ACE membership and hands the gated role (Law Enforcement Officer, fire,
+ * verified...) straight back.
+ */
+export const blacklistInFlight = new Set();
 let blacklistCache = { at: 0, ids: new Set() };
 /** Members under an active /global blacklist (cached briefly; sweeps call this per member). */
 export async function blacklistedIds() {
@@ -891,17 +1069,18 @@ async function reconcileMemberRoles(client, member, { alert = "none" } = {}) {
   ]);
   // A blacklisted member keeps only the isolation role; gated roles are never granted back.
   // Anti-nuke offenders are treated the same way until /security pardon.
-  let quarantined = blacklisted.has(member.id) || offenders.has(member.id) || roleStripped;
+  let quarantined = blacklisted.has(member.id) || offenders.has(member.id) || roleStripped || blacklistInFlight.has(member.id);
   if (quarantined) memberships.clear();
   // Staff keep every lower rank's ACE group, but only wear the Discord role of their top rank (see staffDisplayGroups).
-  const wantedRole = (groups) => {
-    const visible = visibleMemberships(memberships, rankInfo);
+  // Team roles (Staff Team, Senior Staff Team, High Staff Team...) follow every ACE group held, lower ranks included.
+  const wantedRole = (groups, role) => {
+    const visible = isRankRole(role, rankInfo) ? visibleMemberships(memberships, rankInfo) : memberships;
     return [...groups].some((name) => visible.has(name));
   };
   // Before taking a role away, confirm against fresh data. The member cache can lag a burst of role
   // changes, and the blacklist/offender caches can outlive a pardon; acting on either strips roles
   // the member is entitled to, and the resulting update event starts the next round of the fight.
-  const removals = [...gates].filter(([roleId, groups]) => member.roles.cache.has(roleId) && !wantedRole(groups));
+  const removals = [...gates].filter(([roleId, groups]) => member.roles.cache.has(roleId) && !wantedRole(groups, member.guild.roles.cache.get(roleId)));
   if (removals.length) {
     await member.fetch(true).catch(() => null);
     if (quarantined) {
@@ -909,7 +1088,7 @@ async function reconcileMemberRoles(client, member, { alert = "none" } = {}) {
       offenderCache = { at: 0, ids: new Set() };
       invalidateRoleStripCache();
       const [freshBlacklist, freshOffenders, freshRoleStrips] = await Promise.all([blacklistedIds(), nukeOffenderIds(), roleStrippedIds()]);
-      quarantined = freshBlacklist.has(member.id) || freshOffenders.has(member.id) || freshRoleStrips.has(member.id);
+      quarantined = freshBlacklist.has(member.id) || freshOffenders.has(member.id) || freshRoleStrips.has(member.id) || blacklistInFlight.has(member.id);
       if (!quarantined) for (const name of await directMemberships(member.id)) memberships.add(name);
     }
   }
@@ -917,7 +1096,7 @@ async function reconcileMemberRoles(client, member, { alert = "none" } = {}) {
   for (const [roleId, groups] of gates) {
     const role = member.guild.roles.cache.get(roleId);
     if (!role) continue;
-    const wanted = wantedRole(groups);
+    const wanted = wantedRole(groups, role);
     const held = member.roles.cache.has(roleId);
     const groupList = [...groups].join("/");
     if (held && !wanted) {
@@ -1082,7 +1261,8 @@ export async function syncGuild(client, guild, options = {}) {
       "INSERT INTO discord_guild_roles(guild_id,role_id,name,updated_at) VALUES(?,?,?,?)",
       [guild.id, role.id, role.name, Date.now()],
     );
-  await syncGuildRoleDefinitions(client, guild);
+  const roleLines = await syncGuildRoleDefinitions(client, guild);
+  options.report?.(roleLines);
   const members = await allMembers(guild);
   for (const member of members.values())
     if (!member.user.bot) await syncMember(client, member, { refresh: false });
@@ -1183,10 +1363,14 @@ async function normalizeGuildSettings(actor, entries) {
       throw new Error(
         "Only a bot owner can sync a role with Administrator, Manage Server, Manage Roles, Ban Members, Manage Channels or Manage Webhooks.",
       );
+    const below = String(entry.below_role_id ?? "");
+    if (below && !/^\d{15,24}$/.test(below)) throw new Error("Choose a role from the list to place this role under.");
     normalized.push({
       guild_id: guildId,
       permissions,
       all_channels: Boolean(entry.all_channels),
+      below_role_id: below,
+      has_placement: "below_role_id" in entry,
     });
   }
   return normalized;
@@ -1202,6 +1386,16 @@ async function replaceGuildSettings(syncId, settings) {
          VALUES(?,?,?,?)`,
         [syncId, setting.guild_id, setting.permissions, setting.all_channels],
       );
+    // Where each server puts the role: directly under a chosen role, or the network order when none is chosen.
+    for (const setting of settings) {
+      if (!setting.has_placement) continue;
+      await query("DELETE FROM network_sync_anchors WHERE sync_id=? AND guild_id=?", [syncId, setting.guild_id]);
+      if (setting.below_role_id)
+        await query(
+          "INSERT INTO network_sync_anchors(sync_id,guild_id,below_role_id) VALUES(?,?,?)",
+          [syncId, setting.guild_id, setting.below_role_id],
+        );
+    }
   });
 }
 
@@ -1441,8 +1635,12 @@ export async function enforceAllChannelAccess(client, channel = null) {
   // network roles configured with the otherwise-global "all channels" option.
   if (channel?.id === VERIFICATION_CHANNEL_ID) return;
   const rows = await db.query(
+    // A server's own setting wins over the shared role's default, so turning
+    // "see every channel" off for one server is not undone by this sweep.
     `SELECT r.guild_id,r.role_id FROM network_sync_roles r
-     JOIN network_syncs s ON s.id=r.sync_id WHERE s.all_channels=TRUE`,
+     JOIN network_syncs s ON s.id=r.sync_id
+     LEFT JOIN network_sync_guild_settings g ON g.sync_id=r.sync_id AND g.guild_id=r.guild_id
+     WHERE COALESCE(g.all_channels,s.all_channels)=TRUE`,
   );
   for (const row of rows) {
     const guild = client.guilds.cache.get(String(row.guild_id));

@@ -85,7 +85,7 @@ test("ranked members follow their rank and unranked members keep default access"
 
 test("every rank permission maps to a column with a default", () => {
   const keys = RANK_PERMISSIONS.map((perm) => perm.key);
-  assert.deepEqual(keys, ["spend", "sell", "roster", "ranks", "motd", "ledger", "armory", "garage"]);
+  assert.deepEqual(keys, ["spend", "sell", "roster", "ranks", "motd", "announce", "discipline", "applications", "profile", "ledger", "armory", "garage"]);
   for (const perm of RANK_PERMISSIONS) {
     assert.match(perm.column, /^can_[a-z]+$/);
     assert.equal(typeof perm.default, "boolean");

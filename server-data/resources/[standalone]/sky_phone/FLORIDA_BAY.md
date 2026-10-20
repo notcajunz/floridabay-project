@@ -39,8 +39,8 @@ ID cards and the MDT phone lookup show the real number.
 - `config/config.lua`: file mode, fbrp framework/inventory, Up-arrow keybind
   (F1 is vMenu), Hold-to-look off (Left Alt is the third eye), `305` numbers,
   Florida Bay companies (police = every law enforcement org on duty, fire =
-  fire/rescue), and no banking, billing, crypto, SkyRide, garage, housing or
-  radio apps (no personal money, no framework garages, and the F2 radio owns
+  fire/rescue), and no banking, billing, crypto, SkyRide, CityMarkt, Local Pages, Health,
+  CrewLink, Flare, garage, housing or radio apps (no personal money, no framework garages, and the F2 radio owns
   pma-voice radio). Password peppers come from server-only convars.
 
 ## Server configuration

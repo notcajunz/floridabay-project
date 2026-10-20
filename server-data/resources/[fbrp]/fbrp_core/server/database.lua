@@ -51,7 +51,16 @@ local migrationFiles = {
     'migrations/071_staff_permission_matrix.sql',
     'migrations/074_property_doors.sql',
     'migrations/076_property_points.sql',
-    'migrations/078_org_roster_phone.sql'
+    'migrations/078_org_roster_phone.sql',
+    'migrations/079_org_roster_system.sql',
+    'migrations/080_org_logos.sql',
+    'migrations/082_org_events.sql',
+    'migrations/083_property_setup.sql',
+    'migrations/084_tebex_fulfillment.sql',
+    'migrations/085_personal_emergency_class.sql',
+    'migrations/086_org_badges.sql',
+    'migrations/087_org_badge_originals.sql',
+    'migrations/088_junior_management_rank.sql'
 }
 
 local function splitSql(contents)

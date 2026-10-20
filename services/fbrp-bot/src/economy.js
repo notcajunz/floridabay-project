@@ -138,24 +138,43 @@ const money = (value) => `$${Number(value || 0).toLocaleString("en-US")}`;
 const DEPARTMENT_TYPES = new Set(["leo", "fire", "government"]);
 const RANK_COLUMNS = RANK_PERMISSIONS.map((perm) => perm.column);
 const HEX = /^#[0-9a-f]{6}$/i;
+/** Permissions a non-full rank editor may only grant when their own rank holds them. */
+export const GRANT_GUARDED = ["spend", "sell", "roster", "ranks", "motd", "announce", "discipline", "applications", "profile"];
 const dayStart = () => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.getTime(); };
 const flag = (value) => value === true || value === 1 || value === "1" || value === "on" || value === "true";
 
-/** Discord roles that may fully manage every portal organization of the matching type. */
+/**
+ * Discord roles that may fully manage every portal organization of a kind. Gang, business and
+ * department "Manager+" are the manager rank and everything above it (the assistant manager rank is
+ * not included), mirroring `gang_manager_plus_role_ids` / `business_manager_plus_role_ids`. The
+ * department list covers the Department Hub (Overseer through Department Manager) and the Armed
+ * Forces hub's managing positions; `leo` is the older law-enforcement-only grant.
+ */
 export const ORG_TYPE_MANAGER_ROLE_IDS = Object.freeze({
   gang: Object.freeze(["1559682499251146772", "1559682496549879808", "1559682494364647524"]),
   leo: Object.freeze(["1558483162944901210", "1558483161447538760"]),
   business: Object.freeze(["1559701149475536947", "1559701141053513798", "1559701134686556190", "1559701131905728532"]),
+  department: Object.freeze([
+    "1560393378485637140", "1560393380939300884", "1560393383527059477", "1560393388933513226",
+    "1561065664016285696", "1561065669187862568", "1561065674678472744", "1561065680202375218", "1561065684849655808",
+  ]),
 });
 const ORG_TYPE_MANAGER_ROLE_ID_SET = new Set(Object.values(ORG_TYPE_MANAGER_ROLE_IDS).flat());
 
+/** The portal organization types each manager grant covers. */
+export const ORG_MANAGER_GRANT_TYPES = Object.freeze({
+  gang: Object.freeze(["gang"]),
+  leo: Object.freeze(["leo"]),
+  business: Object.freeze(["business"]),
+  department: Object.freeze(["leo", "fire", "government"]),
+});
+
 export function managedOrgTypesForRoleIds(roleIds) {
   const held = new Set(Array.from(roleIds || [], String));
-  return new Set(
-    Object.entries(ORG_TYPE_MANAGER_ROLE_IDS)
-      .filter(([, allowed]) => allowed.some((roleId) => held.has(roleId)))
-      .map(([type]) => type),
-  );
+  const types = new Set();
+  for (const [grant, allowed] of Object.entries(ORG_TYPE_MANAGER_ROLE_IDS))
+    if (allowed.some((roleId) => held.has(roleId))) for (const type of ORG_MANAGER_GRANT_TYPES[grant]) types.add(type);
+  return types;
 }
 
 /**
@@ -181,12 +200,16 @@ export function permissionsFor(row, manage, standing = {}) {
     roster: has("can_roster", false),
     ranks: has("can_ranks", false),
     motd: has("can_motd", false),
+    announce: has("can_announce", false),
+    discipline: has("can_discipline", false),
+    applications: has("can_applications", false),
+    profile: has("can_profile", false),
     ledger: full || (ranked ? row.can_ledger == null || flag(row.can_ledger) : true),
     spendLimit: full || !ranked || row.spend_limit == null ? null : Number(row.spend_limit),
   };
 }
 
-export function createEconomy({ client, db, audit, log, authority = null }) {
+export function createEconomy({ client, db, audit, log, authority = null, propertySetup = null }) {
   async function seed() {
     for (const row of DEFAULT_SHOP)
       await db.query(
@@ -204,7 +227,7 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
   /** Global managers see every org; configured Discord roles manage only their assigned org type. */
   async function managementAccess(discordId) {
     if (superuserIds().has(String(discordId)) || (await coOwnerOrAbove(discordId)))
-      return { all: true, types: new Set(Object.keys(ORG_TYPE_MANAGER_ROLE_IDS)) };
+      return { all: true, types: new Set(Object.values(ORG_MANAGER_GRANT_TYPES).flat()) };
     const roleIds = new Set();
     // Read the relevant management servers live so a newly granted role works immediately. The
     // database cache remains a fallback for a temporarily unavailable Discord server.
@@ -242,7 +265,7 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
   async function memberships(discordId) {
     const rows = await db.query(
       `SELECT o.id,o.slug,o.name,o.type,o.color,o.motd,1 member,
-              m.manager leader,m.rank_id,r.name rank_name,r.level,r.can_spend,r.can_roster,r.can_ranks,r.can_motd,r.can_sell,r.can_ledger,r.spend_limit
+              m.manager leader,m.rank_id,r.name rank_name,r.level,r.can_spend,r.can_roster,r.can_ranks,r.can_motd,r.can_sell,r.can_ledger,r.can_announce,r.can_discipline,r.can_applications,r.can_profile,r.spend_limit
          FROM organizations o
          LEFT JOIN organization_members m ON m.org_id=o.id AND m.discord_id=?
          LEFT JOIN org_ranks r ON r.id=m.rank_id AND r.org_id=o.id
@@ -409,11 +432,11 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
       wallet(org.id),
       db.query("SELECT id,amount,balance_after,kind,description,actor_id,created_at FROM org_transactions WHERE org_id=? ORDER BY id DESC LIMIT 40", [org.id]),
       db.query("SELECT item_key,kind,label,price,purchased_by,created_at FROM org_purchases WHERE org_id=? ORDER BY created_at DESC", [org.id]),
-      db.query("SELECT p.item_key,p.purchased_at,i.label,i.data FROM org_properties p LEFT JOIN org_shop_items i ON i.item_key=p.item_key WHERE p.org_id=?", [org.id]),
+      db.query("SELECT p.item_key,p.purchased_at,p.setup_status,p.setup_at,i.label,i.data FROM org_properties p LEFT JOIN org_shop_items i ON i.item_key=p.item_key WHERE p.org_id=?", [org.id]),
       db.query("SELECT drug,status,SUM(units) units,SUM(payout) payout,COUNT(*) runs FROM org_drug_runs WHERE org_id=? AND created_at>=? GROUP BY drug,status", [org.id, week]),
       db.query("SELECT kind,SUM(amount) total FROM org_transactions WHERE org_id=? AND created_at>=? AND amount>0 GROUP BY kind", [org.id, week]),
       db.query("SELECT discord_id FROM organization_members WHERE org_id=? AND manager=TRUE", [org.id]),
-      db.query(`SELECT r.id,r.name,r.level,r.color,r.description,${RANK_COLUMNS.map((column) => `r.${column}`).join(",")},r.spend_limit,COUNT(m.discord_id) members FROM org_ranks r LEFT JOIN organization_members m ON m.org_id=r.org_id AND m.rank_id=r.id WHERE r.org_id=? GROUP BY r.id ORDER BY r.level DESC,r.name`, [org.id]),
+      db.query(`SELECT r.id,r.name,r.level,r.color,r.description,${RANK_COLUMNS.map((column) => `r.${column}`).join(",")},r.spend_limit,r.min_weekly_minutes,COUNT(m.discord_id) members FROM org_ranks r LEFT JOIN organization_members m ON m.org_id=r.org_id AND m.rank_id=r.id WHERE r.org_id=? GROUP BY r.id ORDER BY r.level DESC,r.name`, [org.id]),
       db.query(
         `SELECT m.discord_id,m.manager,m.rank_id,r.name rank_name,r.level,m.added_at,
                 COALESCE(SUM(CASE WHEN s.started_at>=? THEN COALESCE(NULLIF(s.seconds,0),GREATEST(0,FLOOR((s.heartbeat_at-s.started_at)/1000))) ELSE 0 END),0) week_seconds,
@@ -466,6 +489,7 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
         color: row.color || null, description: row.description || "",
         ...Object.fromEntries(RANK_PERMISSIONS.map((perm) => [perm.column, row[perm.column] == null ? perm.default : flag(row[perm.column])])),
         spend_limit: row.spend_limit == null ? null : Number(row.spend_limit),
+        min_weekly_minutes: row.min_weekly_minutes == null ? null : Number(row.min_weekly_minutes),
         roles: rankRoles.filter((binding) => Number(binding.rank_id) === Number(row.id)).map((binding) => {
           const role = roleName(binding.guild_id, binding.role_id);
           return { guildId: String(binding.guild_id), roleId: String(binding.role_id), name: role?.name || "Deleted role", color: role && role.hexColor !== "#000000" ? role.hexColor : null, guildName: client.guilds.cache.get(String(binding.guild_id))?.name || null };
@@ -559,7 +583,7 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
         [org.id, row.item_key, row.kind, row.label, row.price, session.id, stamp],
       );
       if (row.kind === "property")
-        await query("INSERT INTO org_properties(item_key,org_id,purchased_by,purchased_at) VALUES(?,?,?,?)", [row.item_key, org.id, session.id, stamp]);
+        await query("INSERT INTO org_properties(item_key,org_id,purchased_by,purchased_at,setup_status) VALUES(?,?,?,?,'pending')", [row.item_key, org.id, session.id, stamp]);
       return after;
     });
     await audit(session.id, "economy.purchase", org.id, { item: row.item_key, label: row.label, price: row.price, balance });
@@ -569,6 +593,8 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
       fields: [["Buyer", who(session.id)], ["Category", KIND_LABEL[row.kind] || row.kind], ["Price", money(row.price)], ["Wallet after", money(balance)]],
     });
     await notifyGame();
+    // The property stays unusable until DevOps marks it as set up; tell them where it is.
+    if (row.kind === "property") await propertySetup?.announce(row.item_key);
     return { balance };
   }
 
@@ -592,13 +618,16 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
       const after = Number(purse?.balance || 0) + refund;
       await query("UPDATE org_wallets SET balance=?,updated_at=? WHERE org_id=?", [after, stamp, org.id]);
       await query("INSERT INTO org_transactions(org_id,amount,balance_after,kind,description,actor_id,ref,created_at) VALUES(?,?,?,'refund',?,?,?,?)", [org.id, refund, after, `Sold ${owned.label}`, session.id, key, stamp]);
+      const [posted] = await query("SELECT setup_channel_id,setup_message_id FROM org_properties WHERE item_key=? AND org_id=?", [key, org.id]);
       await query("DELETE FROM org_properties WHERE item_key=? AND org_id=?", [key, org.id]);
       await query("DELETE FROM org_purchases WHERE item_key=? AND org_id=?", [key, org.id]);
-      return { refund, after, label: owned.label, kind: owned.kind };
+      return { refund, after, label: owned.label, kind: owned.kind, posted };
     });
     await audit(session.id, "economy.sell_item", org.id, { item: key, refund: result.refund });
     await postLog({ title: `${org.name} sold ${result.label}`, color: COLORS.warning, fields: [["Seller", who(session.id)], ["Refund", money(result.refund)], ["Wallet after", money(result.after)]] });
     await notifyGame();
+    if (result.kind === "property" && result.posted?.setup_message_id)
+      await propertySetup?.retire({ channelId: result.posted.setup_channel_id, messageId: result.posted.setup_message_id, itemKey: key, label: result.label });
     return result;
   }
 
@@ -719,10 +748,13 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
     }));
     if (!perms.full)
       for (const perm of RANK_PERMISSIONS)
-        if (granted[perm.key] && ["spend", "sell", "roster", "ranks", "motd"].includes(perm.key) && !perms[perm.key])
+        if (granted[perm.key] && GRANT_GUARDED.includes(perm.key) && !perms[perm.key])
           throw new Error(`You cannot grant "${perm.label}" because your own rank does not have it.`);
-    const values = [name, level, color || null, description || null, ...RANK_PERMISSIONS.map((perm) => granted[perm.key]), spendLimit];
-    const setters = ["name=?", "level=?", "color=?", "description=?", ...RANK_COLUMNS.map((column) => `${column}=?`), "spend_limit=?"].join(",");
+    const hoursRaw = String(input.minWeeklyHours ?? "").trim();
+    const minWeeklyMinutes = hoursRaw === "" ? null : Math.round(Number(hoursRaw) * 60);
+    if (minWeeklyMinutes != null && (!Number.isFinite(minWeeklyMinutes) || minWeeklyMinutes < 0 || minWeeklyMinutes > 168 * 60)) throw new Error("Weekly hours must be blank (no requirement) or between 0 and 168.");
+    const values = [name, level, color || null, description || null, ...RANK_PERMISSIONS.map((perm) => granted[perm.key]), spendLimit, minWeeklyMinutes];
+    const setters = ["name=?", "level=?", "color=?", "description=?", ...RANK_COLUMNS.map((column) => `${column}=?`), "spend_limit=?", "min_weekly_minutes=?"].join(",");
     let rankId = Number(input.rankId) || 0;
     try {
       if (rankId) {
@@ -735,7 +767,7 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
         const [count] = await db.query("SELECT COUNT(*) n FROM org_ranks WHERE org_id=?", [org.id]);
         if (Number(count?.n || 0) >= MAX_RANKS) throw new Error(`An organization can have up to ${MAX_RANKS} ranks.`);
         const result = await db.query(
-          `INSERT INTO org_ranks(org_id,name,level,color,description,${RANK_COLUMNS.join(",")},spend_limit,created_by,created_at) VALUES(?,?,?,?,?,${RANK_COLUMNS.map(() => "?").join(",")},?,?,?)`,
+          `INSERT INTO org_ranks(org_id,name,level,color,description,${RANK_COLUMNS.join(",")},spend_limit,min_weekly_minutes,created_by,created_at) VALUES(?,?,?,?,?,${RANK_COLUMNS.map(() => "?").join(",")},?,?,?,?)`,
           [org.id, ...values, String(actorId), Date.now()],
         );
         rankId = Number(result.insertId);
@@ -815,6 +847,11 @@ export function createEconomy({ client, db, audit, log, authority = null }) {
       if (rank && rank.level >= perms.level) throw new Error(`You can only assign ranks below your own (${perms.rank}).`);
     }
     await applyRank(org, target, rank, actorId);
+    const before = Number(current?.level || 0);
+    const after = Number(rank?.level || 0);
+    if (before !== after || !current)
+      await db.query("INSERT INTO org_member_records(org_id,discord_id,kind,body,actor_id,created_at) VALUES(?,?,?,?,?,?)",
+        [org.id, target, after >= before ? "promotion" : "demotion", `${after >= before ? "Promoted" : "Demoted"} to ${rank?.name || "Member"}`, String(actorId), Date.now()]).catch(() => {});
     const roles = authority
       ? await authority.syncMemberRoles(org, target, rank?.id ?? null, `Rank set to ${rank?.name || "Member"} on the orgs website`).catch((error) => ({ added: 0, removed: 0, errors: [error.message] }))
       : null;

@@ -62,6 +62,7 @@ import {
   bindSyncRole,
   setGlobalSyncOrder,
   pushGlobalSyncs,
+  enrollNewGuild,
   applySync,
   networkRows,
   scopeText,
@@ -76,6 +77,7 @@ import {
   touchesCoordinationSource,
   invalidateBlacklistCache,
   invalidateRoleStripCache,
+  blacklistInFlight,
   ROLE_AUTHORITATIVE_GROUPS,
   reconcileManagementMembership,
   reconcileAllManagementMemberships,
@@ -137,15 +139,23 @@ import { startWebPanel } from "./web-panel.js";
 import { createStaffExams } from "./staff-exams.js";
 import { createEconomy } from "./economy.js";
 import { createOrgAuthority } from "./org-authority.js";
+import { createOrgLogos, logoPath } from "./org-logos.js";
 import { createPersonals } from "./personals.js";
 import { createPersonalImporter } from "./personal-import.js";
 import { createCustomAssets } from "./custom-assets.js";
 import { createGiveaways } from "./giveaways.js";
+import { createPropertySetup } from "./property-setup.js";
 import { createStatusBoard } from "./status-board.js";
 import { enforceRoleBundle, reconcileRoleBundleHolders } from "./role-bundle.js";
+import { createTebexFulfillment, TEBEX_MAIN_GUILD_ID } from "./tebex-fulfillment.js";
 import { createChainOfCommand } from "./chain-of-command.js";
 import { createRoleMembershipCommands } from "./role-membership.js";
 import { createStaffQueue } from "./staff-queue.js";
+import {
+  destinationAccountConflicts,
+  transferAccountData,
+  transferCount,
+} from "./account-transfer.js";
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
@@ -257,13 +267,18 @@ const auditMirror = createAuditMirror({ client, db });
 
 const staffExams = createStaffExams({ client, db, audit, log });
 const orgAuthority = createOrgAuthority({ client, db });
-const economy = createEconomy({ client, db, audit, log, hasPermission, authority: orgAuthority });
+const orgLogos = createOrgLogos({ db, audit });
+const propertySetup = createPropertySetup({ client, db, audit, authority: orgAuthority });
+const economy = createEconomy({ client, db, audit, log, hasPermission, authority: orgAuthority, propertySetup });
+/** Absolute logo URL for Discord embeds (null when the organization has none). */
+const orgLogoUrl = async (orgId) => logoPath(orgId, await orgLogos.version(orgId), publicBase());
 const personals = createPersonals({ db, audit, hasPermission });
 const personalImporter = createPersonalImporter({ personals, audit, db });
 const customAssets = createCustomAssets({ personals, audit, db });
 const giveaways = createGiveaways({ client, db, audit, clean });
 const statusBoard = createStatusBoard({ client, db, callGame, publicBase, connectUrl });
 const chainOfCommand = createChainOfCommand({ client, db, audit, hasPermission });
+const tebexFulfillment = createTebexFulfillment({ client, db, audit });
 // Requests from the Staff Assistant bot (src/staff), which is only in the staff server.
 const staffQueue = createStaffQueue({
   client,
@@ -318,6 +333,7 @@ async function orgbankCommand(i, sub) {
     const lines = detail.roster.slice(0, 25).map((row) =>
       `${row.on_duty ? "🟢" : "⚫"} ${mention(row.discord_id)} · **${clean(row.rank, 40)}** · ${hours(row.week_seconds)} this week${row.last_shift ? ` · last shift <t:${Math.floor(row.last_shift / 1000)}:R>` : ""}`);
     return card(`${detail.name} · roster`, {
+      thumbnail: await orgLogoUrl(detail.id) || undefined,
       description: lines.length ? lines.join("\n") : "Nobody holds this organization's role yet.",
       color: COLORS.primary,
       rows: [
@@ -342,6 +358,7 @@ async function orgbankCommand(i, sub) {
   const delivered = detail.drugWeek.filter((row) => row.status === "delivered").reduce((sum, row) => sum + Number(row.units || 0), 0);
   return card(`${detail.name} · wallet`, {
     color: COLORS.success,
+    thumbnail: await orgLogoUrl(detail.id) || undefined,
     rows: [
       ["Balance", `**${economy.money(detail.wallet.balance)}**`],
       ["Earned (7 days)", economy.money(earned)],
@@ -919,6 +936,8 @@ async function organizationCommand(i, sub) {
       throw new Error("The access role must belong to a registered network server.");
     const accessRole = await accessGuild.roles.fetch(accessRoleId).catch(() => null);
     if (!accessRole) throw new Error("The required access role was not found in that network server.");
+    // Validate the logo before anything is created so a bad image cannot leave a half-made organization.
+    const logo = i.options.getAttachment("logo") ? await orgLogos.fromAttachment(i.options.getAttachment("logo")) : null;
     // No Discord role is created: the access role alone decides who can clock in.
     const ids = await db.transaction(async (q) => {
       await q(
@@ -976,6 +995,7 @@ async function organizationCommand(i, sub) {
       accessGuild: accessGuildId,
       accessRole: accessRoleId,
     });
+    if (logo) await orgLogos.save(ids.org, logo, i.user.id);
     await syncGuild(client, accessGuild);
     await refreshGame();
     await log(i.guild, {
@@ -987,8 +1007,21 @@ async function organizationCommand(i, sub) {
     return card("Organization created", {
       color: COLORS.success,
       description: `Eligible members clock in by running \`/duty\` in game and picking it from the list. Job, gang tag, permissions and hours update automatically.`,
-      rows: [["Name", name], ["Slug", `\`${slug}\``], ["Type", type], ["Tag", tagLabel], ["Required role", `${roleRef(accessRoleId)}\n${clean(accessGuild.name)}`]],
+      thumbnail: logo ? await orgLogoUrl(ids.org) : undefined,
+      rows: [["Name", name], ["Slug", `\`${slug}\``], ["Type", type], ["Tag", tagLabel], ["Logo", logo ? "Set" : "None (add one with `/organization logo`)"], ["Required role", `${roleRef(accessRoleId)}\n${clean(accessGuild.name)}`]],
     });
+  }
+  if (sub === "logo") {
+    const slug = safeName(i.options.getString("slug", true), "organization slug");
+    const org = await db.one("SELECT id,name FROM organizations WHERE slug=?", [slug]);
+    if (!org) throw new Error("Organization not found.");
+    const attachment = i.options.getAttachment("image");
+    if (!attachment) {
+      await orgLogos.remove(org.id, i.user.id);
+      return card("Logo removed", { color: COLORS.warning, rows: [["Organization", clean(org.name)]] });
+    }
+    await orgLogos.save(org.id, await orgLogos.fromAttachment(attachment), i.user.id);
+    return card("Logo updated", { color: COLORS.success, thumbnail: await orgLogoUrl(org.id), description: "It now shows on the organization website and in Discord.", rows: [["Organization", clean(org.name)]] });
   }
   if (sub === "delete") {
     const slug = safeName(
@@ -1095,11 +1128,19 @@ async function networkCommand(i, sub) {
         Date.now(),
       ],
     );
-    const count = await syncGuild(client, i.guild);
-    await audit(i.user.id, "network.add", i.guildId, { members: count });
+    const enrolled = await enrollNewGuild(i.guild, i.options.getString("kind", true));
+    let roleLines = [];
+    const count = await syncGuild(client, i.guild, { report: (lines) => (roleLines = lines) });
+    await audit(i.user.id, "network.add", i.guildId, { members: count, enrolled });
     return card("Network server added", {
-      color: COLORS.success,
-      rows: [["Server", clean(i.guild.name)], ["Type", i.options.getString("kind", true)], ["Members reconciled", String(count)]],
+      color: roleLines.some((line) => line.startsWith("⚠️")) ? COLORS.warning : COLORS.success,
+      rows: [
+        ["Server", clean(i.guild.name)],
+        ["Type", i.options.getString("kind", true)],
+        ["Members reconciled", String(count)],
+        ...(enrolled.length ? [["Also enrolled in", enrolled.map((name) => `\`${name}\``).join(", "), false]] : []),
+        ["Roles", chunkLines(roleLines, 1000)[0] || "None", false],
+      ],
     });
   }
   if (sub === "remove") {
@@ -1305,7 +1346,7 @@ async function globalSyncCommand(i, sub) {
     return embed(
       "Global roles pushed",
       `${lines.join("\n") || "No network servers."}\n\nMembers updated: **+${swept.added}** granted · **−${swept.removed}** removed.`,
-      COLORS.success,
+      lines.some((line) => line.startsWith("⚠️")) ? COLORS.warning : COLORS.success,
     );
   }
   const name = i.options.getString("group", true).trim().toLowerCase();
@@ -2248,6 +2289,8 @@ async function vmenuCommand(i, sub) {
 /* --------------------------------- /global --------------------------------- */
 const CENSORED_ROLE = "FBRP | Censored";
 const blacklistPending = new Set();
+/** Suppresses automatic role-derived sync while /global transfer is changing both accounts. */
+const accountTransferInFlight = new Set();
 // The support (ticket panel) channel stays readable so a blacklisted member can open a ticket.
 const SUPPORT_ACCESS = { ViewChannel: true, ReadMessageHistory: true, SendMessages: false };
 const VOICE_ACCESS = { ViewChannel: true, Connect: true, Speak: true, Stream: true, UseVAD: true };
@@ -3223,8 +3266,210 @@ async function globalRoleStripCommand(i, sub) {
   });
 }
 
+/** Assistant Community Director+ complete handoff from one Discord account to another. */
+async function globalAccountTransfer(i) {
+  await requireMinimumStaffRank(i, "Assistant Community Director", "transfer an account");
+  if (i.options.getBoolean("confirm", true) !== true)
+    throw new Error("Set `confirm` to true after checking both accounts. Nothing was changed.");
+
+  const source = i.options.getUser("from_account", true);
+  const destination = i.options.getUser("to_account", true);
+  const reason = clean(i.options.getString("reason", true), 300);
+  if (source.id === destination.id) throw new Error("The old and replacement accounts must be different.");
+  if (source.bot || destination.bot) throw new Error("Bots cannot be used in an account transfer.");
+  if (superuserIds().has(source.id) || superuserIds().has(destination.id))
+    throw new Error("Configured bot-owner accounts cannot be transferred by command because their access is set in the service environment.");
+  if (source.id !== i.user.id) await requireOutranks(i, source.id, "transfer");
+
+  const [sourceStrip, destinationStrip, offender, activePunishment, verified, conflicts] = await Promise.all([
+    db.one("SELECT 1 FROM global_role_strips WHERE discord_id=?", [source.id]),
+    db.one("SELECT 1 FROM global_role_strips WHERE discord_id=?", [destination.id]),
+    db.one("SELECT discord_id FROM network_nuke_offenders WHERE discord_id IN (?,?) LIMIT 1", [source.id, destination.id]),
+    db.one(
+      "SELECT target_id,action FROM moderation_cases WHERE target_id IN (?,?) AND active=TRUE AND action IN ('ban','blacklist') LIMIT 1",
+      [source.id, destination.id],
+    ),
+    isVerified(db, destination.id),
+    destinationAccountConflicts((sql, params) => db.query(sql, params), destination.id),
+  ]);
+  if (sourceStrip || destinationStrip) throw new Error("Neither account can have an active global role strip during a transfer.");
+  if (offender) throw new Error(`${mention(offender.discord_id)} is under an active security quarantine. Nothing was changed.`);
+  if (activePunishment)
+    throw new Error(`${mention(activePunishment.target_id)} has an active global ${activePunishment.action}. Lift it before transferring the account.`);
+  if (!verified)
+    throw new Error(`${mention(destination.id)} must complete website verification and Discord authorization before the transfer.`);
+  if (conflicts.length)
+    throw new Error(`The replacement account already has established Florida Bay data (${conflicts.join(", ")}). Use a clean replacement account; nothing was changed.`);
+
+  const plans = [];
+  for (const network of await networkRows()) {
+    const guild = client.guilds.cache.get(String(network.guild_id));
+    if (!guild)
+      throw new Error(`The bot cannot access ${clean(network.name, 80)}. Nothing was changed; every registered server must be reachable.`);
+    const sourceMember = await guild.members.fetch(source.id).catch(() => null);
+    if (!sourceMember) continue;
+    if (guild.ownerId === source.id)
+      throw new Error(`${clean(guild.name, 80)} is owned by the old account. Discord server ownership must be transferred manually first.`);
+    if (!sourceMember.manageable || !sourceMember.kickable)
+      throw new Error(`${clean(guild.name, 80)} places the old account at or above the bot. Nothing was changed.`);
+    await guild.roles.fetch().catch(() => null);
+    const sourceRoles = sourceMember.roles.cache
+      .filter((role) => role.id !== guild.id && !role.managed)
+      .map((role) => role.id);
+    const unavailable = sourceRoles.filter((id) => !guild.roles.cache.get(id)?.editable);
+    if (unavailable.length)
+      throw new Error(`${clean(guild.name, 80)} has ${unavailable.length} role${unavailable.length === 1 ? "" : "s"} above the bot. Nothing was changed.`);
+    const destinationMember = await guild.members.fetch(destination.id).catch(() => null);
+    if (destinationMember && (guild.ownerId === destination.id || !destinationMember.manageable))
+      throw new Error(`${clean(guild.name, 80)} places the replacement account at or above the bot. Nothing was changed.`);
+    if (!destinationMember && await guild.bans.fetch(destination.id).catch(() => null))
+      throw new Error(`${mention(destination.id)} is banned from ${clean(guild.name, 80)}. Unban it before transferring.`);
+    plans.push({
+      guild,
+      sourceMember,
+      destinationMember,
+      sourceRoles,
+      sourceNickname: sourceMember.nickname,
+      destinationRoles: destinationMember
+        ? destinationMember.roles.cache.filter((role) => role.id !== guild.id && !role.managed).map((role) => role.id)
+        : [],
+      destinationNickname: destinationMember?.nickname || null,
+      joined: false,
+      removed: false,
+    });
+  }
+
+  const needsJoin = plans.some((plan) => !plan.destinationMember);
+  const accessToken = needsJoin ? await oauthJoinToken(db, destination.id) : null;
+  if (needsJoin && !accessToken)
+    throw new Error(`${mention(destination.id)} must use the verification page again to authorize direct server joins. Nothing was changed.`);
+
+  if (accountTransferInFlight.has(source.id) || accountTransferInFlight.has(destination.id))
+    throw new Error("One of those accounts is already part of an account transfer. Try again after it finishes.");
+  accountTransferInFlight.add(source.id);
+  accountTransferInFlight.add(destination.id);
+  let counts = {};
+  try {
+    for (const plan of plans) {
+      if (plan.destinationMember) continue;
+      const joined = await addAuthorizedGuildMember(plan.guild, destination, accessToken);
+      if (joined.state !== "joined")
+        throw new Error(
+          joined.state === "banned"
+            ? `${mention(destination.id)} is banned from ${clean(plan.guild.name, 80)}.`
+            : `Discord authorization could not add ${mention(destination.id)} to ${clean(plan.guild.name, 80)}.`,
+        );
+      plan.destinationMember = joined.member;
+      plan.joined = true;
+    }
+
+    await db.transaction(async (query) => {
+      // Recheck while locked into the actual mutation window. The command's
+      // normal preflight gives the useful names; this prevents a race.
+      const race = await destinationAccountConflicts(query, destination.id);
+      if (race.length) throw new Error(`The replacement account changed during preflight (${race.join(", ")}).`);
+      counts = await transferAccountData(query, source.id, destination.id);
+      for (const plan of plans) {
+        const wanted = [...new Set([...plan.destinationRoles, ...plan.sourceRoles])];
+        await setMemberRoleSnapshot(
+          plan.destinationMember,
+          wanted,
+          `/global transfer from ${source.tag} by ${i.user.tag}: ${reason}`,
+        );
+        if (plan.destinationMember.nickname !== plan.sourceNickname)
+          await plan.destinationMember.setNickname(plan.sourceNickname, `/global transfer from ${source.tag} by ${i.user.tag}`);
+        const managed = plan.sourceMember.roles.cache.filter((role) => role.managed).map((role) => role.id);
+        await plan.sourceMember.roles.set(managed, `/global transfer to ${destination.tag} by ${i.user.tag}: ${reason}`.slice(0, 500));
+        if (plan.sourceMember.nickname)
+          await plan.sourceMember.setNickname(null, `/global transfer to ${destination.tag} by ${i.user.tag}`);
+      }
+    });
+  } catch (error) {
+    const rollbackFailures = [];
+    for (const plan of [...plans].reverse()) {
+      await setMemberRoleSnapshot(plan.sourceMember, plan.sourceRoles, "Florida Bay account-transfer rollback")
+        .catch((rollbackError) => rollbackFailures.push(`${plan.guild.name} old roles: ${rollbackError.message}`));
+      if (plan.sourceMember.nickname !== plan.sourceNickname)
+        await plan.sourceMember.setNickname(plan.sourceNickname, "Florida Bay account-transfer rollback")
+          .catch((rollbackError) => rollbackFailures.push(`${plan.guild.name} old nickname: ${rollbackError.message}`));
+      if (plan.joined) {
+        await plan.destinationMember.kick("Florida Bay account-transfer rollback")
+          .catch((rollbackError) => rollbackFailures.push(`${plan.guild.name} replacement removal: ${rollbackError.message}`));
+      } else {
+        await setMemberRoleSnapshot(plan.destinationMember, plan.destinationRoles, "Florida Bay account-transfer rollback")
+          .catch((rollbackError) => rollbackFailures.push(`${plan.guild.name} replacement roles: ${rollbackError.message}`));
+        if (plan.destinationMember.nickname !== plan.destinationNickname)
+          await plan.destinationMember.setNickname(plan.destinationNickname, "Florida Bay account-transfer rollback")
+            .catch((rollbackError) => rollbackFailures.push(`${plan.guild.name} replacement nickname: ${rollbackError.message}`));
+      }
+    }
+    await audit(i.user.id, "global.transfer.failed", source.id, {
+      destination: destination.id,
+      reason,
+      error: clean(error.message || error, 500),
+      rollbackFailures,
+    }).catch(() => {});
+    throw new Error(
+      rollbackFailures.length
+        ? `Transfer failed (${clean(error.message || error, 180)}). Database changes rolled back, but manual Discord repair is required: ${clean(rollbackFailures.join("; "), 450)}`
+        : `Transfer failed (${clean(error.message || error, 300)}). Every change was rolled back.`,
+    );
+  } finally {
+    accountTransferInFlight.delete(source.id);
+    accountTransferInFlight.delete(destination.id);
+  }
+
+  const syncWarnings = [];
+  for (const plan of plans) {
+    await plan.sourceMember.kick(`/global transfer to ${destination.tag} by ${i.user.tag}: ${reason}`.slice(0, 500))
+      .then(() => { plan.removed = true; })
+      .catch((error) => syncWarnings.push(`${plan.guild.name} old-account removal: ${error.message}`));
+  }
+  await syncUserAcrossNetwork(client, destination.id).catch((error) => syncWarnings.push(`replacement sync: ${error.message}`));
+  await reconcileManagementMembership(destination.id, i.user.id).catch((error) => syncWarnings.push(`management sync: ${error.message}`));
+  await refreshGame().catch((error) => syncWarnings.push(`game refresh: ${error.message}`));
+
+  const results = plans.map((plan) =>
+    `${plan.removed ? "✓" : "⚠️"} **${clean(plan.guild.name, 80)}** · ${plan.joined ? "joined replacement; " : ""}${plan.sourceRoles.length} role${plan.sourceRoles.length === 1 ? "" : "s"} moved; old account ${plan.removed ? "removed" : "left roleless"}`,
+  );
+  await audit(i.user.id, "global.transfer", source.id, {
+    destination: destination.id,
+    reason,
+    databaseRows: transferCount(counts),
+    tables: counts,
+    guilds: plans.map((plan) => ({ id: plan.guild.id, roles: plan.sourceRoles.length, joined: plan.joined, sourceRemoved: plan.removed })),
+    syncWarnings,
+  });
+  await log((await mainGuild()) || i.guild, {
+    title: "Account transfer completed",
+    color: syncWarnings.length ? COLORS.warning : COLORS.success,
+    actor: i.user.id,
+    target: source.id,
+    fields: [
+      ["Replacement account", who(destination.id)],
+      ["Reason", reason, false],
+      ["Database records moved", String(transferCount(counts))],
+      ["Servers", results.join("\n") || "Old account was not in a registered network server", false],
+      ...(syncWarnings.length ? [["Follow-up warnings", syncWarnings.map((warning) => `⚠️ ${clean(warning, 180)}`).join("\n"), false]] : []),
+    ],
+  }, "role_sync");
+  await source.send({ embeds: [embed("Florida Bay account transferred", `Your Florida Bay access and owned data were moved to ${mention(destination.id)} by ${mention(i.user.id)}.\n\n**Reason:** ${reason}`, COLORS.warning)] }).catch(() => {});
+  await destination.send({ embeds: [embed("Florida Bay account transfer complete", `The access and owned data from ${mention(source.id)} were moved to this account by ${mention(i.user.id)}.`, COLORS.success)] }).catch(() => {});
+  return card("Account transfer completed", {
+    color: syncWarnings.length ? COLORS.warning : COLORS.success,
+    description: `${mention(source.id)} was emptied and ${mention(destination.id)} received its Florida Bay server access, roles, ACE memberships, and person-owned records. Historical actor/audit attribution remains on the account that performed each action.`,
+    rows: [
+      ["Database records moved", String(transferCount(counts))],
+      ...chunkLines(results, 1000).map((value, index) => [`Servers${index ? ` (${index + 1})` : ""}`, value, false]),
+      ...(syncWarnings.length ? [["Warnings", syncWarnings.map((warning) => `⚠️ ${clean(warning, 180)}`).join("\n"), false]] : []),
+    ],
+    footer: "The old account's authorization and website sessions were revoked; they were never copied.",
+  });
+}
+
 async function globalCommand(i, sub) {
   if (sub === "nick") return globalNickname(i);
+  if (sub === "transfer") return globalAccountTransfer(i);
   if (sub === "rolestrip" || sub === "unrolestrip") return globalRoleStripCommand(i, sub);
   await requirePermission(i, GLOBAL_ACE[sub]);
   const reason = i.options.getString("reason");
@@ -3504,6 +3749,7 @@ async function globalCommand(i, sub) {
   if (member && !member.manageable) throw new Error("The member is above the bot, so their main-server roles cannot be removed.");
   await captureRoleRestoreSnapshots(user.id, i.user.id);
   blacklistPending.add(user.id);
+  blacklistInFlight.add(user.id);
   try {
     const results = [];
     if (member) {
@@ -3529,6 +3775,10 @@ async function globalCommand(i, sub) {
     });
   } finally {
     blacklistPending.delete(user.id);
+    blacklistInFlight.delete(user.id);
+    // The case now exists. Re-check the member so any role that slipped back during the blacklist is removed.
+    const again = await main.members.fetch(user.id).catch(() => null);
+    if (again) await enforceBlacklistRoles(again).catch((error) => console.error(`[FBRP global] blacklist re-check ${user.id}:`, error.message));
   }
 }
 
@@ -3756,7 +4006,7 @@ const COMMAND_PERMISSIONS = {
   invite: "Bot owner only (Discord ID 1090083387638812755)",
   join: "`fbrp.network.join`; `user:` needs `fbrp.network.join.others`",
   acelist: "`fbrp.perms.manage`",
-  global: "`fbrp.global.<action>` (warn, timeout, kick, ban, blacklist, unban, invite, restore, lookup); `/global rolestrip` and `/global unrolestrip` require Community Director+; moderated/restored targets must rank below you",
+  global: "`fbrp.global.<action>` (warn, timeout, kick, ban, blacklist, unban, invite, restore, lookup); account transfers require Assistant Community Director+; role strips require Community Director+; moderated/restored targets must rank below you",
   blacklist: "`fbrp.global.blacklist`; target must rank below you",
   blacklistedserver: "Co-Owner rank or higher",
   ticket: "Everyone; staff actions require `fbrp.tickets.support`",
@@ -4431,7 +4681,7 @@ function welcomePayload(guild) {
       ],
       [
         "🎮 Key controls",
-        "**M** vMenu · **F5** third-eye interactions · **F6** tags · **F7** garage · **K** vehicle panel · **F9** voice range · **G** engine · **B** seatbelt",
+        "**M** vMenu · **Left Alt** third-eye interactions · **F6** tags · **F7** garage · **K** vehicle panel · **F9** voice range · **G** engine · **B** seatbelt",
         false,
       ],
       [
@@ -4698,6 +4948,12 @@ client.once("clientReady", async () => {
       })
       .catch((error) => console.error(`[FBRP role bundle] ${guild.name}:`, error.message || error));
   }
+  await tebexFulfillment.reconcileAll()
+    .then((results) => {
+      if (results.some((result) => result.changed || result.pending))
+        console.log(`[FBRP Tebex] Reconciled ${results.length} active Discord entitlement(s).`);
+    })
+    .catch((error) => console.error("[FBRP Tebex] startup reconciliation:", error.message || error));
   // Bring the public site and portal online before the slower, network-wide
   // role reconciliation so a Discord outage cannot hold the website closed.
   await refreshSiteUrls().catch((error) => console.error("[FBRP bot] site url check:", error));
@@ -4735,6 +4991,7 @@ client.once("clientReady", async () => {
     personals,
     personalImporter,
     customAssets,
+    tebexFulfillment,
     log,
   });
   // Commands are registered per guild (instant updates) in every server the bot is in, plus any
@@ -4819,6 +5076,7 @@ client.once("clientReady", async () => {
     .catch((error) => console.error("[FBRP staff] Staff state sync:", error)), 600000).unref();
   client.user.setActivity("Florida Bay Roleplay");
   giveaways.start();
+  propertySetup.start();
   staffQueue.start();
 });
 
@@ -4864,6 +5122,14 @@ client.on("interactionCreate", async (i) => {
   }
   if (i.isButton() && i.customId.startsWith("giveaway:")) {
     await giveaways.component(i).catch((error) => console.error("[FBRP bot] giveaway button:", error));
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("propsetup:")) {
+    await propertySetup.component(i).catch(async (error) => {
+      console.error("[FBRP bot] property setup button:", error);
+      const body = { embeds: [embed("Could not update the property", clean(error.message || error, 500), COLORS.danger)], ephemeral: true };
+      await (i.replied || i.deferred ? i.followUp(body) : i.reply(body)).catch(() => {});
+    });
     return;
   }
   if (i.isStringSelectMenu() && i.customId.startsWith("gsync:")) return globalSyncServersComponent(i);
@@ -4963,12 +5229,14 @@ async function recordNativeDiscordBan(ban) {
 }
 
 client.on("guildMemberAdd", (member) => {
+  if (accountTransferInFlight.has(member.id)) return;
   void guardBot(member, securityLog)
     .then(async () => {
       // Security join alerts must run before verification/global enforcement can remove the member.
       if (member.user.bot || await guardJoin(member, securityLog) || await enforceGlobalOnJoin(member) || await enforceRoleStripRoles(member) || await enforceVerificationOnJoin(member)) return;
       await applyPendingRoleRestore(member);
       await syncMember(client, member);
+      if (member.guild.id === TEBEX_MAIN_GUILD_ID) await tebexFulfillment.reconcileMember(member.id);
     })
     .catch((error) => console.error("[FBRP bot] member add:", error));
 });
@@ -4997,6 +5265,7 @@ async function enforceUnverifiedMemberRoles(member) {
   return true;
 }
 client.on("guildMemberUpdate", (oldMember, newMember) => {
+  if (accountTransferInFlight.has(newMember.id)) return;
   chainOfCommand.scheduleRefresh(newMember.guild.id);
   void enforceProtectedRoles(oldMember, newMember, securityLog)
     .then(() => enforceBlacklistRoles(newMember))
@@ -5004,10 +5273,14 @@ client.on("guildMemberUpdate", (oldMember, newMember) => {
     .then((roleStripped) => roleStripped || enforceUnverifiedMemberRoles(newMember))
     .then(async (quarantined) => {
       if (quarantined) return true;
-      const bundle = await enforceRoleBundle(oldMember, newMember);
+      const isTebexGuild = newMember.guild.id === TEBEX_MAIN_GUILD_ID;
+      const bundle = await enforceRoleBundle(oldMember, newMember, {
+        preserve: isTebexGuild ? (roleId) => tebexFulfillment.hasActiveRole(newMember.id, roleId) : undefined,
+      });
       if (bundle.unavailable.length)
         console.warn(`[FBRP role bundle] ${newMember.guild.name}: unavailable roles ${bundle.unavailable.join(", ")}`);
       await syncMember(client, newMember, { alert: "live" });
+      if (isTebexGuild) await tebexFulfillment.reconcileMember(newMember.id);
       return false;
     })
     // A /coord hire or removal changes a sector coordination group, so push it to the other servers now.

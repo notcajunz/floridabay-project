@@ -1,12 +1,12 @@
--- Overhead identity: a large headtag with the server ID on the top line and the
+-- Overhead identity: a headtag with the server ID on the top line and the
 -- gang/organization tag underneath. Player names are never drawn.
 
 -- Match the reference tag treatment: GTA's clean proportional Chalet face
 -- with equal-size rank/ID and gang lines. Font 4 is the condensed Chalet face
 -- and reads much narrower/heavier than the reference.
-local TAG_FONT, TAG_SCALE = 0, 0.48
+local TAG_FONT, TAG_SCALE = 0, 0.38
 local HEAD_FONT, SUB_FONT = TAG_FONT, TAG_FONT
-local HEAD_SCALE, ID_SCALE, SUB_SCALE = TAG_SCALE, 0.46, TAG_SCALE
+local HEAD_SCALE, ID_SCALE, SUB_SCALE = TAG_SCALE, 0.36, TAG_SCALE
 local HEAD_BONE = 31086
 -- GTA has no HUD-text bold switch. A centered five-pass weight works for old
 -- and new database tags alike, including tags whose outline setting is off.
@@ -209,9 +209,10 @@ CreateThread(function()
         if not tagsHidden then
             for _,player in ipairs(GetActivePlayers()) do
                 local ped = GetPlayerPed(player)
-                if DoesEntityExist(ped) and not IsEntityDead(ped) and IsEntityVisible(ped) then
+                -- Never draw your own headtag, gangtag or ID; they are for everyone else.
+                if player ~= PlayerId() and DoesEntityExist(ped) and not IsEntityDead(ped) and IsEntityVisible(ped) then
                     local distance = #(origin - GetEntityCoords(ped))
-                    if distance <= maxDistance and (ped == mine or HasEntityClearLosToEntity(mine, ped, 17)) then
+                    if distance <= maxDistance and HasEntityClearLosToEntity(mine, ped, 17) then
                         local serverId = GetPlayerServerId(player)
                         local bag = Player(serverId).state
                         local head, gang = bag['fbrp:headtag'], bag['fbrp:gangtag']

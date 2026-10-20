@@ -11,6 +11,7 @@ local bulletproofModels = {} -- model hash -> true (models that only exist as a 
 local locked = {}            -- personal id -> true (locked by the DevOps team)
 local lockedModels = {}      -- model hash -> true
 local lastLockedTouch = 0
+local handlingByModel = {} -- model hash -> { signature, fields } from the vehicle's handling.meta on the server
 
 RegisterNetEvent('fbrp:personals:sync', function(data)
     data = type(data) == 'table' and data or {}
@@ -24,6 +25,71 @@ RegisterNetEvent('fbrp:personals:sync', function(data)
     locked, lockedModels = {}, {}
     for _, id in ipairs(data.locked or {}) do locked[tonumber(id)] = true end
     for _, model in ipairs(data.lockedModels or {}) do lockedModels[joaat(model)] = true end
+    handlingByModel = {}
+    for model, fields in pairs(type(data.handling) == 'table' and data.handling or {}) do
+        if type(fields) == 'table' then
+            local names = {}
+            for field in pairs(fields) do names[#names + 1] = field end
+            table.sort(names)
+            local parts = {}
+            for _, field in ipairs(names) do parts[#parts + 1] = field .. '=' .. tostring(fields[field]) end
+            handlingByModel[joaat(model)] = { signature = table.concat(parts, ';'), fields = fields }
+        end
+    end
+end)
+
+-- FiveM keeps the handling it loaded first for a model, so an edited handling.meta does not reach a vehicle
+-- on its own. Apply the server's current values to the vehicle the player is in. Fields stored in other
+-- units than the file (degrees as radians, km/h as m/s) are matched against what the game already holds,
+-- and a value that fits no known unit is skipped rather than risking a broken car.
+local UNITS = {
+    fSteeringLock = { 1.0, math.pi / 180.0 },
+    fTractionCurveLateral = { 1.0, math.pi / 180.0 },
+    fInitialDriveMaxFlatVel = { 1.0, 1.0 / 3.6 },
+    fInitialDragCoeff = { 1.0, 0.0001, 0.001 },
+}
+local tuned = {} -- vehicle -> signature last applied
+
+local function tuneVehicle(vehicle, entry)
+    for field, value in pairs(entry.fields) do
+        if field == 'nInitialDriveGears' then
+            SetVehicleHandlingInt(vehicle, 'CHandlingData', field, math.floor(value))
+            pcall(SetVehicleHighGear, vehicle, math.floor(value))
+        else
+            local target = value + 0.0
+            local units = UNITS[field]
+            if units and value ~= 0 then
+                local current = GetVehicleHandlingFloat(vehicle, 'CHandlingData', field)
+                target = nil
+                if current and current > 0 and value > 0 then
+                    local best
+                    for _, scale in ipairs(units) do
+                        local distance = math.abs(math.log(current / (value * scale)))
+                        if distance < 1.4 and (not best or distance < best.distance) then best = { distance = distance, scale = scale } end
+                    end
+                    if best then target = value * best.scale end
+                end
+            end
+            if target then SetVehicleHandlingFloat(vehicle, 'CHandlingData', field, target) end
+        end
+    end
+end
+
+CreateThread(function()
+    while true do
+        Wait(1000)
+        local vehicle = GetVehiclePedIsIn(PlayerPedId(), false)
+        if vehicle ~= 0 and DoesEntityExist(vehicle) then
+            local entry = handlingByModel[GetEntityModel(vehicle)]
+            if entry and tuned[vehicle] ~= entry.signature then
+                tuned[vehicle] = entry.signature
+                tuneVehicle(vehicle, entry)
+            end
+        end
+        for known in pairs(tuned) do
+            if not DoesEntityExist(known) then tuned[known] = nil end
+        end
+    end
 end)
 
 local function isLocked(vehicle)
@@ -129,11 +195,42 @@ end
 
 local hardened = {} -- vehicle handle -> true
 
+-- Every pane GTA tracks (front/rear doors, windscreens, extra and quarter glass).
+local WINDOWS = { 0, 1, 2, 3, 4, 5, 6, 7 }
+
+local function sealWindows(vehicle)
+    for _, window in ipairs(WINDOWS) do
+        if not IsVehicleWindowIntact(vehicle, window) then FixVehicleWindow(vehicle, window) end
+    end
+end
+
+-- Glass that is processed and unbreakable stops a bullet at the pane. Do NOT call
+-- SetDontProcessVehicleGlass: it removes the glass collision, so shots go straight through.
 local function harden(vehicle, on)
     setBulletProof(vehicle, on)
-    if SetDontProcessVehicleGlass then SetDontProcessVehicleGlass(vehicle, on) end
+    if SetDontProcessVehicleGlass then SetDontProcessVehicleGlass(vehicle, false) end
+    if SetVehicleWindowsCanBreak then SetVehicleWindowsCanBreak(vehicle, not on) end
+    SetVehicleCanBreak(vehicle, not on)
+    if on then sealWindows(vehicle) end
     hardened[vehicle] = on or nil
 end
+
+-- Backstop for any pane that still shatters (some window state does not replicate to every
+-- client): put the glass back every frame so no gap survives long enough to take a shot.
+CreateThread(function()
+    while true do
+        local any = false
+        for vehicle in pairs(hardened) do
+            if DoesEntityExist(vehicle) then
+                any = true
+                sealWindows(vehicle)
+            else
+                hardened[vehicle] = nil
+            end
+        end
+        Wait(any and 0 or 500)
+    end
+end)
 
 CreateThread(function()
     while true do

@@ -102,7 +102,7 @@ commands = ["email adduser", "email list", "email registrar", "email removeuser"
 mode = "inherit"
 users = []
 roles = []
-commands = ["coord activity", "coord add", "coord job", "coord remove", "coord update", "position remove", "position set"]
+commands = ["coord activity", "coord add", "coord job", "coord remove", "coord sync", "coord update", "position remove", "position set"]
 
 [access.categories.members]
 mode = "inherit"
@@ -123,8 +123,16 @@ roles = []
 commands = [
   "admin avatar", "admin info", "admin nick", "admin rolecheck", "admin username",
   "dm send", "embed edit", "embed get", "embed post",
+  "sticky list", "sticky remove", "sticky set",
   "permissions set", "permissions view", "role protection", "useradd", "userdel",
 ]
+
+[access.categories.badges]
+# Self-service /badge get is open to department members; the rest checks for high command inside the command.
+mode = "inherit"
+users = []
+roles = []
+commands = ["badge get", "badge layout", "badge list", "badge preview", "badge remove", "badge upload"]
 
 [access.categories.public_help]
 mode = "inherit"

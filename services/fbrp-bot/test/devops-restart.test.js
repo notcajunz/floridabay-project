@@ -29,3 +29,15 @@ test("restart command exposes only fixed FBRP service targets", () => {
     if (target.manager) assert.match(target.manager, /^(?:game|system)$/);
   }
 });
+
+test("the main bot restarts through a path trigger, not sudo, and the units ship in deploy/", async () => {
+  const fs = await import("node:fs");
+  const { SYSTEM_RESTART_TRIGGERS } = await import("../src/devops/restart.js");
+  const source = fs.readFileSync(new URL("../src/devops/restart.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /\/usr\/bin\/sudo", \n?\s*prefix|file = "\/usr\/bin\/sudo"/);
+  assert.deepEqual(Object.keys(SYSTEM_RESTART_TRIGGERS), ["fbrp-bot.service"]);
+  const deploy = (name) => fs.readFileSync(new URL(`../../../deploy/${name}`, import.meta.url), "utf8");
+  assert.match(deploy("fbrp-main-restart.path"), /PathChanged=\/run\/fbrp-restart\/main/);
+  assert.match(deploy("fbrp-main-restart.service"), /ExecStart=\/usr\/bin\/systemctl restart fbrp-bot\.service$/m);
+  assert.match(deploy("fbrp-restart.tmpfiles.conf"), /^d \/run\/fbrp-restart 0700 ubuntu ubuntu -$/m);
+});

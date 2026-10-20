@@ -16,6 +16,11 @@ export GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1
 env_file="$root/services/fbrp-bot/.env"
 config_dir="$root/.sync"            # never committed (see .gitignore)
 mkdir -p "$config_dir"; chmod 700 "$config_dir"
+# The backup lives on its own branch, built from a private index. It never touches the live checkout's
+# branch, index or working tree, so a sync can not make /home/ubuntu/fbrp diverge from origin/main and
+# block (or conflict with) a deployment.
+sync_ref=refs/heads/fbrp-sync
+export GIT_INDEX_FILE="$config_dir/sync.index"
 
 envval() { # read VAR from the environment, else from the bot .env
   local name="$1" current="${!1:-}"
@@ -27,7 +32,7 @@ GITHUB_REPO="$(envval GITHUB_REPO)"
 started="$(date -u +%FT%TZ)"
 result() { # ok message pushed
   local ok="$1" message="$2" pushed="$3" commit
-  commit="$(git rev-parse --short HEAD 2>/dev/null || true)"
+  commit="$(git rev-parse --short "$sync_ref" 2>/dev/null || true)"
   printf '{"at":"%s","ok":%s,"pushed":%s,"commit":"%s","repo":"%s","message":%s}\n' \
     "$started" "$ok" "$pushed" "$commit" "$GITHUB_REPO" "$(printf '%s' "$message" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')" > "$config_dir/status.json"
   echo "RESULT $(cat "$config_dir/status.json")"
@@ -105,6 +110,8 @@ fi
 } > "$snap/RESTORE-INFO.txt"
 
 # ---- guard: never commit a known secret in plain text -------------------------------------------
+if git rev-parse -q --verify "$sync_ref" >/dev/null; then base_ref="$sync_ref"; else base_ref=HEAD; fi
+git read-tree "$base_ref" 2>/dev/null || rm -f "$GIT_INDEX_FILE"
 git add -A >/dev/null 2>&1
 leaks=""
 secret_values="$config_dir/secret-values.tmp"
@@ -141,24 +148,27 @@ rm -f "$secret_values"
 pattern='[MN][A-Za-z0-9]{23,27}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}|discord(app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|cfxk_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}'
 leaks="$(printf '%s\n%s' "$leaks" "$(git grep --cached -l -I -E "$pattern" -- . ':!snapshots' ':!*/node_modules/*' 2>/dev/null | head -5)" | sed '/^$/d' | sort -u)"
 if [[ -n "$leaks" ]]; then
-  git reset -q
+  rm -f "$GIT_INDEX_FILE"
   fail "refusing to commit: secrets found in plain text in: $(echo "$leaks" | paste -sd, - | sed 's/,/, /g')"
 fi
 
 # ---- commit -----------------------------------------------------------------------------------
-if git diff --cached --quiet; then
+tree="$(git write-tree)" || fail "git write-tree failed"
+if [[ "$(git rev-parse "$base_ref^{tree}" 2>/dev/null)" == "$tree" ]]; then
   changed=false
   echo "No changes to commit."
+  git update-ref "$sync_ref" "$(git rev-parse "$base_ref")"
 else
   changed=true
-  count="$(git diff --cached --name-only | wc -l)"
-  git commit -q -m "Project sync $(date -u +%FT%TZ) (${count} files)" || fail "git commit failed"
-  echo "Committed $count changed files as $(git rev-parse --short HEAD)."
+  count="$(git diff --name-only "$base_ref" "$tree" | wc -l)"
+  commit_id="$(git commit-tree "$tree" -p "$(git rev-parse "$base_ref")" -m "Project sync $(date -u +%FT%TZ) (${count} files)")" || fail "git commit failed"
+  git update-ref "$sync_ref" "$commit_id"
+  echo "Committed $count changed files as $(git rev-parse --short "$sync_ref")."
 fi
 
 # ---- push -------------------------------------------------------------------------------------
 if [[ -z "$GITHUB_TOKEN" || -z "$GITHUB_REPO" ]]; then
-  result true "Saved locally ($(git rev-parse --short HEAD)). Add GITHUB_TOKEN and GITHUB_REPO to services/fbrp-bot/.env to push to GitHub." false
+  result true "Saved locally ($(git rev-parse --short "$sync_ref")). Add GITHUB_TOKEN and GITHUB_REPO to services/fbrp-bot/.env to push to GitHub." false
   exit 0
 fi
 [[ "$GITHUB_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail "GITHUB_REPO must look like owner/name"
@@ -177,8 +187,8 @@ fi
 [[ "$(python3 -c 'import json;print(json.load(open("'"$config_dir"'/repo.json")).get("private"))')" == "True" ]] || fail "refusing to push: $GITHUB_REPO is not private"
 
 auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
-if git -c credential.helper= -c "http.extraheader=Authorization: Basic $auth" push -q "https://github.com/$GITHUB_REPO.git" HEAD:main 2> "$config_dir/push.err"; then
-  result true "Synced to github.com/$GITHUB_REPO at $(git rev-parse --short HEAD)." true
+if git -c credential.helper= -c "http.extraheader=Authorization: Basic $auth" push -q "https://github.com/$GITHUB_REPO.git" "$sync_ref:refs/heads/main" 2> "$config_dir/push.err"; then
+  result true "Synced to github.com/$GITHUB_REPO at $(git rev-parse --short "$sync_ref")." true
 else
   fail "push failed: $(sed -E 's#(https://)[^@/]*@#\1***@#' "$config_dir/push.err" | head -c 300)"
 fi

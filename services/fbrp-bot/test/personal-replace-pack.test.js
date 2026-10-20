@@ -20,7 +20,7 @@ globalThis.fetch = async (url, options) => {
   const name = JSON.parse(options.body).text.format.name;
   const answer = name === "vehicle_security_review"
     ? { verdict: "safe", summary: "Only game assets.", findings: [], repairs: [] }
-    : { label: "New Car", summary: "Installed.", notes: [], edits: [] };
+    : { label: "New Car", summary: "Installed.", notes: [], edits: [], liveries: [], vehicleType: "leo", vehicleTypeReason: "Police markings and emergency metadata." };
   return new Response(JSON.stringify({ output: [{ content: [{ type: "output_text", text: JSON.stringify(answer) }] }] }), { status: 200 });
 };
 
@@ -61,11 +61,13 @@ await writeFile(path.join(resource, ".fbrp-import.json"), JSON.stringify({ model
 
 const audits = [];
 const queries = [];
+const updates = [];
 const importer = createPersonalImporter({
   personals: {
     assertManager: async (id) => { if (id !== "manager") throw new Error("Only the designated personal-vehicle manager can do that."); },
     find: async () => ({ id: 7, model: "oldcar" }),
     modelOf: (value) => String(value).toLowerCase(),
+    update: async (_actor, input) => { updates.push(input); return { id: input.id, model: "oldcar", emergencyClass: input.emergencyClass }; },
   },
   audit: async (...args) => { audits.push(args); },
   db: { query: async (sql, params) => { queries.push([sql, params]); return { affectedRows: 2 }; } },
@@ -96,6 +98,7 @@ test("replacing installs the new pack under the personal's own model and keeps a
   assert.equal(backups.length, 1);
   assert.deepEqual((await readdir(path.join(dir, backups[0], "stream"))).sort(), ["leftover.ydr", "oldcar.yft"]);
   assert.ok(audits.some(([, action]) => action === "personal.replace_pack"));
+  assert.deepEqual(updates.at(-1), { id: 7, emergencyClass: "leo" });
   // Liveries added to the old files are gone with them, and the result says so.
   assert.deepEqual(queries.at(-1), ["DELETE FROM personal_liveries WHERE personal_id=?", [7]]);
   assert.ok(result.notes.some((note) => /2 livery bundles on the old files were removed/.test(note)));
@@ -115,7 +118,7 @@ test("a resource that was not made by the importer is never overwritten", async 
   await mkdir(other);
   await writeFile(path.join(other, "fxmanifest.lua"), "fx_version 'cerulean'\n");
   const handmade = createPersonalImporter({
-    personals: { assertManager: async () => {}, find: async () => ({ id: 8, model: "handmade" }), modelOf: (value) => String(value).toLowerCase() },
+    personals: { assertManager: async () => {}, find: async () => ({ id: 8, model: "handmade" }), modelOf: (value) => String(value).toLowerCase(), update: async () => {} },
     audit: async () => {},
     db: {},
   });

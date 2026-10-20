@@ -164,7 +164,7 @@ RegisterNetEvent('fbrp:economy:taskApproved', function(key, ms, scenario, label)
     end
 end)
 
--- Where a property's prompts are drawn: only spots placed by hand with /propset.
+-- Where a property's prompts are drawn: only spots placed in the property setup menu.
 local SPOT_STYLE = {
     terminal = { color = { 63, 227, 210 }, icon = 21 },
     bar = { color = { 255, 105, 180 }, icon = 21 },
@@ -386,6 +386,7 @@ RegisterNetEvent('fbrp:economy:wear', function(data, label)
     local model = GetEntityModel(ped)
     local set = model == joaat('mp_f_freemode_01') and (data and data.female) or (model == joaat('mp_m_freemode_01') and data and data.male) or nil
     if not set then return notify('That outfit only fits the freemode characters.', 'error') end
+    TriggerEvent('fbrp:appearanceChanged')
     for component, value in pairs(set.components or {}) do
         if type(value) == 'table' then SetPedComponentVariation(ped, tonumber(component), tonumber(value[1]) or 0, tonumber(value[2]) or 0, 0) end
     end

@@ -30,8 +30,14 @@ channels, and cooldowns instead of parole.
   coordinator sections.
 - `/coord add|remove|job` hire, promote, demote and assign positions, logged to
   Admin Section / admin-movements.
+- `/coord add|remove|job` also keep the **Department Coordination spreadsheet** up to date (see below).
+- `/badge` makes department ID badges, one picture per rank (see below).
+- `/sticky` keeps an embed as the newest message of a channel; `/embed post|edit` open a pop-up form
+  (edit comes pre-filled with the embed's current title, text, colour, footer and image).
+- Setting a department to **Launched** archives its email database tab and closes every `/email`
+  command for it.
 - Member punishments, delegated role management, protected roles, temporary
-  roles, permission overrides, embeds, DMs, and member/server/channel logs.
+  roles, permission overrides, DMs, and member/server/channel logs.
 
 ## Access
 
@@ -90,3 +96,53 @@ with access set to Anyone). `/email adduser` and `/email removeuser` post an App
 `/dept add` also creates the department's tab and `/dept remove` archives it (the Launch Group role,
 `launch_group_role_id`, may run both). The bot reports registered members' hub roles to the sheet
 every 15 minutes so access follows roles.
+
+## Coordinator roster spreadsheet
+
+`/coord add`, `/coord remove` and `/coord job` fill in the **FBRP | Department Coordination** sheet
+(`roster_spreadsheet_id` in `config.toml`). The bot signs in with a Google service account
+(`GOOGLE_SERVICE_ACCOUNT_FILE` in `.env`); share the sheet with that account's email as an **Editor**.
+
+- **Master Roster**: a hire writes the Discord ID and the person's in-game name (from the Employee
+  Database, else their server name) into the first free slot of their rank's block. A full block gets a
+  new row. A promotion or demotion moves them. A removal empties the slot and puts the sheet's own
+  Discord ID lookup formula back. `[bot.roster_rank_labels]` maps ladder ranks whose sheet wording differs.
+- **Employee Database** (when the person has a row there): Movement Date on every rank change, Hired
+  Date and Activity `Active` on a hire when blank, Activity `Resigned` or `Terminated` on a removal, and
+  the job checkboxes for `/coord job`.
+- **Always in step with Discord:** every 30 minutes (and on `/coord sync`) the bot compares the sheet with
+  who holds each coordinator rank role and job role. It adds missing people, moves anyone in the wrong rank
+  block, and empties rows of people with no rank (more than 3 such rows in an automatic run is treated as a
+  bad read and left alone; `/coord sync` clears them). Names already on the sheet are never overwritten, rows
+  with a name but no resolvable Discord ID are left alone, and job checkboxes are only ticked, never
+  unticked (leadership rows tick every job on purpose).
+
+A sheet problem never fails the command: the reply ends with a "Roster sheet: ..." line saying what
+changed or why it could not.
+
+## Badges
+
+Badges are stored with the department's FBRP organization (so the department must be linked with
+`/dept update org_id:`) and managed with the commands below or in the **Badges** tab of the orgs website.
+
+- **Only the callsign changes.** Names and ranks are printed on the template picture and never replaced.
+  Each rank has **its own badge picture** (with a sample callsign printed where the callsign goes: `5XX`,
+  `2A-14`, ...), plus one **Default badge** used by every rank that has no picture of its own. Pick the rank
+  in `/badge upload` (autocomplete), or on the website's Badges tab. Badges uploaded earlier by tier
+  (Supervisor, Low Command, High Command) keep working as a fallback until they are removed.
+- **Callsign shapes.** Normally `2A-14` (digit, letter, dash, two digits) or `AB-123` / `ABC-123` (two or three
+  letters, dash, three digits). The Department of Homefront Security is the exception: plain three-digit
+  numbers (`101`, `201`, `401`, set by its roster slots). Callsigns are tidied to upper case; an unusual shape
+  still renders but carries a warning. The text is sized so the longest normal callsign fits the space.
+- **The AI runs once, at upload.** `/badge upload` (or saving a new picture on the website) asks the lightest
+  ChatGPT vision model (`BADGE_AI_MODEL`, default `gpt-5.4-nano`, using the website bot's `OPENAI_API_KEY`) which
+  piece of text on the picture is the callsign. Small models cannot place boxes precisely, so the pixels do
+  that part: text lines are found locally and the model only says what each close-up is. The sample callsign is
+  then measured, curve-fitted for banners and erased from the stored picture (the untouched upload is kept).
+  Nothing runs the AI again; fine-tune the spot with `/badge layout` or by dragging it on the website.
+  Templates must be PNG (uploads are converted automatically).
+- `/badge get` renders your rank's badge with your callsign from the roster. High command can pass `member`,
+  `callsign` and `rank`.
+- High command (department head, high command role, coordinators): `/badge upload`, `layout`, `preview`,
+  `remove`, `list`; each takes the rank (or the default badge) as `badge`.
+- Rendering uses the bundled DejaVu Sans and Serif fonts (`deptbot/assets/fonts`) so the website preview matches.

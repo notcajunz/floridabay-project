@@ -60,6 +60,16 @@ test("removing the source role removes every held bundle role", async () => {
   assert.deepEqual(calls, [{ action: "remove", ids: [...BUNDLE_ROLE_IDS] }]);
 });
 
+test("removing Founder preserves roles still backed by Tebex entitlements", async () => {
+  const calls = [];
+  const oldMember = member([BUNDLE_SOURCE_ROLE_ID, ...BUNDLE_ROLE_IDS]);
+  const newMember = member(BUNDLE_ROLE_IDS, calls);
+  const preserved = new Set([BUNDLE_ROLE_IDS[1], BUNDLE_ROLE_IDS[4]]);
+  const result = await enforceRoleBundle(oldMember, newMember, { preserve: async (id) => preserved.has(id) });
+  assert.equal(result.changed, BUNDLE_ROLE_IDS.length - preserved.size);
+  assert.deepEqual(calls[0].ids, BUNDLE_ROLE_IDS.filter((id) => !preserved.has(id)));
+});
+
 test("bundle-generated role updates do not recurse", async () => {
   const calls = [];
   const before = member([BUNDLE_SOURCE_ROLE_ID]);

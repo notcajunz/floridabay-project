@@ -2,7 +2,7 @@
  * Custom EUP packaging rules (pure functions, no I/O).
  *
  * FiveM clothing is found by file name. A freemode pack names its files
- *   <ped>_<dlc>^<component>_<nnn>_<u|r>.ydd         drawable
+ *   <ped>_<dlc>^<component>_<nnn>_<u|r>.ydd         drawable (a trailing _1 marks its first-person alternate)
  *   <ped>_<dlc>^<component>_diff_<nnn>_<a-z>_<race>.ytd   texture
  *   <ped>_<dlc>^p_<prop>_<nnn>.ydd / p_<prop>_diff_<nnn>_<a-z>.ytd   props
  *   <ped>_<dlc>.ymt                               creature metadata of the pack
@@ -23,7 +23,7 @@ const PROP = PROPS.join("|");
 /** Name patterns in lower case. `pre` is the optional `<ped>[_<dlc>]^` prefix, captured as ped and dlc. */
 const PREFIX = `(?:(${PED})(?:_([a-z0-9_]+?))?\\^)?`;
 const SHAPES = [
-  { kind: "drawable", re: new RegExp(`^${PREFIX}(${COMP})_(\\d{3})_([ur])(_hi)?\\.ydd$`), pick: (m) => ({ comp: m[3], index: Number(m[4]), variant: m[5] }) },
+  { kind: "drawable", re: new RegExp(`^${PREFIX}(${COMP})_(\\d{3})_([ur])(_hi)?(_1)?\\.ydd$`), pick: (m) => ({ comp: m[3], index: Number(m[4]), variant: m[5], alt: Boolean(m[7]) }) },
   { kind: "texture", re: new RegExp(`^${PREFIX}(${COMP})_diff_(\\d{3})_([a-z])_([a-z]{3})\\.ytd$`), pick: (m) => ({ comp: m[3], index: Number(m[4]), variant: m[5] }) },
   { kind: "prop", re: new RegExp(`^${PREFIX}(${PROP})_(\\d{3})(_hi)?\\.ydd$`), pick: (m) => ({ comp: m[3], index: Number(m[4]), variant: "" }) },
   { kind: "proptexture", re: new RegExp(`^${PREFIX}(${PROP})_diff_(\\d{3})_([a-z])\\.ytd$`), pick: (m) => ({ comp: m[3], index: Number(m[4]), variant: m[5] }) },
@@ -53,7 +53,10 @@ export function classify(rel) {
     if (!m) continue;
     const picked = shape.pick(m);
     const ped = m[1] || null;
-    return { kind: shape.kind, ped, dlc: m[2] || null, style: ped ? (m[2] ? "dlc" : "replace") : "bare", ...picked, hi: shape.kind !== "texture" && shape.kind !== "proptexture" && /_hi\.ydd$/.test(lower), name, rel: path };
+    // Props ship as <ped>_p_<dlc>^p_head_000.ydd: the p_ marks the prop file set, the pack is still <dlc>.
+    const propSet = (shape.kind === "prop" || shape.kind === "proptexture") && /^p_[a-z0-9_]+$/.test(m[2] || "");
+    const dlc = propSet ? m[2].slice(2) : m[2] || null;
+    return { kind: shape.kind, ped, dlc, style: ped ? (dlc ? "dlc" : "replace") : "bare", ...picked, hi: shape.kind !== "texture" && shape.kind !== "proptexture" && /_hi\.ydd$/.test(lower), name, rel: path };
   }
   return { kind: "other", name, rel: path };
 }
@@ -85,7 +88,7 @@ export function analyze(files) {
     if (!groups.has(key)) groups.set(key, { ped: entry.ped, dlc: entry.dlc || null, style: entry.dlc ? "dlc" : "replace", drawables: 0, textures: 0, props: 0, ymt: false, entries: [] });
     const group = groups.get(key);
     group.entries.push(entry);
-    if (entry.kind === "drawable") group.drawables++;
+    if (entry.kind === "drawable") { if (!entry.alt) group.drawables++; }
     else if (entry.kind === "texture") group.textures++;
     else if (entry.kind === "prop" || entry.kind === "proptexture") group.props++;
     else if (entry.kind === "ymt") group.ymt = true;
@@ -247,4 +250,22 @@ export function slotSummary(entries) {
   return [...map.values()]
     .map(({ indices, ...row }) => ({ ...row, items: indices.size, first: indices.size ? Math.min(...indices) : null, last: indices.size ? Math.max(...indices) : null }))
     .sort((a, b) => a.ped.localeCompare(b.ped) || Number(Boolean(a.prop)) - Number(Boolean(b.prop)) || a.slot - b.slot);
+}
+
+/**
+ * One row per clothing piece: a drawable (or prop) number in a slot of a ped, with how many textures it has, whether it
+ * has a first-person alternate and how big its files are. This is what the portal lists for each pack.
+ */
+export function eupPieces(entries) {
+  const map = new Map();
+  for (const e of entries) {
+    if (!["drawable", "texture", "prop", "proptexture"].includes(e.kind) || !e.ped || !SLOTS[e.comp]) continue;
+    const key = `${e.ped}|${e.dlc || ""}|${e.comp}|${e.index}`;
+    if (!map.has(key)) map.set(key, { ped: e.ped, dlc: e.dlc || null, comp: e.comp, slot: SLOTS[e.comp].slot, label: SLOTS[e.comp].label, prop: Boolean(SLOTS[e.comp].prop), index: e.index, textures: 0, alternate: false, bytes: 0 });
+    const piece = map.get(key);
+    piece.bytes += Number(e.size) || 0;
+    if (e.kind === "texture" || e.kind === "proptexture") piece.textures++;
+    else if (e.alt) piece.alternate = true;
+  }
+  return [...map.values()].sort((a, b) => a.ped.localeCompare(b.ped) || Number(a.prop) - Number(b.prop) || a.slot - b.slot || a.index - b.index);
 }

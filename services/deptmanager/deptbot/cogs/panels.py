@@ -13,14 +13,12 @@ from discord.ext import commands, tasks
 from ..common import DeptCog, without_embed_emojis
 from ..constants import COORDINATOR_RANKS, DEPARTMENT_CATEGORIES
 from ..fbrp_api import FbrpApi, FbrpApiError
-from ..role_policy import format_hours_line
 from ..services import duration
 
 log = logging.getLogger(__name__)
 
 KINDS = ("chain", "hours")
 HOURS_EVERY = 5  # minutes; each refresh calls the portal once per linked department
-TOP_MEMBERS = 10
 FIELD_LIMIT = 1024
 
 
@@ -206,7 +204,7 @@ class PanelsCog(DeptCog):
         return [build_chain_embed(guild, self.bot.config)]
 
     async def _hours_embeds(self, guild: discord.Guild) -> list[discord.Embed]:
-        """Department ranking by in-game duty hours, then one embed per department with its top members."""
+        """Department vs department ranking by in-game duty hours, in a single embed."""
         days = self.bot.config.hours_days
         rows = await self.db.fetch_all(
             "SELECT * FROM departments WHERE guild_id=? AND hide_leaderboard=0 AND status!='Closed'",
@@ -255,17 +253,5 @@ class PanelsCog(DeptCog):
                 inline=False,
             )
         summary.set_footer(text=f"Last {days} days of in-game duty • Updates every {HOURS_EVERY} minutes")
-        embeds = [summary]
-        for rank, (row, data) in enumerate(results, 1):
-            embed = discord.Embed(
-                title=f"#{rank} · {row['name']}",
-                color=row["role_color"] or discord.Color.blurple(),
-            )
-            top = [format_hours_line(position, member) for position, member in enumerate(data["members"][:TOP_MEMBERS], 1)]
-            embed.description = "\n".join(top) or "No duty time recorded."
-            embed.set_footer(
-                text=f"{row['category']} · Org {row['fbrp_org_id']} · total {duration(int(data['totalSeconds']))} · last {days} days"
-            )
-            embeds.append(embed)
-        # Discord allows 10 embeds per message; one message per embed keeps edits simple.
-        return embeds[:25]
+        # Department vs department only: no per-department member embeds.
+        return [summary]

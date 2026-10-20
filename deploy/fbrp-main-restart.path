@@ -1,0 +1,11 @@
+[Unit]
+Description=Restart the main FBRP bot when the DevOps bot asks
+After=systemd-tmpfiles-setup.service
+
+[Path]
+# The DevOps bot (a hardened user service that cannot use sudo) writes this file.
+PathChanged=/run/fbrp-restart/main
+Unit=fbrp-main-restart.service
+
+[Install]
+WantedBy=multi-user.target

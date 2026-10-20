@@ -113,7 +113,7 @@ test("converting a pack finds its liveries with the AI and adding the personal l
     const body = JSON.parse(options.body);
     const answer = body.text.format.name === "vehicle_security_review"
       ? { verdict: "safe", summary: "Only game assets.", findings: [], repairs: [] }
-      : (seen.push(JSON.parse(body.input)), { label: "Wagon", summary: "Installed.", notes: [], edits: [], liveries: [
+      : (seen.push(JSON.parse(body.input)), { label: "Wagon", summary: "Installed.", notes: [], edits: [], vehicleType: "leo", vehicleTypeReason: "The pack declares police emergency lighting.", liveries: [
         { label: "Blue Stripe", source: "WAGON_LIVERY_BLUE" },
         { label: "Red Wrap", source: "wagon_livery_red.ytd" },
         { label: "Made up", source: "nothing.ytd" },
@@ -134,6 +134,9 @@ test("converting a pack finds its liveries with the AI and adding the personal l
 
     // The AI was shown the evidence, and only evidence-backed liveries came back.
     assert.deepEqual(seen[0].liveryEvidence, { names: ["WAGON_LIVERY_BLUE", "WAGON_LIVERY_2"], files: ["wagon_livery_red.ytd"], enabledSlots: 2 });
+    assert.ok(seen[0].emergencyMetadata.some((entry) => /carvariations\.meta/.test(entry)));
+    assert.equal(result.vehicleType, "leo");
+    assert.match(result.vehicleTypeReason, /police emergency lighting/);
     assert.deepEqual(result.liveries, [
       { label: "Blue Stripe", source: "WAGON_LIVERY_BLUE", kind: "meta" },
       { label: "Red Wrap", source: "wagon_livery_red.ytd", kind: "file" },
@@ -155,10 +158,11 @@ test("converting a pack finds its liveries with the AI and adding the personal l
         return { affectedRows: 0 };
       },
     };
-    personalsDb.one = async (sql) => (/FROM personal_vehicles WHERE id=/.test(sql) ? { id: 21, model: "wagon", label: "Wagon", plate: null, owner_id: "123456789012345678", enabled: 1, bulletproof: 0, locked: 0, created_at: 1 } : null);
+    personalsDb.one = async (sql) => (/FROM personal_vehicles WHERE id=/.test(sql) ? { id: 21, model: "wagon", label: "Wagon", plate: null, owner_id: "123456789012345678", enabled: 1, bulletproof: 0, emergency_class: "leo", locked: 0, created_at: 1 } : null);
     const personals = createPersonals({ db: personalsDb, audit: async () => {} });
-    const created = await personals.create((await import("../src/access-control.js")).OWNER_DISCORD_ID, { model: "wagon", label: "Wagon", ownerId: "123456789012345678" });
+    const created = await personals.create((await import("../src/access-control.js")).OWNER_DISCORD_ID, { model: "wagon", label: "Wagon", ownerId: "123456789012345678", emergencyClass: result.vehicleType });
     assert.equal(created.model, "wagon");
+    assert.equal(created.emergencyClass, "leo");
     assert.deepEqual(inserted, ["Blue Stripe", "Red Wrap", "Livery 2"]);
   } finally {
     globalThis.fetch = realFetch;

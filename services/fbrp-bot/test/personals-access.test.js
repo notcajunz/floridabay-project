@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPersonals, PERSONALS_MANAGER_ID } from "../src/personals.js";
+import { createPersonals, emergencyClassOf, PERSONALS_MANAGER_ID } from "../src/personals.js";
+
+test("personal emergency classes are normalized and restricted", () => {
+  assert.equal(emergencyClassOf("LEO"), "leo");
+  assert.equal(emergencyClassOf(""), "civilian");
+  assert.throws(() => emergencyClassOf("military"), /Vehicle type must be/);
+});
 
 const forbiddenDb = new Proxy({}, {
   get() {

@@ -1,0 +1,17 @@
+# Florida Bay Tebex storefront. The DNS A/AAAA record must point to the control
+# VPS before Caddy can obtain its certificate.
+store.floridabay.net {
+	encode zstd gzip
+	request_body {
+		max_size 1MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8080
+}

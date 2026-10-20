@@ -179,8 +179,18 @@ function SkyPhoneFocus.Resolve(state)
         return { block_game = false, block_look = false, cursor = false, focused = true, game_input = true, keep_input = true }
     end
     if state.camera_active then
-        -- Forward controls so disabled inputs remain readable while the NUI cursor owns focus.
-        return { block_game = true, block_look = true, cursor = true, focused = true, game_input = false, keep_input = true }
+        -- Florida Bay: the cursor stays on the camera UI, but walking, driving and
+        -- every other non-look control keep working; only mouse look is held back.
+        -- Typing in a text field still blocks game input so letters cannot move the ped.
+        local walk = allows_game_input(state) and not state.text_input_focused
+        return {
+            block_game = not walk,
+            block_look = walk,
+            cursor = true,
+            focused = true,
+            game_input = walk,
+            keep_input = true,
+        }
     end
     -- Incoming alerts must not interrupt driving, even when phone movement is disabled.
     local notification_only = state.notification_focus

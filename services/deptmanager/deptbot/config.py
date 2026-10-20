@@ -88,6 +88,13 @@ class Config:
     # Lowest coordination rank that approves or denies email database access requests.
     email_approver_rank: str = "Senior Department Coordinator"
     launch_group_role_id: int = 0
+    # Department Coordination spreadsheet kept in step with /coord. Empty id disables the sync; the
+    # Google service account key file comes from GOOGLE_SERVICE_ACCOUNT_FILE in .env.
+    roster_spreadsheet_id: str = ""
+    roster_tab: str = "Master Roster"
+    roster_employee_tab: str = "Employee Database"
+    # Coordinator ladder rank -> the rank text in the roster's Rank column (same name when absent).
+    roster_rank_labels: dict[str, str] = field(default_factory=dict)
 
     def cooldown_role_id(self, kind: str, category: str) -> int:
         roles = self.transfer_cooldown_role_ids if kind == "Transfer" else self.resignation_cooldown_role_ids
@@ -263,4 +270,10 @@ class Config:
             position_breaks=tuple(str(v) for v in bot.get("position_breaks", [])),
             email_approver_rank=email_approver_rank,
             launch_group_role_id=channel("launch_group_role_id"),
+            roster_spreadsheet_id=str(bot.get("roster_spreadsheet_id", "")).strip(),
+            roster_tab=str(bot.get("roster_tab", "Master Roster")),
+            roster_employee_tab=str(bot.get("roster_employee_tab", "Employee Database")),
+            roster_rank_labels={
+                rank: str(bot.get("roster_rank_labels", {}).get(rank, rank)) for rank in COORDINATOR_RANKS
+            },
         )

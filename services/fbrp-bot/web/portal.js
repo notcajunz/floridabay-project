@@ -104,6 +104,7 @@ function avatar(url, name, size = "", seed = name) {
   return `<span class="av ${size}" style="--h:${hue(seed)}">${esc(initials(name))}${img}</span>`;
 }
 function person(id, fallbackName = "", { size = "av-sm", sub = null } = {}) {
+  if (id === "public") return `<span class="person">${avatar("", "Public", size, "public")}<div><b>Public</b><small>Free for everyone</small></div></span>`;
   const p = state.data.people?.[id];
   const name = p?.name || fallbackName || (id ? `User ${String(id).slice(-4)}` : "Unknown");
   const subline = sub ?? (p?.username ? `@${p.username}` : id || "");
@@ -806,19 +807,40 @@ function eupView() {
   const rows = d.eup.filter((p) => matches(query, p.label, p.name, p.notes));
   $("#portal-content").innerHTML = `
     <div class="toolbar">${searchBox("eup-q", "Search EUP packs")}<span style="flex:1"></span>${d.readOnly ? "" : `<button class="btn btn-sun" type="button" data-eup-new>${icon("plus")} Add EUP pack</button>`}</div>
-    ${d.readOnly ? `<div class="callout">${icon("shirt")}<div>These are the custom EUP packs you added. They are view only here. Ask a personal vehicle manager to replace, edit or remove one.</div></div>` : `<div class="callout">${icon("shirt")}<div>Upload a clothing or uniform pack as a <b>.zip</b>. It is security scanned, rebuilt as its own server resource and started live. The AI also checks the file names, renames and numbers them the way FiveM expects, writes a basic shop meta when one is missing and lists addon peds, so the clothing shows in the vMenu appearance menu. FiveM streams it to every player, so it cannot be limited to certain people. Players already online reconnect to see new clothing, and a pack that is already running reloads at the next server restart while anyone is online. Liveries for a personal vehicle are added from that vehicle's <b>Edit</b> dialog.</div></div>`}
+    ${d.readOnly ? `<div class="callout">${icon("shirt")}<div>These are the custom EUP packs you added. They are view only here (open <b>View pieces</b> to see every clothing piece in a pack). Ask a personal vehicle manager to replace, edit or remove one.</div></div>` : `<div class="callout">${icon("shirt")}<div>Upload a clothing or uniform pack as a <b>.zip</b>. It is security scanned, rebuilt as its own server resource and started live. The AI also checks the file names, renames and numbers them the way FiveM expects, writes a basic shop meta when one is missing and lists addon peds, so the clothing shows in the vMenu appearance menu. FiveM streams it to every player, so it cannot be limited to certain people. Players already online reconnect to see new clothing, and a pack that is already running reloads at the next server restart while anyone is online. Liveries for a personal vehicle are added from that vehicle's <b>Edit</b> dialog.</div></div>`}
     ${rows.length ? `<div class="personal-grid">${rows.map((p) => `<article class="card personal"><div class="personal-main">
-      <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.resource)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill">${p.files} file${p.files === 1 ? "" : "s"}</span><span class="pill">${mb(p.bytes)}</span></div></div>
+      <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.resource)}</span> · #${p.id}</p></div><div class="row-end">${p.pieces.length ? `<span class="pill">${p.pieces.length} piece${p.pieces.length === 1 ? "" : "s"}</span>` : ""}<span class="pill">${p.files} file${p.files === 1 ? "" : "s"}</span><span class="pill">${mb(p.bytes)}</span></div></div>
       ${p.notes ? `<div class="personal-section"><small>Notes</small><p>${esc(p.notes)}</p></div>` : ""}
       <div class="personal-section"><small>Added by</small>${person(p.created_by)}</div>
-      ${d.readOnly ? "" : `<div class="personal-actions">
-        <button class="btn btn-glass btn-sm" type="button" data-eup-replace="${p.id}">Replace pack</button>
+      <div class="personal-actions">
+        ${p.pieces.length ? `<button class="btn btn-glass btn-sm" type="button" data-eup-pieces="${p.id}">View pieces</button>` : ""}
+        ${d.readOnly ? "" : `<button class="btn btn-glass btn-sm" type="button" data-eup-replace="${p.id}">Replace pack</button>
         <button class="btn btn-ghost btn-sm" type="button" data-eup-edit="${p.id}">Edit</button>
-        <button class="btn btn-ghost btn-sm" type="button" data-eup-delete="${p.id}">Delete</button>
-      </div>`}</div></article>`).join("")}</div>` : `<section class="card">${empty(query ? "No packs match" : "No custom EUP yet", "Add a pack to get started.", "shirt")}</section>`}`;
+        <button class="btn btn-ghost btn-sm" type="button" data-eup-delete="${p.id}">Delete</button>`}
+      </div></div></article>`).join("")}</div>` : `<section class="card">${empty(query ? "No packs match" : "No custom EUP yet", "Add a pack to get started.", "shirt")}</section>`}`;
 }
 
 const eupById = (id) => state.data.customAssets?.eup.find((p) => String(p.id) === String(id));
+
+/** Every clothing piece of a pack: who wears it, which vMenu category lists it, its number and how many textures it has. */
+function eupPiecesDialog(id) {
+  const p = eupById(id);
+  if (!p) return;
+  const num = (n) => String(n).padStart(3, "0");
+  const rows = p.pieces.map((piece) => `<tr>
+    <td>${piece.ped === "mp_f_freemode_01" ? "Female" : "Male"}</td>
+    <td class="strong">${esc(piece.label)}</td>
+    <td><span class="mono">${esc(piece.comp)} ${num(piece.index)}</span></td>
+    <td>${piece.textures}</td>
+    <td>${piece.alternate ? "Yes" : "-"}</td>
+    <td>${piece.dlc ? `<span class="mono">${esc(piece.dlc)}</span>` : "Replaces base game"}</td>
+    <td>${piece.bytes ? mb(piece.bytes) : "-"}</td>
+  </tr>`).join("");
+  openDialog({ kicker: p.resource, title: `${p.label}: ${p.pieces.length} clothing piece${p.pieces.length === 1 ? "" : "s"}`, submit: "Close", tone: "btn-glass", action: "eup-pieces",
+    body: `<div class="personal-section"><small>Owner</small>${person(p.created_by)}</div>
+      <div class="table-wrap"><table class="tbl"><thead><tr><th>For</th><th>vMenu category</th><th>Slot and number</th><th>Textures</th><th>First-person alt</th><th>Pack name</th><th>Size</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="callout">${icon("info")}<div>Pieces belong to the pack, so they share its owner. Use Replace, Edit or Delete on the pack to manage them.</div></div>` });
+}
 
 function eupInstallDialog(id = null) {
   const p = id ? eupById(id) : null;
@@ -961,7 +983,7 @@ async function liveryAdd(button) {
 async function liveryRemove(button) {
   const id = Number(button.dataset.liveryRemove);
   const livery = state.data.customAssets?.liveries.find((l) => l.id === id);
-  if (!livery || !confirm(livery.builtin ? `Remove ${livery.label} from this vehicle's livery list? The vehicle files are not changed.` : `Remove the ${livery.label} livery? Files it replaced are put back.`)) return;
+  if (!livery || !await window.fbrpConfirm(livery.builtin ? `Remove ${livery.label} from this vehicle's livery list? The vehicle files are not changed.` : `Remove the ${livery.label} livery? Files it replaced are put back.`)) return;
   button.disabled = true;
   try {
     const response = await api("portal/livery/remove", { method: "POST", body: JSON.stringify({ id }) });
@@ -982,6 +1004,8 @@ function personalCardHtml(p, d) {
   const [viaLabel, viaTone] = PERSONAL_VIA[p.viewer] || PERSONAL_VIA.manage;
   const locked = new Set(p.tags.map((t) => t.id));
   const canLock = edit && !p.tags.length && p.trusted.length <= d.taggedLimit && (d.tags || []).some((t) => !locked.has(Number(t.id)));
+  const emergencyClass = p.emergencyClass || "civilian";
+  const emergency = PERSONAL_EMERGENCY[emergencyClass] || PERSONAL_EMERGENCY.civilian;
   const trusted = p.trusted.length
     ? `<div class="feed">${p.trusted.map((t) => `<div class="feed-row">${person(t.discord_id)}<div class="row-end">${edit ? `<button class="btn btn-ghost btn-sm" type="button" data-personal-untrust="${p.id}:${esc(t.discord_id)}">Remove</button>` : ""}</div></div>`).join("")}</div>`
     : `<p class="personal-none">Nobody yet.</p>`;
@@ -991,7 +1015,7 @@ function personalCardHtml(p, d) {
   return `<article class="card personal">
     <div class="personal-shot">${icon("car")}<img class="personal-img" src="https://docs.fivem.net/vehicles/${encodeURIComponent(String(p.model).toLowerCase())}.webp" alt="" loading="lazy" referrerpolicy="no-referrer"></div>
     <div class="personal-main">
-      <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.model)}</span> · plate <span class="mono">${esc(p.plate)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill${viaTone ? ` pill-${viaTone}` : ""}">${viaLabel}</span>${p.bulletproof ? `<span class="pill" title="Bullets cannot break the glass or hit anyone inside. Nobody inside can shoot out.">${icon("shield")} Bulletproof</span>` : ""}${p.enabled ? "" : '<span class="pill pill-bad">Disabled</span>'}${p.locked ? `<span class="pill pill-bad" title="Locked by the DevOps team. It cannot be spawned and despawns when anyone tries to use it.">${icon("alert")} Locked</span>` : ""}</div></div>
+      <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.model)}</span> · plate <span class="mono">${esc(p.plate)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill${viaTone ? ` pill-${viaTone}` : ""}">${viaLabel}</span>${emergencyClass !== "civilian" ? `<span class="pill" title="Emergency controls: Q for lights; 1, 2, or 3 for siren tones.">${icon("alert")} ${esc(emergency.label)}</span>` : `<span class="pill plain">${esc(emergency.label)}</span>`}${p.bulletproof ? `<span class="pill" title="Bullets cannot break the glass or hit anyone inside. Nobody inside can shoot out.">${icon("shield")} Bulletproof</span>` : ""}${p.enabled ? "" : '<span class="pill pill-bad">Disabled</span>'}${p.locked ? `<span class="pill pill-bad" title="Locked by the DevOps team. It cannot be spawned and despawns when anyone tries to use it.">${icon("alert")} Locked</span>` : ""}</div></div>
       <div class="personal-section"><small>Owner</small>${person(p.owner_id)}</div>
       <div class="personal-section"><small>Trusted drivers · ${p.trusted.length} of ${trustLimit}</small>${trusted}</div>
       <div class="personal-section"><small>Locked to tag <span>(everyone holding the tag can use it)</span></small>${tags}</div>
@@ -1069,7 +1093,7 @@ function personalsView() {
   const query = filter("personal-q");
   const name = (id) => state.data.people?.[id]?.name || "";
   const source = scope === "all" && d.all ? d.all : d.mine;
-  const rows = source.filter((p) => matches(query, p.label, p.model, p.plate, p.id, name(p.owner_id), p.owner_id, ...p.trusted.map((t) => name(t.discord_id)), ...p.tags.map((t) => t.label)));
+  const rows = source.filter((p) => matches(query, p.label, p.model, p.plate, p.id, p.emergencyClass, PERSONAL_EMERGENCY[p.emergencyClass]?.label, name(p.owner_id), p.owner_id, ...p.trusted.map((t) => name(t.discord_id)), ...p.tags.map((t) => t.label)));
   $("#portal-content").innerHTML = `
     <div class="toolbar">${searchBox("personal-q", "Search vehicles, owners or plates")}${d.manage ? seg("personal-scope", [["all", "Every vehicle", (d.all || []).length], ["mine", "Mine", d.mine.length]], scope) : ""}<span style="flex:1"></span>${d.manage ? `<button class="btn btn-sun" type="button" data-personal-new>${icon("plus")} Add personal vehicle</button>` : ""}</div>
     <div class="callout">${icon("car")}<div>Spawn personals from the <kbd>F7</kbd> garage under <b>Personal</b>. A personal can use one tag lock and trust up to ${d.limit} people, reduced to ${d.taggedLimit} while tag-locked. Changes apply in game within seconds.</div></div>
@@ -1079,8 +1103,16 @@ function personalsView() {
 
 const HANDLING_LEVELS = [["", "Stock"], ["lower", "Lower"], ["higher", "Higher"], ["much_higher", "Much higher"]];
 const levelSelect = (name) => `<select name="${name}">${HANDLING_LEVELS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>`;
+const PERSONAL_EMERGENCY = {
+  civilian: { label: "Civilian", hint: "No emergency light or siren controls." },
+  leo: { label: "Law enforcement", hint: "Q controls emergency lights; 1, 2, and 3 control siren tones." },
+  fire: { label: "Fire / rescue", hint: "Q controls emergency lights; 1, 2, and 3 control siren tones." },
+  ems: { label: "EMS / ambulance", hint: "Q controls emergency lights; 1, 2, and 3 control siren tones." },
+};
+const emergencySelect = (selected = "civilian") => `<select name="emergencyClass">${Object.entries(PERSONAL_EMERGENCY).map(([value, item]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${item.label}</option>`).join("")}</select>`;
 
 function personalCreateDialog() {
+  personalConverted = null;
   openDialog({ kicker: "Management", title: "Add a personal vehicle", submit: "Add vehicle", action: "personal-create",
     body: `<details class="personal-import">
         <summary>${icon("sparkle")}<span><b>Import a vehicle with AI</b><small>Optional · upload a vehicle .zip, run a backdoor/security check, apply your handling, and install it live</small></span></summary>
@@ -1107,6 +1139,8 @@ function personalCreateDialog() {
       <label class="field">Name in the garage<input name="label" maxlength="60" placeholder="Sultan RS"></label>
       <label class="field">Owner Discord ID<input name="ownerId" inputmode="numeric" required placeholder="123456789012345678"></label>
       <label class="field">Plate <small>(optional, up to 8 characters)</small><input name="plate" maxlength="8" placeholder="Automatic" style="text-transform:uppercase"></label>
+      <label class="field">Vehicle type <small>(the AI fills this after an import; check it before adding)</small>${emergencySelect()}</label>
+      <div class="callout">${icon("info")}<div>Emergency vehicles use <kbd>Q</kbd> for lights and <kbd>1</kbd>, <kbd>2</kbd>, or <kbd>3</kbd> for siren tones. Selecting the active tone again turns the siren off.</div></div>
       <label class="check-row"><input type="checkbox" name="bulletproof"><span><b>Bulletproof</b><small>Bullets cannot break the glass or hit anyone inside, and nobody inside can shoot out.</small></span></label>` });
 }
 
@@ -1201,7 +1235,7 @@ async function personalReplacePack(button) {
   if (!file) return warn("Choose the new vehicle's .zip file first.");
   if (!/\.zip$/i.test(file.name)) return warn("Upload a .zip file. Extract RAR or 7z packs and zip them again.");
   if (file.size > 600 * 1024 * 1024) return warn("Zip files can be up to 600 MB.");
-  if (!confirm("Replace this personal's whole vehicle with the new pack? Its owner, trusted people and spawn name stay the same.")) return;
+  if (!await window.fbrpConfirm("Replace this personal's whole vehicle with the new pack? Its owner, trusted people and spawn name stay the same.")) return;
   const label = button.innerHTML;
   button.disabled = true;
   out.innerHTML = "";
@@ -1274,9 +1308,13 @@ async function personalConvert(button) {
       result.model = renamed.result.model;
     }
     form.querySelector('[name="model"]').value = result.model;
+    const vehicleType = form.querySelector('[name="emergencyClass"]');
+    if (vehicleType) vehicleType.value = result.vehicleType || "civilian";
     const name = form.querySelector('[name="label"]');
     if (!name.value.trim()) name.value = result.label;
+    const detected = PERSONAL_EMERGENCY[result.vehicleType] || PERSONAL_EMERGENCY.civilian;
     out.innerHTML = `<div class="callout">${icon("check")}<div><b>Security check passed.</b> Installed as <code>${esc(result.resource)}</code>. ${esc(result.summary || "")}
+      <p><b>Vehicle type:</b> ${esc(detected.label)}. ${esc(result.vehicleTypeReason || "")}</p>
       ${result.started ? (result.restarted ? " It was reloaded live with the new files. Players already online should reconnect to get the new handling." : " It is live now. Players already online should reconnect to see it.") : ""}
       ${result.changes.length ? `<ul class="personal-import-list">${result.changes.map((c) => `<li><code>${esc(c.field)}</code> ${esc(c.from)} → <b>${esc(c.to)}</b>${c.reason ? ` <small>${esc(c.reason)}</small>` : ""}</li>`).join("")}</ul>` : "<p>No handling changes.</p>"}
       ${(result.liveries || []).length ? `<p><b>Liveries found in the pack</b> (listed on the vehicle when you add it): ${result.liveries.map((l) => esc(l.label)).join(", ")}</p>` : ""}
@@ -1284,7 +1322,7 @@ async function personalConvert(button) {
       <div class="personal-rename"><label class="field">Spawn name <small>(rename it if you want a different model name)</small>
         <span class="personal-rename-row"><input id="personal-rename-input" value="${esc(result.model)}" minlength="2" maxlength="40" pattern="[A-Za-z0-9_]+" autocapitalize="off"><button class="btn btn-glass" type="button" data-personal-rename>Rename</button></span></label><div id="personal-rename-status" class="muted"></div></div>
       <p>Check the owner below and press <b>Add vehicle</b>. Change the handling and convert again to redo it (the zip is not uploaded twice).</p></div></div>`;
-    personalConverted = { pack: result.pack || result.model, current: result.model };
+    personalConverted = { pack: result.pack || result.model, current: result.model, vehicleType: result.vehicleType || "civilian" };
     toast(`${result.model} converted.`);
   } catch (error) {
     out.innerHTML = `<div class="callout warn">${icon("alert")}<div>${esc(error.message)}</div></div>`;
@@ -1301,6 +1339,7 @@ function personalEditDialog(id) {
     body: `<label class="field">Name in the garage<input name="label" required maxlength="60" value="${esc(p.label)}"></label>
       <label class="field">Vehicle model <small>(spawn name; changing it also renames an imported vehicle's files)</small><input name="model" required minlength="2" maxlength="40" pattern="[A-Za-z0-9_]+" value="${esc(p.model)}" autocapitalize="off"></label>
       <label class="field">Plate <small>(blank = automatic)</small><input name="plate" maxlength="8" value="${esc(p.customPlate ? p.plate : "")}" placeholder="${esc(p.plate)}" style="text-transform:uppercase"></label>
+      <label class="field">Vehicle type <small>Emergency types enable Q for lights and 1 / 2 / 3 for siren tones</small>${emergencySelect(p.emergencyClass || "civilian")}</label>
       <label class="check-row"><input type="checkbox" name="enabled" ${p.enabled ? "checked" : ""}><span><b>Enabled</b><small>Turn off to hide it from the F7 garage without deleting it.</small></span></label>
       <label class="check-row"><input type="checkbox" name="bulletproof" ${p.bulletproof ? "checked" : ""}><span><b>Bulletproof</b><small>Bullets cannot break the glass or hit anyone inside, and nobody inside can shoot out.</small></span></label>
       <details class="personal-import">
@@ -1817,7 +1856,7 @@ $("#portal-content").addEventListener("click", async (event) => {
   }
   const appealWithdraw = target.closest("[data-appeal-withdraw]");
   if (appealWithdraw) {
-    if (!confirm("Withdraw this appeal? Withdrawn appeals do not count towards your limit.")) return;
+    if (!await window.fbrpConfirm("Withdraw this appeal? Withdrawn appeals do not count towards your limit.")) return;
     try { const result = await api("portal/appeal/withdraw", { method: "POST", body: JSON.stringify({ appealId: Number(appealWithdraw.dataset.appealWithdraw) }) }); state.data = result.data; render(); toast("Appeal withdrawn."); }
     catch (error) { toast(error.message, true); }
     return;
@@ -1865,7 +1904,7 @@ $("#portal-content").addEventListener("click", async (event) => {
   if (examReview) return examReviewDialog(Number(examReview.dataset.examReview));
   const examWithdraw = target.closest("[data-exam-withdraw]");
   if (examWithdraw) {
-    if (!confirm("Withdraw this application? You can submit a new one afterwards.")) return;
+    if (!await window.fbrpConfirm("Withdraw this application? You can submit a new one afterwards.")) return;
     try {
       const result = await api("portal/exam/withdraw", { method: "POST", body: JSON.stringify({ applicationId: Number(examWithdraw.dataset.examWithdraw) }) });
       state.data = result.data; render(); toast("Application withdrawn.");
@@ -1874,6 +1913,8 @@ $("#portal-content").addEventListener("click", async (event) => {
   }
   if (target.closest("[data-personal-new]")) return personalCreateDialog();
   if (target.closest("[data-eup-new]")) return eupInstallDialog();
+  const eupPieces = target.closest("[data-eup-pieces]");
+  if (eupPieces) return eupPiecesDialog(eupPieces.dataset.eupPieces);
   const eupReplace = target.closest("[data-eup-replace]");
   if (eupReplace) return eupInstallDialog(eupReplace.dataset.eupReplace);
   const eupEdit = target.closest("[data-eup-edit]");
@@ -1894,7 +1935,7 @@ $("#portal-content").addEventListener("click", async (event) => {
   if (personalLock) {
     const [id, on] = personalLock.dataset.personalLock.split(":");
     const p = personalById(id);
-    if (on === "1" && !confirm(`Lock ${p?.label || "this vehicle"}? It cannot be spawned, and it despawns when anyone tries to use it. They are told the DevOps team locked it.`)) return;
+    if (on === "1" && !await window.fbrpConfirm(`Lock ${p?.label || "this vehicle"}? It cannot be spawned, and it despawns when anyone tries to use it. They are told the DevOps team locked it.`)) return;
     try {
       const result = await api("portal/personal/lock", { method: "POST", body: JSON.stringify({ id: Number(id), locked: on === "1" }) });
       state.data = result.data; render(); toast(on === "1" ? "Vehicle locked." : "Vehicle unlocked.");
@@ -1906,7 +1947,7 @@ $("#portal-content").addEventListener("click", async (event) => {
   if (personalUntrust || personalUntag) {
     const [id, other] = (personalUntrust?.dataset.personalUntrust || personalUntag.dataset.personalUntag).split(":");
     const p = personalById(id);
-    if (!confirm(personalUntrust ? "Remove this person from the trust list?" : `Remove the lock to ${p?.tags.find((t) => String(t.id) === other)?.label || "this tag"}?`)) return;
+    if (!await window.fbrpConfirm(personalUntrust ? "Remove this person from the trust list?" : `Remove the lock to ${p?.tags.find((t) => String(t.id) === other)?.label || "this tag"}?`)) return;
     try {
       const result = await api(personalUntrust ? "portal/personal/untrust" : "portal/personal/untag", { method: "POST", body: JSON.stringify(personalUntrust ? { id: Number(id), discordId: other } : { id: Number(id), tagId: Number(other) }) });
       state.data = result.data; render(); toast(personalUntrust ? "Trust removed." : "Tag lock removed.");
@@ -1979,7 +2020,7 @@ $("#portal-content").addEventListener("submit", async (event) => {
   const key = event.target.dataset.exam;
   const answers = loadDraft(key);
   for (const area of event.target.querySelectorAll("textarea")) answers[area.name] = area.value;
-  if (!confirm("Submit your exam now? Answers cannot be changed afterwards.")) return;
+  if (!await window.fbrpConfirm("Submit your exam now? Answers cannot be changed afterwards.")) return;
   const button = event.target.querySelector("button[type=submit]");
   button.disabled = true;
   try {
@@ -2133,10 +2174,10 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       const r = result.result || {};
       toast(decision === "passed" ? (r.roleGranted ? "Passed - role granted in the staff Discord and logged." : `Passed and logged. Role not granted: ${r.roleNote || "unknown"}`) : decision === "failed" ? "Marked as failed and logged." : "Marked as in review.", decision === "passed" && !r.roleGranted);
     } else if (action === "personal-create") {
-      result = await api("portal/personal/create", { method: "POST", body: JSON.stringify({ model: form.get("model"), label: form.get("label"), ownerId: form.get("ownerId"), plate: form.get("plate"), bulletproof: form.get("bulletproof") === "on" }) });
+      result = await api("portal/personal/create", { method: "POST", body: JSON.stringify({ model: form.get("model"), label: form.get("label"), ownerId: form.get("ownerId"), plate: form.get("plate"), emergencyClass: form.get("emergencyClass"), bulletproof: form.get("bulletproof") === "on" }) });
       toast(`${result.result.label} added.`);
     } else if (action === "personal-edit") {
-      result = await api("portal/personal/update", { method: "POST", body: JSON.stringify({ id: data.id, label: form.get("label"), model: form.get("model"), plate: form.get("plate"), enabled: form.get("enabled") === "on", bulletproof: form.get("bulletproof") === "on" }) });
+      result = await api("portal/personal/update", { method: "POST", body: JSON.stringify({ id: data.id, label: form.get("label"), model: form.get("model"), plate: form.get("plate"), enabled: form.get("enabled") === "on", emergencyClass: form.get("emergencyClass"), bulletproof: form.get("bulletproof") === "on" }) });
       toast(`Saved ${result.result.label}.`);
     } else if (action === "eup-edit") {
       result = await api("portal/eup/update", { method: "POST", body: JSON.stringify({ id: data.id, label: form.get("label"), notes: form.get("notes") }) });

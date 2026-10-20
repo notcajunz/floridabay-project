@@ -151,6 +151,49 @@ test("an EUP pack is scanned, rebuilt as its own resource, and can be replaced a
   assert.equal(db.eup.length, 0);
 });
 
+test("first-person alternates, prop sets and alternate-variation metas are installed and every piece is listed", async () => {
+  const shop = "<ShopPedApparel><pedName>mp_m_freemode_01</pedName><dlcName>mp_m_gold</dlcName></ShopPedApparel>";
+  const staged = await stageZip({
+    "pack/stream/creaturemetadata/mp_creaturemetadata_gold.ymt": asset(1),
+    "pack/stream/mp_m_freemode_01_mp_m_gold.ymt": asset(1),
+    "pack/stream/mp_m_freemode_01_mp_m_gold/mp_m_freemode_01_mp_m_gold^jbib_000_u.ydd": asset(2),
+    "pack/stream/mp_m_freemode_01_mp_m_gold/mp_m_freemode_01_mp_m_gold^jbib_000_u_1.ydd": asset(2),
+    "pack/stream/mp_m_freemode_01_mp_m_gold/mp_m_freemode_01_mp_m_gold^jbib_diff_000_a_uni.ytd": asset(3),
+    "pack/stream/mp_m_freemode_01_p_mp_m_gold/mp_m_freemode_01_p_mp_m_gold^p_head_000.ydd": asset(4),
+    "pack/stream/mp_m_freemode_01_p_mp_m_gold/mp_m_freemode_01_p_mp_m_gold^p_head_diff_000_a.ytd": asset(5),
+    "pack/shop.meta": shop,
+    "pack/pedalternatevariations.meta": "<CAlternateVariations><peds /></CAlternateVariations>",
+    "pack/first_person_alternates.meta": "<FirstPersonAlternateData><alternates /></FirstPersonAlternateData>",
+  });
+  const result = await assets.installEup("manager", { uploadId: staged.id, name: "gold_deputies", label: "Gold" });
+  assert.equal(result.eup.files, 7);
+  assert.equal(result.eup.created_by, "manager");
+  assert.deepEqual(result.groups.map((g) => [g.dlc, g.drawables, g.props, g.meta]), [["mp_m_gold", 1, 2, "pack"]]);
+  assert.deepEqual(result.warnings, []);
+  const dir = path.join(process.env.FBRP_EUP_DIR, "fbrp_eup_gold_deputies");
+  const manifest = await readFile(path.join(dir, "fxmanifest.lua"), "utf8");
+  assert.match(manifest, /data_file 'ALTERNATE_VARIATIONS_FILE'\s+'data\/calternatevariations_\d\.meta'/);
+  assert.match(manifest, /data_file 'PED_FIRST_PERSON_ALTERNATE_DATA'\s+'data\/firstpersonalternatedata_\d\.meta'/);
+  assert.equal((await readdir(path.join(dir, "data"))).length, 3, "no extra shop meta is generated for the prop set");
+  assert.ok(await stat(path.join(dir, "stream", "mp_m_freemode_01_mp_m_gold", "mp_m_freemode_01_mp_m_gold^jbib_000_u_1.ydd")));
+  assert.deepEqual(result.eup.pieces.map((p) => [p.comp, p.index, p.textures, p.alternate]), [["jbib", 0, 1, true], ["p_head", 0, 1, false]]);
+
+  // The portal lists the same pieces, for the manager and for the person who owns the pack.
+  assert.deepEqual((await assets.portalData("manager")).eup.find((p) => p.name === "gold_deputies").pieces, result.eup.pieces);
+  const mine = await assets.portalData("someone");
+  assert.equal(mine.readOnly, true);
+  assert.equal(mine.eup[0].pieces.length, 2);
+
+  // A pack installed before pieces were recorded still lists them, worked out from its files.
+  const marker = path.join(dir, ".fbrp-eup.json");
+  const old = JSON.parse(await readFile(marker, "utf8"));
+  delete old.pieces;
+  await writeFile(marker, JSON.stringify(old));
+  assert.deepEqual((await assets.portalData("manager")).eup.find((p) => p.name === "gold_deputies").pieces.map((p) => [p.comp, p.index, p.textures, p.alternate]), [["jbib", 0, 1, true], ["p_head", 0, 1, false]]);
+
+  await assets.deleteEup("manager", { id: db.eup.find((r) => r.name === "gold_deputies").id });
+});
+
 test("a pack with no clothing files or an unsafe verdict is refused", async () => {
   const empty = await stageZip({ "readme.txt": "nothing here" });
   await assert.rejects(assets.installEup("manager", { uploadId: empty.id, name: "empty_pack" }), /No clothing files/);

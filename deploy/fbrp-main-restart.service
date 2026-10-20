@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart fbrp-bot.service for the DevOps bot
+
+[Service]
+Type=oneshot
+# Exactly one unit can be restarted through this trigger.
+ExecStart=/usr/bin/systemctl restart fbrp-bot.service

@@ -18,38 +18,81 @@ test('property door locks are loaded by the resource and its migration is applie
   assert.ok(!/--.*[;'"]/.test(sql), 'migration comments must not contain semicolons or quotes');
 });
 
-test('door locks are only editable by staff on duty and honour ownership', () => {
+test('doors lock one at a time for the owning organization, never as a whole property', () => {
   const server = read('server/propertydoors.lua');
-  assert.match(server, /s\.staffDuty/);
   assert.match(server, /organization_members WHERE discord_id/);
   assert.match(server, /fbrp:economy:reload/);
+  assert.match(server, /RegisterNetEvent\('fbrp:doors:toggle', function\(model, x, y, z\)/);
+  assert.ok(!/RegisterCommand\('proplock'|RegisterCommand\('propopen'/.test(server), 'no property-wide lock commands');
+  assert.ok(!/s\.staffDuty then return true end/.test(server), 'staff on duty do not hold property keys');
   const client = read('client/propertydoors.lua');
   assert.match(client, /AddDoorToSystem/);
+  assert.match(client, /type = 'doorPrompt'/);
+  assert.ok(!/Unlock the property doors/.test(client), 'no lock-everything prompt');
   assert.ok(!/SetEntityCoords|StartPlayerTeleport/.test(client), 'no teleports');
+  assert.ok(!/keys\[key\] == true or openNow/.test(client), 'keys must not bypass the lock');
+  const ui = fs.readFileSync(path.join(core, 'web/propmenu.js'), 'utf8');
+  assert.match(ui, /Unlocked/);
+  assert.match(ui, /Locked/);
 });
 
-test('property spots and unlock-to-enter are wired through economy and doors', () => {
+test('a bought property does nothing until DevOps marks it set up', () => {
+  const economy = read('server/economy.lua');
+  assert.match(economy, /org_properties WHERE setup_status='ready'/);
+  const doors = read('server/propertydoors.lua');
+  assert.match(doors, /ready=row\.org_id ~= nil and row\.setup_status == 'ready'/);
+  assert.match(doors, /if not prop\.ready then return S\.notify/);
+  assert.ok(read('server/database.lua').includes('migrations/083_property_setup.sql'));
+  const sql = read('migrations/083_property_setup.sql');
+  assert.match(sql, /setup_status VARCHAR\(10\) NOT NULL DEFAULT 'ready'/);
+  assert.match(sql, /SET DEFAULT 'pending'/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS station_doors/);
+  assert.ok(!/--.*[;'"]/.test(sql), 'migration comments must not contain semicolons or quotes');
+});
+
+test('property spots, doors and stations are edited in a menu by Dev Manager and above', () => {
   const economy = read('server/economy.lua');
   assert.match(economy, /property_points/);
   assert.match(economy, /workPoint\(property\)/);
   assert.ok(read('server/database.lua').includes('migrations/076_property_points.sql'));
   const doors = read('server/propertydoors.lua');
-  assert.match(doors, /fbrp:doors:toggle/);
-  assert.match(doors, /RegisterCommand\('propset'/);
+  assert.ok(!/RegisterCommand\('propset'/.test(doors), 'no propset chat command');
+  assert.ok(!/local function isCommand|can_roster/.test(doors), 'gang and business command cannot edit properties');
+  assert.match(doors, /devops_members m JOIN devops_ranks r/);
+  assert.match(doors, /local DEV_MANAGER_LEVEL = 5/);
+  assert.match(doors, /local function canManageProperties\(source\) return isDevManager\(source\) end/);
+  for (const event of ['setpoint', 'clearpoint']) {
+    const handler = doors.slice(doors.indexOf(`'fbrp:propmenu:${event}'`));
+    assert.match(handler.slice(0, 900), /canManageProperties\(src\)/, event);
+  }
+  const edit = doors.slice(doors.indexOf("'fbrp:doors:edit'"));
+  assert.match(edit.slice(0, 600), /canManageProperties\(src\)/);
   const client = read('client/propertydoors.lua');
-  assert.match(client, /Unlock the property doors/);
-  assert.ok(!/keys\[key\] == true or openNow/.test(client), 'keys must not bypass the lock');
-});
-
-test('the command of a gang or business can place spots, and the third eye offers world actions', () => {
-  const doors = read('server/propertydoors.lua');
-  assert.match(doors, /local function isCommand/);
-  assert.match(doors, /m\.manager,r\.can_roster/);
-  assert.match(doors, /canEdit\(src, prop\)/);
+  assert.ok(!/RegisterCommand\('propdoors'/.test(client), 'no propdoors chat command');
+  assert.match(client, /RegisterCommand\('propmenu'/);
+  assert.match(client, /RegisterNUICallback\('propmenuAction'/);
+  const manifest = read('fxmanifest.lua');
+  assert.ok(manifest.includes("'web/propmenu.js'") && manifest.includes("'web/propmenu.css'"));
+  const html = read('web/index.html');
+  assert.ok(html.includes('propmenu.js') && html.includes('propmenu.css'));
   const eye = read('client/interactions.lua');
   for (const id of ['w_repair', 'w_work', 'w_hub', 'w_serve', 'w_door', 'w_plate']) assert.ok(eye.includes(id), id);
   const ui = fs.readFileSync(path.join(core, 'web/app.js'), 'utf8');
   assert.ok(ui.includes('w_repair:'));
+});
+
+test('police station doors are added by Community Director and above and only clocked-in law enforcement use them', () => {
+  const doors = read('server/propertydoors.lua');
+  assert.match(doors, /label='Community Director'/);
+  assert.match(doors, /local function canManageStations\(source\) return isDevManager\(source\) or isCommunityDirector\(source\) end/);
+  assert.match(doors, /s\.org\.type == 'leo'/);
+  assert.match(doors, /Only law enforcement on duty can use this door/);
+  assert.match(doors, /fbrp:stationdoors:add/);
+  const add = doors.slice(doors.indexOf("'fbrp:stationdoors:add'"));
+  assert.match(add.slice(0, 500), /canManageStations\(src\)/);
+  const remove = doors.slice(doors.indexOf("'fbrp:stationdoors:remove'"));
+  assert.match(remove.slice(0, 500), /canManageStations\(src\)/);
+  assert.match(doors, /This door cannot be breached/);
 });
 
 test('leaving noclip never forces anyone invisible', () => {
@@ -57,12 +100,6 @@ test('leaving noclip never forces anyone invisible', () => {
   assert.ok(!/SetEntityVisible\(vehicle, false/.test(tags), 'own vehicle must not be hidden by fbrp');
   assert.match(tags, /wasNoclipActive and not noclipActive/);
   assert.match(tags, /ResetEntityAlpha\(ped\)/);
-});
-
-test('staff need Community Manager or above to edit any property', () => {
-  const doors = read('server/propertydoors.lua');
-  assert.match(doors, /hasStaffGroupAtLeast\(source, 'community_manager'\)/);
-  assert.match(read('server/main.lua'), /hasStaffGroupAtLeast = hasStaffGroupAtLeast/);
 });
 
 test('nothing is assumed about a property and locked doors can be breached', () => {
@@ -80,20 +117,20 @@ test('nothing is assumed about a property and locked doors can be breached', () 
   assert.match(read('client/interactions.lua'), /w_breach/);
 });
 
-test('/propset previews the spot and only saves after confirmation', () => {
+test('placing a spot previews it and only saves after confirmation', () => {
   const server = read('server/propertydoors.lua');
   assert.match(server, /fbrp:propset:preview/);
-  const command = server.slice(server.indexOf("RegisterCommand('propset'"), server.indexOf('-- Staff corrections'));
-  assert.ok(!/INSERT INTO property_points/.test(command), 'the command itself must not save');
+  const setpoint = server.slice(server.indexOf("'fbrp:propmenu:setpoint'"), server.indexOf("'fbrp:propmenu:clearpoint'"));
+  assert.ok(!/INSERT INTO property_points/.test(setpoint), 'choosing a spot must not save');
   assert.match(server, /RegisterNetEvent\('fbrp:propset:confirm'/);
   assert.match(read('client/propertydoors.lua'), /Confirm.*Cancel/);
 });
 
-test('a bar is a placeable spot and the organization site explains every spot', () => {
+test('a bar is a placeable spot and the organization site says DevOps sets properties up', () => {
   assert.match(read('server/propertydoors.lua'), /bar=true/);
   assert.match(read('server/economy.lua'), /points\.bar/);
   assert.match(read('client/economy.lua'), /bar = \{ color/);
-  // The property guide moved with the Organizations tab to orgs.floridabay.net.
   const portal = fs.readFileSync(path.resolve(here, '../web/orgs/orgs.js'), 'utf8');
-  for (const word of ['door, door2, door3', 'terminal', 'bar', 'stash', 'armory', 'wardrobe', 'Development Director', 'FBRP | DevOps']) assert.ok(portal.includes(word), word);
+  for (const word of ['door, door2, door3', 'terminal', 'bar', 'stash', 'armory', 'wardrobe', 'Pending from DevOps', 'DevOps sets every property up']) assert.ok(portal.includes(word), word);
+  assert.ok(!portal.includes('/propset'), 'leaders are no longer told to place spots themselves');
 });
