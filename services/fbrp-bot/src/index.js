@@ -144,6 +144,7 @@ import { createPersonals } from "./personals.js";
 import { createPersonalImporter } from "./personal-import.js";
 import { createCustomAssets } from "./custom-assets.js";
 import { createGiveaways } from "./giveaways.js";
+import { createLiveNotifications } from "./live-notifications.js";
 import { createPropertySetup } from "./property-setup.js";
 import { createStatusBoard } from "./status-board.js";
 import { enforceRoleBundle, reconcileRoleBundleHolders } from "./role-bundle.js";
@@ -206,8 +207,9 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildWebhooks,
+    GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [Partials.GuildMember],
+  partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.Reaction, Partials.User],
 });
 
 const clean = (value, max = 1000) =>
@@ -276,6 +278,7 @@ const personals = createPersonals({ db, audit, hasPermission });
 const personalImporter = createPersonalImporter({ personals, audit, db });
 const customAssets = createCustomAssets({ personals, audit, db });
 const giveaways = createGiveaways({ client, db, audit, clean });
+const liveNotifications = createLiveNotifications({ client, db, audit, clean });
 const statusBoard = createStatusBoard({ client, db, callGame, publicBase, connectUrl });
 const chainOfCommand = createChainOfCommand({ client, db, audit, hasPermission });
 const tebexFulfillment = createTebexFulfillment({ client, db, audit });
@@ -4015,6 +4018,7 @@ const COMMAND_PERMISSIONS = {
   vmenu: "`fbrp.perms.manage`",
   headtag: "Co-Owner rank or higher and `fbrp.headtags.manage`",
   giveaway: "Co-Owner rank or higher",
+  livenotify: "Co-Owner rank or higher",
   organization: "Co-Owner rank or higher and `fbrp.organizations.manage`",
   radio: "Co-Owner rank or higher and `fbrp.radio.manage`",
   network: "Co-Owner rank or higher and `fbrp.network.manage`",
@@ -4807,6 +4811,10 @@ const handlers = {
     await requireMinimumStaffRank(i, "Co-Owner", "run giveaways");
     return giveaways.command(i, sub);
   },
+  livenotify: async (i, sub) => {
+    await requireMinimumStaffRank(i, "Co-Owner", "manage live notifications");
+    return liveNotifications.command(i, sub);
+  },
   organization: organizationCommand,
   radio: radioCommand,
   network: networkCommand,
@@ -5076,6 +5084,7 @@ client.once("clientReady", async () => {
     .catch((error) => console.error("[FBRP staff] Staff state sync:", error)), 600000).unref();
   client.user.setActivity("Florida Bay Roleplay");
   giveaways.start();
+  void liveNotifications.start().catch((error) => console.error("[FBRP live] startup:", error.message || error));
   propertySetup.start();
   staffQueue.start();
 });
@@ -5107,6 +5116,9 @@ async function logCommandUse(i, error) {
     ],
   }, "staff_audit");
 }
+
+client.on("messageReactionAdd", (reaction, user) => void liveNotifications.reaction(reaction, user, true).catch((error) => console.error("[FBRP live] reaction add:", error.message)));
+client.on("messageReactionRemove", (reaction, user) => void liveNotifications.reaction(reaction, user, false).catch((error) => console.error("[FBRP live] reaction remove:", error.message)));
 
 client.on("interactionCreate", async (i) => {
   if (!i.isAutocomplete() && !i.isChatInputCommand()) void recordInteraction((sql, args) => db.query(sql, args), "main", i).catch(() => {});

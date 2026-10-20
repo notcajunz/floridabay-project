@@ -1257,6 +1257,28 @@ const coc = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("getorder").setDescription("Show the current chain order"))
   .addSubcommand((s) => s.setName("updatecoc").setDescription("Import new roster members and refresh the live board"));
 
+const livePlatform = (o) =>
+  o.setName("platform").setDescription("Streaming platform").setRequired(true).addChoices({ name: "Twitch", value: "twitch" }, { name: "YouTube", value: "youtube" });
+
+const livenotify = new SlashCommandBuilder()
+  .setName("livenotify")
+  .setDescription("Co-Owner and above: manage which streamers trigger live notifications")
+  .addSubcommand((s) =>
+    s
+      .setName("add")
+      .setDescription("Whitelist a streamer")
+      .addStringOption(livePlatform)
+      .addStringOption((o) => o.setName("streamer").setDescription("Twitch name/link, or YouTube @handle/channel ID/link").setRequired(true).setMaxLength(200)),
+  )
+  .addSubcommand((s) =>
+    s
+      .setName("remove")
+      .setDescription("Remove a streamer from the whitelist")
+      .addStringOption(livePlatform)
+      .addStringOption((o) => o.setName("streamer").setDescription("Twitch name, or YouTube @handle/channel ID").setRequired(true).setMaxLength(200)),
+  )
+  .addSubcommand((s) => s.setName("list").setDescription("List whitelisted streamers"));
+
 const giveawayId = (o) => o.setName("id").setDescription("Giveaway ID").setRequired(true).setMinValue(1);
 
 const giveaway = new SlashCommandBuilder()
@@ -1292,6 +1314,7 @@ export const commands = [
   ace,
   headtag,
   giveaway,
+  livenotify,
   coc,
   organization,
   radio,

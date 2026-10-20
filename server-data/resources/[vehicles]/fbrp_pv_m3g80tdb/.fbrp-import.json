@@ -338,6 +338,44 @@
         }
       ],
       "shrink": false
+    },
+    {
+      "at": 1792461351272,
+      "by": "1090083387638812755",
+      "request": {
+        "instructions": "make it so it turns instantly no matter how fast im going"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "38.000000",
+          "to": "50.000000",
+          "reason": "Increase steering angle so the car can turn more sharply at higher speeds."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveLateral",
+          "from": "22.500000",
+          "to": "24.500000",
+          "reason": "Add lateral grip support so the higher steering angle remains controllable."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionLossMult",
+          "from": "0.650000",
+          "to": "0.600000",
+          "reason": "Reduce slide tendency to help the car hold the tighter turning input."
+        },
+        {
+          "file": "handling.meta",
+          "field": "fSuspensionForce",
+          "from": "2.500000",
+          "to": "2.700000",
+          "reason": "Slightly firm up the chassis to keep response crisp during rapid direction changes."
+        }
+      ],
+      "shrink": false
     }
   ]
 }

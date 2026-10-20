@@ -26,10 +26,10 @@ local grace = {}        -- u32 hash -> game timer before which state is not re-e
 local slung = { back = nil, chest = nil }  -- pos -> { snap, hash, prop }
 local preferred = 'back'
 local busy = false
-local session = nil     -- open trunk: { vehicle, netId, openedDoor }
 local lastWarn = 0
 local trackedPed = 0
 local syncSlungState
+local takeSelected
 
 do
     local saved = GetResourceKvpString('fbrp_longguns:pref')
@@ -333,12 +333,13 @@ CreateThread(function()
                 if slungCount() > 0 or next(sanctioned) then resetAfterPedChange() end
             else
                 local current = GetSelectedPedWeapon(ped)
+                takeSelected(current)
                 if isLongGun(current) and not sanctioned[u32(current)] then
                     SetCurrentPedWeapon(ped, UNARMED, true)
                     local now = GetGameTimer()
                     if now - lastWarn > 6000 then
                         lastWarn = now
-                        notify('You cannot pull a long gun out of thin air. Take it from a vehicle trunk.', 'warning')
+                        notify('Long guns can only be taken out at a vehicle trunk. Go to a trunk and choose it from the weapon wheel.', 'warning')
                     end
                 end
 
@@ -349,7 +350,7 @@ CreateThread(function()
                     local key = u32(hash)
                     if HasPedGotWeapon(ped, hash, false) then
                         if sanctioned[key] then
-                            if selected == key or session or busy or now < (grace[key] or 0) or IsPedInAnyVehicle(ped, false) then
+                            if selected == key or busy or now < (grace[key] or 0) or IsPedInAnyVehicle(ped, false) then
                                 ticks[key] = 0
                             else
                                 -- Not in hand any more: put it on the sling.
@@ -508,178 +509,69 @@ local function blockedFromTrunk(ped)
     return false
 end
 
-local function closeTrunk()
-    if not session then return end
-    local current = session
-    session = nil
-    SetNuiFocus(false, false)
-    SendNUIMessage({ type = 'close' })
-    if current.openedDoor and DoesEntityExist(current.vehicle) then
-        SetVehicleDoorShut(current.vehicle, 5, false)
-    end
-end
+-- Trunk weapons live in the normal weapon wheel (hold TAB). While you stand at a
+-- trunk, its long guns are placed in your wheel; choosing one takes it out of the
+-- trunk and equips it. Press E at the trunk to put a carried long gun back.
 
-local function describe(snap, extra)
-    local entry = {
-        weapon = snap.weapon, label = labelFor(snap.weapon), ammo = tonumber(snap.ammo) or 0
-    }
-    for key, value in pairs(extra or {}) do entry[key] = value end
-    return entry
-end
 
-local function carriedForMenu(ped)
-    local list = {}
-    for _, name in ipairs(inventoryLongGuns(ped)) do
-        local ready = sanctioned[u32(weaponHash[name])] == true
-        list[#list + 1] = describe(
-            { weapon = name, ammo = GetAmmoInPedWeapon(ped, weaponHash[name]) },
-            { ref = 'inv:' .. name, where = ready and 'In hand' or 'Not holstered' }
-        )
-    end
-    for _, pos in ipairs({ 'back', 'chest' }) do
-        local record = slung[pos]
-        if record then
-            list[#list + 1] = describe(record.snap, { ref = 'sling:' .. pos, where = 'Slung on ' .. pos })
-        end
-    end
-    return list
-end
+-- Standing at an unlocked trunk lets you pick a long gun from the normal weapon
+-- wheel (hold TAB). Away from a trunk the same pick is refused.
+local trunkVehicle = nil
+local boots = {}
 
-local function openTrunk(vehicle)
-    if session then return end
-    if GetVehicleDoorLockStatus(vehicle) >= 2 then return notify('That vehicle is locked.', 'error') end
-    if not NetworkGetEntityIsNetworked(vehicle) then return notify('This vehicle has no usable trunk.', 'error') end
-    local netId = NetworkGetNetworkIdFromEntity(vehicle)
-    session = {
-        vehicle = vehicle, netId = netId,
-        openedDoor = GetVehicleDoorAngleRatio(vehicle, 5) < 0.1, rendered = false
-    }
-    TriggerServerEvent('fbrp_longguns:open', netId)
-    -- If the server never answers (too far away), do not leave a half-open session.
-    SetTimeout(3000, function()
-        if session and session.vehicle == vehicle and not session.rendered then session = nil end
-    end)
-end
-
-RegisterNetEvent('fbrp_longguns:state', function(netId, plate, items, capacity)
-    if not session or session.netId ~= netId then return end
-    Wait(60)
-    if not session then return end
-    local ped = PlayerPedId()
-    local first = not session.rendered
-    session.rendered = true
-    if first then
-        if session.openedDoor then
-            NetworkRequestControlOfEntity(session.vehicle)
-            SetVehicleDoorOpen(session.vehicle, 5, false, false)
-        end
-        SetNuiFocus(true, true)
-    end
-    local trunk = {}
-    for _, item in ipairs(items or {}) do
-        trunk[#trunk + 1] = describe(item, { id = item.id })
-    end
-    SendNUIMessage({
-        type = 'open', plate = plate, capacity = capacity, maxCarried = LG.maxCarried,
-        trunk = trunk, carried = carriedForMenu(ped)
-    })
-end)
-
-RegisterNetEvent('fbrp_longguns:stowed', function(ref)
-    local ped = PlayerPedId()
-    local kind, value = tostring(ref):match('^(%a+):(.+)$')
-    if kind == 'inv' and allowedName[value] then
-        RemoveWeaponFromPed(ped, weaponHash[value])
-        sanctioned[u32(weaponHash[value])] = nil
-        notify(('%s stowed in the trunk.'):format(labelFor(value)), 'success')
-    elseif kind == 'sling' and slung[value] then
-        local record = slung[value]
-        destroyProp(record.prop)
-        slung[value] = nil
-        notify(('%s stowed in the trunk.'):format(labelFor(record.snap.weapon)), 'success')
-    end
-end)
-
-RegisterNetEvent('fbrp_longguns:taken', function(snap)
-    if type(snap) ~= 'table' or not allowedName[tostring(snap.weapon)] then return end
+local function flashBoot(vehicle)
+    if boots[vehicle] or not DoesEntityExist(vehicle) then return end
+    boots[vehicle] = true
     CreateThread(function()
-        local ped = PlayerPedId()
-        giveSnapshot(ped, snap, true)
-        notify(('Took the %s from the trunk. Press J to sling it.'):format(labelFor(snap.weapon)), 'success')
+        local opened = GetVehicleDoorAngleRatio(vehicle, 5) < 0.1
+        if opened then
+            NetworkRequestControlOfEntity(vehicle)
+            SetVehicleDoorOpen(vehicle, 5, false, false)
+            Wait(2500)
+            if DoesEntityExist(vehicle) then SetVehicleDoorShut(vehicle, 5, false) end
+        end
+        boots[vehicle] = nil
     end)
-end)
+end
 
-RegisterNUICallback('stow', function(data, cb)
-    cb({ ok = true })
-    if not session then return end
-    local ped = PlayerPedId()
-    local ref = tostring(data and data.ref or '')
-    local kind, value = ref:match('^(%a+):(.+)$')
-    local snap
-    if kind == 'inv' and allowedName[value] and HasPedGotWeapon(ped, weaponHash[value], false) then
-        snap = snapshotWeapon(ped, value)
-    elseif kind == 'sling' and slung[value] then
-        snap = slung[value].snap
-    end
-    if not snap then return end
-    TriggerServerEvent('fbrp_longguns:stow', session.netId, ref, snap)
-end)
-
-RegisterNUICallback('take', function(data, cb)
-    cb({ ok = true })
-    if not session then return end
+takeSelected = function(current)
+    local key = u32(current)
+    local name = nameByHash[key]
+    if not name or sanctioned[key] or not trunkVehicle or not DoesEntityExist(trunkVehicle) then return false end
     local ped = PlayerPedId()
     if carriedCount(ped) >= LG.maxCarried then
-        return notify(('You can only carry %d long guns. Sling slots are full.'):format(LG.maxCarried), 'error')
+        SetCurrentPedWeapon(ped, UNARMED, true)
+        notify(('You can only carry %d long guns. Put one away first.'):format(LG.maxCarried), 'error')
+        return true
     end
-    TriggerServerEvent('fbrp_longguns:take', session.netId, tonumber(data and data.id))
-end)
-
-RegisterNUICallback('close', function(_, cb)
-    cb({ ok = true })
-    closeTrunk()
-end)
+    sanction(current, 4)
+    flashBoot(trunkVehicle)
+    notify(('Took the %s from the trunk. Press J to sling it.'):format(labelFor(name)), 'success')
+    return true
+end
 
 CreateThread(function()
     local nextScan = 0
-    local target
     while true do
         local now = GetGameTimer()
         local ped = PlayerPedId()
-        if session then
-            -- Walking away (or going down) closes the trunk.
-            if not DoesEntityExist(session.vehicle) or isDowned() or IsEntityDead(ped)
-                or IsPedInAnyVehicle(ped, false)
-                or #(GetEntityCoords(ped) - GetEntityCoords(session.vehicle)) > 7.0 then
-                closeTrunk()
-            end
-            target = nil
-            Wait(150)
-        elseif LG.enabled then
+        if not LG.enabled then
+            trunkVehicle = nil
+            Wait(1000)
+        else
             if now >= nextScan then
                 nextScan = now + 300
-                target = (not blockedFromTrunk(ped)) and nearestTrunk(ped) or nil
+                local vehicle = (not blockedFromTrunk(ped)) and nearestTrunk(ped) or nil
+                if vehicle and GetVehicleDoorLockStatus(vehicle) >= 2 then vehicle = nil end
+                trunkVehicle = vehicle
             end
-            if target then
-                if not DoesEntityExist(target) then
-                    target = nil
-                else
-                    help('~INPUT_CONTEXT~ Trunk weapons')
-                    if IsControlJustPressed(0, 51) then openTrunk(target) end
-                end
-                Wait(0)
-            else
-                Wait(150)
-            end
-        else
-            Wait(1000)
+            Wait(150)
         end
     end
 end)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
-    if session then SetNuiFocus(false, false) end
     -- Do not lose slung guns when the resource restarts.
     for _, pos in ipairs({ 'back', 'chest' }) do
         local record = slung[pos]

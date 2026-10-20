@@ -106,8 +106,8 @@ FBRP.SpawnLocations = {
     { id='legion', label='Legion Square', description='Central Los Santos', x=215.76, y=-810.12, z=30.73, h=157.0 },
     { id='airport', label='Los Santos Airport', description='Southern Los Santos', x=-1037.72, y=-2737.87, z=20.17, h=329.0 },
     { id='sandy', label='Sandy Shores', description='Blaine County', x=1841.84, y=3673.56, z=34.28, h=207.0 },
-    { id='grapeseed', label='Grapeseed', description='Northern Blaine County', x=1682.17, y=4884.32, z=42.06, h=98.0 },
-    { id='paleto', label='Paleto Bay', description='North coast', x=-110.41, y=6468.31, z=31.63, h=136.0 }
+    { id='grapeseed', label='Grapeseed', description='Northern Blaine County', x=1679.1794, y=4852.8662, z=42.0513, h=105.8817 },
+    { id='paleto', label='Paleto Bay', description='North coast', x=-428.5734, y=6205.4624, z=30.4449, h=269.7508 }
 }
 
 -- Priority is tracked separately for each part of the map.
