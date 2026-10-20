@@ -78,13 +78,14 @@ game_script() {
     "$FBRP_GAME_SSH" bash -s -- "$@"
 }
 
+# The GitHub sync rewrites the encrypted snapshots/ files in the working tree, so those count as live data too.
 # Players tune their personal vehicles at any time, and the personals bot writes those edits straight into the
 # tracked [vehicles] directory. Such edits never block a release on their own. Any other tracked change does,
 # and so does a release that itself changes a file with a live edit (the merge would overwrite it).
-readonly TOLERATED_LIVE_EDITS='^server-data/resources/\[vehicles\]/'
+readonly TOLERATED_LIVE_EDITS='^(server-data/resources/\[vehicles\]/|snapshots/)'
 
 # stdin: changed paths. Prints the ones that block a release.
-blocking_dirty_paths() { grep -v -e '^$' | grep -v -e "$TOLERATED_LIVE_EDITS" || true; }
+blocking_dirty_paths() { grep -v -e '^$' | grep -v -E -e "$TOLERATED_LIVE_EDITS" || true; }
 
 # args: file of live-edited paths, file of paths the release changes. Prints paths in both.
 overlapping_paths() { comm -12 <(sort -u "$1") <(sort -u "$2"); }

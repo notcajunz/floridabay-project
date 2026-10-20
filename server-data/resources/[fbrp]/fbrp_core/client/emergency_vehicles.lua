@@ -45,6 +45,23 @@ local function emergencyKind(vehicle)
     return nil
 end
 
+-- Law-enforcement test used by the Wraith ARS radar (wk_wars2x). A personal is LEO only when the
+-- portal says so; a base-game vehicle is LEO when it is an emergency-class vehicle that is not an
+-- ambulance, fire truck, or lifeguard vehicle.
+local NON_LEO_BASE = {
+    [joaat('ambulance')] = true, [joaat('firetruk')] = true, [joaat('lguard')] = true,
+    [joaat('pbus')] = true, [joaat('pbus2')] = true,
+}
+
+local function isLeoVehicle(vehicle)
+    local kind = emergencyKind(vehicle)
+    if kind == 'leo' then return true end
+    if kind ~= 'emergency' then return false end
+    if personalId(vehicle) then return false end
+    return not NON_LEO_BASE[GetEntityModel(vehicle)]
+end
+exports('IsLeoVehicle', isLeoVehicle)
+
 local function stopTone(vehicle)
     local current = playing[vehicle]
     if not current then return end

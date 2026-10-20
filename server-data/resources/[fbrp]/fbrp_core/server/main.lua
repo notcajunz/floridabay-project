@@ -466,6 +466,8 @@ local function clockOutOrg(source, reason)
     return true
 end
 
+local autoClockInStaff -- defined with the /clockin command below
+
 local function initializePlayer(source)
     source = tonumber(source)
     if not source then return end
@@ -503,6 +505,7 @@ local function initializePlayer(source)
     })
     -- Lets modules loaded after this file react once the session exists.
     TriggerEvent('fbrp:playerReady', source)
+    autoClockInStaff(source)
 end
 
 local function refreshPlayer(source)
@@ -897,19 +900,19 @@ RegisterNetEvent('fbrp:vmenu:unauthorizedNoclip', function()
 end)
 AddEventHandler('playerDropped', function() lastNoclipReport[source] = nil end)
 
-RegisterCommand('clockin', function(source)
-    if source <= 0 then return end
+-- Clocks a staff member in. Returns true on success, or false plus the reason shown to the player.
+local function clockInStaff(source)
     local s = sessions[source]
-    if not s then return notify(source, 'Your Florida Bay session is still loading.', 'error') end
-    if not s.discord then return notify(source, 'Link Discord before using staff duty.', 'error') end
-    if not isStaffMember(source) then return notify(source, 'You are not assigned to a staff ACE group.', 'error') end
-    if s.staffDuty then return notify(source, 'You are already clocked in.', 'info') end
+    if not s then return false, 'Your Florida Bay session is still loading.' end
+    if not s.discord then return false, 'Link Discord before using staff duty.' end
+    if not isStaffMember(source) then return false, 'You are not assigned to a staff ACE group.' end
+    if s.staffDuty then return false, 'You are already clocked in.', 'info' end
     if s.org
         and not discordHasRole(s.discord, FBRP.Config.staffOrgDutyBypassRoleId)
         and not hasStaffGroupAtLeast(source, FBRP.Config.staffOrgDutyBypassMinGroup)
         and not (s.org.type == 'gang' and discordHasRole(s.discord, FBRP.Config.staffGangDutyBypassRoleId))
     then
-        return notify(source, ('Clock out of %s before clocking in as staff.'):format(s.org.name), 'error')
+        return false, ('Clock out of %s before clocking in as staff.'):format(s.org.name)
     end
     local started = now()
     local id = MySQL.insert.await('INSERT INTO staff_shifts(discord_id,player_id,name,started_at,heartbeat_at) VALUES(?,?,?,?,?)', {
@@ -919,10 +922,38 @@ RegisterCommand('clockin', function(source)
     s.staffShift = { id=id,startedAt=started }
     reconcilePrincipals(source)
     publishPlayer(source)
+    return true
+end
+
+RegisterCommand('clockin', function(source)
+    if source <= 0 then return end
+    local ok, reason, kind = clockInStaff(source)
+    if not ok then return notify(source, reason, kind or 'error') end
     notify(source, 'Clocked in. EasyAdmin and staff ACE permissions are active.', 'success')
-    FBRP.DB.audit(s.discord, 'staff.clockin', s.discord, { source=source })
+    FBRP.DB.audit(sessions[source].discord, 'staff.clockin', sessions[source].discord, { source=source })
     TriggerEvent('fbrp:staffDutyChanged', source, true, 0)
 end, false)
+
+-- Members of the mgmt_team ACE group are clocked into staff as soon as their session is ready.
+local AUTO_CLOCKIN_GROUP = 'mgmt_team'
+autoClockInStaff = function(source)
+    local s = sessions[source]
+    if not s or s.staffDuty then return end
+    local held = false
+    for _, group in ipairs(s.groups or {}) do
+        if group.name == AUTO_CLOCKIN_GROUP then held = true break end
+    end
+    if not held then return end
+    CreateThread(function()
+        local ok = clockInStaff(source)
+        if not ok then return end
+        local session = sessions[source]
+        FBRP.DB.audit(session.discord, 'staff.clockin', session.discord, { source=source, auto=true, group=AUTO_CLOCKIN_GROUP })
+        TriggerEvent('fbrp:staffDutyChanged', source, true, 0)
+        Wait(4000)
+        notify(source, 'Management team: you were automatically clocked in as staff. Use /clockout to go off duty.', 'success')
+    end)
+end
 
 RegisterCommand('clockout', function(source)
     if source <= 0 then return end

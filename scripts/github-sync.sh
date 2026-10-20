@@ -113,6 +113,13 @@ fi
 if git rev-parse -q --verify "$sync_ref" >/dev/null; then base_ref="$sync_ref"; else base_ref=HEAD; fi
 git read-tree "$base_ref" 2>/dev/null || rm -f "$GIT_INDEX_FILE"
 git add -A >/dev/null 2>&1
+# The EUP packs (several GB, and an owner-managed mount of the game host) are deliberately left out of
+# the GitHub backup: keep whatever the backup branch already holds for them and never add new packs.
+eup_path="server-data/resources/[eup]"
+git rm -r -q --cached --ignore-unmatch -- ":(literal)$eup_path" >/dev/null 2>&1
+if git cat-file -e "$base_ref:$eup_path" 2>/dev/null; then
+  git read-tree --prefix="$eup_path/" "$base_ref:$eup_path"
+fi
 leaks=""
 secret_values="$config_dir/secret-values.tmp"
 : > "$secret_values"; chmod 600 "$secret_values"

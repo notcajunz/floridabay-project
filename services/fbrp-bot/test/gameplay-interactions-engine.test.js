@@ -108,3 +108,25 @@ test('bulletproof glass stays processed so bullets stop at it, and every pane is
   assert.doesNotMatch(personals, /SetDontProcessVehicleGlass\(vehicle, on\)/);
   assert.match(personals, /Wait\(any and 0 or 500\)/);
 });
+
+test('Wraith ARS radar is installed and limited to LEO vehicles through fbrp_core', () => {
+  const player = read('server-data/resources/[fbrp]/wk_wars2x/cl_player.lua');
+  const emergency = read('server-data/resources/[fbrp]/fbrp_core/client/emergency_vehicles.lua');
+  const cfg = read('server-data/config/phone.cfg');
+  const config = read('server-data/resources/[fbrp]/wk_wars2x/config.lua');
+  assert.match(cfg, /^ensure wk_wars2x$/m);
+  assert.match(player, /exports\.fbrp_core:IsLeoVehicle/);
+  assert.doesNotMatch(player, /GetVehicleClass\( PLY\.veh \) == 18/);
+  assert.match(emergency, /exports\('IsLeoVehicle'/);
+  assert.match(emergency, /if personalId\(vehicle\) then return false end/);
+  assert.doesNotMatch(config, /key_lock = "l"/); // L is the vehicle lock key
+});
+
+test('mgmt_team members are clocked into staff automatically when their session is ready', () => {
+  const main = read('server-data/resources/[fbrp]/fbrp_core/server/main.lua');
+  assert.match(main, /local AUTO_CLOCKIN_GROUP = 'mgmt_team'/);
+  assert.match(main, /TriggerEvent\('fbrp:playerReady', source\)\n\s+autoClockInStaff\(source\)/);
+  assert.match(main, /local function clockInStaff\(source\)/);
+  assert.match(main, /RegisterCommand\('clockin'[\s\S]*clockInStaff\(source\)/);
+  assert.match(main, /auto=true, group=AUTO_CLOCKIN_GROUP/);
+});

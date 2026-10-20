@@ -76,3 +76,14 @@ test("github sync commits on its own branch and index, never on the live checkou
   assert.doesNotMatch(sync, /git commit -q/);
   assert.doesNotMatch(sync, /HEAD:main/);
 });
+
+test("rewritten sync snapshots never block a release", () => {
+  const out = bash(`printf '%s\\n' 'snapshots/fbrp-db.sql.gz.enc' 'snapshots/private-files.tar.gz.enc' | blocking_dirty_paths`);
+  assert.equal(out, "");
+});
+
+test("github sync leaves the EUP packs out of the backup", () => {
+  const sync = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts/github-sync.sh"), "utf8");
+  assert.match(sync, /git rm -r -q --cached --ignore-unmatch -- ":\(literal\)\$eup_path"/);
+  assert.match(sync, /server-data\/resources\/\[eup\]/);
+});
