@@ -1,0 +1,17 @@
+{
+  "source": "9sx_tumbler.zip",
+  "model": "9sx_tumbler",
+  "by": "1090083387638812755",
+  "at": 1792870523985,
+  "request": {},
+  "changes": [],
+  "liveries": [],
+  "vehicleType": "civilian",
+  "vehicleTypeReason": "The pack metadata names it 'Saifs Personal' and the carvariations file shows normal color/livery flags with no law-enforcement, fire, or EMS identifiers.",
+  "security": {
+    "verdict": "safe",
+    "summary": "The pack contains only vehicle model/texture assets and metadata files, with no scripts, executables, web assets, or other runtime behavior. No security concerns were found.",
+    "findings": [],
+    "repairs": []
+  }
+}

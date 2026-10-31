@@ -1,0 +1,73 @@
+{
+  "source": "2023 bmw m3 g80.zip",
+  "model": "aed80leo",
+  "by": "1090083387638812755",
+  "at": 1792711258976,
+  "request": {
+    "topSpeedMph": 300,
+    "acceleration": "much_higher",
+    "braking": "much_higher",
+    "grip": "much_higher",
+    "drivetrain": "rwd",
+    "instructions": "never rolls/flips, incredibly fast/high braking and acceleration, turns easily at high and low speeds, overpowered handling please"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "400.000000",
+      "to": "365.853659",
+      "reason": "Top speed about 300 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.850000",
+      "to": "1.105000",
+      "reason": "Acceleration much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "2.800000",
+      "to": "3.640000",
+      "reason": "Braking much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "4.900000",
+      "to": "6.370000",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "4.600000",
+      "to": "5.980000",
+      "reason": "Grip much higher (30%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fDriveBiasFront",
+      "from": "0.500000",
+      "to": "0.000000",
+      "reason": "RWD drivetrain"
+    }
+  ],
+  "liveries": [],
+  "vehicleType": "leo",
+  "vehicleTypeReason": "The vehicle has FLAG_LAW_ENFORCEMENT in vehicles.meta and emergency siren settings in carvariations/carcols, indicating a police-style emergency vehicle.",
+  "security": {
+    "verdict": "safe",
+    "summary": "The pack appears to be a normal data-only FiveM vehicle resource: model and texture assets plus standard vehicle metadata. The included manifest only declares data files and does not contain executable logic, and the importer will generate its own manifest anyway.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "2023 bmw m3 g80/fxmanifest.lua",
+        "issue": "Manifest includes only standard data declarations, but its paths are not independently trusted by the importer.",
+        "action": "Ignore the uploaded manifest and regenerate a fresh manifest from recognized files only."
+      }
+    ]
+  }
+}

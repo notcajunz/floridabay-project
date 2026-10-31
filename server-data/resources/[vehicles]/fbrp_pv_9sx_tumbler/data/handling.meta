@@ -1,0 +1,152 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<CHandlingDataMgr>
+  <HandlingData>
+    <Item type="CHandlingData">
+      <handlingName>9sx_tumbler</handlingName>
+      <fMass value="2000000.0" />
+			<fInitialDragCoeff value="1.8" />
+			<fDownforceModifier value="1.0" />
+			<fPercentSubmerged value="85.0" />
+			<vecCentreOfMassOffset x="0.0" y="0.050000000745058" z="-0.34999999403954" />
+			<vecInertiaMultiplier x="1.0" y="1.6000000238419" z="1.7000000476837" />
+			<fDriveBiasFront value="0.3" />
+			<nInitialDriveGears value="6" />
+			<fInitialDriveForce value="2.3" />
+			<fDriveInertia value="1.0" />
+			<fClutchChangeRateScaleUpShift value="2.5" />
+			<fClutchChangeRateScaleDownShift value="6.0" />
+			<fInitialDriveMaxFlatVel value="570.0" />
+			<fBrakeForce value="3.9" />
+			<fBrakeBiasFront value="0.25" />
+			<fHandBrakeForce value="1.5" />
+			<fSteeringLock value="45.0" />
+			<fTractionCurveMax value="7.65" />
+			<fTractionCurveMin value="9.55" />
+			<fTractionCurveLateral value="22.5" />
+			<fTractionSpringDeltaMax value="0.15" />
+			<fLowSpeedTractionLossMult value="0.0" />
+			<fCamberStiffnesss value="0.0" />
+			<fTractionBiasFront value="0.485" />
+			<fTractionLossMult value="1.0" />
+			<fSuspensionForce value="2.65" />
+			<fSuspensionCompDamp value="1.5" />
+			<fSuspensionReboundDamp value="2.2" />
+			<fSuspensionUpperLimit value="0.01" />
+			<fSuspensionLowerLimit value="-0.02" />
+			<fSuspensionRaise value="0.0" />
+			<fSuspensionBiasFront value="0.47" />
+			<fAntiRollBarForce value="0.9" />
+			<fAntiRollBarBiasFront value="0.6" />
+			<fRollCentreHeightFront value="0.3" />
+			<fRollCentreHeightRear value="0.2" />
+			<fCollisionDamageMult value="1.0" />
+			<fWeaponDamageMult value="1.0" />
+			<fDeformationDamageMult value="1.0" />
+			<fEngineDamageMult value="1.0" />
+			<fPetrolTankVolume value="300.0" />
+			<fOilVolume value="5.0" />
+			<fSeatOffsetDistX value="0.0" />
+			<fSeatOffsetDistY value="-0.1" />
+			<fSeatOffsetDistZ value="0.05" />
+			<nMonetaryValue value="35000" />
+      <strModelFlags>04000020</strModelFlags>
+      <strHandlingFlags>24002</strHandlingFlags>
+      <strDamageFlags>0</strDamageFlags>
+      <AIHandling>AVERAGE</AIHandling>
+      <SubHandlingData>
+        <Item type="CVehicleWeaponHandlingData">
+          <uWeaponHash>
+            <Item>VEHICLE_WEAPON_BATMISSLMAO</Item>
+            <Item>VEHICLE_WEAPON_BATBRRRRRR</Item>
+            <Item>VEHICLE_WEAPON_BATBOOM</Item>
+            <Item>VEHICLE_WEAPON_BOPBADAM</Item>
+            <Item />
+            <Item />
+          </uWeaponHash>
+          <WeaponSeats content="int_array">
+            0 
+            0 
+            0 
+          </WeaponSeats>
+          <fTurretSpeed content="float_array">
+            0.000000	
+            0.000000	
+          </fTurretSpeed>
+          <fTurretPitchMin content="float_array">
+            0.000000	
+            0.000000	
+          </fTurretPitchMin>
+          <fTurretPitchMax content="float_array">
+            0.000000	
+            0.000000	
+          </fTurretPitchMax>
+          <fTurretCamPitchMin content="float_array">
+            0.000000	
+            0.000000	
+          </fTurretCamPitchMin>
+          <fTurretCamPitchMax content="float_array">
+            0.000000	
+            0.000000	
+          </fTurretCamPitchMax>
+          <fBulletVelocityForGravity content="float_array">
+            0.000000	
+            0.000000	
+          </fBulletVelocityForGravity>
+          <fTurretPitchForwardMin content="float_array">
+            0.000000	
+            0.000000	
+          </fTurretPitchForwardMin>
+          <fUvAnimationMult value="0.660000" />
+          <fMiscGadgetVar value="1.500000" />
+          <fWheelImpactOffset value="0.000000" />
+        </Item>
+        <Item type="CSpecialFlightHandlingData">
+					<mode value="1" />
+					<fLiftCoefficient value="6000.0" />
+					<fMinLiftVelocity value="0.0" />
+					<fDragCoefficient value="-70.0" />
+					<fMaxPitchTorque value="750.0" />
+					<fMaxSteeringRollTorque value="50.0" />
+					<fMaxThrust value="8500.0" />
+					<fYawTorqueScale value="-4.0f" />
+					<fRollTorqueScale value="7.5f" />
+					<fTransitionDuration value="0.0" />
+					<fPitchTorqueScale value="12.0" />
+					<vecAngularDamping x="3.000000" y="2.00000" z="1.20000" />
+					<vecLinearDamping x="0.900000" y="0.100000" z="0.70000" />
+            </Item>
+              <Item type="CBoatHandlingData">
+                      <fBoxFrontMult value="0.600000" />
+                      <fBoxRearMult value="0.800000" />
+                      <fBoxSideMult value="0.600000" />
+                      <fSampleTop value="0.200000" />
+                      <fSampleBottom value="-1.250000" />
+                      <fAquaplaneForce value="10.000000" />
+                      <fAquaplanePushWaterMult value="0.400000" />
+                      <fAquaplanePushWaterCap value="3.500000" />
+                      <fAquaplanePushWaterApply value="0.002000" />
+                      <fRudderForce value="1.200000" />
+                      <fRudderOffsetSubmerge value="0.000000" />
+                      <fRudderOffsetForce value="-0.250000" />
+                      <fRudderOffsetForceZMult value="1.00000" />
+                      <fWaveAudioMult value="4.000000" />
+                      <vecMoveResistance x="1.000000" y="200.000000" z="100.000000" />
+                      <vecTurnResistance x="2.400000" y="2.000000" z="0.00000" />
+                      <fLook_L_R_CamHeight value="4.000000" />
+                      <fDragCoefficient value="4.500000" />
+                      <fKeelSphereSize value="0.300000" />
+                      <fPropRadius value="0.300000" />
+                      <fLowLodAngOffset value="0.00725884" />
+                      <fLowLodDraughtOffset value="-0.58569765" />
+                      <fImpellerOffset value="0.000000" />
+                      <fImpellerForceMult value="0.000000" />
+                      <fDinghySphereBuoyConst value="0.000000" />
+                      <fProwRaiseMult value="0.250000" />
+                      <fTransmissionMultiplier value="11.00000" />
+                      <fTractionMultiplier value="0.500000" />
+                      </Item>
+        <Item type="NULL" />
+      </SubHandlingData>
+    </Item>
+  </HandlingData>
+</CHandlingDataMgr>

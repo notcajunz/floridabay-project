@@ -1,0 +1,65 @@
+{
+  "source": "2025 chevrolet tahoe.zip",
+  "model": "rx24tahoek9st",
+  "by": "1090083387638812755",
+  "at": 1792711506159,
+  "request": {
+    "topSpeedMph": 165,
+    "acceleration": "lower",
+    "braking": "lower",
+    "grip": "higher",
+    "drivetrain": "awd"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "380.000000",
+      "to": "201.219512",
+      "reason": "Top speed about 165 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.780000",
+      "to": "0.663000",
+      "reason": "Acceleration lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "3.000000",
+      "to": "2.550000",
+      "reason": "Braking lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "4.500000",
+      "to": "5.175000",
+      "reason": "Grip higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "4.200000",
+      "to": "4.830000",
+      "reason": "Grip higher (15%)"
+    }
+  ],
+  "liveries": [],
+  "vehicleType": "leo",
+  "vehicleTypeReason": "The vehicle is configured as a law-enforcement emergency SUV, with FLAG_LAW_ENFORCEMENT, VC_EMERGENCY, police plate probabilities, and K9/police emergency metadata.",
+  "security": {
+    "verdict": "safe",
+    "summary": "The pack contains only vehicle models/textures, vehicle metadata, and a declarative fxmanifest with no executable logic, downloads, callbacks, or hidden payloads. The Lua manifest is benign and only declares data files; the importer will generate its own manifest anyway.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "2025 chevrolet tahoe/fxmanifest.lua",
+        "issue": "Uploaded manifest is present but the importer does not install it directly.",
+        "action": "Ignore the uploaded manifest and regenerate a fresh manifest from the files that actually exist. Stale or duplicate declarations are omitted by design."
+      }
+    ]
+  }
+}

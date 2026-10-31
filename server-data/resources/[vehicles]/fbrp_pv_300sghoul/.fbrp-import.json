@@ -1,0 +1,200 @@
+{
+  "source": "300sghoul.zip",
+  "model": "300sghoul",
+  "by": "1467063344140779601",
+  "at": 1793022979103,
+  "request": {
+    "topSpeedMph": 350,
+    "acceleration": "higher",
+    "braking": "higher",
+    "grip": "higher",
+    "drivetrain": "awd",
+    "gears": 6
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "390.000000",
+      "to": "426.829268",
+      "reason": "Top speed about 350 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "1.3891375405200000",
+      "to": "1.597508",
+      "reason": "Acceleration higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "9.920000",
+      "to": "11.408000",
+      "reason": "Braking higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "8.250000",
+      "to": "9.487500",
+      "reason": "Grip higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "8.950000",
+      "to": "10.292500",
+      "reason": "Grip higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "nInitialDriveGears",
+      "from": "8",
+      "to": "6",
+      "reason": "6 gears"
+    }
+  ],
+  "liveries": [],
+  "vehicleType": "civilian",
+  "vehicleTypeReason": "The pack is a Chrysler 300 sports car with no police, fire, or EMS model cues; the siren/light metadata is absent and only indicates a civilian car with no emergency role.",
+  "security": {
+    "verdict": "safe",
+    "summary": "This looks like a normal vehicle pack: only model/texture assets and vehicle metadata are present, and the uploaded __resource.lua contains declarative data_file entries only. No executable payloads, remote callbacks, obfuscation, or other malicious behavior were found.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "300sghoul/300sghoul/__resource.lua",
+        "issue": "References a metadata file that is not present in the inventory (vehiclelayouts.meta).",
+        "action": "Ignored during import; the importer will generate a fresh manifest from the files that actually exist."
+      }
+    ]
+  },
+  "retunes": [
+    {
+      "at": 1793023081657,
+      "by": "1467063344140779601",
+      "request": {
+        "acceleration": "lower",
+        "braking": "lower",
+        "grip": "lower",
+        "drivetrain": "awd",
+        "instructions": "Make it pick up seed fast but don't make it so you can reach top speed fast"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "1.597508",
+          "to": "1.357882",
+          "reason": "Acceleration lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "11.408000",
+          "to": "9.696800",
+          "reason": "Braking lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "9.487500",
+          "to": "8.064375",
+          "reason": "Grip lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "10.292500",
+          "to": "8.748625",
+          "reason": "Grip lower (-15%)"
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1793023090984,
+      "by": "1467063344140779601",
+      "request": {
+        "acceleration": "lower",
+        "braking": "lower",
+        "grip": "lower",
+        "drivetrain": "awd",
+        "instructions": "Make it pick up seed fast but don't make it so you can reach top speed fast"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "1.357882",
+          "to": "1.154200",
+          "reason": "Acceleration lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fBrakeForce",
+          "from": "9.696800",
+          "to": "8.242280",
+          "reason": "Braking lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMax",
+          "from": "8.064375",
+          "to": "6.854719",
+          "reason": "Grip lower (-15%)"
+        },
+        {
+          "file": "handling.meta",
+          "field": "fTractionCurveMin",
+          "from": "8.748625",
+          "to": "7.436331",
+          "reason": "Grip lower (-15%)"
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1793023164118,
+      "by": "1467063344140779601",
+      "request": {
+        "instructions": "Make the turning less sensitive"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fSteeringLock",
+          "from": "35.000000",
+          "to": "30.000000",
+          "reason": "Lower steering lock reduces turn sensitivity and makes the car easier to control."
+        },
+        {
+          "file": "handling.meta",
+          "field": "vecInertiaMultiplier",
+          "from": "1.200000,1.300000,1.800000",
+          "to": "1.250000,1.350000,1.900000",
+          "reason": "A small increase in yaw inertia helps smooth out twitchy directional changes without hurting drivability."
+        }
+      ],
+      "shrink": false
+    },
+    {
+      "at": 1793023199740,
+      "by": "1467063344140779601",
+      "request": {
+        "instructions": "Make it pick up speed just a little faster"
+      },
+      "changes": [
+        {
+          "file": "handling.meta",
+          "field": "fInitialDriveForce",
+          "from": "1.154200",
+          "to": "1.220000",
+          "reason": "A small increase improves acceleration without making the car unrealistic or hard to drive."
+        }
+      ],
+      "shrink": false
+    }
+  ]
+}

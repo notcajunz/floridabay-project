@@ -1,0 +1,59 @@
+{
+  "source": "2025 gmc denali.zip",
+  "model": "irc_recon",
+  "by": "1090083387638812755",
+  "at": 1792711559921,
+  "request": {
+    "topSpeedMph": 171,
+    "acceleration": "lower",
+    "braking": "higher",
+    "grip": "higher",
+    "drivetrain": "awd"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveMaxFlatVel",
+      "from": "330.000000",
+      "to": "208.536585",
+      "reason": "Top speed about 171 mph"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "0.680000",
+      "to": "0.578000",
+      "reason": "Acceleration lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "3.000000",
+      "to": "3.450000",
+      "reason": "Braking higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "4.500000",
+      "to": "5.175000",
+      "reason": "Grip higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "4.200000",
+      "to": "4.830000",
+      "reason": "Grip higher (15%)"
+    }
+  ],
+  "liveries": [],
+  "vehicleType": "leo",
+  "vehicleTypeReason": "The pack has emergency light/siren setup and the gameName is ReconPD, indicating a police/recon vehicle.",
+  "security": {
+    "verdict": "safe",
+    "summary": "No executable behavior, backdoor indicators, obfuscation, remote loading, or malicious runtime scripting was found. The uploaded Lua manifest is declarative only, and the importer ignores it and regenerates its own manifest from recognized vehicle assets and metadata.",
+    "findings": [],
+    "repairs": []
+  }
+}

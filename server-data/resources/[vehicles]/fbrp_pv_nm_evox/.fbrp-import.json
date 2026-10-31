@@ -1,0 +1,64 @@
+{
+  "source": "nm_evox.zip",
+  "model": "nm_evox",
+  "by": "1090083387638812755",
+  "at": 1792898009005,
+  "request": {
+    "acceleration": "higher",
+    "braking": "lower",
+    "grip": "lower",
+    "drivetrain": "rwd"
+  },
+  "changes": [
+    {
+      "file": "handling.meta",
+      "field": "fInitialDriveForce",
+      "from": "1.0",
+      "to": "1.150000",
+      "reason": "Acceleration higher (15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fBrakeForce",
+      "from": "7.5",
+      "to": "6.375000",
+      "reason": "Braking lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMax",
+      "from": "3.0",
+      "to": "2.550000",
+      "reason": "Grip lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fTractionCurveMin",
+      "from": "5.0",
+      "to": "4.250000",
+      "reason": "Grip lower (-15%)"
+    },
+    {
+      "file": "handling.meta",
+      "field": "fDriveBiasFront",
+      "from": "0.5",
+      "to": "0.000000",
+      "reason": "RWD drivetrain"
+    }
+  ],
+  "liveries": [],
+  "vehicleType": "leo",
+  "vehicleTypeReason": "The vehicle is flagged as law enforcement and emergency service, and the supplied siren/light metadata confirms it is configured as a police-style emergency vehicle.",
+  "security": {
+    "verdict": "safe",
+    "summary": "This looks like a normal data-only vehicle pack: model and texture assets plus metadata, with no runtime scripts, web content, downloads, or executable behavior. The included __resource.lua only declares files/data_file entries and does not add active logic.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "nm_evox/__resource.lua",
+        "issue": "References optional vehiclelayouts.meta that is not present in the inventory.",
+        "action": "Omit the missing data_file entry when regenerating the manifest."
+      }
+    ]
+  }
+}
