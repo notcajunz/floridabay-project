@@ -35,10 +35,11 @@ RegisterCommand("shootgrenade", function()
             lastTimeShot = GetGameTimer()
         end
     else
-        BeginTextCommandThefeedPost("STRING")
-        AddTextComponentSubstringPlayerName("You have ~b~" ..
-        15 - math.floor((GetGameTimer() - lastTimeShot) / 1000) .. " seconds~w~ left before you can shoot again.")
-        EndTextCommandThefeedPostTicker(true, true)
+        TriggerEvent('ox_lib:notify', {
+            title = 'M203',
+            description = ('You have %d seconds left before you can shoot again.'):format(15 - math.floor((GetGameTimer() - lastTimeShot) / 1000)),
+            type = 'warning'
+        })
     end
 end, false)
 

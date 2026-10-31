@@ -140,14 +140,14 @@ local function isDevManager(source)
 end
 
 local directorThreshold
--- Community Director and above (staff ranks), on duty.
-local function isCommunityDirector(source)
+-- Executive Management and above (staff ranks), on duty.
+local function isExecutiveManagement(source)
     local s = sessions[source]
     if not (s and s.staffDuty) then return false end
     if directorThreshold == nil or GetGameTimer() - directorThreshold.at > 300000 then
         local rank = MySQL.scalar.await([[
             SELECT rank_order FROM ace_groups
-             WHERE staff_only=TRUE AND (name='community_director' OR label='Community Director')
+             WHERE staff_only=TRUE AND (name='executive_management' OR label='Executive Management')
              ORDER BY rank_order LIMIT 1
         ]])
         directorThreshold = { at=GetGameTimer(), rank=tonumber(rank) }
@@ -161,7 +161,7 @@ local function isCommunityDirector(source)
 end
 
 local function canManageProperties(source) return isDevManager(source) end
-local function canManageStations(source) return isDevManager(source) or isCommunityDirector(source) end
+local function canManageStations(source) return isDevManager(source) or isExecutiveManagement(source) end
 
 -- Law enforcement that is clocked in to a law enforcement organization right now.
 local function isClockedInLeo(source)
@@ -395,7 +395,7 @@ RegisterNetEvent('fbrp:propmenu:open', function()
     local src = source
     if not sessions[src] then return end
     if not sendMenu(src, true) then
-        S.notify(src, 'Only Dev Manager and above manage properties. Community Director and above on duty add police station doors.', 'error')
+        S.notify(src, 'Only Dev Manager and above manage properties. Executive Management and above on duty add police station doors.', 'error')
     end
 end)
 
@@ -473,12 +473,12 @@ RegisterNetEvent('fbrp:doors:edit', function(action, model, x, y, z, id, key)
     sendMenu(src, false)
 end)
 
--- Police station doors: Community Director and above on duty, and Dev Manager and above.
+-- Police station doors: Executive Management and above on duty, and Dev Manager and above.
 RegisterNetEvent('fbrp:stationdoors:add', function(station, model, x, y, z)
     local src = source
     local s = sessions[src]
     if not s then return end
-    if not canManageStations(src) then return S.notify(src, 'Only Community Director and above on duty add police station doors.', 'error') end
+    if not canManageStations(src) then return S.notify(src, 'Only Executive Management and above on duty add police station doors.', 'error') end
     model, x, y, z = tonumber(model), tonumber(x), tonumber(y), tonumber(z)
     station = type(station) == 'string' and station:gsub('^%s+', ''):gsub('%s+$', ''):sub(1, 60) or ''
     if station == '' or not (model and x and y and z) then return S.notify(src, 'Pick a station and stand next to the door.', 'error') end
@@ -502,7 +502,7 @@ RegisterNetEvent('fbrp:stationdoors:remove', function(dbId)
     local src = source
     local s = sessions[src]
     if not s then return end
-    if not canManageStations(src) then return S.notify(src, 'Only Community Director and above on duty remove police station doors.', 'error') end
+    if not canManageStations(src) then return S.notify(src, 'Only Executive Management and above on duty remove police station doors.', 'error') end
     dbId = tonumber(dbId)
     if not dbId then return end
     MySQL.query.await('DELETE FROM station_doors WHERE id=?', { dbId })

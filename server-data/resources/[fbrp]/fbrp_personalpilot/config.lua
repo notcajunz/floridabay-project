@@ -1,0 +1,98 @@
+PersonalPilotConfig = {
+    Command = 'pilot',
+    CancelCommand = 'pilotcancel',
+    TaxiCommand = 'pilottaxi',
+
+    -- Trial Management is the current database name for the former Trial Manager rank.
+    -- The server compares rank_order, so every higher staff rank is included automatically.
+    RankName = 'trial_management',
+    RankLabel = 'Trial Management',
+    RequireOnDuty = true,
+
+    PilotModel = 's_m_m_pilot_02',
+    NearbyAircraftRadius = 35.0,
+    SpawnForwardDistance = 18.0,
+    BoardingTimeoutSeconds = 60,
+    FlightTimeoutMinutes = 15,
+    RunwaySnapDistance = 1300.0,
+    DepartureRunwayDistance = 2200.0,
+    ApproachDistance = 1500.0,
+    ApproachAltitude = 190.0,
+    CruiseSpeed = 95.0,
+    LandingSpeed = 55.0,
+    TaxiSpeed = 9.0,
+    TaxiTurnSpeed = 3.5,
+    TaxiTurnRate = 24.0,
+    TaxiBrakeDistance = 35.0,
+    TaxiStopRange = 12.0,
+    TaxiTimeoutSeconds = 180,
+    TaxiStuckSeconds = 7,
+    TaxiMaxRecoveries = 3,
+    TakeoffClearanceHeight = 45.0,
+    HeliCruiseSpeed = 55.0,
+    HeliCruiseAltitude = 90.0,
+    HeliTakeoffHeight = 12.0,
+    HeliTakeoffClearanceHeight = 7.0,
+    HeliTakeoffSpeed = 30.0,
+    HeliTakeoffTimeoutSeconds = 12,
+    PostFlightStandbySeconds = 300,
+    CleanupWaitSeconds = 120,
+
+    -- Presets are suggestions only. /pilot <model> accepts any valid plane or
+    -- helicopter with a pilot seat and at least one passenger seat.
+    Presets = {
+        luxor2 = 'Luxor Deluxe (8 seats)',
+        nimbus = 'Nimbus (8 seats)',
+        shamal = 'Shamal (10 seats)',
+        miljet = 'Miljet (16 seats)',
+        velum2 = 'Velum 5-Seater',
+        dodo = 'Dodo (4 seats)',
+        swift = 'Swift (4 seats)',
+        supervolito2 = 'SuperVolito Carbon (4 seats)',
+        maverick = 'Maverick (4 seats)',
+        frogger = 'Frogger (4 seats)',
+        volatus = 'Volatus (4 seats)',
+    },
+
+    -- Each pair is ordered runway threshold -> opposite end. The script reverses
+    -- the pair when needed so the pilot approaches from the nearer side.
+    Runways = {
+        { name = 'LSIA 03L/21R', a = vector3(-1772.4, -3100.0, 13.9), b = vector3(-1041.8, -2468.8, 13.9) },
+        { name = 'LSIA 03R/21L', a = vector3(-1635.5, -2988.0, 13.9), b = vector3(-917.0, -2377.0, 13.9) },
+        { name = 'Sandy Shores Airfield', a = vector3(1212.3, 3036.7, 40.4), b = vector3(1743.1, 3252.8, 40.6) },
+        { name = 'Grapeseed Airfield', a = vector3(2132.6, 4782.1, 40.9), b = vector3(1278.7, 4472.7, 40.9) },
+        { name = 'Fort Zancudo Runway', a = vector3(-2772.3, 3238.7, 32.8), b = vector3(-1852.2, 2805.2, 32.8) },
+        -- Parsed from amb_rox_08_airport_runway_col.ybn on the installed
+        -- Roxwood map. The endpoints are inset from the collision bounds.
+        { name = 'Roxwood - Arroyo Muerto Municipal Airport', a = vector3(-3342.0, 6970.0, 43.84), b = vector3(-3492.0, 7692.0, 43.84) },
+    },
+
+    Messages = {
+        usage = 'Set a waypoint, then use /pilot [aircraft model]. Planes need runways; helicopters can land anywhere.',
+        denied = 'Personal pilots are restricted to Trial Management and above.',
+        notOnDuty = 'Clock in as staff (/clockin) before requesting a personal pilot.',
+        busy = 'You already have an active personal pilot. Use /pilotcancel first.',
+        noWaypoint = 'Set a map waypoint at your destination first.',
+        badWaypoint = 'That waypoint is not close enough to a configured runway.',
+        noDepartureRunway = 'Planes must begin near a configured runway. Move the aircraft to an airport or use a helicopter.',
+        noAircraft = 'No usable aircraft is nearby. Use /pilot [aircraft model] to spawn one.',
+        badAircraft = 'That model is not a plane or helicopter with a passenger seat.',
+        loadFailed = 'The pilot or aircraft model could not be loaded.',
+        boarding = 'Pilot ready. Board the aircraft within %d seconds; other passengers may board too.',
+        boardingExpired = 'Flight cancelled because you did not board in time.',
+        taxiDeparture = 'Everyone aboard. Taxiing to the departure end of %s.',
+        takingOff = 'Lined up. Taking off from %s.',
+        departing = 'Airborne and departing for %s.',
+        landing = 'Approaching %s for landing.',
+        taxiArrival = 'Landed at %s. Taxiing to your waypoint.',
+        heliTakingOff = 'Everyone aboard. Beginning vertical takeoff.',
+        heliLanding = 'Approaching your waypoint for helicopter landing.',
+        arrived = 'Arrived at %s. Move your waypoint and use /pilottaxi for another ground taxi, or /pilotcancel to dismiss the pilot.',
+        taxiing = 'Taxiing to the new waypoint.',
+        taxiBlocked = 'Taxi route is blocked. Move the waypoint to open pavement and try again.',
+        taxiUnavailable = '/pilottaxi is available only after a plane has landed and parked.',
+        taxiNoWaypoint = 'Set a map waypoint where you want the plane to taxi.',
+        cancelled = 'Personal pilot cancelled.',
+        flightFailed = 'The flight could not be completed safely.',
+    },
+}

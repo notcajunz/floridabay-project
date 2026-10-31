@@ -13,6 +13,9 @@ fix, change, remove, or build something, autonomously inspect the project,
 implement every affected control and game component, test it, commit and push
 the branch, merge it from the release workspace under the shared release lock,
 deploy it with the correct `split-deploy.sh` target, and verify production.
+Deploy game and `all` releases with `--no-restart`: every change goes live
+except the FiveM server restart, which the owner does in txAdmin (or a
+scheduled restart does). Never restart FXServer yourself unless asked.
 Do not make the user restate those steps.
 
 Do not deploy when the user asks only for a plan, explanation, review, audit,

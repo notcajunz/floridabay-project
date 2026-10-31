@@ -1,7 +1,7 @@
 -- Vehicle failure: RealisticVehicleFailure (FIXED 2023) by iEns / Hyperz, adapted for fbrp_core.
 -- https://forum.cfx.re/t/realisticvehiclefailure-fixed-2023/5074189
 -- Licensed CC BY-SA 4.0 (original: https://github.com/iEns/RealisticVehicleFailure).
--- Changes: runs inside fbrp_core, uses fbrp:notify, /repair is a client command.
+-- Changes: runs inside fbrp_core, uses ox_lib notifications, /repair is a client command.
 -- Engine health stays on the native vehicle value; the HUD reads it through FBRP.VehicleStatus.
 
 local cfg = {
@@ -159,6 +159,15 @@ local healthPetrolTankDelta = 0.0
 local healthPetrolTankDeltaScaled = 0.0
 local tireBurstLuckyNumber
 
+-- Native vehicle health does not always change when custom handling, spawn settings,
+-- or another resource absorbs a collision. Capture the actual velocity impulse so a
+-- real crash still reaches the failure system.
+local pendingCrashDamage = 0.0
+local crashVehicle = 0
+local crashPreviousVelocity
+local crashPreviousSpeed = 0.0
+local lastCrashDamageAt = 0
+
 math.randomseed(GetGameTimer());
 
 local tireBurstMaxNumber = cfg.randomTireBurstInterval * 1200; 												-- the tire burst lottery runs roughly 1200 times per minute
@@ -183,7 +192,7 @@ end)
 
 local function notification(msg)
 	local kind = msg:find('~r~', 1, true) and 'error' or msg:find('~g~', 1, true) and 'success' or 'info'
-	TriggerEvent('fbrp:notify', (msg:gsub('~%a~', '')), kind)
+	lib.notify({ description = (msg:gsub('~%a~', '')), type = kind })
 end
 
 local function isPedDrivingAVehicle()
@@ -201,6 +210,46 @@ local function isPedDrivingAVehicle()
 	end
 	return false
 end
+
+CreateThread(function()
+	while true do
+		Wait(0)
+		local ped = PlayerPedId()
+		local currentVehicle = GetVehiclePedIsIn(ped, false)
+		local isDriver = currentVehicle ~= 0 and GetPedInVehicleSeat(currentVehicle, -1) == ped
+		local class = isDriver and GetVehicleClass(currentVehicle) or -1
+		local trackedClass = class ~= 13 and class ~= 15 and class ~= 16 and class ~= 21
+
+		if isDriver and trackedClass then
+			local velocity = GetEntityVelocity(currentVehicle)
+			local speed = GetEntitySpeed(currentVehicle)
+			if crashVehicle ~= currentVehicle then
+				crashVehicle = currentVehicle
+				crashPreviousVelocity = velocity
+				crashPreviousSpeed = speed
+				pendingCrashDamage = 0.0
+			else
+				local now = GetGameTimer()
+				local impact = crashPreviousVelocity and #(crashPreviousVelocity - velocity) or 0.0
+				if crashPreviousSpeed >= 8.0 and impact >= 4.5
+					and HasEntityCollidedWithAnything(currentVehicle)
+					and now - lastCrashDamageAt >= 650 then
+					local classMultiplier = cfg.classDamageMultiplier[class] or 1.0
+					local damage = math.min(500.0, ((impact - 3.5) ^ 1.35) * 8.0) * classMultiplier
+					pendingCrashDamage = math.max(pendingCrashDamage, damage)
+					lastCrashDamageAt = now
+				end
+				crashPreviousVelocity = velocity
+				crashPreviousSpeed = speed
+			end
+		else
+			crashVehicle = 0
+			crashPreviousVelocity = nil
+			crashPreviousSpeed = 0.0
+			pendingCrashDamage = 0.0
+		end
+	end
+end)
 
 local function IsNearMechanic()
 	local ped = PlayerPedId()
@@ -425,17 +474,18 @@ CreateThread(function()
 		if isPedDrivingAVehicle() then
 			vehicle = GetVehiclePedIsIn(ped, false)
 			vehicleClass = GetVehicleClass(vehicle)
+			local classMultiplier = cfg.classDamageMultiplier[vehicleClass] or 1.0
 			healthEngineCurrent = GetVehicleEngineHealth(vehicle)
 			if healthEngineCurrent == 1000 then healthEngineLast = 1000.0 end
 			healthEngineNew = healthEngineCurrent
 			healthEngineDelta = healthEngineLast - healthEngineCurrent
-			healthEngineDeltaScaled = healthEngineDelta * cfg.damageFactorEngine * cfg.classDamageMultiplier[vehicleClass]
+			healthEngineDeltaScaled = healthEngineDelta * cfg.damageFactorEngine * classMultiplier
 
 			healthBodyCurrent = GetVehicleBodyHealth(vehicle)
 			if healthBodyCurrent == 1000 then healthBodyLast = 1000.0 end
 			healthBodyNew = healthBodyCurrent
 			healthBodyDelta = healthBodyLast - healthBodyCurrent
-			healthBodyDeltaScaled = healthBodyDelta * cfg.damageFactorBody * cfg.classDamageMultiplier[vehicleClass]
+			healthBodyDeltaScaled = healthBodyDelta * cfg.damageFactorBody * classMultiplier
 
 			healthPetrolTankCurrent = GetVehiclePetrolTankHealth(vehicle)
 			if cfg.compatibilityMode and healthPetrolTankCurrent < 1 then
@@ -446,7 +496,7 @@ CreateThread(function()
 			if healthPetrolTankCurrent == 1000 then healthPetrolTankLast = 1000.0 end
 			healthPetrolTankNew = healthPetrolTankCurrent
 			healthPetrolTankDelta = healthPetrolTankLast-healthPetrolTankCurrent
-			healthPetrolTankDeltaScaled = healthPetrolTankDelta * cfg.damageFactorPetrolTank * cfg.classDamageMultiplier[vehicleClass]
+			healthPetrolTankDeltaScaled = healthPetrolTankDelta * cfg.damageFactorPetrolTank * classMultiplier
 
 			if healthEngineCurrent > cfg.engineSafeGuard+1 then
 				SetVehicleUndriveable(vehicle,false)
@@ -464,12 +514,20 @@ CreateThread(function()
 
 			if pedInSameVehicleLast == true then
 				-- Damage happened while in the car = can be multiplied
+				local crashDamage = 0.0
+				if crashVehicle == vehicle then
+					crashDamage = pendingCrashDamage
+					pendingCrashDamage = 0.0
+				end
 
 				-- Only do calculations if any damage is present on the car. Prevents weird behavior when fixing using trainer or other script
-				if healthEngineCurrent ~= 1000.0 or healthBodyCurrent ~= 1000.0 or healthPetrolTankCurrent ~= 1000.0 then
+				if healthEngineCurrent ~= 1000.0 or healthBodyCurrent ~= 1000.0 or healthPetrolTankCurrent ~= 1000.0 or crashDamage > 0.0 then
 
-					-- Combine the delta values (Get the largest of the three)
-					local healthEngineCombinedDelta = math.max(healthEngineDeltaScaled, healthBodyDeltaScaled, healthPetrolTankDeltaScaled)
+					-- Use the largest signal so native damage and the collision fallback are not double-counted.
+					local healthEngineCombinedDelta = math.max(healthEngineDeltaScaled, healthBodyDeltaScaled, healthPetrolTankDeltaScaled, crashDamage)
+					if crashDamage > 0.0 then
+						healthBodyNew = math.max(0.0, healthBodyCurrent - (crashDamage * 0.5))
+					end
 
 					-- If huge damage, scale back a bit
 					if healthEngineCombinedDelta > (healthEngineCurrent - cfg.engineSafeGuard) then

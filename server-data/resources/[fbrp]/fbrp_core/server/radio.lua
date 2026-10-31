@@ -100,7 +100,7 @@ end
 
 local function disconnect(source, message)
     exports['pma-voice']:setPlayerRadio(source, 0)
-    if message then TriggerClientEvent('fbrp:notify', source, message, 'error') end
+    if message then TriggerClientEvent('ox_lib:notify', source, { description = message, type = 'error' }) end
     push(source)
 end
 
@@ -135,13 +135,13 @@ RegisterNetEvent('fbrp:radio:join', function(raw)
     local source = source
     local channel = normalizeChannel(raw)
     if channel < 1 or channel > 999.99 then
-        return TriggerClientEvent('fbrp:notify', source, 'Radio frequencies run from 1.00 to 999.99.', 'error')
+        return TriggerClientEvent('ox_lib:notify', source, { description = 'Radio frequencies run from 1.00 to 999.99.', type = 'error' })
     end
     if not canJoin(source, channel) then
-        return TriggerClientEvent('fbrp:notify', source, 'That frequency is locked to an on-duty organization.', 'error')
+        return TriggerClientEvent('ox_lib:notify', source, { description = 'That frequency is locked to an on-duty organization.', type = 'error' })
     end
     exports['pma-voice']:setPlayerRadio(source, channel)
-    TriggerClientEvent('fbrp:notify', source, ('Connected to radio %s.'):format(formatChannel(channel)), 'success')
+    TriggerClientEvent('ox_lib:notify', source, { description = ('Connected to radio %s.'):format(formatChannel(channel)), type = 'success' })
     SetTimeout(200, function() if GetPlayerPing(source) > 0 then push(source) end end)
 end)
 
@@ -172,8 +172,8 @@ RegisterCommand('frequency', function(source, args)
     if source <= 0 then return end
     if not args[1] or args[1] == 'off' or args[1] == '0' then return disconnect(source) end
     local channel = normalizeChannel(args[1])
-    if channel < 1 or channel > 999.99 then return TriggerClientEvent('fbrp:notify', source, 'Usage: /frequency <1.00-999.99|off>', 'error') end
-    if not canJoin(source, channel) then return TriggerClientEvent('fbrp:notify', source, 'That frequency is locked to an on-duty organization.', 'error') end
+    if channel < 1 or channel > 999.99 then return TriggerClientEvent('ox_lib:notify', source, { description = 'Usage: /frequency <1.00-999.99|off>', type = 'error' }) end
+    if not canJoin(source, channel) then return TriggerClientEvent('ox_lib:notify', source, { description = 'That frequency is locked to an on-duty organization.', type = 'error' }) end
     exports['pma-voice']:setPlayerRadio(source, channel)
-    TriggerClientEvent('fbrp:notify', source, ('Connected to radio %s.'):format(formatChannel(channel)), 'success')
+    TriggerClientEvent('ox_lib:notify', source, { description = ('Connected to radio %s.'):format(formatChannel(channel)), type = 'success' })
 end, false)

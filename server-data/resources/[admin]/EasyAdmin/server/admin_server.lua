@@ -917,14 +917,14 @@ Citizen.CreateThread(function()
 					local bannedUsername = CachedPlayers[id].name or getName(id, true)
 					local expires = os.time()+GetConvarInt("ea_warningBanTime", 604800)
 					
-					reason = GetLocalisedText("warnbanned").. string.format(GetLocalisedText("reasonadd"), CachedPlayers[id].name, getName(source, true) )
-					local ban = {banid = GetFreshBanId(), name = bannedUsername,identifiers = bannedIdentifiers,  banner = getName(source, true), reason = reason, expire = expires }
+					reason = GetLocalisedText("warnbanned").. string.format(GetLocalisedText("reasonadd"), CachedPlayers[id].name, getName(src, true) )
+					local ban = {banid = GetFreshBanId(), name = bannedUsername,identifiers = bannedIdentifiers,  banner = getName(src, true), reason = reason, expire = expires }
 					updateBlacklist( ban )
 					
 					
 					
-					PrintDebugMessage("Player "..getName(source,true).." warnbanned player "..CachedPlayers[id].name.." for "..reason, 3)
-					SendWebhookMessage(moderationNotification,string.format(GetLocalisedText("adminbannedplayer"), getName(source, false, true), bannedUsername, reason, formatDateString( expires ), ban.fbrp_id or tostring(ban.banid) ), "ban", 16711680)
+					PrintDebugMessage("Player "..getName(src,true).." warnbanned player "..CachedPlayers[id].name.." for "..reason, 3)
+					SendWebhookMessage(moderationNotification,string.format(GetLocalisedText("adminbannedplayer"), getName(src, false, true), bannedUsername, reason, formatDateString( expires ), ban.fbrp_id or tostring(ban.banid) ), "ban", 16711680)
 					DropPlayer(id, string.format(GetLocalisedText("banned"), reason, formatDateString( expires ), ban.fbrp_id or tostring(ban.banid) ) )
 					WarnedPlayers[id] = nil
 					

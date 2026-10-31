@@ -35,6 +35,7 @@ local migrationFiles = {
     'migrations/047_pastimes.sql',
     'migrations/048_easyadmin_logs.sql',
     'migrations/049_chat_headtags.sql',
+    'migrations/050_assistant_community_director.sql',
     'migrations/051_ownership_callsign_capacity.sql',
     'migrations/052_custom_weapons_role.sql',
     'migrations/053_personal_access_limits.sql',
@@ -60,7 +61,8 @@ local migrationFiles = {
     'migrations/085_personal_emergency_class.sql',
     'migrations/086_org_badges.sql',
     'migrations/087_org_badge_originals.sql',
-    'migrations/088_junior_management_rank.sql'
+    'migrations/088_junior_management_rank.sql',
+    'migrations/100_management_rank_names.sql'
 }
 
 local function splitSql(contents)

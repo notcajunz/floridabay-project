@@ -253,7 +253,7 @@ end
 
 function FBRP.StartBreach(door)
     if not FBRP.BreachExplosive() then
-        return TriggerEvent('fbrp:notify', 'You need an explosive (sticky bomb, pipe bomb, grenade or proximity mine).', 'error')
+        return lib.notify({ description = 'You need an explosive (sticky bomb, pipe bomb, grenade or proximity mine).', type = 'error' })
     end
     TriggerServerEvent('fbrp:doors:breachStart', door.model, door.x, door.y, door.z)
 end
@@ -270,7 +270,7 @@ RegisterNetEvent('fbrp:doors:breachApproved', function(model, x, y, z)
     if IsEntityDead(ped) or not HasPedGotWeapon(ped, hash, false) then return end
     local ammo = GetAmmoInPedWeapon(ped, hash)
     if ammo <= 1 then RemoveWeaponFromPed(ped, hash) else SetPedAmmo(ped, hash, ammo - 1) end
-    TriggerEvent('fbrp:notify', 'Charge planted. Get clear.', 'warning')
+    lib.notify({ description = 'Charge planted. Get clear.', type = 'warning' })
     TriggerServerEvent('fbrp:doors:breachPlanted', model, x, y, z)
 end)
 
@@ -316,7 +316,7 @@ end
 -- ─────────────────────── property setup menu ───────────────────────
 -- /propmenu opens one menu for everything about setting up a property (door spots, terminal,
 -- bar, stash, armory, wardrobe, door corrections) and for police station doors. The server
--- decides who sees it: Dev Manager and above for properties, and also Community Director and
+-- decides who sees it: Dev Manager and above for properties, and also Executive Management and
 -- above on duty for police station doors.
 
 local function nearestDoorObject(maxDistance)
@@ -400,23 +400,23 @@ RegisterNUICallback('propmenuAction', function(data, cb)
         TriggerServerEvent('fbrp:propmenu:clearpoint', data.key, data.point)
     elseif action == 'adddoor' and type(data.key) == 'string' then
         local object = nearestDoorObject(3.5)
-        if not object then return TriggerEvent('fbrp:notify', 'No door object within 3.5 metres. Stand next to the door.', 'error') end
+        if not object then return lib.notify({ description = 'No door object within 3.5 metres. Stand next to the door.', type = 'error' }) end
         TriggerServerEvent('fbrp:doors:edit', 'include', object.model, object.x, object.y, object.z, nil, data.key)
     elseif action == 'excludedoor' and type(data.key) == 'string' then
         local door = nearestRegistered(4.0)
-        if not door or door.manual then return TriggerEvent('fbrp:notify', 'No scanned door within 4 metres.', 'error') end
+        if not door or door.manual then return lib.notify({ description = 'No scanned door within 4 metres.', type = 'error' }) end
         TriggerServerEvent('fbrp:doors:edit', 'exclude', door.model, door.x, door.y, door.z, nil, data.key)
     elseif action == 'removecorrection' and tonumber(data.id) then
         TriggerServerEvent('fbrp:doors:edit', 'remove', nil, nil, nil, nil, tonumber(data.id))
     elseif action == 'showdoors' then
         showUntil = GetGameTimer() + 20000
-        TriggerEvent('fbrp:notify', 'Locked doors are marked red and unlocked green for 20 seconds.', 'info')
+        lib.notify({ description = 'Locked doors are marked red and unlocked green for 20 seconds.', type = 'info' })
     elseif action == 'waypoint' and tonumber(data.x) and tonumber(data.y) then
         SetNewWaypoint(tonumber(data.x) + 0.0, tonumber(data.y) + 0.0)
-        TriggerEvent('fbrp:notify', 'Waypoint set.', 'info')
+        lib.notify({ description = 'Waypoint set.', type = 'info' })
     elseif action == 'stationadd' and type(data.station) == 'string' then
         local object = nearestDoorObject(3.5)
-        if not object then return TriggerEvent('fbrp:notify', 'No door object within 3.5 metres. Stand next to the door.', 'error') end
+        if not object then return lib.notify({ description = 'No door object within 3.5 metres. Stand next to the door.', type = 'error' }) end
         TriggerServerEvent('fbrp:stationdoors:add', data.station, object.model, object.x, object.y, object.z)
     elseif action == 'stationremove' and tonumber(data.id) then
         TriggerServerEvent('fbrp:stationdoors:remove', tonumber(data.id))
@@ -435,7 +435,7 @@ end)
 RegisterNetEvent('fbrp:propset:preview', function(data)
     preview = data
     preview.until_ = GetGameTimer() + 5 * 60 * 1000
-    TriggerEvent('fbrp:notify', ('Placing %s for %s. Walk to the spot, then press E to confirm or Backspace to cancel.'):format(data.point, data.label), 'info')
+    lib.notify({ description = ('Placing %s for %s. Walk to the spot, then press E to confirm or Backspace to cancel.'):format(data.point, data.label), type = 'info' })
 end)
 
 local function endPreview(confirmed)
@@ -478,7 +478,7 @@ CreateThread(function()
                 endPreview(true)
             elseif IsControlJustReleased(0, 177) or IsControlJustReleased(0, 194) or GetGameTimer() > preview.until_ then
                 endPreview(false)
-                TriggerEvent('fbrp:notify', 'Placement cancelled.', 'info')
+                lib.notify({ description = 'Placement cancelled.', type = 'info' })
             end
             Wait(0)
         else

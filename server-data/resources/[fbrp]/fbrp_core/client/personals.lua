@@ -118,7 +118,7 @@ local function warn()
     local stamp = GetGameTimer()
     if stamp - lastNotice < 4000 then return end
     lastNotice = stamp
-    TriggerEvent('fbrp:notify', 'This is a personal vehicle. You are not trusted to drive it.', 'error')
+    lib.notify({ description = 'This is a personal vehicle. You are not trusted to drive it.', type = 'error' })
 end
 
 local function leave(vehicle)
@@ -273,7 +273,7 @@ CreateThread(function()
             if armored ~= vehicle then
                 armored = vehicle
                 SetPedCanBeShotInVehicle(ped, false)
-                TriggerEvent('fbrp:notify', 'Bulletproof vehicle: bullets cannot reach you in here, and you cannot shoot out of it.', 'info')
+                lib.notify({ description = 'Bulletproof vehicle: bullets cannot reach you in here, and you cannot shoot out of it.', type = 'info' })
             end
             -- Full bullet proofing waits for the server, which also clears it with the anticheat.
             if armorGranted and not pedProofed then

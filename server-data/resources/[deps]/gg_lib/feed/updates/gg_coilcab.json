@@ -1,0 +1,129 @@
+{
+    "label": "gg_coilcab",
+    "resource": "gg_coilcab",
+    "latest": "1.0.10",
+    "url": "https://discord.gg/DqMXJzATph",
+    "updates": [
+        {
+            "version": "1.0.10",
+            "at": 1791676602,
+            "kind": "feature",
+            "important": false,
+            "title": "Quasar Smartphone support",
+            "changes": [
+                "The phone app now works on Quasar Smartphone V3 and PRO. GG Lib adds it automatically.",
+                "Install gg_lib 1.0.16 first, then replace the gg_coilcab folder."
+            ]
+        },
+        {
+            "version": "1.0.9",
+            "at": 1790544768,
+            "kind": "feature",
+            "important": false,
+            "title": "CodeM mPhone support",
+            "changes": [
+                "CoilCab's phone app now works on CodeM mPhone 2.5 for booking, ride updates, notifications and text input. GG Lib adds the app automatically, so nothing is installed in the phone.",
+                "Install gg_lib 1.0.12 first, replace the included gg_coilcab folder, and restart CoilCab only when no rides are active."
+            ]
+        },
+        {
+            "version": "1.0.8",
+            "at": 1790329457,
+            "kind": "fix",
+            "important": false,
+            "title": "Longer trips by default",
+            "changes": [
+                "New CoilCab installations now start with Maximum Trip Distance at 30,000 m, matching the available ceiling, so long rides do not require changing the default setting.",
+                "Existing servers keep their saved Maximum Trip Distance until an operator changes it in Script Studio; the update does not overwrite custom settings.",
+                "Install CoilCab 1.0.8 with gg_lib 1.0.11, and restart gg_lib before CoilCab when no rides are active."
+            ]
+        },
+        {
+            "version": "1.0.7",
+            "at": 1790328075,
+            "kind": "feature",
+            "important": false,
+            "title": "Longer custom routes",
+            "changes": [
+                "Maximum Trip Distance can now be set as high as 30,000 m for longer rides on custom maps. The default stays at 6,000 m and existing saved limits remain as set.",
+                "Suggested Places are configured separately from the distance limit. Add or correct custom destinations so riders can select them in the phone app.",
+                "Install gg_lib 1.0.11, replace the included gg_coilcab folder, and restart CoilCab only when no rides are active."
+            ]
+        },
+        {
+            "version": "1.0.6",
+            "at": 1789939447,
+            "kind": "fix",
+            "important": false,
+            "title": "Two-person boarding",
+            "changes": [
+                "The second rider now enters an available front passenger seat instead of the hidden cab controller seat.",
+                "Boarding pauses while the cab prepares its driver, preventing another rider from taking the controller seat."
+            ]
+        },
+        {
+            "version": "1.0.5",
+            "at": 1789918707,
+            "kind": "feature",
+            "important": false,
+            "title": "RoadPhone Pro support",
+            "changes": [
+                "CoilCab's phone app now supports RoadPhone Pro for booking, ride updates, notifications and text input.",
+                "Use the included RoadPhone Pro setup kit to add the app entry and icons to RoadPhone's AppStore config once. Install gg_lib 1.0.11 first."
+            ]
+        },
+        {
+            "version": "1.0.4",
+            "at": 1789771573,
+            "kind": "fix",
+            "important": true,
+            "title": "Cabs that never set off",
+            "changes": [
+                "Fixed cabs that appeared but never drove off, which left the phone on \"No ride available\". This mostly happened on busy servers and on servers with stricter entity control settings.",
+                "A new cab now appears on a road nearer the rider than anyone else, so the rider's game can take charge of it.",
+                "A cab now loads the road under it even when the game driving it is far away, so a cab left behind by a failed ride drives off instead of sitting frozen.",
+                "If a cab still cannot be handed to the rider, the server console now names the player whose game is holding it."
+            ]
+        },
+        {
+            "version": "1.0.3",
+            "at": 1789751999,
+            "kind": "fix",
+            "important": false,
+            "title": "Language fixes",
+            "changes": [
+                "The cabin screen key in FiveM's key bindings is now labelled in your server's language instead of always English.",
+                "The phone app's description is written in your server's language when the app is added."
+            ]
+        },
+        {
+            "version": "1.0.2",
+            "at": 1789749812,
+            "kind": "feature",
+            "important": false,
+            "title": "Script Studio in your language",
+            "changes": [
+                "CoilCab's Script Studio page is now translated into German, Spanish, French, Japanese, Dutch, Brazilian Portuguese, Russian and Simplified Chinese, following GG Lib's language setting.",
+                "Every group, setting, help text, unit and list column is covered. Driving mode names match what riders see in the app.",
+                "Install gg_lib 1.0.9 so a language change shows across the whole page as soon as you save."
+            ]
+        },
+        {
+            "version": "1.0.1",
+            "at": 1789746930,
+            "kind": "major",
+            "important": true,
+            "title": "First release",
+            "changes": [
+                "Book an autonomous CoilCab from the phone app with an upfront fare and a live map of the cab on its way. A cab that spawns far away drives at a faster pace until it is close.",
+                "Board from either passenger door. Press E in a passenger seat for the cabin screen: trip details, Normal, Quick or Mad Max driving, music, video and cab controls.",
+                "Continue Last Video plays the video a rider was watching on their last trip, or their saved videos, when they get back in.",
+                "Door Hold: stepping out mid-ride stops the cab with the doors open for 20 seconds. It carries on once everyone is back, otherwise drives the remaining passengers on, and ends the ride when nobody is aboard.",
+                "Rate and tip from the receipt. The service rating shown in the app is the real average once enough rides are rated.",
+                "Works on lb-phone, sd-phone, Sky Phone, GKS Phone, yseries, yphone and yflip-phone automatically, and on JPR Phone through the included manual setup kit.",
+                "Fares, fleet size, paint, cab themes, suggested places, driving limits, outside audio and departure timing are all set live in GG Lib's Script Studio.",
+                "Nine languages included. Requires gg_lib 1.0.8 or newer."
+            ]
+        }
+    ]
+}

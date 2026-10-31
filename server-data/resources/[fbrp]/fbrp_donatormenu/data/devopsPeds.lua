@@ -1,0 +1,17 @@
+return {
+    { label = "Cop Andreas",        model = `pw_andreas` },
+    { label = "Cop Midget Andreas", model = `pw_andreas80` },
+    { label = "Cop Anton",          model = `pw_anton` },
+    { label = "Cop Midget Antonio", model = `pw_antonio80` },
+    { label = "Cop Bobby",          model = `pw_bobby` },
+    { label = "Cop Midget Carter",  model = `pw_carter80` },
+    { label = "Cop Cheng",          model = `pw_cheng` },
+    { label = "Cop Ethan",          model = `pw_ethan` },
+    { label = "Cop Geo",            model = `pw_geo` },
+    { label = "Cop Hendry",         model = `pw_hendry` },
+    { label = "Cop Jacob",          model = `pw_jacob` },
+    { label = "Cop James",          model = `pw_james` },
+    { label = "Cop Julio",          model = `pw_julio` },
+    { label = "Cop Roscoe",         model = `pw_roscoe` },
+    { label = "Cop Selena",         model = `pw_selena` },
+}

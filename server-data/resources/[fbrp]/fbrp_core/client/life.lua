@@ -6,7 +6,7 @@ local pointing = false
 local fishing = nil      -- { rod, stage }
 
 local function ui(message) SendNUIMessage(message) end
-local function notify(message, tone) TriggerEvent('fbrp:notify', message, tone or 'info') end
+local function notify(message, tone) lib.notify({ description = message, type = tone or 'info' }) end
 
 local function loadAnim(dict)
     RequestAnimDict(dict)

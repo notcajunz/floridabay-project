@@ -60,7 +60,12 @@ local function vmenuPrincipal(name)
 end
 
 local function notify(source, message, tone)
-    TriggerClientEvent('fbrp:notify', source, clean(message, 300), tone or 'info')
+    TriggerClientEvent('ox_lib:notify', source, { description = clean(message, 300), type = tone or 'info' })
+end
+
+-- ox_lib notification for tag changes (wearing a tag, clearing a slot, duty tags).
+local function tagNotify(source, message, tone)
+    TriggerClientEvent('ox_lib:notify', source, { title = 'Tags', description = clean(message, 200), type = tone or 'inform', duration = 5000, position = 'center-right' })
 end
 
 local function chat(source, title, message, color)
@@ -121,6 +126,8 @@ end
 local function offDutyVmenuObject(object)
     if type(object) ~= 'string' or object:sub(1, 6) ~= 'vMenu.' then return false end
     return not acePatternMatches(object, 'vMenu.NoClip')
+        and not acePatternMatches(object, 'vMenu.MiscSettings.OverheadNames')
+        and not acePatternMatches(object, 'vMenu.MiscSettings.PlayerBlips')
 end
 
 -- vMenu.Everything is never applied as a wildcard (see config_vmenu.lua): it is the
@@ -140,7 +147,7 @@ end
 local function membershipRows(discord)
     if not discord then return {} end
     return MySQL.query.await([[
-        SELECT DISTINCT g.name,g.staff_only,g.rank_order
+        SELECT DISTINCT g.name,g.label,g.staff_only,g.rank_order
         FROM ace_memberships m
         JOIN ace_groups g ON g.name=m.group_name
         WHERE m.discord_id=?
@@ -309,7 +316,24 @@ end
 
 local wildcardCleared = {}
 
+local permissionModelLoaded = false
+
+-- vMenu hands a player their permissions once, when they join, and builds its menus from that snapshot.
+-- A grant changed while someone is connected reaches the server's ACEs but not their open vMenu, so say so.
+local function notifyVmenuChange(changedGroups)
+    for source, s in pairs(sessions) do
+        local affected = s.org and s.org.ace_group and changedGroups[s.org.ace_group]
+        for _, group in ipairs(s.groups or {}) do
+            if changedGroups[group.name] then affected = true end
+        end
+        if affected then
+            notify(source, 'Your vMenu permissions were changed. Rejoin the server to get the new menu options.', 'inform')
+        end
+    end
+end
+
 local function loadPermissionModel()
+    local changedVmenuGroups = nil
     local nextRows = {}      -- rows exactly as stored, used for permission lookups
     local effective = {}     -- rows actually applied as ACEs, after vMenu.Everything expansion
     for _, row in ipairs(MySQL.query.await('SELECT group_name,object,mode FROM ace_entries')) do
@@ -322,7 +346,8 @@ local function loadPermissionModel()
             ExecuteCommand(('remove_ace %s vMenu.Everything allow'):format(groupPrincipal(row.group_name)))
             ExecuteCommand(('remove_ace %s vMenu.Everything allow'):format(vmenuPrincipal(row.group_name)))
         end
-        for _, applied in ipairs(effectiveAceRows(row)) do
+        local appliedRows = effectiveAceRows(row)
+        for _, applied in ipairs(appliedRows) do
             effective[row.group_name][#effective[row.group_name] + 1] = applied
             local key = applied.group_name .. '|' .. applied.object
             if not appliedAces[key] or appliedAces[key] ~= applied.mode then
@@ -331,6 +356,10 @@ local function loadPermissionModel()
                 end
                 ExecuteCommand(('add_ace %s %s %s'):format(groupPrincipal(applied.group_name), applied.object, applied.mode))
                 appliedAces[key] = applied.mode
+                if permissionModelLoaded and applied.object:sub(1, 6) == 'vMenu.' then
+                    changedVmenuGroups = changedVmenuGroups or {}
+                    changedVmenuGroups[applied.group_name] = true
+                end
             end
             if offDutyVmenuObject(applied.object) then
                 local vmenuKey = applied.group_name .. '|vmenu|' .. applied.object
@@ -356,10 +385,16 @@ local function loadPermissionModel()
             local principal = scopedObject and vmenuPrincipal(group) or groupPrincipal(group)
             ExecuteCommand(('remove_ace %s %s %s'):format(principal, object, mode))
             appliedAces[key] = nil
+            if permissionModelLoaded and not scopedObject and object:sub(1, 6) == 'vMenu.' then
+                changedVmenuGroups = changedVmenuGroups or {}
+                changedVmenuGroups[group] = true
+            end
         end
     end
     permissionRows = nextRows
     for source in pairs(sessions) do reconcilePrincipals(source) end
+    permissionModelLoaded = true
+    if changedVmenuGroups then notifyVmenuChange(changedVmenuGroups) end
 end
 
 local function tagRow(row)
@@ -397,7 +432,17 @@ local function selectedTagOnDuty(s, tag)
 end
 
 local function selectedTagVisible(s, tag)
-    return tag and (not tag.orgId or selectedTagOnDuty(s, tag)) and tag or nil
+    return tag and (not tag.orgId or s.execBypass or selectedTagOnDuty(s, tag)) and tag or nil
+end
+
+local function vehicleSpeedLimitFor(discord)
+    if discordHasRole(discord, FBRP.Config.vehicleSpeedTopRoleId) then
+        return FBRP.Config.vehicleSpeedTopLimitMph or 330
+    end
+    if discordHasRole(discord, FBRP.Config.vehicleSpeedPrivilegedRoleId) then
+        return FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250
+    end
+    return FBRP.Config.vehicleSpeedLimitMph or 180
 end
 
 local function publishPlayer(source)
@@ -408,25 +453,40 @@ local function publishPlayer(source)
     player.state:set('fbrp:id', source, true)
     player.state:set('fbrp:name', player.state['fbrp:characterName'] or GetPlayerName(source) or s.name, true)
     player.state:set('fbrp:staffDuty', s.staffDuty == true, true)
+    -- NoClip, player names and player blips come only from the stored ACE rows, and only while clocked in.
     player.state:set('fbrp:staffNoclip', s.staffDuty == true and (
         databasePermission(source, 'vMenu.NoClip') or databasePermission(source, 'vMenu.Everything')
+    ), true)
+    player.state:set('fbrp:staffSenior', s.staffDuty == true and (
+        databasePermission(source, 'vMenu.MiscSettings.OverheadNames') or databasePermission(source, 'vMenu.MiscSettings.PlayerBlips')
     ), true)
     player.state:set('fbrp:maxVehicleSpeedMph', s.maxVehicleSpeedMph or FBRP.Config.vehicleSpeedLimitMph or 180, true)
     player.state:set('fbrp:carRadioAccess', s.carRadioAccess == true, true)
     local headtag = selectedTagVisible(s, s.headtag)
     local gangtag = selectedTagVisible(s, s.gangtag)
     local chatTag = selectedTagVisible(s, s.chatTag)
-    -- A selected org-locked tag in either slot fulfills the on-duty tag role.
-    -- Locked gang tags replace the usual bottom duty tag directly; locked head
-    -- tags suppress it and leave the independently selected gang slot available.
-    if s.org and not selectedTagOnDuty(s, s.headtag) and not selectedTagOnDuty(s, s.gangtag) then
-        gangtag = s.org.tag
+    -- A selected org-locked tag in either slot fulfills the on-duty tag role. Otherwise the
+    -- organization's duty tag replaces whatever tag is worn in the slot it belongs to: head
+    -- tags take the headtag slot, everything else the usual bottom (gang) slot. The worn
+    -- tag comes back when the player clocks off.
+    if s.org and s.org.tag and not selectedTagOnDuty(s, s.headtag) and not selectedTagOnDuty(s, s.gangtag) then
+        if s.org.tag.kind == 'head' then headtag = s.org.tag else gangtag = s.org.tag end
     end
     player.state:set('fbrp:headtag', headtag, true)
     player.state:set('fbrp:gangtag', gangtag, true)
     player.state:set('fbrp:chatTag', chatTag and { id=chatTag.id,label=chatTag.label,color=chatTag.color } or nil, true)
     player.state:set('fbrp:organization', s.org and { id=s.org.id,slug=s.org.slug,name=s.org.name,type=s.org.type,logo=s.org.logo } or nil, true)
+    -- MDT callsign, shown by fbrp_tags between the headtag and gang tag while on organization duty.
+    player.state:set('fbrp:callsign', s.org and s.callsign or nil, true)
 end
+
+-- Fired by justice.lua when a callsign is changed in the MDT, so the overhead line updates live.
+AddEventHandler('fbrp:callsignUpdated', function(source, callsign)
+    local s = sessions[tonumber(source)]
+    if not s then return end
+    s.callsign = callsign and callsign ~= '' and callsign or nil
+    if s.org then publishPlayer(tonumber(source)) end
+end)
 
 local function closeShift(tableName, shift, reason)
     if not shift then return end
@@ -466,6 +526,12 @@ local function clockOutOrg(source, reason)
     return true
 end
 
+-- /logout (server/characters.lua): the next character should not stay clocked in with the old one's organization
+AddEventHandler('fbrp:characterLogout', function(source)
+    source = tonumber(source)
+    if source and sessions[source] and sessions[source].org then clockOutOrg(source, 'logout') end
+end)
+
 local autoClockInStaff -- defined with the /clockin command below
 
 local function initializePlayer(source)
@@ -487,14 +553,18 @@ local function initializePlayer(source)
         MySQL.prepare.await('INSERT IGNORE INTO player_identifiers(player_id,identifier) VALUES(?,?)', { playerId, value })
     end
 
-    local privilegedSpeed = discordHasRole(discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
     local carRadioAccess = discordHasRole(discord, FBRP.Config.carRadioRoleId)
     sessions[source] = {
         source=source, playerId=tonumber(playerId), license=license, discord=discord, name=name,
         groups=membershipRows(discord), staffDuty=false, staffShift=nil, org=nil, orgShift=nil,
-        maxVehicleSpeedMph=privilegedSpeed and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250) or (FBRP.Config.vehicleSpeedLimitMph or 180),
+        maxVehicleSpeedMph=vehicleSpeedLimitFor(discord),
         carRadioAccess=carRadioAccess
     }
+    sessions[source].execBypass = hasStaffGroupAtLeast(source, FBRP.Config.executiveBypassMinGroup)
+    -- everyone joins with no headtag / gang tag on; they pick them again with /tags
+    if FBRP.Config.clearTagsOnJoin ~= false and discord then
+        MySQL.update.await('UPDATE player_tag_selection SET headtag_id=NULL,gangtag_id=NULL,updated_at=? WHERE discord_id=?', { now(), discord })
+    end
     loadSelectedTags(sessions[source])
     reconcilePrincipals(source)
     publishPlayer(source)
@@ -512,10 +582,9 @@ local function refreshPlayer(source)
     local s = sessions[source]
     if not s then return initializePlayer(source) end
     s.groups = membershipRows(s.discord)
-    s.maxVehicleSpeedMph = discordHasRole(s.discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
-        and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250)
-        or (FBRP.Config.vehicleSpeedLimitMph or 180)
+    s.maxVehicleSpeedMph = vehicleSpeedLimitFor(s.discord)
     s.carRadioAccess = discordHasRole(s.discord, FBRP.Config.carRadioRoleId)
+    s.execBypass = hasStaffGroupAtLeast(source, FBRP.Config.executiveBypassMinGroup)
     if s.staffDuty and s.staffShift then
         local ended = MySQL.scalar.await('SELECT ended_at FROM staff_shifts WHERE id=?', { s.staffShift.id })
         if ended then
@@ -536,52 +605,70 @@ local function setSharedState(key, value, actor)
     stateVersion = stateVersion + 1
 end
 
-local function wardrobe(discord, kind, orgId)
+-- execBypass (Executive Management and above) lists every enabled tag without a Discord grant and
+-- without clocking into the tag's organization.
+local function wardrobe(discord, kind, orgId, execBypass)
     if not discord then return {} end
     local dutyFilter = 'AND t.org_id IS NULL'
-    local params = { discord }
-    if orgId then
+    local params = execBypass and {} or { discord }
+    if execBypass then
+        dutyFilter = ''
+    elseif orgId then
         dutyFilter = 'AND (t.org_id IS NULL OR t.org_id=?)'
         params[#params + 1] = tonumber(orgId)
     end
     local slotFilter = kind == 'chat' and 'AND t.chat_tag=TRUE' or "AND (t.kind=? OR t.kind='both')"
-    if kind ~= 'chat' then table.insert(params, 2, kind) end
+    if kind ~= 'chat' then table.insert(params, execBypass and 1 or 2, kind) end
+    local grantJoin = execBypass and '' or 'JOIN headtag_grants g ON g.tag_id=t.id'
+    local grantFilter = execBypass and '1=1' or 'g.discord_id=?'
     return MySQL.query.await(([=[
         SELECT DISTINCT t.id,t.kind,t.label,t.color,t.priority,t.org_id,o.name org_name,t.chat_tag
         FROM headtags t
-        JOIN headtag_grants g ON g.tag_id=t.id
+        %s
         LEFT JOIN organizations o ON o.id=t.org_id
-        WHERE g.discord_id=? %s AND t.enabled=TRUE
+        WHERE %s %s AND t.enabled=TRUE
           %s
         ORDER BY t.priority DESC,t.label
-    ]=]):format(slotFilter, dutyFilter), params)
+    ]=]):format(grantJoin, grantFilter, slotFilter, dutyFilter), params)
 end
 
 local function tagWardrobePayload(s)
     local orgId = s.org and s.org.id or nil
     return {
-        head=wardrobe(s.discord,'head',orgId),
-        gang=wardrobe(s.discord,'gang',orgId),
-        chat=wardrobe(s.discord,'chat',orgId),
+        head=wardrobe(s.discord,'head',orgId,s.execBypass),
+        gang=wardrobe(s.discord,'gang',orgId,s.execBypass),
+        chat=wardrobe(s.discord,'chat',orgId,s.execBypass),
         selected={head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil,chat=s.chatTag and s.chatTag.id or nil}
     }
 end
 
-local function canWear(discord, tagId, kind, orgId)
+local function canWear(discord, tagId, kind, orgId, execBypass)
     if not tagId then return true, nil end
     local eligibility = kind == 'chat' and 't.chat_tag=TRUE' or "(t.kind=? OR t.kind='both')"
-    local params = kind == 'chat' and { discord, tagId } or { discord, tagId, kind }
+    local params = kind == 'chat' and { tagId } or { tagId, kind }
+    local grantJoin, grantFilter = 'JOIN headtag_grants g ON g.tag_id=t.id', 'g.discord_id=? AND '
+    if execBypass then
+        grantJoin, grantFilter = '', ''
+    else
+        table.insert(params, 1, discord)
+    end
     local row = MySQL.single.await(([=[
-        SELECT t.org_id FROM headtags t JOIN headtag_grants g ON g.tag_id=t.id
-        WHERE g.discord_id=? AND t.id=? AND %s AND t.enabled=TRUE LIMIT 1
-    ]=]):format(eligibility), params)
+        SELECT t.org_id FROM headtags t %s
+        WHERE %st.id=? AND %s AND t.enabled=TRUE LIMIT 1
+    ]=]):format(grantJoin, grantFilter, eligibility), params)
     if not row then return false, 'grant' end
-    if row.org_id and tonumber(row.org_id) ~= tonumber(orgId) then return false, 'duty' end
+    if not execBypass and row.org_id and tonumber(row.org_id) ~= tonumber(orgId) then return false, 'duty' end
     return true, nil
 end
 
-local function interactionAllowed(source, spec)
+-- anyoneIf lets any player use an interaction on a restrained target: 'restrained' = cuffed or zip-tied,
+-- 'ziptie' = zip-tied only (police-applied cuffs keep their police-only handling).
+local function interactionAllowed(source, spec, target)
     if spec.public then return true end
+    if spec.anyoneIf and target then
+        local held = Player(target).state['fbrp:restrained']
+        if held and (spec.anyoneIf == 'restrained' or tostring(held):find('zip', 1, true)) then return true end
+    end
     if spec.ace and hasPermission(source, spec.ace) then return true end
     for _, object in ipairs(spec.aceAny or {}) do
         if hasPermission(source, object) then return true end
@@ -619,11 +706,32 @@ local function selectedWeapon(source, evidence)
     return weapon or joaat('WEAPON_UNARMED'), ped
 end
 
-FBRP.InteractionVisible.uncuff = function(_, target)
+local function targetRestrained(target)
     return Player(target).state['fbrp:restrained'] ~= nil
 end
-FBRP.InteractionVisible.cutziptie = function(_, target)
-    return Player(target).state['fbrp:restrained'] == 'ziptie'
+local function targetInVehicle(target)
+    local ped = GetPlayerPed(target)
+    return ped > 0 and GetVehiclePedIsIn(ped, false) ~= 0
+end
+
+FBRP.InteractionVisible.uncuff = function(_, target)
+    return targetRestrained(target)
+end
+
+-- Keep the third-eye list short: only offer what makes sense for the target's current state.
+for _, id in ipairs({ 'softcuff', 'hardcuff', 'arrest', 'ziptie' }) do
+    FBRP.InteractionVisible[id] = function(_, target) return not targetRestrained(target) end
+end
+FBRP.InteractionVisible.escort = function(src, target)
+    return targetRestrained(target) or hasPermission(src, FBRP.Ace.policeEscort)
+end
+FBRP.InteractionVisible.seat = function(_, target) return not targetInVehicle(target) end
+FBRP.InteractionVisible.unseat = function(_, target) return targetInVehicle(target) end
+FBRP.InteractionVisible.blindfold = function(_, target) return Player(target).state['fbrp:blindfolded'] ~= true end
+FBRP.InteractionVisible.unblindfold = function(_, target) return Player(target).state['fbrp:blindfolded'] == true end
+FBRP.InteractionVisible.cutziptie = function(src, target)
+    if Player(target).state['fbrp:restrained'] ~= 'ziptie' then return false end
+    return not (hasPermission(src, FBRP.Ace.policeCuff) or hasPermission(src, FBRP.Ace.civRestrain))
 end
 FBRP.InteractionHandlers.cutziptie = function(source, target, evidence)
     if Player(target).state['fbrp:restrained'] ~= 'ziptie' then return false end
@@ -737,6 +845,11 @@ local function recordEasyAdminBan(ban, actorSource)
     end
 end
 
+-- CarPlay (and any other audio resource) asks whether the player holds the Car Radio Discord role.
+exports('HasCarRadioAccess', function(source)
+    return FBRP.HasCarRadioAccess(source) == true
+end)
+
 -- EasyAdmin calls this export synchronously so the public ID is attached before it
 -- writes banlist.json, sends its webhook, or disconnects the player.
 exports('RecordEasyAdminBan', function(ban, actorSource)
@@ -815,6 +928,31 @@ local function verificationRejection(discord)
     return ('Florida Bay requires a verified account. Verify with Discord at %s, then reconnect.'):format(url)
 end
 
+-- Discord membership gate. The bot keeps discord_member_cache current and drops a member's row
+-- when they leave the server, so a missing row means "not in the Discord". Returns the rejection
+-- text, or nil. A database error lets the player in (never lock everyone out).
+local function membershipRejection(discord)
+    local invite = GetConvar('fbrp_discordInvite', 'https://discord.gg/floridabay')
+    local ok, roles = pcall(function()
+        return MySQL.single.await('SELECT roles FROM discord_member_cache WHERE guild_id=? AND discord_id=? LIMIT 1', {
+            FBRP.Config.joinGuildId, tostring(discord)
+        })
+    end)
+    if not ok then return nil end
+    if not roles then
+        return ('You must be in the Florida Bay Discord to join. Join at %s, verify, then reconnect.'):format(invite)
+    end
+    local held = false
+    for _, id in ipairs(json.decode(roles.roles or '[]') or {}) do
+        if tostring(id) == FBRP.Config.joinRoleId then held = true break end
+    end
+    if not held then
+        return ('You need the Verified role in the Florida Bay Discord to join. Verify at %s, then reconnect.'):format(
+            GetConvar('fbrp_verify_url', 'https://floridabay.net/verify.html'))
+    end
+    return nil
+end
+
 AddEventHandler('playerConnecting', function(_, _, deferrals)
     local src = source
     if not ready then return end
@@ -827,6 +965,11 @@ AddEventHandler('playerConnecting', function(_, _, deferrals)
         local rejection = verificationRejection(discord)
         if rejection then
             deferrals.done(rejection)
+            return
+        end
+        local memberRejection = membershipRejection(discord)
+        if memberRejection then
+            deferrals.done(memberRejection)
             return
         end
     end
@@ -884,8 +1027,7 @@ RegisterNetEvent('fbrp:requestSession', function()
     if ready then refreshPlayer(src) end
 end)
 
--- A client reports the vMenu noclip footprint while the server has not authorized it
--- (vMenu caches permissions, so the client switches it off itself). Logged for review.
+-- A client reports noclip while the server has not authorized it. Logged for review.
 local lastNoclipReport = {}
 RegisterNetEvent('fbrp:vmenu:unauthorizedNoclip', function()
     local src = source
@@ -962,6 +1104,15 @@ RegisterCommand('clockout', function(source)
     notify(source, ('Clocked out. Shift saved: %dm.'):format(math.floor((seconds or 0) / 60)), 'success')
 end, false)
 
+-- Roles are kept current from Discord by the control bot; this just re-reads them for the player right now.
+RegisterCommand('refreshroles', function(source)
+    if source == 0 then return end
+    local s = sessions[source]
+    if not s or not s.discord then return notify(source, 'Your Discord is not linked.', 'error') end
+    refreshPlayer(source)
+    notify(source, 'Your Discord roles have been refreshed.', 'success')
+end, false)
+
 RegisterCommand('staffhours', function(source)
     if source <= 0 then return end
     local s = sessions[source]
@@ -975,8 +1126,11 @@ RegisterCommand('staffhours', function(source)
 end, false)
 
 -- Every active organization the player may clock into (gangs, businesses, departments and the
--- rest). Membership is simply holding the organization's Discord role. A slug narrows it to one.
-local function dutyOrganizations(discord, slug)
+-- rest). The general access role or any rank role bound to the organization proves membership.
+-- Accepting the bound rank directly keeps department members working when a network access-role
+-- sync is delayed. Executive Management and above (execBypass) may clock into every active
+-- organization. A slug narrows the result to one organization.
+local function dutyOrganizations(discord, slug, execBypass)
     slug = slug or ''
     return MySQL.query.await([[
         SELECT DISTINCT o.*,t.label tag_label,t.color tag_color,t.kind tag_kind,t.outline tag_outline
@@ -984,16 +1138,23 @@ local function dutyOrganizations(discord, slug)
         JOIN headtags t ON t.id=o.tag_id
         WHERE o.active=TRUE AND (?='' OR o.slug=?)
           AND (
-            EXISTS(SELECT 1 FROM organization_duty_global_access g WHERE g.discord_id=?)
+            ?=1
+            OR EXISTS(SELECT 1 FROM organization_duty_global_access g WHERE g.discord_id=?)
             OR EXISTS(
               SELECT 1 FROM organization_role_requirements r
               JOIN discord_member_cache c ON c.guild_id=r.guild_id AND c.discord_id=?
                 AND JSON_CONTAINS(c.roles, JSON_QUOTE(r.role_id))
               WHERE r.org_id=o.id
             )
+            OR EXISTS(
+              SELECT 1 FROM org_rank_roles rr
+              JOIN discord_member_cache c ON c.guild_id=rr.guild_id AND c.discord_id=?
+                AND JSON_CONTAINS(c.roles, JSON_QUOTE(rr.role_id))
+              WHERE rr.org_id=o.id
+            )
           )
         ORDER BY o.name
-    ]], { slug, slug, discord, discord }) or {}
+    ]], { slug, slug, execBypass and 1 or 0, discord, discord, discord }) or {}
 end
 
 local dutyLastChoice = {}
@@ -1001,7 +1162,7 @@ local dutyLastChoice = {}
 -- /duty: send the organizations this player can clock in as to the client's
 -- centered dropdown. The choice comes back through fbrp:duty:choose and is re-validated there.
 local function openDutyMenu(source, s)
-    local rows = dutyOrganizations(s.discord)
+    local rows = dutyOrganizations(s.discord, nil, s.execBypass)
     if #rows == 0 then return notify(source, 'You do not belong to an organization.', 'error') end
     local orgs = {}
     for _, row in ipairs(rows) do
@@ -1015,7 +1176,7 @@ local function openDutyMenu(source, s)
 end
 
 local function clockInOrganization(source, s, requested)
-    local rows = dutyOrganizations(s.discord, requested)
+    local rows = dutyOrganizations(s.discord, requested, s.execBypass)
     if #rows == 0 then return notify(source, 'You are not a member of that organization.', 'error') end
     local org = rows[1]
     if s.org then clockOutOrg(source, 'switch') end
@@ -1031,9 +1192,19 @@ local function clockInOrganization(source, s, requested)
         tag=tagRow({ id=org.tag_id,label=org.tag_label,color=org.tag_color,kind=org.tag_kind,org_id=org.id,org_name=org.name,outline=org.tag_outline })
     }
     s.orgShift = { id=id,startedAt=started }
+    -- MDT callsign (same table duty blips read); nil when the player never set one.
+    local okCs, cs = pcall(MySQL.scalar.await, 'SELECT callsign FROM mdt_units WHERE discord_id=?', { s.discord })
+    s.callsign = okCs and cs and tostring(cs) ~= '' and tostring(cs) or nil
     reconcilePrincipals(source)
     publishPlayer(source)
     notify(source, ('On duty: %s'):format(org.name), 'success')
+    local dutyTag = s.org.tag
+    if dutyTag and dutyTag.label then
+        local shown = Player(source).state[dutyTag.kind == 'head' and 'fbrp:headtag' or 'fbrp:gangtag']
+        if shown and shown.id == dutyTag.id then
+            tagNotify(source, ('Now wearing your duty tag %s (%s).'):format(dutyTag.label, dutyTag.kind == 'head' and 'headtag' or 'gang tag'), 'success')
+        end
+    end
     FBRP.DB.audit(s.discord, 'organization.clockin', org.id, { source=source })
     TriggerEvent('fbrp:organizationDutyChanged', source, org.id)
 end
@@ -1090,6 +1261,20 @@ local function actorOf(source)
     return s and s.discord or source, GetPlayerName(source) or ('Player ' .. source)
 end
 
+-- AOP / priority / peacetime changes: ox_lib notifications on screen (not chat)
+local function notifyAll(title, message, tone, icon, duration)
+    TriggerClientEvent('ox_lib:notify', -1, {
+        title = title, description = clean(message, 300), type = tone or 'inform',
+        position = 'center-right', duration = duration or 7000, icon = icon,
+    })
+end
+
+-- big txAdmin announcement banner for AOP changes, so nobody misses it
+-- (txcl:showAnnouncement is txAdmin's own announcement event; needs txAdmin v7+ / the 'monitor' resource)
+local function txAnnounce(message, author)
+    TriggerClientEvent('txcl:showAnnouncement', -1, clean(message, 300), author or 'Area of Play')
+end
+
 local PRIORITY_STATUS = { available='Available', active='In Progress', cooldown='Cooldown', hold='On Hold' }
 local PRIORITY_ALIAS = {
     available='available', avail='available', clear='available', off='available', open='available',
@@ -1104,7 +1289,34 @@ local function zoneSpec(id)
     end
 end
 
--- Normalised per-zone priority map; older single-value state reads as everything available.
+-- what people can type for a zone in /cooldown and /onhold
+local ZONE_ALIAS = {
+    ls='ls', la='ls', lossantos='ls', losangeles='ls', city='ls',
+    blaine='blaine', sandy='blaine', grapeseed='blaine', sandygrapeseed='blaine', sandyshores='blaine', county='blaine',
+    paleto='paleto', paletobay='paleto',
+    zancudo='zancudo', fz='zancudo', fortzancudo='zancudo', fort='zancudo',
+    roxwood='roxwood', rox='roxwood', roxwoodcounty='roxwood', rw='roxwood',
+}
+
+-- returns a list of zone ids, or nil if the name isn't a zone
+local function zonesFromArg(arg)
+    arg = tostring(arg or ''):lower():gsub('[%s/_%-]', '')
+    if arg == 'all' then
+        local ids = {}
+        for _, zone in ipairs(FBRP.PriorityZones) do ids[#ids + 1] = zone.id end
+        return ids
+    end
+    local id = ZONE_ALIAS[arg] or (zoneSpec(arg) and arg)
+    return id and { id } or nil
+end
+
+local function zoneNames()
+    local names = {}
+    for _, zone in ipairs(FBRP.PriorityZones) do names[#names + 1] = zone.id end
+    names[#names + 1] = 'all'
+    return table.concat(names, ', ')
+end
+
 local function priorityZones()
     local stored = GlobalState['fbrp:priority']
     local out = {}
@@ -1136,21 +1348,23 @@ local function setPriority(ids, status, minutes, source)
     for _, id in ipairs(ids) do zones[id] = entry end
     setSharedState('priority', zones, actor)
     local label = #ids == #FBRP.PriorityZones and 'All zones' or zoneSpec(ids[1]).label
-    broadcast('PRIORITY', priorityText(label, entry), status == 'available' and { 85, 232, 164 } or { 255, 180, 87 })
+    notifyAll('Priority', priorityText(label, entry), status == 'available' and 'success' or 'warning', 'fa-solid fa-tower-broadcast')
     FBRP.DB.audit(actor, 'server.priority', table.concat(ids, ','), { status=status, minutes=entry.remaining })
 end
 
 local function setAop(value, source)
     local actor = actorOf(source)
     setSharedState('aop', value, actor)
-    broadcast('AOP', 'Area of play is now ' .. value .. '.', { 255, 180, 87 })
+    -- (txAdmin's announcement banner can only show top-middle, so AOP uses a longer notification at middle right)
+    notifyAll('Area of Play', 'Area of play is now ' .. value .. '.', 'warning', 'fa-solid fa-map-location-dot', 12000)
+    TriggerClientEvent('fbrp:aop:changed', -1, value) -- plays the AOP sound (client/aop.lua)
     FBRP.DB.audit(actor, 'server.aop', nil, { value=value })
 end
 
 local function setPeacetime(on, source)
     local actor = actorOf(source)
     setSharedState('peacetime', on, actor)
-    broadcast('PEACETIME', on and 'Peacetime is now active.' or 'Peacetime has ended.', on and { 85, 232, 164 } or { 255, 104, 104 })
+    notifyAll('Peacetime', on and 'Peacetime is now active.' or 'Peacetime has ended.', on and 'success' or 'error', 'fa-solid fa-dove')
     FBRP.DB.audit(actor, 'server.peacetime', nil, { value=on })
 end
 
@@ -1178,16 +1392,20 @@ local function openControl(source, focus)
     TriggerClientEvent('fbrp:control:open', source, controlPayload(source, focus))
 end
 
+-- /aop            -> small dropdown to pick an AOP (ox_lib input dialog)
+-- /aop <text>     -> set it straight away (also works from the server console)
 RegisterCommand('aop', function(source, args)
     local value = clean(table.concat(args, ' '), 60)
-    if source > 0 and not hasPermission(source, FBRP.Ace.aop) then
-        if value == '' then return openControl(source, 'aop') end
+    local current = GlobalState['fbrp:aop'] or FBRP.Config.defaultAop
+    if source <= 0 then
+        if value == '' then return print('AOP: ' .. tostring(current)) end
+        return setAop(value, source)
+    end
+    if not hasPermission(source, FBRP.Ace.aop) then
+        if value == '' then return notify(source, 'Area of play: ' .. tostring(current) .. '.', 'inform') end
         return deny(source, FBRP.Ace.aop)
     end
-    if value == '' then
-        if source > 0 then return openControl(source, 'aop') end
-        return print('AOP: ' .. tostring(GlobalState['fbrp:aop']))
-    end
+    if value == '' then return TriggerClientEvent('fbrp:aop:pick', source, FBRP.AopPresets, current) end
     setAop(value, source)
 end, false)
 
@@ -1200,14 +1418,24 @@ end, false)
 -- /priority opens the menu. Shortcuts: /priority <zone|all> <status> [minutes] or /priority <status> [minutes] (all zones).
 RegisterCommand('priority', function(source, args)
     local allowed = source <= 0 or hasPermission(source, FBRP.Ace.priority)
+    -- /priority with nothing after it: staff get the ox_lib dialog (client/aop.lua), everyone else gets the status list
+    if #args == 0 and source > 0 and allowed then
+        local zones = priorityZones()
+        local list = {}
+        for _, zone in ipairs(FBRP.PriorityZones) do
+            local z = zones[zone.id]
+            list[#list + 1] = { id=zone.id, label=zone.label, status=z.status, remaining=z.remaining }
+        end
+        return TriggerClientEvent('fbrp:priority:pick', source, list, FBRP.PriorityCooldownDefault)
+    end
     if #args == 0 then
-        if source > 0 then return openControl(source, 'priority') end
         local zones, parts = priorityZones(), {}
         for _, zone in ipairs(FBRP.PriorityZones) do
             local z = zones[zone.id]
             parts[#parts + 1] = ('%s: %s'):format(zone.label, z.status == 'cooldown' and ('Cooldown %dm'):format(z.remaining or 0) or PRIORITY_STATUS[z.status])
         end
-        return chat(source, 'PRIORITY', table.concat(parts, ' · '))
+        if source <= 0 then return print(table.concat(parts, ' | ')) end
+        return notify(source, table.concat(parts, '\n'), 'inform')
     end
     if not allowed then return deny(source, FBRP.Ace.priority) end
     local first = clean(args[1], 16):lower()
@@ -1223,8 +1451,29 @@ RegisterCommand('priority', function(source, args)
         for _, zone in ipairs(FBRP.PriorityZones) do ids[#ids + 1] = zone.id end
     end
     local status = PRIORITY_ALIAS[statusArg]
-    if not status then return notify(source, 'Usage: /priority [ls|blaine|paleto|zancudo|all] <available|active|cooldown|hold> [minutes]', 'error') end
+    if not status then return notify(source, 'Usage: /priority [ls|blaine|paleto|zancudo|roxwood|all] <available|active|cooldown|hold> [minutes]', 'error') end
     setPriority(ids, status, minutesArg, source)
+end, false)
+
+-- /cooldown <zone> <minutes>
+RegisterCommand('cooldown', function(source, args)
+    if source > 0 and not hasPermission(source, FBRP.Ace.priority) then return deny(source, FBRP.Ace.priority) end
+    local ids = zonesFromArg(args[1])
+    local minutes = tonumber(args[2])
+    if not ids or not minutes then
+        return notify(source, ('Usage: /cooldown <zone> <minutes>  (zones: %s)'):format(zoneNames()), 'error')
+    end
+    setPriority(ids, 'cooldown', minutes, source)
+end, false)
+
+-- /onhold <zone>
+RegisterCommand('onhold', function(source, args)
+    if source > 0 and not hasPermission(source, FBRP.Ace.priority) then return deny(source, FBRP.Ace.priority) end
+    local ids = zonesFromArg(args[1])
+    if not ids then
+        return notify(source, ('Usage: /onhold <zone>  (zones: %s)'):format(zoneNames()), 'error')
+    end
+    setPriority(ids, 'hold', nil, source)
 end, false)
 
 local lastControl = {}
@@ -1285,7 +1534,7 @@ CreateThread(function()
             end
             if changed then setSharedState('priority', zones, 'system') end
             for _, label in ipairs(finished) do
-                broadcast('PRIORITY', label .. ' priority cooldown is over. Priority is available.', { 85, 232, 164 })
+                notifyAll('Priority', label .. ' priority cooldown is over. Priority is available.', 'success', 'fa-solid fa-tower-broadcast')
             end
         end
     end
@@ -1298,6 +1547,35 @@ local function announcementCommand(source, args)
 end
 RegisterCommand('announce', announcementCommand, false)
 RegisterCommand('staff', announcementCommand, false)
+
+-- Centre-screen announcement for every player, Assistant Community Manager and above (the
+-- mgmt_team group). An optional leading -urgent or -warning flag picks the colour.
+local ANNOUNCEMENT_TONES = { ['-info'] = 'info', ['-warning'] = 'warning', ['-urgent'] = 'urgent' }
+local ANNOUNCEMENT_COOLDOWN_MS = 3000
+local lastCenterAnnouncement = 0
+
+RegisterCommand('announcement', function(source, args)
+    if source > 0 and not hasPermission(source, FBRP.Ace.announceCenter) then return deny(source, FBRP.Ace.announceCenter) end
+    local tone = 'info'
+    local first = args[1] and args[1]:lower()
+    if first and ANNOUNCEMENT_TONES[first] then
+        tone = ANNOUNCEMENT_TONES[first]
+        table.remove(args, 1)
+    end
+    local message = clean(table.concat(args, ' '), 240)
+    if message == '' then
+        if source > 0 then notify(source, 'Usage: /announcement [-info|-warning|-urgent] <message>', 'error') end
+        return
+    end
+    local stamp = GetGameTimer()
+    if source > 0 and stamp - lastCenterAnnouncement < ANNOUNCEMENT_COOLDOWN_MS then
+        return notify(source, 'Wait a moment before sending another announcement.', 'error')
+    end
+    lastCenterAnnouncement = stamp
+    TriggerClientEvent('fbrp:announcement:show', -1, { message = message, tone = tone })
+    broadcast('ANNOUNCEMENT', message, tone == 'urgent' and { 255, 107, 87 } or tone == 'warning' and { 255, 181, 71 } or { 67, 232, 216 })
+    FBRP.DB.audit(actorOf(source), 'staff.center_announcement', nil, { message = message, tone = tone })
+end, false)
 
 RegisterCommand('ondutystaff', function(source, args)
     if source > 0 and not hasPermission(source, FBRP.Ace.staffOnDutyAnnounce) then return deny(source, FBRP.Ace.staffOnDutyAnnounce) end
@@ -1434,7 +1712,7 @@ RegisterNetEvent('fbrp:tags:equip', function(kind, rawId)
     local src=source; local s=sessions[src]
     if not s or not s.discord or (kind~='head' and kind~='gang' and kind~='chat') then return end
     local tagId=tonumber(rawId); if tagId and tagId<=0 then tagId=nil end
-    local allowed, reason=canWear(s.discord,tagId,kind,s.org and s.org.id or nil)
+    local allowed, reason=canWear(s.discord,tagId,kind,s.org and s.org.id or nil,s.execBypass)
     if not allowed then
         if reason=='duty' then return notify(src,'Clock into this tag\'s organization before wearing it.','error') end
         return notify(src,'That Discord role does not grant this tag.','error')
@@ -1445,6 +1723,13 @@ RegisterNetEvent('fbrp:tags:equip', function(kind, rawId)
     ]], {s.discord,kind=='head' and tagId or nil,kind=='gang' and tagId or nil,kind=='chat' and tagId or nil,now(),kind,kind,kind})
     loadSelectedTags(s); publishPlayer(src)
     TriggerClientEvent('fbrp:tags:selected',src,{head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil,chat=s.chatTag and s.chatTag.id or nil})
+    local slotName = kind=='head' and 'headtag' or kind=='gang' and 'gang tag' or 'chat tag'
+    local worn = kind=='head' and s.headtag or kind=='gang' and s.gangtag or s.chatTag
+    if tagId and worn then
+        tagNotify(src, ('Now wearing the %s %s.'):format(worn.label or 'selected', slotName), 'success')
+    else
+        tagNotify(src, ('Removed your %s.'):format(slotName), 'inform')
+    end
 end)
 
 RegisterNetEvent('fbrp:interactions:request', function(target)
@@ -1453,7 +1738,7 @@ RegisterNetEvent('fbrp:interactions:request', function(target)
     local actions={}
     for _,spec in ipairs(FBRP.Interactions) do
         local visible=FBRP.InteractionVisible[spec.id]
-        if interactionAllowed(src,spec) and (not visible or visible(src,target)) then actions[#actions+1]={id=spec.id,label=spec.label} end
+        if interactionAllowed(src,spec,target) and (not visible or visible(src,target)) then actions[#actions+1]={id=spec.id,label=spec.label} end
     end
     TriggerClientEvent('fbrp:interactions:data',src,{target=target,name=GetPlayerName(target),actions=actions})
 end)
@@ -1462,7 +1747,9 @@ RegisterNetEvent('fbrp:interactions:use', function(target, action, evidence)
     local src=source; target=tonumber(target); action=clean(action,24)
     local spec=interactionSpec(action)
     if not spec or not target or target==src or not sessions[target] or not playersNear(src,target,FBRP.Config.interactionDistance) then return notify(src,'Interaction rejected: target moved away.','error') end
-    if not interactionAllowed(src,spec) then return notify(src,'You do not have permission for that interaction.','error') end
+    if not interactionAllowed(src,spec,target) then return notify(src,'You do not have permission for that interaction.','error') end
+    local visibleFor=FBRP.InteractionVisible[action]
+    if (action=='escort' or action=='seat' or action=='unseat') and visibleFor and not visibleFor(src,target) then return notify(src,'That is not possible right now.','error') end
     local handler=FBRP.InteractionHandlers[action]
     if handler then
         if handler(src,target,evidence)~=false then FBRP.DB.audit(sessions[src].discord or src,'interaction.'..action,sessions[target].discord or target,{source=src,target=target}) end
@@ -1477,17 +1764,70 @@ RegisterNetEvent('fbrp:interactions:use', function(target, action, evidence)
     FBRP.DB.audit(sessions[src].discord or src,'interaction.'..action,sessions[target].discord or target,{source=src,target=target})
 end)
 
+-- Weapons a pat-down can reveal. The client reports hashes; only these are ever listed or removable.
+local SEARCH_WEAPONS = {}
+for label, name in pairs({
+    ['Pistol']='WEAPON_PISTOL', ['Combat pistol']='WEAPON_COMBATPISTOL', ['Heavy pistol']='WEAPON_HEAVYPISTOL',
+    ['Stun gun']='WEAPON_STUNGUN', ['SMG']='WEAPON_SMG', ['Carbine rifle']='WEAPON_CARBINERIFLE',
+    ['Pump shotgun']='WEAPON_PUMPSHOTGUN', ['Knife']='WEAPON_KNIFE', ['Nightstick']='WEAPON_NIGHTSTICK',
+    ['Baseball bat']='WEAPON_BAT', ['Crowbar']='WEAPON_CROWBAR', ['Flashlight']='WEAPON_FLASHLIGHT',
+}) do SEARCH_WEAPONS[joaat(name)] = label end
+
+local openSearches = {} -- actor -> { target, expires, weapons = {[hash]=label}, contraband = text|nil }
+
+local function sendSearchMenu(actor)
+    local rec = openSearches[actor]
+    if not rec then return end
+    local weapons = {}
+    for hash, label in pairs(rec.weapons) do weapons[#weapons+1] = { hash = hash, label = label } end
+    table.sort(weapons, function(x, y) return x.label < y.label end)
+    TriggerClientEvent('fbrp:search:menu', actor, { target = rec.target, name = GetPlayerName(rec.target), weapons = weapons, contraband = rec.contraband })
+end
+
 RegisterNetEvent('fbrp:interaction:searchResult', function(items)
     local src=source; local pending=pendingSearches[src]; pendingSearches[src]=nil
     if not pending or pending.expires<GetGameTimer() or not playersNear(src,pending.actor,FBRP.Config.interactionDistance+1.0) then return end
-    local safe={}; if type(items)=='table' then for _,item in ipairs(items) do safe[#safe+1]=clean(item,50); if #safe>=20 then break end end end
-    -- Packaged product is found and, by police, seized on the spot.
-    if FBRP.Economy and FBRP.Economy.contrabandText and FBRP.Economy.contrabandText(src) then
-        local found=hasPermission(pending.actor,FBRP.Ace.policeSearch) and FBRP.Economy.seize(src,pending.actor) or FBRP.Economy.contrabandText(src)
-        if found then safe[#safe+1]=found..(hasPermission(pending.actor,FBRP.Ace.policeSearch) and ' - SEIZED' or '') end
+    local weapons={}
+    if type(items)=='table' then
+        for _,hash in ipairs(items) do
+            hash=tonumber(hash)
+            if hash and SEARCH_WEAPONS[hash] then weapons[hash]=SEARCH_WEAPONS[hash] end
+        end
     end
-    chat(pending.actor,'SEARCH · '..GetPlayerName(src),#safe>0 and table.concat(safe,', ') or 'No visible weapons or contraband found.')
+    local contraband=FBRP.Economy and FBRP.Economy.contrabandText and FBRP.Economy.contrabandText(src) or nil
+    openSearches[pending.actor]={ target=src, expires=GetGameTimer()+120000, weapons=weapons, contraband=contraband }
+    sendSearchMenu(pending.actor)
 end)
+
+-- The officer picks what to take from the open search menu.
+RegisterNetEvent('fbrp:search:take', function(kind, hash)
+    local actor=source; local rec=openSearches[actor]
+    if not rec or rec.expires<GetGameTimer() or not sessions[rec.target] or not hasPermission(actor,FBRP.Ace.policeSearch)
+        or not playersNear(actor,rec.target,FBRP.Config.interactionDistance+1.0) then
+        openSearches[actor]=nil
+        return notify(actor,'The search is over. Search the person again.','error')
+    end
+    local taken={}
+    if kind=='weapon' or kind=='weapons' then
+        hash=tonumber(hash)
+        for h,label in pairs(rec.weapons) do
+            if kind=='weapons' or h==hash then
+                rec.weapons[h]=nil; taken[#taken+1]=label
+                TriggerClientEvent('fbrp:search:removeWeapon',rec.target,h)
+            end
+        end
+    elseif kind=='contraband' and rec.contraband then
+        local text=FBRP.Economy and FBRP.Economy.seize and FBRP.Economy.seize(rec.target,actor)
+        rec.contraband=nil
+        if text then taken[#taken+1]=text end
+    end
+    if #taken==0 then return end
+    notify(actor,'Removed: '..table.concat(taken,', '),'success')
+    notify(rec.target,('%s took items from you: %s'):format(displayName(actor),table.concat(taken,', ')),'error')
+    FBRP.DB.audit(sessions[actor].discord or actor,'interaction.search_take',sessions[rec.target].discord or rec.target,{source=actor,target=rec.target,items=taken})
+    sendSearchMenu(actor)
+end)
+AddEventHandler('playerDropped', function() openSearches[source]=nil end)
 
 RegisterNetEvent('fbrp:vehicles:request', function()
     local src=source; local categories={}
@@ -1505,6 +1845,46 @@ RegisterNetEvent('fbrp:vehicles:request', function()
     TriggerClientEvent('fbrp:vehicles:data',src,categories)
 end)
 
+-- One garage vehicle per player: spawning a new one from the garage deletes the one they had out.
+-- The client reports the new car's net id; we only accept it right after a garage approval and only once
+-- the reporter is in its driver seat, so nobody can get someone else's car deleted.
+local garageVehicles = {}   -- source -> net id of their current garage vehicle
+local garageApproved = {}   -- source -> GetGameTimer() of the last garage approval
+
+function FBRP.MarkGarageApproval(source)
+    garageApproved[tonumber(source)] = GetGameTimer()
+end
+
+RegisterNetEvent('fbrp:vehicles:garageSpawned', function(netId)
+    local src = source
+    local approvedAt = garageApproved[src]
+    if not approvedAt or GetGameTimer() - approvedAt > 60000 then return end
+    netId = tonumber(netId)
+    if not netId then return end
+    CreateThread(function()
+        local vehicle = 0
+        for _ = 1, 20 do
+            vehicle = NetworkGetEntityFromNetworkId(netId)
+            if vehicle ~= 0 and DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == GetPlayerPed(src) then break end
+            vehicle = 0
+            Wait(250)
+        end
+        if vehicle == 0 then return end
+        garageApproved[src] = nil
+        local previous = garageVehicles[src]
+        garageVehicles[src] = netId
+        if previous and previous ~= netId then
+            local old = NetworkGetEntityFromNetworkId(previous)
+            if old ~= 0 and DoesEntityExist(old) then DeleteEntity(old) end
+        end
+    end)
+end)
+
+AddEventHandler('playerDropped', function()
+    garageVehicles[source] = nil
+    garageApproved[source] = nil
+end)
+
 RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
     local src=source; categoryId=clean(categoryId,32); model=clean(model,40):lower()
     if categoryId=='personal' then
@@ -1515,6 +1895,7 @@ RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
     if orgGarage then
         for _,vehicle in ipairs(orgGarage.vehicles) do
             if vehicle.model:lower()==model then
+                FBRP.MarkGarageApproval(src)
                 TriggerClientEvent('fbrp:vehicles:approved',src,model,vehicle.label,orgGarage.style)
                 return FBRP.DB.audit(sessions[src].discord or src,'vehicle.spawn',model,{category='org',organization=orgGarage.label})
             end
@@ -1524,6 +1905,7 @@ RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
         if category.id==categoryId and hasPermission(src,category.ace) and (not category.onDuty or (sessions[src] and sessions[src].staffDuty)) then
             for _,vehicle in ipairs(category.vehicles) do
                 if vehicle.model:lower()==model then
+                    FBRP.MarkGarageApproval(src)
                     TriggerClientEvent('fbrp:vehicles:approved',src,model,vehicle.label)
                     return FBRP.DB.audit(sessions[src].discord or src,'vehicle.spawn',model,{category=categoryId})
                 end
@@ -1586,6 +1968,11 @@ SetHttpHandler(function(req,res)
     if req.path=='/ops' and req.method=='GET' then
         local snapshot=FBRP.Server and FBRP.Server.liveOpsSnapshot and FBRP.Server.liveOpsSnapshot() or {online=true,players={},scenes={},calls={}}
         res.writeHead(200,headers); return res.send(json.encode(snapshot))
+    end
+    if req.path=='/staff-permissions' and req.method=='GET' then
+        local built,matrix=pcall(FBRP.StaffPerms.build)
+        res.writeHead(built and 200 or 500,headers)
+        return res.send(built and json.encode(matrix) or '{"ok":false,"error":"build_failed"}')
     end
     req.setDataHandler(function(body)
         local ok,payload=pcall(json.decode,body~='' and body or '{}'); if not ok then payload={} end
@@ -1659,4 +2046,14 @@ FBRP.Server = {
 function IsStaffOnDuty(source) return sessions[tonumber(source)] and sessions[tonumber(source)].staffDuty==true or false end
 function GetActiveOrganization(source) return sessions[tonumber(source)] and sessions[tonumber(source)].org or nil end
 function HasPermission(source,object) return hasPermission(tonumber(source),tostring(object)) end
+-- Highest-ranked staff group the player holds (chat rank badge). Only meaningful while on duty.
+function GetStaffRank(source)
+    local s = sessions[tonumber(source)]
+    if not s then return nil end
+    local best
+    for _, group in ipairs(s.groups or {}) do
+        if (group.staff_only == 1 or group.staff_only == true) and (not best or tonumber(group.rank_order or 0) > tonumber(best.rank_order or 0)) then best = group end
+    end
+    return best and { name=best.name, label=best.label, rank=tonumber(best.rank_order or 0), onDuty=s.staffDuty==true } or nil
+end
 function GetPlayerDiscord(source) return sessions[tonumber(source)] and sessions[tonumber(source)].discord or discordId(tonumber(source)) end

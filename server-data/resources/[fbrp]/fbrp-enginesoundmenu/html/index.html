@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>FBRP Engine Sound Menu</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="menu" class="menu hidden">
+        <div class="header" id="header">FLORIDA BAY | ENGINE SOUND MENU</div>
+
+        <div class="selector">
+            <div class="arrow" id="arrowLeft">
+                <svg viewBox="0 0 10 12" aria-hidden="true"><path d="M9 1 1 6l8 5z"/></svg>
+            </div>
+
+            <div class="name-box">
+                <div class="name" id="name"></div>
+            </div>
+
+            <div class="arrow" id="arrowRight">
+                <svg viewBox="0 0 10 12" aria-hidden="true"><path d="M1 1l8 5-8 5z"/></svg>
+            </div>
+        </div>
+
+        <div class="meta">
+            <span class="view-tag" id="viewTag" hidden>FAVOURITES</span>
+            <svg class="star" id="star" viewBox="0 0 24 24" aria-hidden="true" hidden>
+                <path d="M12 2.8l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.7l-5.9 3.1 1.2-6.5L2.5 9.7l6.6-.9z"/>
+            </svg>
+            <span class="count" id="count">1 / 1</span>
+            <span class="active" id="active" hidden>ACTIVE</span>
+        </div>
+
+        <div class="apply" id="apply"><span id="applyText">ENTER TO APPLY</span></div>
+
+        <div class="hints">
+            <div>&larr; &rarr; browse &middot; Enter apply &middot; Backspace close</div>
+            <div>&uarr; favourite &middot; &darr; favourites list</div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

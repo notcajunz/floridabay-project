@@ -436,21 +436,7 @@ end
 ---@param text string @The message text to display in the notification
 function ShowNotification(text)
 	if not RedM then
-		local notificationTxd = CreateRuntimeTxd("easyadmin_notification")
-		CreateRuntimeTextureFromImage(notificationTxd, 'small_logo', 'dependencies/images/small-logo-bg.png')
-		BeginTextCommandThefeedPost("STRING")
-		AddTextComponentSubstringPlayerName(text)
-
-		local title = "~bold~EasyAdmin"
-		local subtitle = GetLocalisedText("notification")
-		local iconType = 0
-		local flash = false
-
-		EndTextCommandThefeedPostMessagetext("easyadmin_notification", "small_logo", flash, iconType, title, subtitle)
-		local showInBrief = false
-		local blink = false
-		EndTextCommandThefeedPostTicker(blink, showInBrief)
-
+		TriggerEvent("ox_lib:notify", { title = "EasyAdmin", description = (tostring(text):gsub("~[%w_]*~", "")), type = "info", position = "center-right" })
 	else
 		-- someone who has RedM installed please write some code for this
 		

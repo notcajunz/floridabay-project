@@ -173,8 +173,8 @@ cd /home/ubuntu/fbrp
 
 This creates the encrypted database/FiveM/txAdmin tunnel and mounts all three
 authoritative upload locations from game: `[vehicles]` for personals and
-liveries, `[eup]` for clothing packs, and vMenu's `config` directory for addon
-peds. The game IP is written only to the ignored host configuration, never to
+liveries, `[eup]` for clothing packs, and legacy vMenu's `config` directory for
+addon peds. The game IP is written only to the ignored host configuration, never to
 Git.
 
 ## 8. Sign into Codex and Claude on both VPSs

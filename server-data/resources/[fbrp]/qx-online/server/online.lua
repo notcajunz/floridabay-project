@@ -1,0 +1,3 @@
+QX.CorePrint('online.lua loaded...')
+
+-- Bot loading soon...

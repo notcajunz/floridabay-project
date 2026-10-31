@@ -1,4 +1,6 @@
-local accessObject = 'vMenu.WeaponOptions.WhitelistedModels.weapon_mp9a'
+-- Granted with the FBRP | Custom Weapons role (ACE group custom_weapons). Legacy
+-- vMenu strips the weapon_ prefix when it creates per-addon-weapon ACE names.
+local accessObject = 'vMenu.WeaponOptions.WhitelistedModels.mp9a'
 local guildId = '1557594282976747550'
 local roleId = '1558772553789743214'
 

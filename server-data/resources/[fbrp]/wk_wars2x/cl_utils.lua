@@ -123,11 +123,9 @@ function UTIL:IsPlayerInVeh( veh )
 	return false
 end
 
--- Your everyday GTA notification function
+-- Radar notifications go through ox_lib
 function UTIL:Notify( text )
-	SetNotificationTextEntry( "STRING" )
-	AddTextComponentSubstringPlayerName( text )
-	DrawNotification( false, true )
+	TriggerEvent( 'ox_lib:notify', { title = 'Radar', description = ( tostring( text ):gsub( '~[%w_]*~', '' ) ), type = 'info' } )
 end
 
 -- Prints the given message to the client console

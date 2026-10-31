@@ -519,6 +519,7 @@ Join any Florida Bay network server
 Important behavior:
 
 - Adds the selected, verified user directly through their Discord OAuth authorization. If authorization is missing or expired, the bot returns the verification/authorization link. `/global invite` continues to create invite links.
+- The Department of Homefront Security (DHS) Discord is not offered: people get into it through an accepted application on the orgs website, which adds them automatically. `JOIN_HIDDEN_GUILD_IDS` in `.env` hides more servers.
 
 ## /invite
 
@@ -577,8 +578,8 @@ Role pickers only list roles of the server the command runs in, so ranks and job
 
 | Command | What it does | Permission required |
 |---|---|---|
-| `/callsign sync` | Reassign Trial Head Administrator+ callsigns by rank order, then republish every current assignment in the staff callsigns channel | Community Director rank or higher |
-| `/exam give <member> <exam>` / `revoke` / `active` | Open, close or list staff promotion exams (60 minutes) | Assistant Community Director rank or higher; configured bot superusers also qualify |
+| `/callsign sync` | Reassign Trial Head Administrator+ callsigns by rank order, then republish every current assignment in the staff callsigns channel | Executive Management rank or higher |
+| `/exam give <member> <exam>` / `revoke` / `active` | Open, close or list staff promotion exams (60 minutes) | Community Director rank or higher; configured bot superusers also qualify |
 | `/coordall add <member>` | Add a member to every coordinator staff job, role and ACE group (incl. `staff_coordination_team`) | Bot owner only |
 | `/coordall remove [member] [discord_id]` | Remove the member from every coordination roster: staff coordination ranks, team and jobs, and the gang, department and business coordination roles (via the main bot) and their `coordinators` / liaison rows, plus every coordinator ACE group | Bot owner only |
 
@@ -599,7 +600,7 @@ Ranks, high to low: Staff Director, Assistant Staff Director, Staff Manager, Ass
 
 ### Manager+ roles in the main server
 
-The bot keeps four roles in the main server in line with each sector's leadership (computed from the main bot's member cache): Gang Manager+ (`1558270290822299778`), Department Manager+ (`1558270406484557944`), Staff Manager+ (`1558270212267184178`) and Business Manager+ (`1560450541509677186`). Staff Manager+ is exactly Staff Manager, Assistant Staff Director and Staff Director; staff-server Owner and Co-Owner also qualify for the other three. The bot only removes a role it granted itself.
+The bot keeps Dev Manager+ (`1559120256788861008`) in the main server aligned with the active DevOps roster. The deleted Gang Manager+, Department Manager+, Staff Manager+, and Business Manager+ main-server roles are not synchronized. The bot only removes a role it granted itself.
 
 ## Message command
 

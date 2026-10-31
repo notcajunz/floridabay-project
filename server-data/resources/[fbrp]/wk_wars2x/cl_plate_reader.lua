@@ -198,6 +198,18 @@ AddEventHandler( "wk:togglePlateLock", function( cam, beep, bolo )
 	READER:LockCam( cam, beep, bolo )
 end )
 
+-- FBRP: the MDT flagged a plate this camera just read (stolen, BOLO, wanted owner...).
+-- Lock the camera with the BOLO tone, but never toggle an existing lock off, and
+-- only while the camera still shows that plate.
+RegisterNetEvent( "wk:mdtPlateHit" )
+AddEventHandler( "wk:mdtPlateHit", function( cam, plate )
+	if ( ( cam ~= "front" and cam ~= "rear" ) or READER:GetCamLocked( cam ) or READER:GetPlate( cam ) ~= plate ) then return end
+	READER:LockCam( cam, false, true )
+	if ( READER:GetCamLocked( cam ) ) then
+		SYNC:LockReaderCam( cam, READER:GetCameraDataPacket( cam ) )
+	end
+end )
+
 
 --[[----------------------------------------------------------------------------------
 	Plate reader NUI callbacks

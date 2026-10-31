@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Florida Bay character select</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="fbrp.css">
+    <script src="./js/vue.global.js"></script>
+    <script src="./js/vuex.global.js"></script>
+</head>
+<body>
+<div id="app" v-cloak>
+
+    <!-- ================= character select ================= -->
+    <div v-if="show" class="screen">
+        <header class="topbar">
+            <div>
+                <span class="chip brand"><img :src="'./images/' + (serverLogo || 'fbrp-logo.png')" alt="">Florida Bay Roleplay</span>
+                <span class="chip dim">{{ Locales["mainTitle"] }}</span>
+            </div>
+            <div class="topbar-center">
+                <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>{{ steamID }}</span>
+                <span class="chip"><img v-if="steamProfile" :src="steamProfile" class="avatar" alt=""><template v-else><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></template>{{ steamName }}</span>
+            </div>
+        </header>
+
+        <transition name="slide-left">
+        <section v-if="animleftContainer" class="panel left" aria-label="Characters">
+            <div class="panel-head">
+                <div>
+                    <h2>Characters</h2>
+                    <p>{{ Locales["hello"] }} {{ steamName }}, {{ (Locales["selectchar"] || "").toLowerCase() }}</p>
+                </div>
+                <span class="pill">{{ charactersData.length || 0 }} / {{ slotNumber.length || 0 }}</span>
+            </div>
+            <template v-for="slot in slotNumber" :key="'slot-' + slot.id">
+                <button v-if="getCharacter(slot.id, true)" type="button" class="slot" :class="{ active: selectedPopup[slot.id] }"
+                        @click="currentCharacterDataValue(getCharacter(slot.id, true), slot.id, false); playClickSound()">
+                    <span class="mono">{{ (getCharacter(slot.id, true).firstname || "")[0] }}{{ (getCharacter(slot.id, true).lastname || "")[0] }}</span>
+                    <span class="slot-text">
+                        <strong>{{ getCharacter(slot.id, true).firstname }} {{ getCharacter(slot.id, true).lastname }}</strong>
+                        <span>{{ getCharacter(slot.id, true).job }} · {{ getCharacter(slot.id, true).sex }}</span>
+                    </span>
+                </button>
+                <button v-else-if="slot.tebex" type="button" class="slot empty tebex" @click.stop="openRegister(slot.id, true); playClickSound()">
+                    <span class="mono ghost"><svg viewBox="0 0 24 24" fill="none" stroke="#ffd58f" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
+                    <span class="slot-text"><strong>{{ Locales["createNewTitle"] }}</strong><span>Locked slot</span></span>
+                    <span class="pill gold">VIP</span>
+                </button>
+                <button v-else type="button" class="slot empty" @click="openRegister(slot.id, false); playClickSound()">
+                    <span class="mono ghost"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+                    {{ Locales["createNewTitle"] }}
+                </button>
+            </template>
+        </section>
+        </transition>
+
+        <transition name="slide-right">
+        <section v-if="animleftContainer" class="panel right" aria-label="Character details">
+            <template v-if="currentCharacterData">
+                <h2 class="name">{{ currentCharacterData.firstname }} {{ currentCharacterData.lastname }}</h2>
+                <div class="pills">
+                    <span class="pill">{{ currentCharacterData.job }}</span>
+                    <span class="pill">{{ currentCharacterData.totalPlayedTime }} played</span>
+                </div>
+                <div class="stat"><span>{{ Locales["ageTitle"] }}</span><b>{{ formattedAge }}</b></div>
+                <div class="stat"><span>{{ Locales["cashTitle"] }}</span><b>{{ currentCharacterData.accounts.money }}</b></div>
+                <div class="stat"><span>{{ Locales["numberTitle"] }}</span><b>{{ currentCharacterData.phone_number }}</b></div>
+                <div class="stat"><span>{{ Locales["bankTitle"] }}</span><b>{{ currentCharacterData.accounts.bank }}</b></div>
+                <div class="stat"><span>{{ Locales["nationalityTitle"] }}</span><b>{{ currentCharacterData.nationality }}</b></div>
+                <div class="actions">
+                    <button type="button" class="btn block" @click="openEdit(); playClickSound()"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>{{ Locales["editTitle"] }}</button>
+                    <button v-if="CanDelete" type="button" class="btn block danger" @click="openDeletePopUp(); playClickSound()"><svg viewBox="0 0 24 24" fill="none" stroke="#ff8a8a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>{{ Locales["deleteTitle"] }}</button>
+                </div>
+            </template>
+            <template v-else>
+                <h2 class="name">{{ Locales["statisticsTitle"] }}</h2>
+                <p class="empty-note">Select a character to see their details.</p>
+            </template>
+        </section>
+        </transition>
+
+        <div v-if="currentCharacterData" class="bottom">
+            <button type="button" class="btn-play" @click="joinGame(); playClickSound()">{{ Locales["playButton"] }}<svg viewBox="0 0 24 24" fill="none" stroke="#15181b" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+            <span class="hint">{{ Locales["playNowText"] }}</span>
+        </div>
+
+        <div v-if="deletePopup" class="modal-wrap" @click.self="cancelDelete()">
+            <div class="modal" role="dialog" aria-modal="true">
+                <h3>{{ Locales["deletePopUpTitle"] }}</h3>
+                <p>{{ Locales["deletePopUpTitle2"] }}</p>
+                <div class="row">
+                    <button type="button" class="btn" @click="cancelDelete(); playClickSound()">{{ Locales["noButton"] }}</button>
+                    <button type="button" class="btn solid-danger" @click="deleteCharacter(); playClickSound()">{{ Locales["yesButton"] }}</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="tebexSlotPopup" class="modal-wrap" @click.self="tebexSlotPopup = false">
+            <div class="modal" role="dialog" aria-modal="true">
+                <h3>{{ Locales["tebexPopUpTitle"] }}</h3>
+                <div class="field">
+                    <label for="tbx-id">Tebex transaction ID</label>
+                    <input id="tbx-id" type="text" v-model="tbxID" placeholder="tbx-...">
+                </div>
+                <div class="row">
+                    <button type="button" class="btn" @click="tebexSlotPopup = false; playClickSound()">{{ Locales["cancelButton"] }}</button>
+                    <button type="button" class="btn" @click="checkTebex(); playClickSound()">{{ Locales["tebexPopUpButton"] }}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= create / edit character ================= -->
+    <div v-if="registerPage" class="screen">
+        <header class="topbar">
+            <div>
+                <span class="chip brand"><img :src="'./images/' + (serverLogo || 'fbrp-logo.png')" alt="">Florida Bay Roleplay</span>
+                <span class="chip dim">{{ editingId ? Locales["editCharacterTitle"] : Locales["registerTitle"] }}</span>
+            </div>
+            <div class="topbar-center">
+                <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>{{ steamID }}</span>
+                <span class="chip"><img v-if="steamProfile" :src="steamProfile" class="avatar" alt=""><template v-else><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></template>{{ steamName }}</span>
+            </div>
+        </header>
+
+        <form class="form" @submit.prevent="createCharacter(); playClickSound()">
+            <h2>{{ editingId ? Locales["editCharacterTitle"] : Locales["newCharacterTitle"] }}</h2>
+            <p class="sub">{{ Locales["cityAwait"] }} {{ editingId ? "" : Locales["createYourNow"] }}</p>
+            <div class="two">
+                <div class="field"><label for="f-first">{{ Locales["nameInput"] }}</label><input id="f-first" type="text" v-model="nameValue" maxlength="20"></div>
+                <div class="field"><label for="f-last">{{ Locales["surnameInput"] }}</label><input id="f-last" type="text" v-model="surnameValue" maxlength="20"></div>
+            </div>
+            <div class="field">
+                <label for="f-nat">{{ Locales["nationalityInput"] }}</label>
+                <select id="f-nat" v-model="nationalityValue">
+                <option value="" disabled>Choose a nationality</option>
+                <option value="afghan">Afghan</option>
+                <option value="albanian">Albanian</option>
+                <option value="algerian">Algerian</option>
+                <option value="american">American</option>
+                <option value="andorran">Andorran</option>
+                <option value="angolan">Angolan</option>
+                <option value="antiguans">Antiguans</option>
+                <option value="argentinean">Argentinean</option>
+                <option value="armenian">Armenian</option>
+                <option value="australian">Australian</option>
+                <option value="austrian">Austrian</option>
+                <option value="azerbaijani">Azerbaijani</option>
+                <option value="bahamian">Bahamian</option>
+                <option value="bahraini">Bahraini</option>
+                <option value="bangladeshi">Bangladeshi</option>
+                <option value="barbadian">Barbadian</option>
+                <option value="barbudans">Barbudans</option>
+                <option value="batswana">Batswana</option>
+                <option value="belarusian">Belarusian</option>
+                <option value="belgian">Belgian</option>
+                <option value="belizean">Belizean</option>
+                <option value="beninese">Beninese</option>
+                <option value="bhutanese">Bhutanese</option>
+                <option value="bolivian">Bolivian</option>
+                <option value="bosnian">Bosnian</option>
+                <option value="brazilian">Brazilian</option>
+                <option value="british">British</option>
+                <option value="bruneian">Bruneian</option>
+                <option value="bulgarian">Bulgarian</option>
+                <option value="burkinabe">Burkinabe</option>
+                <option value="burmese">Burmese</option>
+                <option value="burundian">Burundian</option>
+                <option value="cambodian">Cambodian</option>
+                <option value="cameroonian">Cameroonian</option>
+                <option value="canadian">Canadian</option>
+                <option value="cape verdean">Cape Verdean</option>
+                <option value="central african">Central African</option>
+                <option value="chadian">Chadian</option>
+                <option value="chilean">Chilean</option>
+                <option value="chinese">Chinese</option>
+                <option value="colombian">Colombian</option>
+                <option value="comoran">Comoran</option>
+                <option value="congolese">Congolese</option>
+                <option value="costa rican">Costa Rican</option>
+                <option value="croatian">Croatian</option>
+                <option value="cuban">Cuban</option>
+                <option value="cypriot">Cypriot</option>
+                <option value="czech">Czech</option>
+                <option value="danish">Danish</option>
+                <option value="djibouti">Djibouti</option>
+                <option value="dominican">Dominican</option>
+                <option value="dutch">Dutch</option>
+                <option value="east timorese">East Timorese</option>
+                <option value="ecuadorean">Ecuadorean</option>
+                <option value="egyptian">Egyptian</option>
+                <option value="emirian">Emirian</option>
+                <option value="equatorial guinean">Equatorial Guinean</option>
+                <option value="eritrean">Eritrean</option>
+                <option value="estonian">Estonian</option>
+                <option value="ethiopian">Ethiopian</option>
+                <option value="fijian">Fijian</option>
+                <option value="filipino">Filipino</option>
+                <option value="finnish">Finnish</option>
+                <option value="french">French</option>
+                <option value="gabonese">Gabonese</option>
+                <option value="gambian">Gambian</option>
+                <option value="georgian">Georgian</option>
+                <option value="german">German</option>
+                <option value="ghanaian">Ghanaian</option>
+                <option value="greek">Greek</option>
+                <option value="grenadian">Grenadian</option>
+                <option value="guatemalan">Guatemalan</option>
+                <option value="guinea-bissauan">Guinea-Bissauan</option>
+                <option value="guinean">Guinean</option>
+                <option value="guyanese">Guyanese</option>
+                <option value="haitian">Haitian</option>
+                <option value="herzegovinian">Herzegovinian</option>
+                <option value="honduran">Honduran</option>
+                <option value="hungarian">Hungarian</option>
+                <option value="icelander">Icelander</option>
+                <option value="indian">Indian</option>
+                <option value="indonesian">Indonesian</option>
+                <option value="iranian">Iranian</option>
+                <option value="iraqi">Iraqi</option>
+                <option value="irish">Irish</option>
+                <option value="israeli">Israeli</option>
+                <option value="italian">Italian</option>
+                <option value="ivorian">Ivorian</option>
+                <option value="jamaican">Jamaican</option>
+                <option value="japanese">Japanese</option>
+                <option value="jordanian">Jordanian</option>
+                <option value="kazakhstani">Kazakhstani</option>
+                <option value="kenyan">Kenyan</option>
+                <option value="kittian and nevisian">Kittian and Nevisian</option>
+                <option value="kuwaiti">Kuwaiti</option>
+                <option value="kyrgyz">Kyrgyz</option>
+                <option value="laotian">Laotian</option>
+                <option value="latvian">Latvian</option>
+                <option value="lebanese">Lebanese</option>
+                <option value="liberian">Liberian</option>
+                <option value="libyan">Libyan</option>
+                <option value="liechtensteiner">Liechtensteiner</option>
+                <option value="lithuanian">Lithuanian</option>
+                <option value="luxembourger">Luxembourger</option>
+                <option value="macedonian">Macedonian</option>
+                <option value="malagasy">Malagasy</option>
+                <option value="malawian">Malawian</option>
+                <option value="malaysian">Malaysian</option>
+                <option value="maldivan">Maldivan</option>
+                <option value="malian">Malian</option>
+                <option value="maltese">Maltese</option>
+                <option value="marshallese">Marshallese</option>
+                <option value="mauritanian">Mauritanian</option>
+                <option value="mauritian">Mauritian</option>
+                <option value="mexican">Mexican</option>
+                <option value="micronesian">Micronesian</option>
+                <option value="moldovan">Moldovan</option>
+                <option value="monacan">Monacan</option>
+                <option value="mongolian">Mongolian</option>
+                <option value="moroccan">Moroccan</option>
+                <option value="mosotho">Mosotho</option>
+                <option value="motswana">Motswana</option>
+                <option value="mozambican">Mozambican</option>
+                <option value="namibian">Namibian</option>
+                <option value="nauruan">Nauruan</option>
+                <option value="nepalese">Nepalese</option>
+                <option value="new zealander">New Zealander</option>
+                <option value="ni-vanuatu">Ni-Vanuatu</option>
+                <option value="nicaraguan">Nicaraguan</option>
+                <option value="nigerien">Nigerien</option>
+                <option value="north korean">North Korean</option>
+                <option value="northern irish">Northern Irish</option>
+                <option value="norwegian">Norwegian</option>
+                <option value="omani">Omani</option>
+                <option value="pakistani">Pakistani</option>
+                <option value="palauan">Palauan</option>
+                <option value="panamanian">Panamanian</option>
+                <option value="papua new guinean">Papua New Guinean</option>
+                <option value="paraguayan">Paraguayan</option>
+                <option value="peruvian">Peruvian</option>
+                <option value="polish">Polish</option>
+                <option value="portuguese">Portuguese</option>
+                <option value="qatari">Qatari</option>
+                <option value="romanian">Romanian</option>
+                <option value="russian">Russian</option>
+                <option value="rwandan">Rwandan</option>
+                <option value="saint lucian">Saint Lucian</option>
+                <option value="salvadoran">Salvadoran</option>
+                <option value="samoan">Samoan</option>
+                <option value="san marinese">San Marinese</option>
+                <option value="sao tomean">Sao Tomean</option>
+                <option value="saudi">Saudi</option>
+                <option value="scottish">Scottish</option>
+                <option value="senegalese">Senegalese</option>
+                <option value="serbian">Serbian</option>
+                <option value="seychellois">Seychellois</option>
+                <option value="sierra leonean">Sierra Leonean</option>
+                <option value="singaporean">Singaporean</option>
+                <option value="slovakian">Slovakian</option>
+                <option value="slovenian">Slovenian</option>
+                <option value="solomon islander">Solomon Islander</option>
+                <option value="somali">Somali</option>
+                <option value="south african">South African</option>
+                <option value="south korean">South Korean</option>
+                <option value="spanish">Spanish</option>
+                <option value="sri lankan">Sri Lankan</option>
+                <option value="sudanese">Sudanese</option>
+                <option value="surinamer">Surinamer</option>
+                <option value="swazi">Swazi</option>
+                <option value="swedish">Swedish</option>
+                <option value="swiss">Swiss</option>
+                <option value="syrian">Syrian</option>
+                <option value="taiwanese">Taiwanese</option>
+                <option value="tajik">Tajik</option>
+                <option value="tanzanian">Tanzanian</option>
+                <option value="thai">Thai</option>
+                <option value="togolese">Togolese</option>
+                <option value="tongan">Tongan</option>
+                <option value="trinidadian or tobagonian">Trinidadian or Tobagonian</option>
+                <option value="tunisian">Tunisian</option>
+                <option value="turkish">Turkish</option>
+                <option value="tuvaluan">Tuvaluan</option>
+                <option value="ugandan">Ugandan</option>
+                <option value="ukrainian">Ukrainian</option>
+                <option value="uruguayan">Uruguayan</option>
+                <option value="uzbekistani">Uzbekistani</option>
+                <option value="venezuelan">Venezuelan</option>
+                <option value="vietnamese">Vietnamese</option>
+                <option value="welsh">Welsh</option>
+                <option value="yemenite">Yemenite</option>
+                <option value="zambian">Zambian</option>
+                <option value="zimbabwean">Zimbabwean</option>
+                </select>
+            </div>
+            <div class="two">
+                <div class="field"><label for="f-dob">{{ Locales["birthdateInput"] }}</label><input id="f-dob" type="date" v-model="birthdayValue"></div>
+                <div class="field"><label for="f-height">{{ Locales["heightInput"] }}</label><input id="f-height" type="number" min="120" max="230" v-model="heightValue"></div>
+            </div>
+            <div class="field">
+                <span class="label">Gender</span>
+                <div class="segment">
+                    <button type="button" :class="{ on: genderValue === 0 }" @click="setGender(0); playClickSound()">{{ Locales["maleInput"] }}</button>
+                    <button type="button" :class="{ on: genderValue === 1 }" @click="setGender(1); playClickSound()">{{ Locales["femaleInput"] }}</button>
+                </div>
+            </div>
+            <button type="submit" class="btn-play" :class="{ disabled: submitting }">{{ editingId ? Locales["saveButton"] : Locales["createButton"] }}<svg viewBox="0 0 24 24" fill="none" stroke="#15181b" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+            <button type="button" class="btn block" @click="cancelCreate(); playClickSound()">{{ Locales["cancelButton"] }}</button>
+            <p class="msg" :class="{ error: !isError, success: isError }">{{ displayMessage }}</p>
+        </form>
+    </div>
+
+    <!-- ================= spawn selection ================= -->
+    <div v-if="spawnPage" class="screen">
+        <header class="topbar">
+            <div>
+                <span class="chip brand"><img :src="'./images/' + (serverLogo || 'fbrp-logo.png')" alt="">Florida Bay Roleplay</span>
+                <span class="chip dim">{{ Locales["spawnTitle"] }}</span>
+            </div>
+            <div class="topbar-center">
+                <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>{{ steamID }}</span>
+                <span class="chip"><img v-if="steamProfile" :src="steamProfile" class="avatar" alt=""><template v-else><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></template>{{ steamName }}</span>
+            </div>
+        </header>
+
+        <section v-if="prio" class="prio-hud" :style="prioStyle" aria-label="AOP and priority">
+            <div class="prio-main">
+                <h5 v-if="prioServerName" class="prio-server">{{ prioServerName }}</h5>
+                <h5><span class="prio-label">{{ prioText("AOPLabel", "AOP:") }}</span> <span class="prio-aop">{{ prio.data.aop }}</span></h5>
+                <h5 v-for="z in (prio.data.zones || [])" :key="'zone-' + z.id">
+                    <span class="prio-label">{{ z.label }}:</span>&nbsp;<span class="prio-status" :class="prioStatus(z).cls">{{ prioStatus(z).text }}<span v-if="prio.data.peacetime && z.status === 'hold'" class="prio-pt"> {{ prioText("Peacetime", "(PT)") }}</span></span>
+                </h5>
+            </div>
+            <div class="prio-side">
+                <h5 class="prio-time">{{ prioClock }}</h5>
+                <div class="prio-tags">
+                    <h5><span class="prio-label">{{ prioText("HeadtagLabel", "Headtag") }}</span><br><span class="prio-tag" :class="{ 'is-na': !tagLabel(prio.data.headtag) }" :style="tagStyle(prio.data.headtag)">{{ tagLabel(prio.data.headtag) || prioText("NotAvailable", "Hidden") }}</span></h5>
+                    <h5><span class="prio-label">{{ prioText("GangtagLabel", "Gangtag") }}</span><br><span class="prio-tag" :class="{ 'is-na': !tagLabel(prio.data.gangtag) }" :style="tagStyle(prio.data.gangtag)">{{ tagLabel(prio.data.gangtag) || prioText("NotAvailable", "Hidden") }}</span></h5>
+                    <h5><span class="prio-label">{{ prioText("JobLabel", "Job") }}</span><br><span class="prio-tag">{{ prio.data.job || prioText("OffDuty", "Off Duty") }}</span></h5>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel left" aria-label="Spawn locations">
+            <div class="panel-head">
+                <div>
+                    <h2>{{ spawnData.character.name }}</h2>
+                    <p>{{ Locales["spawnSelect"] }}</p>
+                </div>
+                <span class="pill">{{ (spawnData.spawns || []).length }}</span>
+            </div>
+            <div v-if="spawnData.aop" class="aop-bar">
+                <span class="aop-bar-label">Current AOP</span>
+                <strong>{{ spawnData.aop }}</strong>
+                <span class="aop-bar-count">{{ allowedCount }} / {{ (spawnData.spawns || []).length }} open</span>
+            </div>
+            <button v-for="spawn in spawnData.spawns" :key="'spawn-' + spawn.id" type="button" class="slot"
+                    :class="{ active: selectedSpawn && selectedSpawn.id === spawn.id, 'aop-blocked': spawn.allowed === false }" @click="pickSpawn(spawn); playClickSound()">
+                <span class="mono" :class="{ ghost: !(selectedSpawn && selectedSpawn.id === spawn.id) }"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span>
+                <span class="slot-text">
+                    <strong>{{ spawn.label }}</strong>
+                    <span>{{ spawn.description }}</span>
+                </span>
+                <span v-if="selectedSpawn && selectedSpawn.id === spawn.id" class="pill viewing"><i></i>{{ Locales["spawnViewing"] }}</span>
+                <span v-else-if="spawnData.aop && spawn.allowed === false" class="pill aop-out">Outside AOP</span>
+                <span v-else-if="spawnData.aop && spawn.allowed !== false" class="pill aop-in">In AOP</span>
+            </button>
+        </section>
+
+        <div class="bottom">
+            <button type="button" class="btn-play" :class="{ disabled: !selectedSpawn || spawning, 'aop-blocked': selectedBlocked }" @click="confirmSpawn(); playClickSound()">
+                <template v-if="spawning"><span class="loading"></span></template>
+                <template v-else>{{ Locales["spawnButton"] }}<svg viewBox="0 0 24 24" fill="none" stroke="#15181b" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></template>
+            </button>
+            <span class="hint" :class="{ error: selectedBlocked }">{{ selectedBlocked ? Locales["spawnAopBlocked"] : (selectedSpawn ? Locales["spawnConfirmHint"] : Locales["spawnPickHint"]) }}</span>
+        </div>
+    </div>
+</div>
+
+<audio id="click" src="./click.mp3" preload></audio>
+<script src="./js/index.js" type="module"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.1.1/howler.min.js" type="text/javascript"></script>
+</body>
+</html>

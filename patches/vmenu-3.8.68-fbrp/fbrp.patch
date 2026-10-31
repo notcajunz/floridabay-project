@@ -1,0 +1,537 @@
+diff --git a/SharedClasses/PermissionsManager.cs b/SharedClasses/PermissionsManager.cs
+index d5826c7..24d5b42 100644
+--- a/SharedClasses/PermissionsManager.cs
++++ b/SharedClasses/PermissionsManager.cs
+@@ -90,6 +90,8 @@ namespace vMenuShared
+             VOInvisible,
+             VOTorqueMultiplier,
+             VOPowerMultiplier,
++            // Florida Bay RP: x256 and above. Never inherited from VOAll or Everything.
++            VOUnlimitedMultipliers,
+             VOFlip,
+             VOAlarm,
+             VOCycleSeats,
+@@ -504,6 +506,14 @@ namespace vMenuShared
+                 var list = new List<Permission>() { Permission.Everything, permission };
+                 var permStr = permission.ToString();
+ 
++                if (permission == Permission.VOUnlimitedMultipliers)
++                {
++                    // Granted explicitly (Community Director and above), never through a parent permission.
++                    list = new List<Permission>() { permission };
++                    parentPermissions[permission] = list;
++                    return list;
++                }
++
+                 // if the first 2 characters are both uppercase
+                 if (permStr.Substring(0, 2).ToUpper() == permStr.Substring(0, 2))
+                 {
+diff --git a/vMenu/CommonFunctions.cs b/vMenu/CommonFunctions.cs
+index e5d1915..bdb15e0 100644
+--- a/vMenu/CommonFunctions.cs
++++ b/vMenu/CommonFunctions.cs
+@@ -1409,6 +1409,7 @@ namespace vMenuClient
+ 
+             int vehicleDefaultRadio = UserDefaults.VehicleDefaultRadio;
+ 
++            Notify.Success($"Spawned {(GetLabelText(GetDisplayNameFromVehicleModel(vehicleHash)) is var spawnedName && spawnedName != "NULL" ? spawnedName : GetDisplayNameFromVehicleModel(vehicleHash))}.");
+             await Delay(1); // Mandatory delay - without it veh radio check will always return `false`
+ 
+             if (vehicleDefaultRadio >= 0 && DoesPlayerVehHaveRadio())
+@@ -1887,6 +1888,7 @@ namespace vMenuClient
+         /// <returns></returns>
+         public static async Task<string> GetUserInput(string windowTitle, string defaultText, int maxInputLength)
+         {
++            OxLibNotify.MarkInput();
+             // Create the window title string.
+             var spacer = "\t";
+             AddTextEntry($"{GetCurrentResourceName().ToUpper()}_WINDOW_TITLE", $"{windowTitle ?? "Enter"}:{spacer}(MAX {maxInputLength} Characters)");
+diff --git a/vMenu/EventManager.cs b/vMenu/EventManager.cs
+index 682c682..844a5e0 100644
+--- a/vMenu/EventManager.cs
++++ b/vMenu/EventManager.cs
+@@ -44,6 +44,7 @@ namespace vMenuClient
+             EventHandlers.Add("vMenu:SetSupplementaryPermissions", new Action<string>(MainMenu.SetSupplementaryPermissions));
+             EventHandlers.Add("vMenu:KillMe", new Action<string>(KillMe));
+             EventHandlers.Add("vMenu:Notify", new Action<string>(NotifyPlayer));
++            EventHandlers.Add("fbrp:outfitshare:import", new Action<string, string>((name, json) => MainMenu.MpPedCustomizationMenu?.ImportSharedCharacter(name, json)));
+             EventHandlers.Add("vMenu:SetClouds", new Action<float, string>(SetClouds));
+             EventHandlers.Add("vMenu:GoodBye", new Action(GoodBye));
+             EventHandlers.Add("vMenu:SetBanList", new Action<string>(UpdateBanList));
+diff --git a/vMenu/FunctionsController.cs b/vMenu/FunctionsController.cs
+--- a/vMenu/FunctionsController.cs
++++ b/vMenu/FunctionsController.cs
+@@ -123,7 +123,9 @@ namespace vMenuClient
+                     Tick += VehicleHighbeamFlashTick;
+                 }
+             }
+-            if (IsAllowed(Permission.VCMenu))
++            // Florida Bay RP: pma-voice exclusively owns proximity and radio PTT. Never register
++            // vMenu's tick because its disabled branch calls NetworkSetVoiceActive(false) every frame.
++            if (IsAllowed(Permission.VCMenu) && GetConvarInt("vmenu_disable_voice_chat", 0) != 1)
+             {
+                 Tick += VoiceChat;
+             }
+diff --git a/vMenu/MainMenu.cs b/vMenu/MainMenu.cs
+index 35365ef..5812bb8 100644
+--- a/vMenu/MainMenu.cs
++++ b/vMenu/MainMenu.cs
+@@ -843,5 +843,6 @@ namespace vMenuClient
+             // Add Voice Chat Menu.
+-            if (IsAllowed(Permission.VCMenu))
++            // pma-voice owns voice on Florida Bay, so do not expose a second controller.
++            if (IsAllowed(Permission.VCMenu) && GetConvarInt("vmenu_disable_voice_chat", 0) != 1)
+             {
+                 VoiceChatSettingsMenu = new VoiceChat();
+                 var menu = VoiceChatSettingsMenu.GetMenu();
+@@ -885,6 +885,9 @@ namespace vMenuClient
+             // Refresh everything.
+             MenuController.Menus.ForEach((m) => m.RefreshIndex());
+ 
++            // Florida Bay RP: every menu action ends in an ox_lib notification.
++            OxLibNotify.AttachMenuActions();
++
+             if (!GetSettingsBool(Setting.vmenu_use_permissions))
+             {
+                 Notify.Alert("vMenu is set up to ignore permissions, default permissions will be used.");
+diff --git a/vMenu/Notification.cs b/vMenu/Notification.cs
+index ff2bc39..a2e76bc 100644
+--- a/vMenu/Notification.cs
++++ b/vMenu/Notification.cs
+@@ -1,4 +1,5 @@
+ ﻿using System.Collections.Generic;
++using System.Text.RegularExpressions;
+ 
+ using CitizenFX.Core;
+ 
+@@ -68,6 +69,127 @@ namespace vMenuClient
+     }
+     #endregion
+ 
++    #region ox_lib bridge
++    /// <summary>
++    /// Florida Bay RP: every vMenu notification and subtitle is shown with ox_lib's notification system
++    /// (the ox_lib:notify event) instead of the game's notification feed.
++    /// </summary>
++    internal static class OxLibNotify
++    {
++        // System.Text.RegularExpressions fails verification inside the CitizenFX Mono sandbox
++        // (MethodAccessException), so the markup is stripped with plain string scanning instead.
++        internal static string Clean(string message)
++        {
++            if (string.IsNullOrEmpty(message))
++            {
++                return "";
++            }
++
++            var text = message.Replace("~n~", "\n")
++                .Replace("<C>", "").Replace("</C>", "").Replace("<c>", "").Replace("</c>", "");
++            var result = new System.Text.StringBuilder(text.Length);
++            for (var i = 0; i < text.Length; i++)
++            {
++                if (text[i] == '~')
++                {
++                    var end = i + 1;
++                    while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] == '_'))
++                    {
++                        end++;
++                    }
++
++                    if (end < text.Length && text[end] == '~')
++                    {
++                        i = end;
++                        continue;
++                    }
++                }
++
++                result.Append(text[i]);
++            }
++
++            return result.ToString().Trim();
++        }
++
++        private static readonly HashSet<MenuAPI.Menu> attachedMenus = new HashSet<MenuAPI.Menu>();
++        private static int lastShown = -1;
++        private static int lastInput = -1;
++
++        /// <summary>Called when a text prompt opens, so the action behind it is not announced a second time.</summary>
++        internal static void MarkInput() => lastInput = GetGameTimer();
++
++        /// <summary>
++        /// Announces a menu action unless the action showed a notification of its own (or asked for text input)
++        /// within a short window, so toggles and plain buttons that stay silent in vanilla vMenu are covered
++        /// without doubling the ones that already report their result.
++        /// </summary>
++        private static async void Announce(string type, string text, int window, bool onlyInSameMenu = false)
++        {
++            var started = GetGameTimer();
++            var openMenu = MenuAPI.MenuController.GetCurrentMenu();
++            await BaseScript.Delay(window);
++            if (lastShown >= started || lastInput >= started - 50)
++            {
++                return;
++            }
++
++            // A button that opened or closed a menu was navigation, not an action.
++            if (onlyInSameMenu && MenuAPI.MenuController.GetCurrentMenu() != openMenu)
++            {
++                return;
++            }
++
++            Show(type, text, 3000);
++        }
++
++        internal static void AttachMenuActions()
++        {
++            foreach (var menu in MenuAPI.MenuController.Menus)
++            {
++                if (!attachedMenus.Add(menu))
++                {
++                    continue;
++                }
++
++                menu.OnCheckboxChange += (_, item, _, state) => Announce(state ? "success" : "info", $"{Clean(item.Text)}: {(state ? "enabled" : "disabled")}", 250);
++                menu.OnListItemSelect += (_, item, selectedIndex, _) => Announce("info", $"{Clean(item.Text)}: {Clean(item.ListItems[selectedIndex])}", 450);
++                menu.OnItemSelect += (_, item, _) =>
++                {
++                    if (!item.Enabled || item is MenuAPI.MenuListItem || item is MenuAPI.MenuCheckboxItem || item is MenuAPI.MenuDynamicListItem)
++                    {
++                        return;
++                    }
++
++                    var text = Clean(item.Text);
++                    if (text.Length > 0)
++                    {
++                        Announce("info", text, 700, true);
++                    }
++                };
++            }
++        }
++
++        internal static void Show(string type, string message, int duration = 5000, string title = "vMenu")
++        {
++            var description = Clean(message);
++            if (description.Length == 0)
++            {
++                return;
++            }
++
++            lastShown = GetGameTimer();
++
++            BaseScript.TriggerEvent("ox_lib:notify", new Dictionary<string, object>
++            {
++                ["title"] = title,
++                ["description"] = description,
++                ["type"] = type,
++                ["duration"] = duration,
++            });
++        }
++    }
++    #endregion
++
+     #region Notifications class
+     /// <summary>
+     /// Notifications class to easilly show notifications using custom made templates,
+@@ -83,12 +186,7 @@ namespace vMenuClient
+         /// <param name="saveToBrief">Should the notification be logged to the brief (PAUSE menu > INFO > Notifications)?</param>
+         public static void Custom(string message, bool blink = true, bool saveToBrief = true)
+         {
+-            SetNotificationTextEntry("CELL_EMAIL_BCON"); // 10x ~a~
+-            foreach (var s in CitizenFX.Core.UI.Screen.StringToArray(message))
+-            {
+-                AddTextComponentSubstringPlayerName(s);
+-            }
+-            DrawNotification(blink, saveToBrief);
++            OxLibNotify.Show(message != null && message.Contains("~r~") ? "error" : "info", message);
+         }
+ 
+         /// <summary>
+@@ -99,7 +197,7 @@ namespace vMenuClient
+         /// <param name="saveToBrief">Should the notification be logged to the brief (PAUSE menu > INFO > Notifications)?</param>
+         public static void Alert(string message, bool blink = true, bool saveToBrief = true)
+         {
+-            Custom("~y~~h~Alert~h~~s~: " + message, blink, saveToBrief);
++            OxLibNotify.Show("warning", message);
+         }
+ 
+         /// <summary>
+@@ -123,7 +221,7 @@ namespace vMenuClient
+         /// <param name="saveToBrief">Should the notification be logged to the brief (PAUSE menu > INFO > Notifications)?</param>
+         public static void Error(string message, bool blink = true, bool saveToBrief = true)
+         {
+-            Custom("~r~~h~Error~h~~s~: " + message, blink, saveToBrief);
++            OxLibNotify.Show("error", message);
+             Debug.Write("[vMenu] [ERROR] " + message + "\n");
+         }
+ 
+@@ -148,7 +246,7 @@ namespace vMenuClient
+         /// <param name="saveToBrief">Should the notification be logged to the brief (PAUSE menu > INFO > Notifications)?</param>
+         public static void Info(string message, bool blink = true, bool saveToBrief = true)
+         {
+-            Custom("~b~~h~Info~h~~s~: " + message, blink, saveToBrief);
++            OxLibNotify.Show("info", message);
+         }
+ 
+         /// <summary>
+@@ -159,7 +257,7 @@ namespace vMenuClient
+         /// <param name="saveToBrief">Should the notification be logged to the brief (PAUSE menu > INFO > Notifications)?</param>
+         public static void Success(string message, bool blink = true, bool saveToBrief = true)
+         {
+-            Custom("~g~~h~Success~h~~s~: " + message, blink, saveToBrief);
++            OxLibNotify.Show("success", message);
+         }
+ 
+         /// <summary>
+@@ -173,13 +271,9 @@ namespace vMenuClient
+         /// <param name="safeToBrief"></param>
+         public static void CustomImage(string textureDict, string textureName, string message, string title, string subtitle, bool saveToBrief, int iconType = 0)
+         {
+-            SetNotificationTextEntry("CELL_EMAIL_BCON"); // 10x ~a~
+-            foreach (var s in CitizenFX.Core.UI.Screen.StringToArray(message))
+-            {
+-                AddTextComponentSubstringPlayerName(s);
+-            }
+-            SetNotificationMessage(textureName, textureDict, false, iconType, title, subtitle);
+-            DrawNotification(false, saveToBrief);
++            var heading = OxLibNotify.Clean(title);
++            var detail = OxLibNotify.Clean(subtitle);
++            OxLibNotify.Show("info", (detail.Length > 0 ? detail + "\n" : "") + message, 5000, heading.Length > 0 ? heading : "vMenu");
+         }
+     }
+     #endregion
+@@ -199,12 +293,7 @@ namespace vMenuClient
+         /// <param name="drawImmediately">(Optional) draw the notification immediately or wait for the previous subtitle text to disappear.</param>
+         public static void Custom(string message, int duration = 2500, bool drawImmediately = true)
+         {
+-            BeginTextCommandPrint("CELL_EMAIL_BCON"); // 10x ~a~
+-            foreach (var s in CitizenFX.Core.UI.Screen.StringToArray(message))
+-            {
+-                AddTextComponentSubstringPlayerName(s);
+-            }
+-            EndTextCommandPrint(duration, drawImmediately);
++            OxLibNotify.Show("info", message, duration < 2500 ? 2500 : duration);
+         }
+ 
+         /// <summary>
+@@ -216,7 +305,7 @@ namespace vMenuClient
+         /// <param name="prefix">(Optional) add a prefix to your message, if you use this, only the prefix will be colored. The rest of the message will be left white.</param>
+         public static void Alert(string message, int duration = 2500, bool drawImmediately = true, string prefix = null)
+         {
+-            Custom((prefix != null ? "~y~" + prefix + " ~s~" : "~y~") + message, duration, drawImmediately);
++            OxLibNotify.Show("warning", message, duration < 2500 ? 2500 : duration);
+         }
+ 
+         /// <summary>
+@@ -228,7 +317,7 @@ namespace vMenuClient
+         /// <param name="prefix">(Optional) add a prefix to your message, if you use this, only the prefix will be colored. The rest of the message will be left white.</param>
+         public static void Error(string message, int duration = 2500, bool drawImmediately = true, string prefix = null)
+         {
+-            Custom((prefix != null ? "~r~" + prefix + " ~s~" : "~r~") + message, duration, drawImmediately);
++            OxLibNotify.Show("error", message, duration < 2500 ? 2500 : duration);
+         }
+ 
+         /// <summary>
+@@ -240,7 +329,7 @@ namespace vMenuClient
+         /// <param name="prefix">(Optional) add a prefix to your message, if you use this, only the prefix will be colored. The rest of the message will be left white.</param>
+         public static void Info(string message, int duration = 2500, bool drawImmediately = true, string prefix = null)
+         {
+-            Custom((prefix != null ? "~b~" + prefix + " ~s~" : "~b~") + message, duration, drawImmediately);
++            OxLibNotify.Show("info", message, duration < 2500 ? 2500 : duration);
+         }
+ 
+         /// <summary>
+@@ -252,7 +341,7 @@ namespace vMenuClient
+         /// <param name="prefix">(Optional) add a prefix to your message, if you use this, only the prefix will be colored. The rest of the message will be left white.</param>
+         public static void Success(string message, int duration = 2500, bool drawImmediately = true, string prefix = null)
+         {
+-            Custom((prefix != null ? "~g~" + prefix + " ~s~" : "~g~") + message, duration, drawImmediately);
++            OxLibNotify.Show("success", message, duration < 2500 ? 2500 : duration);
+         }
+     }
+     #endregion
+diff --git a/vMenu/menus/MpPedCustomization.cs b/vMenu/menus/MpPedCustomization.cs
+index 8747ab9..9ced6bf 100644
+--- a/vMenu/menus/MpPedCustomization.cs
++++ b/vMenu/menus/MpPedCustomization.cs
+@@ -47,6 +47,7 @@ namespace vMenuClient.menus
+         public static bool DontCloseMenus { get { return MenuController.PreventExitingMenu; } set { MenuController.PreventExitingMenu = value; } }
+         public static bool DisableBackButton { get { return MenuController.DisableBackButton; } set { MenuController.DisableBackButton = value; } }
+         string selectedSavedCharacterManageName = "";
++        private MenuItem importShareCodeBtn;
+         private bool isEdidtingPed = false;
+         private readonly List<string> facial_expressions = new() { "mood_Normal_1", "mood_Happy_1", "mood_Angry_1", "mood_Aiming_1", "mood_Injured_1", "mood_stressed_1", "mood_smug_1", "mood_sulk_1", };
+ 
+@@ -2378,6 +2379,7 @@ namespace vMenuClient.menus
+             var spawnPed = new MenuItem("Spawn Saved Character", "Spawns the selected saved character.");
+             editPedBtn = new MenuItem("Edit Saved Character", "This allows you to edit everything about your saved character. The changes will be saved to this character's save file entry once you hit the save button.");
+             var clonePed = new MenuItem("Clone Saved Character", "This will make a clone of your saved character. It will ask you to provide a name for that character. If that name is already taken the action will be canceled.");
++            var sharePed = new MenuItem("Share Character (Get Share Code)", "Creates a share code for this saved character. Anyone with the code can import their own copy from Saved Characters > Import Character From Share Code.");
+             var setAsDefaultPed = new MenuItem("Set As Default Character", "If you set this character as your default character, and you enable the 'Respawn As Default MP Character' option in the Misc Settings menu, then you will be set as this character whenever you (re)spawn.");
+             var renameCharacter = new MenuItem("Rename Saved Character", "You can rename this saved character. If the name is already taken then the action will be canceled.");
+             var saveCurrentPedAsCharacter = new MenuItem("Update Character Clothing", "This applies your current clothing to this saved ped. ~r~This will overwrite this saved ped's clothing.~w~ Only clothing is updated, no other appearance features.")
+@@ -2391,6 +2393,7 @@ namespace vMenuClient.menus
+             manageSavedCharacterMenu.AddMenuItem(spawnPed);
+             manageSavedCharacterMenu.AddMenuItem(editPedBtn);
+             manageSavedCharacterMenu.AddMenuItem(clonePed);
++            manageSavedCharacterMenu.AddMenuItem(sharePed);
+             manageSavedCharacterMenu.AddMenuItem(setCategoryBtn);
+             manageSavedCharacterMenu.AddMenuItem(setAsDefaultPed);
+             manageSavedCharacterMenu.AddMenuItem(renameCharacter);
+@@ -2446,6 +2449,18 @@ namespace vMenuClient.menus
+                         }
+                     }
+                 }
++                else if (item == sharePed)
++                {
++                    var sharedCharacter = StorageManager.GetSavedMpCharacterData("mp_ped_" + selectedSavedCharacterManageName);
++                    if (sharedCharacter.Version < 1)
++                    {
++                        Notify.Error("This character could not be read, so it can not be shared.");
++                    }
++                    else
++                    {
++                        BaseScript.TriggerServerEvent("fbrp:outfitshare:create", selectedSavedCharacterManageName, JsonConvert.SerializeObject(sharedCharacter));
++                    }
++                }
+                 else if (item == renameCharacter)
+                 {
+                     var tmpCharacter = StorageManager.GetSavedMpCharacterData("mp_ped_" + selectedSavedCharacterManageName);
+@@ -2628,6 +2643,20 @@ namespace vMenuClient.menus
+             // Load selected category
+             savedCharactersMenu.OnItemSelect += async (sender, item, index) =>
+             {
++                if (item == importShareCodeBtn)
++                {
++                    var shareCode = await GetUserInput(windowTitle: "Enter the share code", maxInputLength: 24);
++                    if (string.IsNullOrWhiteSpace(shareCode))
++                    {
++                        Notify.Error(CommonErrors.InvalidInput);
++                    }
++                    else
++                    {
++                        BaseScript.TriggerServerEvent("fbrp:outfitshare:redeem", shareCode.Trim());
++                    }
++                    return;
++                }
++
+                 // Create new category
+                 if (item.ItemData is not MpCharacterCategory mpCharacterCategory)
+                 {
+@@ -3068,6 +3097,12 @@ namespace vMenuClient.menus
+             };
+             savedCharactersMenu.AddMenuItem(createCategoryBtn);
+ 
++            importShareCodeBtn = new MenuItem("Import Character From Share Code", "Enter a share code someone gave you to save your own copy of their character.")
++            {
++                Label = "→→→"
++            };
++            savedCharactersMenu.AddMenuItem(importShareCodeBtn);
++
+             var spacer = GetSpacerMenuItem("↓ Character Categories ↓");
+             savedCharactersMenu.AddMenuItem(spacer);
+ 
+@@ -3108,6 +3143,70 @@ namespace vMenuClient.menus
+             savedCharactersMenu.RefreshIndex();
+         }
+ 
++        /// <summary>
++        /// Florida Bay RP: saves a character received through a share code as a new, uncategorized copy.
++        /// </summary>
++        internal void ImportSharedCharacter(string suggestedName, string json)
++        {
++            if (!vMenuShared.PermissionsManager.IsAllowed(vMenuShared.PermissionsManager.Permission.PAMenu))
++            {
++                Notify.Error(CommonErrors.NotAllowed, placeholderValue: "import characters");
++                return;
++            }
++
++            MultiplayerPedData imported;
++            try
++            {
++                imported = JsonConvert.DeserializeObject<MultiplayerPedData>(json);
++            }
++            catch
++            {
++                Notify.Error("That share code did not contain a readable character.");
++                return;
++            }
++
++            var maleModel = (uint)GetHashKey("mp_m_freemode_01");
++            var femaleModel = (uint)GetHashKey("mp_f_freemode_01");
++            if (imported.Version < 1 || (imported.ModelHash != maleModel && imported.ModelHash != femaleModel) || imported.IsMale != (imported.ModelHash == maleModel))
++            {
++                Notify.Error("That share code did not contain a valid multiplayer character.");
++                return;
++            }
++
++            var baseName = new string((suggestedName ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
++            if (baseName.StartsWith("mp_ped_"))
++            {
++                baseName = baseName.Substring(7);
++            }
++            if (baseName.Length == 0)
++            {
++                baseName = "Shared Character";
++            }
++            if (baseName.Length > 24)
++            {
++                baseName = baseName.Substring(0, 24).Trim();
++            }
++
++            var name = baseName;
++            for (var copy = 2; !string.IsNullOrEmpty(GetResourceKvpString("mp_ped_" + name)) && copy < 100; copy++)
++            {
++                name = $"{baseName} ({copy})";
++            }
++
++            imported.SaveName = "mp_ped_" + name;
++            imported.Category = null;
++
++            if (StorageManager.SaveJsonData("mp_ped_" + name, JsonConvert.SerializeObject(imported), false))
++            {
++                Notify.Success($"Imported the shared character as ~g~<C>{name}</C>~s~. Find it under Saved Characters > Uncategorized.");
++                UpdateSavedPedsMenu();
++            }
++            else
++            {
++                Notify.Error("The shared character could not be saved.");
++            }
++        }
++
+         private List<string> GetAllCategoryNames()
+         {
+             var categories = new List<string>();
+diff --git a/vMenu/menus/VehicleOptions.cs b/vMenu/menus/VehicleOptions.cs
+index 6e08cde..77a3e6c 100644
+--- a/vMenu/menus/VehicleOptions.cs
++++ b/vMenu/menus/VehicleOptions.cs
+@@ -206,9 +206,14 @@ namespace vMenuClient.menus
+             };
+             var setLicensePlateType = new MenuListItem("License Plate Type", licensePlates, 0, "Choose a license plate type and press ~r~enter ~s~to apply " +
+                 "it to your vehicle.");
+-            var torqueMultiplierList = new List<string> { "x2", "x4", "x8", "x16", "x32", "x64", "x128", "x256", "x512", "x1024" };
++            var torqueMultiplierList = new List<string> { "x2", "x4", "x8", "x16", "x32", "x64", "x128" };
++            var powerMultiplierList = new List<string> { "x2", "x4", "x8", "x16", "x32", "x64", "x128" };
++            if (IsAllowed(Permission.VOUnlimitedMultipliers))
++            {
++                torqueMultiplierList.AddRange(new[] { "x256", "x512", "x1024" });
++                powerMultiplierList.AddRange(new[] { "x256", "x512", "x1024" });
++            }
+             var torqueMultiplier = new MenuListItem("Set Engine Torque Multiplier", torqueMultiplierList, 0, "Set the engine torque multiplier.");
+-            var powerMultiplierList = new List<string> { "x2", "x4", "x8", "x16", "x32", "x64", "x128", "x256", "x512", "x1024" };
+             var powerMultiplier = new MenuListItem("Set Engine Power Multiplier", powerMultiplierList, 0, "Set the engine power multiplier.");
+             var speedLimiterOptions = new List<string>() { "Set", "Reset", "Custom Speed Limit" };
+             var speedLimiter = new MenuListItem("Speed Limiter", speedLimiterOptions, 0, "Set your vehicles max speed to your ~y~current speed~s~. Resetting your vehicles max speed will set the max speed of your current vehicle back to default. Only your current vehicle is affected by this option.");
+diff --git a/vMenu/menus/WeaponLoadouts.cs b/vMenu/menus/WeaponLoadouts.cs
+index a0d7142..b0b2f57 100644
+--- a/vMenu/menus/WeaponLoadouts.cs
++++ b/vMenu/menus/WeaponLoadouts.cs
+@@ -197,7 +197,7 @@ namespace vMenuClient.menus
+ 
+                     if (item == spawnLoadout) // spawn
+                     {
+-                        await SpawnWeaponLoadoutAsync(SelectedSavedLoadoutName, false, true, false);
++                        await SpawnWeaponLoadoutAsync(SelectedSavedLoadoutName, false, false, false);
+                     }
+                     else if (item == renameLoadout || item == cloneLoadout) // rename or clone
+                     {

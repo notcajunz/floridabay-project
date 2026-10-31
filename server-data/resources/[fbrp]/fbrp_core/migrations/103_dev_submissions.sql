@@ -1,0 +1,38 @@
+-- Developer contribution review. One row per push to the isolated contribution repository.
+-- The owner decides each row from the website portal. See services/fbrp-bot/src/dev-review.
+-- Comments here avoid apostrophes and semicolons: both migration runners split on them.
+CREATE TABLE IF NOT EXISTS dev_submissions (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  repo VARCHAR(140) NOT NULL,
+  branch VARCHAR(200) NOT NULL,
+  before_sha CHAR(40) NOT NULL,
+  head_sha CHAR(40) NOT NULL,
+  pusher VARCHAR(100) NOT NULL,
+  commit_count INT UNSIGNED NOT NULL DEFAULT 1,
+  title VARCHAR(300) NOT NULL,
+  compare_url VARCHAR(300) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  risk VARCHAR(10) NULL,
+  static_risk VARCHAR(10) NULL,
+  ai_model VARCHAR(60) NULL,
+  analysis LONGTEXT NULL,
+  flags LONGTEXT NULL,
+  files LONGTEXT NULL,
+  diff_excerpt LONGTEXT NULL,
+  analysis_error VARCHAR(500) NULL,
+  notified_at BIGINT NULL,
+  decided_by VARCHAR(32) NULL,
+  decided_at BIGINT NULL,
+  decision_note VARCHAR(1000) NULL,
+  agent VARCHAR(10) NULL,
+  run_started_at BIGINT NULL,
+  run_finished_at BIGINT NULL,
+  run_exit INT NULL,
+  run_log_path VARCHAR(300) NULL,
+  result_summary TEXT NULL,
+  result_notified_at BIGINT NULL,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  UNIQUE KEY uq_dev_submission_push (repo, head_sha, branch),
+  KEY idx_dev_submission_status (status, id)
+) ENGINE=InnoDB;

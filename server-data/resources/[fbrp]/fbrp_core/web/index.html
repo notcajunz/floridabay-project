@@ -8,9 +8,10 @@
     <link rel="stylesheet" href="propmenu.css" />
   </head>
   <body>
+    <iframe id="hud-frame" class="hud-frame" src="hud/index.html" title="HUD" tabindex="-1" allowtransparency="true"></iframe>
     <div id="hud" class="hud is-hidden">
       <!-- Top centre: street + compass tape -->
-      <div class="compass scaled">
+      <div id="hud-compass" class="compass scaled">
         <div class="compass-street">
           <strong id="street">Florida Bay</strong>
           <span id="zone">San Andreas</span>
@@ -25,32 +26,48 @@
       </div>
 
       <!-- Top right: server state + your identity -->
-      <section class="status scaled">
-        <header class="status-brand">
-          <img src="fbrp-logo.png" alt="" />
-          <div><b>Florida Bay</b><small>Roleplay</small></div>
-          <time id="game-time">12:00</time>
+      <section id="hud-status" class="status scaled">
+        <header class="status-heading">
+          <strong>Florida Bay Roleplay (Server 1)</strong>
+          <time id="game-time">10/23/2026 16:06</time>
         </header>
-        <div class="status-rows">
-          <div class="srow"><span>AOP</span><b id="aop">Statewide</b></div>
-          <div class="srow"><span id="priority-label">Priority</span><b id="priority" class="tone-ok">Available</b></div>
-          <div class="srow"><span>Peacetime</span><b id="peacetime" class="tone-dim">Off</b></div>
+        <div class="status-grid">
+          <div class="status-rows status-state">
+            <div class="srow aop-row"><span>AOP:</span><b id="aop">Statewide</b></div>
+            <div id="priority-list" class="priority-list">
+              <div class="srow priority-row"><span>Fort Zancudo:</span><b class="tone-bad">On Hold</b></div>
+              <div class="srow priority-row"><span>Los Angeles:</span><b class="tone-warn">In Progress</b></div>
+              <div class="srow priority-row"><span>Sandy/Grapeseed:</span><b>7m</b></div>
+              <div class="srow priority-row"><span>Paleto Bay:</span><b class="tone-ok">Available</b></div>
+            </div>
+          </div>
+          <div id="hud-status-self" class="status-self">
+            <div id="hud-headtag-row" class="identity-row"><span>Headtag</span><b id="hud-headtag">None</b></div>
+            <div id="hud-gangtag-row" class="identity-row"><span>Gangtag</span><b id="hud-gangtag">None</b></div>
+            <div id="hud-org-row" class="identity-row"><span>Job</span><b id="hud-org">Off Duty</b></div>
+          </div>
         </div>
-        <div class="status-rows status-self">
-          <div class="srow"><span>Headtag</span><b id="hud-headtag">None</b></div>
-          <div class="srow"><span>Gang tag</span><b id="hud-gangtag">None</b></div>
-          <div class="srow"><span>Job</span><b id="hud-org">Off duty</b></div>
-        </div>
-        <div id="staff-pill" class="staff-pill hidden"><i></i>Staff on duty</div>
       </section>
 
       <!-- Bottom left, flush against the radar -->
       <div id="dock" class="dock scaled">
-        <div class="id-badge"><small>ID</small><b id="player-id">0</b></div>
-        <div id="voice-box" class="voice">
-          <span class="voice-mic" data-icon="mic"></span>
-          <div class="voice-text"><b id="voice">Normal</b><small id="radio">Local</small></div>
-          <div id="voice-range" class="voice-range"><i></i><i></i><i></i></div>
+        <div id="hud-vitals" class="vitals" aria-label="Player health and armour">
+          <div class="vital health-vital" title="Health">
+            <svg viewBox="0 0 44 44" aria-hidden="true"><circle class="vital-track" cx="22" cy="22" r="18" pathLength="100"/><circle id="health-ring" class="vital-value" cx="22" cy="22" r="18" pathLength="100"/></svg>
+            <span data-icon="heart-pulse"></span><b id="health-value">100</b>
+          </div>
+          <div class="vital armour-vital" title="Armour">
+            <svg viewBox="0 0 44 44" aria-hidden="true"><circle class="vital-track" cx="22" cy="22" r="18" pathLength="100"/><circle id="armour-ring" class="vital-value" cx="22" cy="22" r="18" pathLength="100"/></svg>
+            <span data-icon="shield"></span><b id="armour-value">0</b>
+          </div>
+        </div>
+        <div id="hud-player" class="player-details">
+          <div class="id-badge"><small>ID</small><b id="player-id">0</b></div>
+          <div id="voice-box" class="voice">
+            <span class="voice-mic" data-icon="mic"></span>
+            <div class="voice-text"><b id="voice">Normal</b><small id="radio">Local</small></div>
+            <div id="voice-range" class="voice-range"><i></i><i></i><i></i></div>
+          </div>
         </div>
       </div>
 
@@ -63,7 +80,7 @@
             <path class="gauge-red" pathLength="100" d="M 37.25 134 A 84 84 0 1 1 182.75 134" />
             <path id="rpm-arc" class="gauge-fill" pathLength="100" d="M 37.25 134 A 84 84 0 1 1 182.75 134" />
           </svg>
-          <div class="speed-readout"><b id="speed">0</b><small>MPH</small></div>
+          <div class="speed-readout"><b id="speed">0</b><small id="speed-unit">MPH</small></div>
           <div class="gear"><b id="gear">N</b></div>
         </div>
         <div class="fuel">
@@ -171,7 +188,6 @@
 
     <div id="alerts" class="alerts scaled">
       <div id="dispatch" class="dispatch-stack"></div>
-      <div id="notifications" class="notifications"></div>
     </div>
 
     <div id="radial-menu" class="radial-menu hidden" aria-hidden="true">
@@ -201,13 +217,7 @@
     <div id="menu" class="menu-backdrop hidden">
       <main class="menu-shell scaled">
         <header class="menu-header">
-          <div class="brand-lockup">
-            <img src="fbrp-logo.png" alt="" />
-            <div>
-              <small>Florida Bay Roleplay</small>
-              <h1 id="menu-title">Menu</h1>
-            </div>
-          </div>
+          <h1 id="menu-title">Menu</h1>
           <div class="menu-actions">
             <span id="menu-esc" class="keycap-hint"><kbd>ESC</kbd> Close</span>
             <button id="close" class="icon-button" aria-label="Close" data-icon="x"></button>
@@ -217,55 +227,12 @@
       </main>
     </div>
 
-    <div id="duty" class="duty-backdrop hidden" aria-hidden="true">
-      <section class="duty-card" role="dialog" aria-labelledby="duty-title">
-        <header>
-          <div><small>ORGANIZATION DUTY</small><strong id="duty-title">Clock in</strong></div>
-          <button id="duty-close" class="icon-button" aria-label="Close" data-icon="x"></button>
-        </header>
-        <div class="duty-body">
-          <label class="duty-label" for="duty-toggle">Clock in as</label>
-          <div class="duty-select">
-            <button id="duty-toggle" class="duty-toggle" type="button" aria-haspopup="listbox" aria-expanded="false">
-              <span id="duty-value" class="duty-value">Select an organization</span>
-              <span class="duty-caret" data-icon="chevron"></span>
-            </button>
-            <div id="duty-list" class="duty-list hidden" role="listbox"></div>
-          </div>
-          <p id="duty-status" class="duty-status"></p>
-        </div>
-        <footer>
-          <button id="duty-off" class="ghost-action hidden" type="button">Clock out</button>
-          <button id="duty-confirm" class="primary-action" type="button" disabled>Clock in</button>
-        </footer>
-      </section>
-    </div>
-
     <div id="third-eye" class="third-eye scaled hidden">
       <div class="third-eye-mark"><span data-icon="eye"></span></div>
-      <section id="third-eye-panel" class="third-eye-panel hidden">
-        <header>
-          <div><small>THIRD EYE</small><strong id="third-eye-name">Player</strong></div>
-          <button id="third-eye-close" class="icon-button" aria-label="Close" data-icon="x"></button>
-        </header>
-        <div id="third-eye-actions" class="third-eye-actions"></div>
-        <footer><kbd>LEFT ALT</kbd> Hover over a nearby player · <kbd>ESC</kbd> Close</footer>
-      </section>
-    </div>
-
-    <div id="car-controls" class="car-controls scaled hidden">
-      <div class="car-control-head">
-        <strong>Vehicle</strong><button id="car-close" data-icon="x" aria-label="Close"></button>
-      </div>
-      <div class="car-grid">
-        <button data-car="engine"><span data-icon="power"></span>Engine</button>
-        <button data-car="belt"><span data-icon="belt"></span>Seatbelt</button>
-        <button data-car="lock"><span data-icon="lock"></span>Locks</button>
-        <button data-car="cruise"><span data-icon="gauge"></span>Cruise</button>
-        <button data-car="hood"><span data-icon="hood"></span>Hood</button>
-        <button data-car="trunk"><span data-icon="trunk"></span>Trunk</button>
-        <button data-car="lf"><span data-icon="door"></span>Left door</button>
-        <button data-car="rf"><span data-icon="door" class="flip"></span>Right door</button>
+      <div id="third-eye-panel" class="third-eye-panel hidden">
+        <div id="third-eye-name" class="third-eye-name"></div>
+        <div id="third-eye-options" class="third-eye-options"></div>
+        <div id="third-eye-hint" class="third-eye-hint"><kbd>LMB</kbd> select <kbd>RMB</kbd> cancel</div>
       </div>
     </div>
 
@@ -300,6 +267,8 @@
     <div id="blindfold" class="blindfold hidden">
       <span>Blindfolded</span>
     </div>
+    <div id="announcement" class="announcement hidden" aria-live="assertive"></div>
+    <img id="watermark" class="watermark" src="watermark.png" alt="" draggable="false" />
     <script src="app.js"></script>
     <script src="propmenu.js"></script>
   </body>

@@ -2,7 +2,6 @@ local menuOpen = false
 local menuLocked = false
 local menuView = nil
 local radialOpen = false
-local dutyOpen = false
 local sessionInfo = {}
 
 local function ui(message)
@@ -31,7 +30,6 @@ local function resetCoreUi()
     menuLocked = false
     menuView = nil
     radialOpen = false
-    dutyOpen = false
     clearStuckScreen()
     ui({ type='reset' })
 end
@@ -55,7 +53,7 @@ end)
 RegisterCommand('fixscreen', function()
     resetCoreUi()
     TriggerEvent('fbrp:screen:fix')
-    TriggerEvent('fbrp:notify', 'Screen and UI effects reset.', 'success')
+    lib.notify({ description = 'Screen and UI effects reset.', type = 'success' })
 end, false)
 
 local function closeRadial()
@@ -88,6 +86,8 @@ function FBRP.IsMenuOpen()
     return menuOpen
 end
 
+exports('IsMenuOpen', function() return menuOpen end)
+
 function FBRP.MenuView()
     return menuOpen and menuView or nil
 end
@@ -97,33 +97,46 @@ RegisterNUICallback('close', function(_, cb)
     cb({ ok=true })
 end)
 
--- /duty: centered organization picker (gangs, businesses, departments and every other org).
-local function closeDuty()
-    if not dutyOpen then return end
-    dutyOpen = false
-    SetNuiFocus(false, false)
-    ui({ type='duty',open=false })
-end
-
 RegisterNetEvent('fbrp:duty:open', function(payload)
     if menuOpen or (FBRP.IsDowned and FBRP.IsDowned()) then return end
     closeRadial()
-    dutyOpen = true
-    SetNuiFocus(true, true)
-    ui({ type='duty',open=true,data=payload or {} })
-end)
+    payload = type(payload) == 'table' and payload or {}
 
-RegisterNUICallback('dutyChoose', function(data, cb)
-    closeDuty()
-    if type(data) == 'table' and type(data.slug) == 'string' then
-        TriggerServerEvent('fbrp:duty:choose', data.slug)
+    local current
+    local options = {}
+    for _, org in ipairs(type(payload.orgs) == 'table' and payload.orgs or {}) do
+        if org.active then
+            current = org
+        else
+            options[#options + 1] = {
+                value = org.slug,
+                label = org.name,
+            }
+        end
     end
-    cb({ ok=true })
-end)
 
-RegisterNUICallback('closeDuty', function(_, cb)
-    closeDuty()
-    cb({ ok=true })
+    if current then
+        table.insert(options, 1, {
+            value = 'off',
+            label = ('Clock out of %s'):format(current.name),
+        })
+    end
+
+    if #options == 0 then return end
+    local result = lib.inputDialog(current and 'Switch organization duty' or 'Clock into an organization', {
+        {
+            type = 'select',
+            label = 'Organization',
+            description = current and ('Currently on duty with %s.'):format(current.name) or 'Choose the organization you are working for.',
+            options = options,
+            searchable = true,
+            required = true,
+        },
+    }, { allowCancel = true })
+
+    if result and type(result[1]) == 'string' then
+        TriggerServerEvent('fbrp:duty:choose', result[1])
+    end
 end)
 
 -- /aop and /priority control menu
@@ -148,10 +161,6 @@ for _, key in ipairs({ 'fbrp:aop', 'fbrp:peacetime', 'fbrp:priority' }) do
         end
     end)
 end
-
-RegisterNetEvent('fbrp:notify', function(message, tone)
-    ui({ type='notify',message=message,tone=tone or 'info' })
-end)
 
 RegisterNetEvent('fbrp:session', function(data)
     resetCoreUi()
@@ -197,8 +206,8 @@ RegisterNUICallback('hubAction', function(data, cb)
     local commands = {
         fish='fish', prisonwork='prisonwork', passport='passport', scenes='scenes',
         emotes='emotes', radio='radio', vehicles='vehicles', tags='tags',
-        pastimes='pastimes', interactions='thirdeyemenu', carcontrols='carcontrols', carradio='carradio', showid='showid',
-        org='org', bodycam='bodycam', spikes='spikes', handsup='handsup', point='point',
+        pastimes='pastimes', interactions='thirdeyemenu', vehcontrol='vehmenu', carradio='carradio', showid='showid',
+        bodycam='bodycam', spikes='spikes', handsup='handsup', point='point',
     }
     if action == 'activities' then
         closeInteractionMenus(); TriggerServerEvent('fbrp:activities:request')
@@ -229,7 +238,7 @@ AddEventHandler('pma-voice:setTalkingMode', function(mode)
     local proximity = LocalPlayer.state.proximity
     local label = type(proximity) == 'table' and proximity.mode or nil
     if not label then label = ({ 'Whisper', 'Normal', 'Shout' })[tonumber(mode)] or ('Mode ' .. tostring(mode)) end
-    TriggerEvent('fbrp:notify', 'Voice proximity: ' .. tostring(label) .. '.', 'info')
+    lib.notify({ description = 'Voice proximity: ' .. tostring(label) .. '.', type = 'info' })
 end)
 
 -- Use a Florida Bay-owned mapping name so F11 receives a fresh default even for
@@ -284,9 +293,8 @@ RegisterNetEvent('fbrp:proximityChat', function(sourceId, channel, text, color)
     })
 end)
 
-RegisterCommand('tags', function() TriggerServerEvent('fbrp:tags:request') end, false)
 RegisterCommand('tagmenu', function() TriggerServerEvent('fbrp:tags:request') end, false)
-RegisterKeyMapping('tags', 'Open Florida Bay headtag wardrobe', 'keyboard', 'F6')
+RegisterKeyMapping('tagmenu', 'Open Florida Bay headtag wardrobe', 'keyboard', 'F6')
 
 CreateThread(function()
     while not NetworkIsSessionStarted() do Wait(500) end

@@ -16,7 +16,7 @@ local rubbish = {}        -- { entity, x, y, z }
 local serviceBlips = {}
 
 local function ui(message) SendNUIMessage(message) end
-local function notify(message, tone) TriggerEvent('fbrp:notify', message, tone or 'info') end
+local function notify(message, tone) lib.notify({ description = message, type = tone or 'info' }) end
 
 local function help(text)
     BeginTextCommandDisplayHelp('STRING')
@@ -628,18 +628,27 @@ RegisterNetEvent('fbrp:idcard:show', function(card)
     PlaySoundFrontend(-1, 'NAV_UP_DOWN', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
 end)
 
-RegisterCommand('showid', function()
+RegisterCommand('showid', function(_, args)
     local me = PlayerPedId()
     local mine = GetEntityCoords(me)
+    local wanted = tonumber(args and args[1])
     local shown = 0
     for _, player in ipairs(GetActivePlayers()) do
-        if player ~= PlayerId() and #(GetEntityCoords(GetPlayerPed(player)) - mine) <= 3.0 then
-            TriggerServerEvent('fbrp:interactions:use', GetPlayerServerId(player), 'showid')
+        local serverId = GetPlayerServerId(player)
+        if player ~= PlayerId() and (not wanted or serverId == wanted)
+            and #(GetEntityCoords(GetPlayerPed(player)) - mine) <= 3.0 then
+            TriggerServerEvent('fbrp:interactions:use', serverId, 'showid')
             shown = shown + 1
         end
     end
+    -- Always preview your own card so the command visibly works.
+    TriggerServerEvent('fbrp:idcard:own')
     if shown == 0 then notify('Nobody is close enough to see your ID.', 'info') end
 end, false)
+
+TriggerEvent('chat:addSuggestion', '/showid', 'Show your ID to people nearby', {
+    { name = 'ID', help = 'Player to show it to (leave empty for everyone within reach)' }
+})
 
 RegisterNetEvent('fbrp:citation:received', function(data)
     ui({ type='citation', data=data })

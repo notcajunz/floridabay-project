@@ -104,8 +104,11 @@ prepare_mountpoint() {
 
 vehicles="$ROOT/server-data/resources/[vehicles]"
 eup="$ROOT/server-data/resources/[eup]"
+# Legacy vMenu's config is active and its addons.json is updated by the website. The Enhanced
+# config remains mounted as a read-only-in-practice rollback snapshot until a later cleanup.
 vmenu="$ROOT/server-data/resources/[standalone]/vMenu/config"
-for remote_path in "$vehicles" "$eup" "$vmenu"; do
+vmenu_enhanced="$ROOT/server-data/resources/[standalone]/vMenu.Enhanced/config"
+for remote_path in "$vehicles" "$eup" "$vmenu" "$vmenu_enhanced"; do
   ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes \
     "$GAME_TARGET" 'test -d "$1"' _ "$remote_path" \
     || die "Missing authoritative game directory: $remote_path"
@@ -113,9 +116,11 @@ done
 prepare_mountpoint fbrp-vehicles-sshfs "$vehicles"
 prepare_mountpoint fbrp-eup-sshfs "$eup"
 prepare_mountpoint fbrp-vmenu-config-sshfs "$vmenu"
+prepare_mountpoint fbrp-vmenu-enhanced-config-sshfs "$vmenu_enhanced"
 write_mount_unit fbrp-vehicles-sshfs "$vehicles" "$vehicles"
 write_mount_unit fbrp-eup-sshfs "$eup" "$eup"
 write_mount_unit fbrp-vmenu-config-sshfs "$vmenu" "$vmenu"
+write_mount_unit fbrp-vmenu-enhanced-config-sshfs "$vmenu_enhanced" "$vmenu_enhanced"
 
 log 'Recording the game endpoint without placing it in Git'
 temporary="$(mktemp "${CONFIG}.tmp.XXXXXX")"
@@ -155,9 +160,10 @@ systemctl --user is-active --quiet fbrp-game-tunnel.service \
 systemctl --user enable --now \
   fbrp-vehicles-sshfs.service \
   fbrp-eup-sshfs.service \
-  fbrp-vmenu-config-sshfs.service
+  fbrp-vmenu-config-sshfs.service \
+  fbrp-vmenu-enhanced-config-sshfs.service
 
-for path in "$vehicles" "$eup" "$vmenu"; do
+for path in "$vehicles" "$eup" "$vmenu" "$vmenu_enhanced"; do
   mountpoint -q "$path" || die "SSHFS mount failed: $path"
 done
 
@@ -165,4 +171,4 @@ log 'Control/game link complete'
 printf 'MariaDB:   127.0.0.1:%s\n' "$DB_PORT"
 printf 'FiveM API: 127.0.0.1:%s\n' "$GAME_PORT"
 printf 'txAdmin:   127.0.0.1:%s\n' "$TXADMIN_PORT"
-printf 'Mounted: vehicles/liveries, EUP, and vMenu addon configuration\n'
+printf 'Mounted: vehicles/liveries, EUP, active vMenu config, and the Enhanced rollback config\n'

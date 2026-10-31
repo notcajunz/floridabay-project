@@ -52,7 +52,7 @@ local function removeScene(id, actor, reason)
     if not scene then return false, 'Scene not found.' end
     scenes[id] = nil
     FBRP.DB.audit(actor or 'system', 'scene.end', tostring(id), { title=scene.title, reason=reason or 'ended' })
-    TriggerClientEvent('fbrp:notify', -1, ('Scene #%d · %s has ended.'):format(id, scene.title), 'info')
+    TriggerClientEvent('ox_lib:notify', -1, { description = ('Scene #%d · %s has ended.'):format(id, scene.title), type = 'info' })
     pushScenes()
     return true
 end

@@ -1,38 +1,20 @@
--- Medical: players go down instead of dying, can call EMS, and are revived by
--- medics or respawn at the nearest hospital once they bleed out.
-
+-- Medical (server). The old downed / bleed-out / revive death system has been removed;
+-- a new death system will replace it. What's left: /revive (staff), /heal, /armour,
+-- EMS "Treat wounds" / "Check injuries", kill logging, and a TEMPORARY hospital respawn.
 local S = FBRP.Server
 local M = FBRP.Medical
 local sessions = S.sessions
 local now, clean, notify, chat, hasPermission = S.now, S.clean, S.notify, S.chat, S.hasPermission
 
-local downed = {}       -- source -> { since, cause, lastDistress }
-local reviving = {}     -- medic source -> target
-local selfCareUsed = { heal={}, armour={} } -- stable player key -> last use (ms)
-
-local function authorizeDownedProtection(source)
-    pcall(function() exports.corevia_ac:recordProtectionGrant(source, 3) end)
-end
-
-local function setDowned(source, value)
-    local player = Player(source)
-    if player then player.state:set('fbrp:downed', value, true) end
-end
+local selfCareUsed = { heal={}, armour={} }
+local lastRespawn = {}
 
 local function pedCoords(source)
     local ped = GetPlayerPed(source)
     return ped > 0 and GetEntityCoords(ped) or nil
 end
 
-local function revive(target, by)
-    if not downed[target] then return false end
-    downed[target] = nil
-    setDowned(target, nil)
-    TriggerClientEvent('fbrp:medical:revive', target, by)
-    local s = sessions[target]
-    FBRP.DB.audit(by or 'system', 'medical.revive', s and s.discord or target, {})
-    return true
-end
+---------------------------------------------------------------- kill log (staff audit)
 
 -- In-game kill log. A real player killer becomes `player.kill`; anything else (NPCs, falls,
 -- drowning, a suicide) becomes `player.death`. The Discord bot sends both to #kill-logs.
@@ -63,8 +45,12 @@ local function weaponLabel(hash)
     return WEAPON_NAMES[hash] or ('addon/other (0x%08X)'):format(hash)
 end
 
-local function logKill(victim, info)
+local lastDeath = {}
+RegisterNetEvent('fbrp:medical:died', function(info)
+    local victim = source
     if type(info) ~= 'table' then info = {} end
+    if lastDeath[victim] and now() - lastDeath[victim] < 3000 then return end
+    lastDeath[victim] = now()
     local vs = sessions[victim]
     if not vs then return end
     local killer = tonumber(info.killer)
@@ -72,8 +58,7 @@ local function logKill(victim, info)
     local vc = pedCoords(victim)
     local kc = ks and pedCoords(killer) or nil
     local payload = {
-        victim = vs.name, victim_id = victim, victim_discord = vs.discord,
-        weapon = weaponLabel(info.weapon), cause = downed[victim] and downed[victim].cause or 'Unknown injuries',
+        victim = vs.name, victim_id = victim, victim_discord = vs.discord, weapon = weaponLabel(info.weapon),
         location = vc and ('%.0f, %.0f, %.0f'):format(vc.x, vc.y, vc.z) or nil,
     }
     if ks then
@@ -83,51 +68,20 @@ local function logKill(victim, info)
     else
         FBRP.DB.audit(vs.discord or victim, 'player.death', vs.discord, payload)
     end
-end
-
-RegisterNetEvent('fbrp:medical:downed', function(info)
-    local src = source
-    if downed[src] or not sessions[src] then return end
-    local cause = type(info) == 'table' and clean(info.cause, 60) or 'Unknown injuries'
-    downed[src] = { since=now(), cause=cause ~= '' and cause or 'Unknown injuries', lastDistress=0 }
-    setDowned(src, { since=os.time(), cause=downed[src].cause })
-    authorizeDownedProtection(src)
-    local s = sessions[src]
-    FBRP.DB.audit(s and s.discord or src, 'medical.downed', nil, { cause=downed[src].cause })
-    logKill(src, info)
 end)
 
--- Downed players are intentionally protected from follow-up damage while they wait for EMS.
--- Renew the short anticheat authorization for exactly as long as the server tracks them as downed.
-CreateThread(function()
-    while true do
-        Wait(1000)
-        for src in pairs(downed) do authorizeDownedProtection(src) end
-    end
-end)
-
-RegisterNetEvent('fbrp:medical:distress', function()
-    local src = source
-    local d = downed[src]
-    if not d then return end
-    if now() - d.lastDistress < M.distressCooldownSeconds * 1000 then
-        return notify(src, 'You already sent a distress signal. Hang on.', 'info')
-    end
-    d.lastDistress = now()
-    local coords = pedCoords(src)
-    local id, sent = S.sendDispatch('EMS', src, ('Person down: %s.'):format(d.cause), coords, { FBRP.Ace.ems, FBRP.Ace.police }, true)
-    notify(src, sent > 0 and ('Distress signal sent (call #%d). %d responder(s) notified.'):format(id, sent) or 'Distress signal sent, but no medics are on duty.', sent > 0 and 'success' or 'warning')
-end)
+---------------------------------------------------------------- TEMPORARY hospital respawn
+-- Remove once the new death system is in (or set FBRP.Medical.basicRespawn = false).
 
 -- Respawning is only allowed once the bleed-out timer has run.
 RegisterNetEvent('fbrp:medical:respawn', function()
     local src = source
-    local d = downed[src]
-    if not d then return end
-    if now() - d.since < (M.bleedoutSeconds - 3) * 1000 then return notify(src, 'You are not ready to respawn yet.', 'error') end
-    downed[src] = nil
-    setDowned(src, nil)
-    if FBRP.Justice.IsJailed and FBRP.Justice.IsJailed(src) then
+    if M.basicRespawn == false or not sessions[src] then return end
+    if lastRespawn[src] and now() - lastRespawn[src] < 5000 then return end
+    local ped = GetPlayerPed(src)
+    if ped <= 0 or GetEntityHealth(ped) > 100 then return end -- only dead players (GTA: 100 hp or less = dead)
+    lastRespawn[src] = now()
+    if FBRP.Justice.IsJailed and FBRP.Justice.IsJailed(src) and FBRP.Justice.PrisonSpawn then
         return TriggerClientEvent('fbrp:medical:hospitalRespawn', src, FBRP.Justice.PrisonSpawn(), 'the Bolingbroke infirmary')
     end
     local coords = pedCoords(src) or vector3(0.0, 0.0, 0.0)
@@ -137,36 +91,29 @@ RegisterNetEvent('fbrp:medical:respawn', function()
         if not bestDistance or distance < bestDistance then best, bestDistance = hospital, distance end
     end
     TriggerClientEvent('fbrp:medical:hospitalRespawn', src, best.coords, best.label)
-    local s = sessions[src]
-    FBRP.DB.audit(s and s.discord or src, 'medical.respawn', nil, { hospital=best.label })
-end)
-
--- The client got back up on its own (resource restart, admin heal from vMenu).
-RegisterNetEvent('fbrp:medical:recovered', function()
-    local src = source
-    downed[src] = nil
-    setDowned(src, nil)
 end)
 
 AddEventHandler('playerDropped', function()
-    local src = source
-    downed[src] = nil
-    reviving[src] = nil
+    lastRespawn[source] = nil
+    lastDeath[source] = nil
 end)
 
+---------------------------------------------------------------- staff /revive
+
+-- DeathScript owns /revive (self get-up) and /adrev (staff) when it's installed
+if GetResourceState('DeathScript') == 'missing' then
 RegisterCommand('revive', function(source, args)
     local target = tonumber(args[1]) or (source > 0 and source or nil)
     if not target or not sessions[target] then return notify(source, 'Usage: /revive [server id]', 'error') end
     local permission = target == source and FBRP.Ace.staffReviveSelf or FBRP.Ace.staffRevive
     if source > 0 and not hasPermission(source, permission) then return S.deny(source, permission) end
-    local actor = S.actorOf(source)
-    if not revive(target, actor) then
-        -- Not tracked as downed (e.g. died before the module loaded): still pick them up.
-        TriggerClientEvent('fbrp:medical:revive', target, actor)
-    end
+    TriggerClientEvent('fbrp:medical:revive', target, S.actorOf(source))
     notify(target, 'You were revived by staff.', 'success')
     if source > 0 and source ~= target then notify(source, 'Player revived.', 'success') end
 end, false)
+end
+
+---------------------------------------------------------------- /heal and /armour
 
 -- Self-service recovery commands are server-authoritative so reconnecting or
 -- invoking client events directly cannot bypass their cooldowns.
@@ -177,7 +124,8 @@ end
 
 local function useSelfCare(source, kind, cooldownSeconds, clientEvent, label)
     if source <= 0 or not sessions[source] then return end
-    if downed[source] then return notify(source, ('You cannot use /%s while incapacitated.'):format(kind), 'error') end
+    local ped = GetPlayerPed(source)
+    if ped > 0 and GetEntityHealth(ped) <= 100 then return notify(source, ('You cannot use /%s while dead.'):format(kind), 'error') end
     local key = selfCareKey(source)
     if not key then return notify(source, 'Your player session is not ready yet.', 'error') end
     local stamp = now()
@@ -207,27 +155,8 @@ end
 RegisterCommand('armour', armourCommand, false)
 RegisterCommand('armor', armourCommand, false)
 
--- ─────────────────────────── third eye ───────────────────────────
+---------------------------------------------------------------- third eye: EMS treat wounds / check injuries
 
-FBRP.InteractionVisible.revive = function(_, target) return downed[target] ~= nil end
-FBRP.InteractionHandlers.revive = function(src, target)
-    if not downed[target] then notify(src, 'They do not need reviving.', 'info') return false end
-    if reviving[src] then return false end
-    reviving[src] = target
-    TriggerClientEvent('fbrp:medical:cpr', src, M.reviveMs)
-    notify(target, ('%s is treating you.'):format(S.displayName(src)), 'info')
-    SetTimeout(M.reviveMs, function()
-        reviving[src] = nil
-        if not sessions[src] or not sessions[target] then return end
-        if not S.playersNear(src, target, FBRP.Config.interactionDistance + 1.5) then return notify(src, 'You moved away from the patient.', 'error') end
-        if revive(target, sessions[src].discord or src) then
-            notify(src, 'Patient stabilised.', 'success')
-            notify(target, ('You were revived by %s.'):format(S.displayName(src)), 'success')
-        end
-    end)
-end
-
-FBRP.InteractionVisible.heal = function(_, target) return downed[target] == nil end
 FBRP.InteractionHandlers.heal = function(src, target)
     TriggerClientEvent('fbrp:medical:cpr', src, 2500, true)
     TriggerClientEvent('fbrp:medical:heal', target)
@@ -236,20 +165,34 @@ FBRP.InteractionHandlers.heal = function(src, target)
 end
 
 FBRP.InteractionHandlers.diagnose = function(src, target)
-    local d = downed[target]
     local name = S.displayName(target)
-    if d then
-        local seconds = math.floor((now() - d.since) / 1000)
-        local left = math.max(0, M.bleedoutSeconds - seconds)
-        chat(src, 'MEDICAL', ('%s · UNRESPONSIVE · %s · down %dm %02ds · %s'):format(
-            name, d.cause, math.floor(seconds / 60), seconds % 60, left > 0 and ('critical in %dm %02ds'):format(math.floor(left / 60), left % 60) or 'critical'), { 255, 107, 87 })
-    else
-        local ped = GetPlayerPed(target)
-        local health = ped > 0 and GetEntityHealth(ped) or 200
-        local pct = math.max(0, math.min(100, math.floor((health - 100) / 1.0)))
-        local state = pct >= 85 and 'Stable' or pct >= 50 and 'Minor injuries' or 'Serious injuries'
-        chat(src, 'MEDICAL', ('%s · Conscious · %s (%d%%)'):format(name, state, pct), { 79, 224, 140 })
+    local ped = GetPlayerPed(target)
+    local health = ped > 0 and GetEntityHealth(ped) or 200
+    if health <= 100 then
+        return notify(src, ('%s · Unresponsive'):format(name), 'error')
     end
+    local pct = math.max(0, math.min(100, math.floor((health - 100) / 1.0)))
+    local state = pct >= 85 and 'Stable' or pct >= 50 and 'Minor injuries' or 'Serious injuries'
+    notify(src, ('%s · Conscious · %s (%d%%)'):format(name, state, pct), 'inform')
 end
 
-FBRP.Medical.IsDowned = function(source) return downed[tonumber(source)] ~= nil end
+-- DeathScript: "Revive patient" (medics) and "Help up" (anyone, knocked-out players) on the third eye.
+-- The helper's screen plays the progress bar, then DeathScript's server checks and revives.
+FBRP.InteractionVisible.revive = function(_, target)
+    return GetResourceState('DeathScript') == 'started' and Player(target).state.dead == true
+end
+FBRP.InteractionHandlers.revive = function(src, target)
+    TriggerClientEvent('DeathScript:StartMedRevive', src, target)
+end
+FBRP.InteractionVisible.helpup = function(_, target)
+    return GetResourceState('DeathScript') == 'started' and Player(target).state.knockedout == true
+end
+FBRP.InteractionHandlers.helpup = function(src, target)
+    TriggerClientEvent('DeathScript:StartHelpUp', src, target)
+end
+
+-- the new death system should set Player(src).state['fbrp:downed'] while someone is down
+FBRP.Medical.IsDowned = function(source)
+    local player = Player(tonumber(source))
+    return player and player.state['fbrp:downed'] ~= nil and player.state['fbrp:downed'] ~= false or false
+end

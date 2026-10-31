@@ -26,7 +26,7 @@ FBRP.Justice = {
             vector4(1697.106, 2525.558, 45.564, 187.208),
             vector4(1673.084, 2519.823, 45.564, 229.542),
         },
-        release = vector4(1848.13, 2586.05, 45.67, 269.5),
+        release = vector4(1857.0015, 2600.5117, 45.6720, 288.8060),
         work = {
             vector4(1761.46, 2540.41, 45.56, 272.25),
             vector4(1718.54, 2527.80, 45.56, 272.25),
@@ -296,13 +296,34 @@ FBRP.PenalCode = {
     { id='service_fail', title='Failure to complete community service', kind='misdemeanor', months=10, fine=0 },
 }
 
+-- Duty blips: on-duty members (/duty) see each other on the map
+FBRP.DutyBlips = {
+    enabled = true,
+    updateMs = 1500,            -- how often far-away units are refreshed (nearby units move live)
+    -- who can see who, by organisation type. Types not listed only see their own organisation.
+    visibility = {
+        leo  = { leo = true, fire = true },
+        fire = { fire = true, leo = true },
+    },
+    -- blip colour by organisation type (GTA blip colour ids), and optional per-organisation (by slug)
+    colors = { leo = 38, fire = 1, default = 2 },
+    orgColors = {
+        -- lspd = 38, bcso = 31, sahp = 5, safd = 1,
+    },
+    -- blip icon by what they're in
+    sprites = { foot = 1, automobile = 225, bike = 226, heli = 43, plane = 16, boat = 427, other = 225 },
+    scale = 0.85,
+    showCallsign = true,        -- from the MDT (mdt_units)
+    flashWithSirens = true,     -- blip flashes while emergency lights are on
+}
+
 FBRP.Medical = {
-    bleedoutSeconds = 180,
-    downedHealth = 120,
-    punchDamageMultiplier = 0.4, -- fists only; weapons and melee weapons are unchanged
-    respawnHoldMs = 3000,
-    distressCooldownSeconds = 60,
-    reviveMs = 6000,
+    -- The old downed / bleed-out death system was removed (a new one is coming).
+    -- TEMPORARY: dead players wake up at the nearest hospital after this many seconds.
+    -- Set basicRespawn = false when the new death system is installed.
+    basicRespawn = true,
+    basicRespawnSeconds = 10,
+    punchDamageMultiplier = 0.4,
     hospitals = {
         { id='pillbox', label='Pillbox Hill Medical Center', coords=vector4(298.68, -584.48, 43.26, 70.0) },
         { id='sandy', label='Sandy Shores Medical Center', coords=vector4(1839.60, 3672.90, 34.28, 210.0) },
@@ -553,7 +574,7 @@ end
 -- connection and combat-log audits, staff chat and help commands.
 FBRP.Essentials = {
     website = 'https://floridabay.net',
-    discordFallback = 'discord.gg/floridabayrp',
+    discordFallback = 'discord.gg/floridabay',
     -- AFK: a player who neither moves, looks around nor talks for this long
     -- is warned, then disconnected to free the slot. When the server is at
     -- least `busyFraction` full the shorter limit applies. Staff on duty and

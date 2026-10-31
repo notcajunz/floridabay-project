@@ -22,3 +22,6 @@ order,name,category,price_usd,payment,user_limit,slug,image,fulfillment
 21,Security,Business Slots,25.00,one-time,none,security,security.png,manual DevOps ticket
 22,Transport,Business Slots,45.00,one-time,none,transport,transport.png,manual DevOps ticket
 23,Miscellaneous Businesses,Business Slots,25.00,one-time,none,miscellaneous-businesses,miscellaneous-businesses.png,manual DevOps ticket
+24,German Car Pack,Vehicle Packs,35.00,one-time,1 lifetime,german-car-pack,german-car-pack.png,automatic Discord role
+25,Mk2 Weapons,Custom Content,15.00,one-time,1 lifetime,mk2-weapons,mk2-weapons.png,automatic Discord role
+26,DevOps+,Exclusive Perks,20.00,monthly,1 per month,devops-plus,devops-plus.png,automatic Discord role

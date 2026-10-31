@@ -67,9 +67,10 @@ Keep one feature on one branch. Commit and push normally; never force-push.
   `docker-compose.yml`.
 - MariaDB runs on game. Schema migration code belongs to the application that
   owns it. Changes spanning schema and consumers require an `all` deployment.
-- The control-side `[vehicles]`, `[eup]`, and
-  `[standalone]/vMenu/config` paths are SSHFS views of authoritative game
-  directories. They support personals/liveries, EUP packs, and addon peds.
+- The control-side `[vehicles]`, `[eup]`, and `[standalone]/vMenu/config` paths
+  are SSHFS views of authoritative game directories. They support personals/liveries,
+  EUP packs, and addon peds. `[standalone]/vMenu.Enhanced/config` remains mounted
+  only as an inactive rollback snapshot.
   Treat these mounted paths as live production data, not development folders.
 - Secrets are Git-ignored. Never reveal, copy into tracked files, rotate, or
   replace Cfx, Corevia, Discord, database, OAuth, or API credentials.
@@ -107,21 +108,34 @@ After implementation and tests succeed:
    merge the latest `origin/main` into the feature branch without force-pushing,
    rerun tests, push, and retry.
 6. Push release `main` to `origin`.
-7. Deploy from the control VPS using exactly one command:
+7. Deploy from the control VPS using exactly one command. AI agents (Claude and
+   Codex) always add `--no-restart` to `game` and `all` deployments:
 
 ```bash
 /home/ubuntu/fbrp/scripts/split-deploy.sh control main
-/home/ubuntu/fbrp/scripts/split-deploy.sh game main
-/home/ubuntu/fbrp/scripts/split-deploy.sh all main
+/home/ubuntu/fbrp/scripts/split-deploy.sh game main --no-restart
+/home/ubuntu/fbrp/scripts/split-deploy.sh all main --no-restart
 ```
 
 The deploy script tests the exact revision, creates a database backup for game
 deployments, enforces fast-forward-only updates, orders coordinated restarts,
 and verifies both hosts. Do not bypass it with manual copies or service restarts.
 
+**FiveM restarts are the owner's call.** With `--no-restart` every change goes
+live (the control plane restarts as usual, game files and server.cfg edits are
+fast-forwarded on the game host) except the FXServer restart itself. The new
+game files apply the next time FXServer restarts: the owner restarts it in
+txAdmin, a scheduled restart fires, or the owner explicitly asks an agent to
+restart it. Never stop or restart `fbrp-server.service` or FXServer on your own
+initiative, and say in the report that a FiveM restart is pending. Tell the
+owner when a change only works after the restart (client/server version skew
+is possible for clients that join before it). A changed `docker-compose.yml` or
+`start.sh` needs a real `fbrp-server.service` restart, not only a txAdmin one.
+
 8. Run `/home/ubuntu/fbrp/scripts/split-deploy.sh verify` and perform focused
-   functional checks for the changed behavior. Confirm affected services remain
-   active without a restart loop.
+   functional checks for the changed behavior that can be checked without a
+   FiveM restart. Confirm affected services remain active without a restart
+   loop. `verify` prints whether a FiveM restart is still pending.
 9. Report the branch, commit, deployment class, tests, and live verification.
 
 If merge, deployment, migration, or verification fails, keep the release lock

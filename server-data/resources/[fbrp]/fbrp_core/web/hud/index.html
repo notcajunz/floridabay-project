@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="modern">
+<head>
+  <meta charset="utf-8">
+  <title>fbrp_hud</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600&family=Barlow:wght@400;500;600;700;800&family=Chakra+Petch:wght@500;600;700&family=Barlow+Semi+Condensed:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="hud" class="is-hidden">
+    <div id="mmBezel" class="mm-bezel mm-hidden" aria-hidden="true"></div>
+
+    <section id="prio" class="prio-hud" data-move="prio" data-label="AOP &amp; Priority">
+      <div class="prio-main">
+        <h5 class="prio-server" id="prioServer"></h5>
+        <h5><span class="prio-label" id="prioAopLabel">AOP:</span> <span class="prio-aop" id="prioAop"></span></h5>
+        <div id="prioList"></div>
+      </div>
+      <div class="prio-side">
+        <h5 class="prio-time" id="prioTime"></h5>
+        <div class="prio-tags">
+          <h5><span class="prio-label" id="prioHeadLabel">Headtag</span><br><span class="prio-tag" id="prioHead"></span></h5>
+          <h5><span class="prio-label" id="prioGangLabel">Gangtag</span><br><span class="prio-tag" id="prioGang"></span></h5>
+          <h5><span class="prio-label" id="prioJobLabel">Job</span><br><span class="prio-tag" id="prioJob"></span></h5>
+        </div>
+      </div>
+    </section>
+
+    <section id="compass" class="anchor-top" data-move="compass" data-label="Compass">
+      <div class="compass-window">
+        <div class="compass-strip" id="compassStrip"></div>
+        <div class="compass-needle"></div>
+      </div>
+      <div class="location">
+        <svg class="loc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 19.5 21 12 16.8 4.5 21z"/></svg>
+        <div class="loc-text">
+          <span class="street" id="street"></span>
+          <span class="zone" id="zone"></span>
+        </div>
+        <span class="wp" id="waypoint"></span>
+      </div>
+    </section>
+
+    <section id="status" class="anchor-bottom-left" data-move="status" data-label="Status"></section>
+
+    <section id="vehicle" class="anchor-bottom-right is-off" data-style="ring" data-move="vehicle" data-label="Vehicle">
+
+      <div class="ring ring-only">
+        <svg viewBox="-16 -16 272 272" class="ring-svg" aria-hidden="true">
+          <defs>
+            <filter id="ringGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>
+            <mask id="rpmMask" maskUnits="userSpaceOnUse" x="-16" y="-16" width="272" height="272">
+              <path id="rpmMaskArc" d="M 50.7 189.3 A 98 98 0 1 1 189.3 189.3" pathLength="100" fill="none" stroke="#fff" stroke-width="30" stroke-dasharray="0 100"/>
+            </mask>
+          </defs>
+          <circle class="ring-face" cx="120" cy="120" r="110"/>
+          <circle class="ring-rim" cx="120" cy="120" r="110"/>
+          <g id="ringTicks"></g>
+          <path class="ring-track" d="M 50.7 189.3 A 98 98 0 1 1 189.3 189.3"/>
+          <g mask="url(#rpmMask)">
+            <g class="ring-glow" stroke-width="9" filter="url(#ringGlow)"><use href="#rpmSegs"/></g>
+            <g class="rpm-main" stroke-width="4.5"><g id="rpmSegs" fill="none"></g></g>
+          </g>
+          <circle id="rpmMarker" class="ring-marker" r="3.6" cx="50.7" cy="189.3"/>
+          <path class="side-track" d="M 29.61 195.85 A 118 118 0 0 1 29.61 44.15"/>
+          <path class="side-fill fuel" id="ringFuel" pathLength="100" d="M 29.61 195.85 A 118 118 0 0 1 29.61 44.15"/>
+          <path class="side-track" d="M 210.39 195.85 A 118 118 0 0 0 210.39 44.15"/>
+          <path class="side-fill engine" id="ringEngine" pathLength="100" d="M 210.39 195.85 A 118 118 0 0 0 210.39 44.15"/>
+        </svg>
+        <svg class="ring-ico fuel" id="ringFuelIco" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M6 8h6M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>
+        <svg class="ring-ico engine" id="ringEngineIco" viewBox="0 0 24 24"><path d="M4 10h3l2-3h5v3h2l2-2h2v8h-2l-2-2h-2v3H8l-2-2H4z"/></svg>
+        <div class="ring-minis">
+          <div class="mini-gauge" id="mgFuel"><svg viewBox="0 0 40 40"><path class="mg-track" d="M 8.69 31.31 A 16 16 0 1 1 31.31 31.31"/><path class="mg-fill" pathLength="100" d="M 8.69 31.31 A 16 16 0 1 1 31.31 31.31"/></svg><svg class="mg-ico" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M6 8h6M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg></div>
+          <div class="mini-gauge" id="mgEngine"><svg viewBox="0 0 40 40"><path class="mg-track" d="M 8.69 31.31 A 16 16 0 1 1 31.31 31.31"/><path class="mg-fill" pathLength="100" d="M 8.69 31.31 A 16 16 0 1 1 31.31 31.31"/></svg><svg class="mg-ico" viewBox="0 0 24 24"><path d="M4 10h3l2-3h5v3h2l2-2h2v8h-2l-2-2h-2v3H8l-2-2H4z"/></svg></div>
+        </div>
+        <span class="ring-odo" id="ringOdo"></span>
+        <div class="ring-center">
+          <div class="gear-badge"><span data-bind="gear">N</span></div>
+          <div class="speed-row">
+            <span class="blinker left" data-bind="blinkL"><svg viewBox="0 0 24 24"><path d="M14 5 6 12l8 7v-4h5V9h-5z"/></svg></span>
+            <span class="speed padded" data-bind="speed">0</span>
+            <span class="blinker right" data-bind="blinkR"><svg viewBox="0 0 24 24"><path d="M10 5l8 7-8 7v-4H5V9h5z"/></svg></span>
+          </div>
+          <span class="unit" data-bind="unit">mph</span>
+        </div>
+      </div>
+
+      <div class="mini mini-only">
+        <div class="mini-top">
+          <div class="mini-fuel">
+            <svg class="mini-ico" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M6 8h6M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>
+            <div class="mini-fuel-track"><i id="miniFuel"></i></div>
+          </div>
+          <div class="mini-speed">
+            <span class="speed padded" data-bind="speed">0</span>
+            <span class="unit" data-bind="unit">mph</span>
+          </div>
+          <div class="mini-rpm" id="miniRpm"></div>
+        </div>
+        <div class="mini-bottom">
+          <span class="mini-fuel-pct" id="miniFuelPct">0%</span>
+          <span class="blinker left" data-bind="blinkL"><svg viewBox="0 0 24 24"><path d="M14 5 6 12l8 7v-4h5V9h-5z"/></svg></span>
+          <span class="blinker right" data-bind="blinkR"><svg viewBox="0 0 24 24"><path d="M10 5l8 7-8 7v-4H5V9h5z"/></svg></span>
+          <div class="mini-gears">
+            <span class="g-side" data-bind="gearPrev"></span>
+            <span class="g-act" data-bind="gear">N</span>
+            <span class="g-side" data-bind="gearNext"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="gauge round-only">
+        <svg viewBox="0 0 240 240" class="gauge-svg" aria-hidden="true">
+          <circle class="dial-face dial-only" cx="120" cy="120" r="114"/>
+          <g id="ticks"></g>
+          <g id="dialLabels" class="dial-only"></g>
+          <path class="arc arc-track" pathLength="100" d="M 33.4 170 A 100 100 0 1 1 206.6 170"/>
+          <path class="arc arc-redline" pathLength="100" d="M 33.4 170 A 100 100 0 1 1 206.6 170"/>
+          <path class="arc arc-rpm" id="rpmArc" pathLength="100" d="M 33.4 170 A 100 100 0 1 1 206.6 170"/>
+          <g class="needle dial-only" id="needle">
+            <line x1="112" y1="120" x2="196" y2="120"/>
+            <circle cx="120" cy="120" r="6"/>
+          </g>
+        </svg>
+
+        <div class="gauge-center">
+          <div class="speed-row">
+            <span class="blinker left" data-bind="blinkL"><svg viewBox="0 0 24 24"><path d="M14 5 6 12l8 7v-4h5V9h-5z"/></svg></span>
+            <span class="speed" data-bind="speed">0</span>
+            <span class="blinker right" data-bind="blinkR"><svg viewBox="0 0 24 24"><path d="M10 5l8 7-8 7v-4H5V9h5z"/></svg></span>
+          </div>
+          <span class="unit" data-bind="unit">mph</span>
+        </div>
+
+        <div class="gear" data-bind="gear">N</div>
+      </div>
+
+      <div class="digital digital-only">
+        <div class="digital-top">
+          <span class="blinker left" data-bind="blinkL"><svg viewBox="0 0 24 24"><path d="M14 5 6 12l8 7v-4h5V9h-5z"/></svg></span>
+          <span class="speed" data-bind="speed">0</span>
+          <div class="digital-side">
+            <span class="unit" data-bind="unit">mph</span>
+            <span class="gear" data-bind="gear">N</span>
+          </div>
+          <span class="blinker right" data-bind="blinkR"><svg viewBox="0 0 24 24"><path d="M10 5l8 7-8 7v-4H5V9h5z"/></svg></span>
+        </div>
+        <div class="segments" id="rpmSegments"></div>
+      </div>
+
+      <div class="readouts">
+        <div class="bar-row" id="fuelRow">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M6 8h6M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>
+          <div class="bar"><i id="fuelBar"></i></div>
+          <span class="bar-value" id="fuelValue">100</span>
+        </div>
+        <div class="bar-row" id="engineRow">
+          <svg class="ico" viewBox="0 0 24 24"><path d="M4 10h3l2-3h5v3h2l2-2h2v8h-2l-2-2h-2v3H8l-2-2H4z"/></svg>
+          <div class="bar"><i id="engineBar"></i></div>
+          <span class="bar-value" id="engineValue">100</span>
+        </div>
+
+        <div class="lamps">
+          <span class="lamp blink" data-bind="blinkL" title="Left indicator"><svg viewBox="0 0 24 24"><path d="M14 5 6 12l8 7v-4h5V9h-5z"/></svg></span>
+          <span class="lamp" id="lampHazard" title="Hazards"><svg viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19zM12 9.5 16.3 17H7.7z"/></svg></span>
+          <span class="lamp" id="lampBelt" title="Seatbelt">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2"/><path d="M8 21v-6l-1.5-3L9 8h6l2.5 4L16 15v6M8.5 8.5l7.5 9"/></svg>
+          </span>
+          <span class="lamp" id="lampCruise" title="Cruise control">
+            <svg viewBox="0 0 24 24"><path d="M4.5 17a8.5 8.5 0 1 1 15 0M12 13l4-4"/></svg>
+            <b id="cruiseValue"></b>
+          </span>
+          <span class="lamp" id="lampLights" title="Headlights">
+            <svg viewBox="0 0 24 24"><path d="M13 6c4.5 0 8 2.7 8 6s-3.5 6-8 6zM3 8h7M3 12h7M3 16h7"/></svg>
+          </span>
+          <span class="lamp" id="lampGlow" title="Glow plugs">
+            <svg viewBox="0 0 24 24"><path d="M2 12h2.5c1 0 1.2-4 2.5-4s1.5 8 2.8 8 1.5-8 2.7-8 1.5 8 2.8 8 1.5-8 2.7-8 1.2 4 2.5 4H22M5 19h14"/></svg>
+          </span>
+          <span class="lamp blink" data-bind="blinkR" title="Right indicator"><svg viewBox="0 0 24 24"><path d="M10 5l8 7-8 7v-4H5V9h5z"/></svg></span>
+        </div>
+        <div class="odometer" id="odometer"></div>
+      </div>
+    </section>
+
+    <section id="money" class="anchor-money" data-move="money" data-label="Money">
+      <div class="money-row cash">
+        <svg class="mico" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="1.5"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/></svg>
+        <span class="amount" id="cashAmt">$0</span>
+        <span class="delta" id="cashDelta"></span>
+      </div>
+      <div class="money-row bank">
+        <svg class="mico" viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5M4.5 10v8M9.5 10v8M14.5 10v8M19.5 10v8M3 20h18"/></svg>
+        <span class="amount" id="bankAmt">$0</span>
+        <span class="delta" id="bankDelta"></span>
+      </div>
+    </section>
+
+    <section id="info" class="anchor-info is-off" data-move="info" data-label="Info">
+      <span class="chip" id="chipId"><svg viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg><b id="infoId">0</b></span>
+      <span class="chip" id="chipTime"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><b id="infoTime">00:00</b></span>
+    </section>
+
+    <section id="job" class="anchor-job is-off" data-move="job" data-label="Job">
+      <div class="job-card">
+        <svg class="jico" viewBox="0 0 24 24"><path d="M9 5.5V4.8A1.8 1.8 0 0 1 10.8 3h2.4A1.8 1.8 0 0 1 15 4.8v.7M3.5 8.5A2 2 0 0 1 5.5 6.5h13a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2zM3.5 12.5h17M10.5 12.5v1.5h3v-1.5"/></svg>
+        <div class="job-text">
+          <span class="job-name" id="jobName">Unemployed</span>
+          <span class="job-grade" id="jobGrade"></span>
+        </div>
+        <span class="job-duty" id="jobDuty">OFF DUTY</span>
+      </div>
+    </section>
+
+    <section id="fuelGauge" class="anchor-fuel is-off" data-move="fuel" data-label="Fuel">
+      <svg viewBox="0 0 100 100" class="fuel-svg" aria-hidden="true">
+        <circle class="fuel-face" cx="50" cy="50" r="47"/>
+        <g id="fuelTicks"></g>
+        <path class="farc track" pathLength="100" d="M 17.1 69 A 38 38 0 1 1 82.9 69"/>
+        <path class="farc reserve" pathLength="100" d="M 17.1 69 A 38 38 0 1 1 82.9 69"/>
+        <path class="farc level" id="fuelArc" pathLength="100" d="M 17.1 69 A 38 38 0 1 1 82.9 69"/>
+        <text class="fuel-mark" x="27.5" y="62">E</text>
+        <text class="fuel-mark" x="72.5" y="62">F</text>
+        <g class="fuel-needle" id="fuelNeedle">
+          <line x1="45" y1="50" x2="79" y2="50"/>
+          <circle cx="50" cy="50" r="4"/>
+        </g>
+        <path class="fuel-pump" transform="translate(42 59) scale(0.667)" d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M6 8h6M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/>
+        <text class="fuel-pct" id="fuelPct" x="50" y="88">100%</text>
+      </svg>
+    </section>
+    <div id="mmFrame" class="mm-frame mm-hidden" aria-hidden="true"></div>
+  </div>
+
+  <div id="addonLayer" class="addon-layer is-hidden"></div>
+
+  <div id="editBar" class="is-hidden">
+    <span>Drag the outlined parts of the HUD to where you want them.</span>
+    <div class="actions">
+      <button type="button" class="btn ghost" id="btnEditReset">Reset positions</button>
+      <button type="button" class="btn ghost" id="btnEditCancel">Cancel</button>
+      <button type="button" class="btn primary" id="btnEditDone">Save layout</button>
+    </div>
+  </div>
+
+  <div id="settings" class="is-hidden" role="dialog" aria-labelledby="settingsTitle">
+    <div class="panel">
+      <h1 id="settingsTitle"><span>HUD Settings</span></h1>
+
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-tab="general" role="tab">
+          <svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>General
+        </button>
+        <button type="button" class="tab" data-tab="foot" role="tab">
+          <svg viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="m9 21 2.5-6 2.5 2v4M7 12l2.5-4.5 3.5.5 2 3.5 2.5 1M11.5 15 12 9"/></svg>On foot
+        </button>
+        <button type="button" class="tab" data-tab="vehicle" role="tab">
+          <svg viewBox="0 0 24 24"><path d="M5 17H3v-5l2-5h14l2 5v5h-2M5 12h14"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/></svg>Vehicle
+        </button>
+        <button type="button" class="tab" data-tab="panel" role="tab">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 10h7M7 14h3M15 14h2"/></svg>Panel
+        </button>
+        <button type="button" class="tab" data-tab="map" role="tab">
+          <svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14"/></svg>Map
+        </button>
+      </div>
+
+      <div class="tab-body active" data-tab="general">
+        <div class="subtitle">Theme</div>
+        <div class="style-picker theme-picker" id="themePicker">
+          <button type="button" data-value="modern"><i class="swatch modern"></i><span>Modern</span></button>
+          <button type="button" data-value="violet"><i class="swatch violet"></i><span>Violet</span></button>
+          <button type="button" data-value="classic"><i class="swatch classic"></i><span>Classic</span></button>
+          <button type="button" data-value="minimal"><i class="swatch minimal"></i><span>Minimal</span></button>
+          <button type="button" data-value="glass"><i class="swatch glass"></i><span>Glass</span></button>
+          <button type="button" data-value="premium"><i class="swatch premium"></i><span>Premium</span></button>
+          <button type="button" data-value="animated"><i class="swatch animated"></i><span>Animated</span></button>
+          <button type="button" data-value="neon"><i class="swatch neon"></i><span>Neon</span></button>
+        </div>
+
+        <div class="subtitle">AOP &amp; priority panel</div>
+        <label class="row toggle">
+          <span class="row-info"><strong>Show the panel</strong><small>AOP, priority status, tags and job in the top right.</small></span>
+          <input type="checkbox" id="optPrio"><span class="switch"></span>
+        </label>
+        <label class="row color-pick">
+          <span class="row-info"><strong>Text colour</strong><small>Colour of the labels (AOP:, zone names, Headtag ...).</small></span>
+          <span class="swatch-dot" id="prioColorDot"></span>
+          <span class="color-btn">Change color<input type="color" id="prioColor"></span>
+        </label>
+        <div class="row stacked">
+          <span class="row-info"><strong>Text size <output id="prioSizeOut">16px</output></strong></span>
+          <input type="range" id="prioSize" min="12" max="24" step="1">
+        </div>
+        <button type="button" class="btn soft block" id="btnPrioReset">Reset panel</button>
+
+        <div class="subtitle">Display</div>
+        <label class="row toggle">
+          <span class="row-info"><strong>Compass and street</strong><small>Heading strip, street name and waypoint distance at the top.</small></span>
+          <input type="checkbox" id="optCompass"><span class="switch"></span>
+        </label>
+        <div class="row stacked">
+          <span class="row-info"><strong>HUD size <output id="scaleOut">100%</output></strong></span>
+          <input type="range" id="optScale" min="80" max="120" step="5">
+        </div>
+        <div class="row stacked">
+          <span class="row-info"><strong>Sound effects <output id="sfxOut">50%</output></strong><small>Seatbelt, indicator and warning sounds.</small></span>
+          <input type="range" id="optSfx" min="0" max="100" step="5">
+        </div>
+      </div>
+
+      <div class="tab-body" data-tab="foot">
+        <label class="row toggle">
+          <span class="row-info"><strong>Health and needs</strong><small>Show the status display.</small></span>
+          <input type="checkbox" id="optStatus"><span class="switch"></span>
+        </label>
+
+        <div class="subtitle">Status style</div>
+        <div class="style-picker cols-3" id="stylePicker">
+          <button type="button" data-value="outline"><i class="shape outline"></i><span>Outline</span></button>
+          <button type="button" data-value="bars"><i class="shape bars"></i><span>Bars</span></button>
+          <button type="button" data-value="boxes"><i class="shape boxes"></i><span>Boxes</span></button>
+          <button type="button" data-value="bubbles"><i class="shape bubbles"></i><span>Bubbles</span></button>
+          <button type="button" data-value="circle"><i class="shape circle"></i><span>Rings</span></button>
+          <button type="button" data-value="bezel"><i class="shape bezel"></i><span>Bezel</span></button>
+          <button type="button" data-value="square"><i class="shape square"></i><span>Square</span></button>
+          <button type="button" data-value="hexagon"><i class="shape hexagon"></i><span>Hexagon</span></button>
+          <button type="button" data-value="pill"><i class="shape pill"></i><span>Pill</span></button>
+        </div>
+
+        <div class="subtitle">Colors</div>
+        <div class="color-list" id="colorList"></div>
+        <button type="button" class="btn soft block" id="btnColorReset">Reset colors</button>
+      </div>
+
+      <div class="tab-body" data-tab="vehicle">
+        <div class="subtitle">Speedometer style</div>
+        <div class="style-picker cols-5" id="vehiclePicker">
+          <button type="button" data-value="ring">
+            <svg class="preview" viewBox="0 0 32 24"><path d="M8 20a10 10 0 1 1 16 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M3.5 17a13 13 0 0 1 0-10M28.5 17a13 13 0 0 0 0-10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".55"/></svg><span>Ring</span>
+          </button>
+          <button type="button" data-value="minimal">
+            <svg class="preview" viewBox="0 0 32 24" fill="currentColor"><rect x="2" y="6" width="2.5" height="14" rx="1.2" opacity=".55"/><text x="13" y="17" text-anchor="middle" font-size="10" font-weight="700">88</text><rect x="21" y="16" width="2" height="4" rx="1"/><rect x="24" y="13" width="2" height="7" rx="1"/><rect x="27" y="10" width="2" height="10" rx="1"/></svg><span>Minimal</span>
+          </button>
+          <button type="button" data-value="arc">
+            <svg class="preview" viewBox="0 0 32 24"><path d="M5 20a12 12 0 1 1 22 0" fill="none" stroke="currentColor" stroke-width="3"/></svg><span>Arc</span>
+          </button>
+          <button type="button" data-value="dial">
+            <svg class="preview" viewBox="0 0 32 24"><circle cx="16" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 12 9 16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span>Dial</span>
+          </button>
+          <button type="button" data-value="digital">
+            <svg class="preview" viewBox="0 0 32 24"><text x="16" y="14" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">88</text><path d="M4 20h24" stroke="currentColor" stroke-width="3" stroke-dasharray="2 1.5"/></svg><span>Digital</span>
+          </button>
+        </div>
+
+        <div class="subtitle">Speed unit</div>
+        <div class="segmented wide" id="unitPicker">
+          <button type="button" data-value="mph">MPH</button>
+          <button type="button" data-value="kmh">KM/H</button>
+        </div>
+
+        <div class="subtitle">Fuel display <small class="hint">(Arc, Dial and Digital)</small></div>
+        <div class="style-picker cols-2" id="fuelPicker">
+          <button type="button" data-value="gauge">
+            <svg class="preview" viewBox="0 0 32 24"><path d="M7 19a10 10 0 1 1 18 0" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M16 14 10 10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>Gauge</span>
+          </button>
+          <button type="button" data-value="bar">
+            <svg class="preview" viewBox="0 0 32 24"><rect x="3" y="10" width="26" height="4" rx="2" fill="currentColor" opacity=".3"/><rect x="3" y="10" width="17" height="4" rx="2" fill="currentColor"/></svg><span>Bar</span>
+          </button>
+        </div>
+
+        <div class="subtitle">Speedometer frame</div>
+        <div class="style-picker frame-picker" id="gaugePicker"></div>
+      </div>
+
+      <div class="tab-body" data-tab="panel">
+        <div class="subtitle">Info panel style <small class="hint">(lights, engine, odometer under the speedometer)</small></div>
+        <div class="style-picker cols-5" id="panelPicker">
+          <button type="button" data-value="auto">
+            <svg class="preview" viewBox="0 0 32 24"><rect x="2" y="5" width="28" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 2"/><text x="16" y="15.5" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor">AUTO</text></svg><span>Theme</span>
+          </button>
+          <button type="button" data-value="tiles">
+            <svg class="preview" viewBox="0 0 32 24" fill="currentColor"><rect x="2" y="8" width="8" height="8" rx="2"/><rect x="12" y="8" width="8" height="8" rx="2" opacity=".45"/><rect x="22" y="8" width="8" height="8" rx="2" opacity=".45"/></svg><span>Tiles</span>
+          </button>
+          <button type="button" data-value="bar">
+            <svg class="preview" viewBox="0 0 32 24"><rect x="1" y="7" width="30" height="10" rx="3" fill="currentColor" opacity=".25"/><circle cx="7" cy="12" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="25" cy="12" r="2" fill="currentColor"/></svg><span>Lights bar</span>
+          </button>
+          <button type="button" data-value="minimal">
+            <svg class="preview" viewBox="0 0 32 24" fill="currentColor"><rect x="3" y="9" width="26" height="2" rx="1"/><circle cx="7" cy="16" r="1.8"/><circle cx="13" cy="16" r="1.8"/><circle cx="19" cy="16" r="1.8"/></svg><span>Minimal</span>
+          </button>
+          <button type="button" data-value="glass">
+            <svg class="preview" viewBox="0 0 32 24"><rect x="2" y="4" width="28" height="16" rx="5" fill="currentColor" opacity=".18" stroke="currentColor" stroke-width="1.2"/><circle cx="10" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="22" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/></svg><span>Glass</span>
+          </button>
+        </div>
+
+        <div class="subtitle">Bar style</div>
+        <div class="segmented wide" id="panelBarsPicker">
+          <button type="button" data-value="smooth">Smooth</button>
+          <button type="button" data-value="thick">Thick</button>
+          <button type="button" data-value="segmented">Segmented</button>
+        </div>
+
+        <div class="subtitle">Show in the panel</div>
+        <label class="row toggle">
+          <span class="row-info"><strong>Engine health</strong><small>Bar with the engine condition.</small></span>
+          <input type="checkbox" id="panelShowEngine"><span class="switch"></span>
+        </label>
+        <label class="row toggle">
+          <span class="row-info"><strong>Fuel bar</strong><small>Only when Fuel display is set to Bar.</small></span>
+          <input type="checkbox" id="panelShowFuel"><span class="switch"></span>
+        </label>
+        <label class="row toggle">
+          <span class="row-info"><strong>Indicator lights</strong><small>Seatbelt, cruise, headlights, glow plugs and turn signals.</small></span>
+          <input type="checkbox" id="panelShowLamps"><span class="switch"></span>
+        </label>
+        <label class="row toggle">
+          <span class="row-info"><strong>Odometer</strong><small>Mileage, or altitude in aircraft.</small></span>
+          <input type="checkbox" id="panelShowOdo"><span class="switch"></span>
+        </label>
+
+        <div class="subtitle">Look</div>
+        <label class="row color-pick">
+          <span class="row-info"><strong>Accent color</strong><small>Color of lit lights and the bars.</small></span>
+          <span class="swatch-dot" id="panelColorDot"></span>
+          <span class="color-btn">Change color<input type="color" id="panelColor"></span>
+        </label>
+        <div class="row stacked">
+          <span class="row-info"><strong>Background <output id="panelOpacityOut">Theme</output></strong></span>
+          <input type="range" id="panelOpacity" min="0" max="100" step="5">
+        </div>
+        <button type="button" class="btn soft block" id="btnPanelReset">Reset panel</button>
+      </div>
+
+      <div class="tab-body" data-tab="map">
+        <label class="row toggle">
+          <span class="row-info"><strong>Minimap on foot</strong><small>Keep the minimap up when you're not in a vehicle.</small></span>
+          <input type="checkbox" id="optMinimap"><span class="switch"></span>
+        </label>
+        <label class="row toggle">
+          <span class="row-info"><strong>Animated border</strong><small>A light that runs around the minimap frame.</small></span>
+          <input type="checkbox" id="optMmAnim"><span class="switch"></span>
+        </label>
+
+        <div class="subtitle">Minimap border</div>
+        <div class="style-picker frame-picker" id="framePicker"></div>
+
+        <div class="subtitle mm-fit-head">Border fit <button type="button" class="btn soft mini" id="btnMmReset">Reset fit</button></div>
+        <div class="mm-fit">
+          <label class="fit-row"><span>Left / right</span><input type="range" id="mmAdjX" min="-60" max="60" step="1"><output id="mmAdjXOut">0</output></label>
+          <label class="fit-row"><span>Up / down</span><input type="range" id="mmAdjY" min="-60" max="60" step="1"><output id="mmAdjYOut">0</output></label>
+          <label class="fit-row"><span>Width</span><input type="range" id="mmAdjW" min="-60" max="60" step="1"><output id="mmAdjWOut">0</output></label>
+          <label class="fit-row"><span>Height</span><input type="range" id="mmAdjH" min="-60" max="60" step="1"><output id="mmAdjHOut">0</output></label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn outline" id="btnEdit">Move HUD elements</button>
+        <button type="button" class="btn outline" id="btnHideHud" title="Hide the whole HUD. Use the hide key or /togglehud to bring it back.">Hide HUD</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="btnClose">Close</button>
+        <button type="button" class="btn primary" id="btnSave">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="hudToast" class="hud-toast" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

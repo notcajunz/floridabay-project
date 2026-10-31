@@ -132,6 +132,7 @@ FBRP.VmenuEverything = {
     'vMenu.VehicleOptions.SpeedLimiter',
     'vMenu.VehicleOptions.TorqueMultiplier',
     'vMenu.VehicleOptions.Underglow',
+    'vMenu.VehicleOptions.UnlimitedMultipliers',
     'vMenu.VehicleOptions.Wash',
     'vMenu.VehicleOptions.Windows',
     'vMenu.VehicleSpawner.Addon',
@@ -300,10 +301,6 @@ FBRP.VmenuEverything = {
     'vMenu.WeatherOptions.SetWeather',
     'vMenu.WeatherOptions.VehBlackout',
 }
-
--- Permission enum names vMenu's client receives. All are forced false so its voice
--- chat menu and per-frame voice loop never run.
-FBRP.VmenuVoicePermissions = { 'VCMenu', 'VCAll', 'VCEnable', 'VCShowSpeaker', 'VCStaffChannel' }
 
 -- ACE objects denied for everyone so no group or wildcard can switch vMenu voice on.
 FBRP.VmenuVoiceAces = {

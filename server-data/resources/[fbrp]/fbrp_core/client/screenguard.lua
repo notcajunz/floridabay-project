@@ -137,21 +137,30 @@ end)
 RegisterCommand('screendiag', function()
     report('command')
     capture('command')
-    TriggerEvent('fbrp:notify', 'Screen state sent to the server log.', 'info')
+    lib.notify({ description = 'Screen state sent to the server log.', type = 'info' })
 end, false)
 
 CreateThread(function()
     while not NetworkIsSessionStarted() do Wait(500) end
     while true do
         Wait(500)
+        -- The character selector and the pause menu are deliberate screens: the
+        -- selector sits over a held ped and the pause menu runs its own blur,
+        -- timecycle and camera. Clearing them was closing the pause menu and
+        -- re-running fades and post effects behind the selector.
+        local selecting = FBRP.CharacterSelecting == true
+        local paused = check(IsPauseMenuActive)
+        if selecting or paused then
+            since = {}
+            goto continue
+        end
+
         local postSpawn = lastSpawn > 0 and GetGameTimer() - lastSpawn < 45000
         local cooled = GetGameTimer() - lastFix > 4000
 
         -- A fade left part way: scripted teleports finish theirs in under 8s.
         local fade = held('fade', not check(IsScreenFadedIn) and GetGameTimer() >= graceUntil, 12000)
         local switch = held('switch', check(IsPlayerSwitchInProgress), 4000)
-        -- Only inside the spawn window, so players can still open the map later.
-        local pause = held('pause', postSpawn and check(IsPauseMenuActive), 1500)
         -- The game's own cinematic camera (idle camera after ~30s without input,
         -- vehicle cinematic camera) replaces the gameplay camera and is not stuck.
         local stuck = postSpawn and held('stuck', check(GetIsLoadingScreenActive)
@@ -161,10 +170,11 @@ CreateThread(function()
             or (try(GetTimecycleModifierIndex) or -1) ~= -1
             or snapshot().postfx ~= 'none', 1500)
 
-        if cooled and (fade or switch or pause or stuck) then
-            local why = fade and 'fade' or switch and 'switch' or pause and 'pause' or 'stuck'
+        if cooled and (fade or switch or stuck) then
+            local why = fade and 'fade' or switch and 'switch' or 'stuck'
             clearAll(why)
             since = {}
         end
+        ::continue::
     end
 end)

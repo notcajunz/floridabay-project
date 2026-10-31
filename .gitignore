@@ -19,3 +19,9 @@ server-data/cache/
 .replxx_history
 **/.replxx_history
 .console-history
+
+# vMenu Enhanced rewrites these on every start; fbrp_core generates vehicle-categories.json.
+server-data/resources/[[]standalone]/vMenu.Enhanced/config/*.example
+server-data/resources/[[]standalone]/vMenu.Enhanced/config/plugins/*
+!server-data/resources/[[]standalone]/vMenu.Enhanced/config/plugins/README.md
+server-data/resources/[[]standalone]/vMenu.Enhanced/config/vehicle-categories.json

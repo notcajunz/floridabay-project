@@ -1,5 +1,13 @@
 local lastSpawn=0
 local seatbelt=false
+
+-- Seatbelt state is shared with other resources (jaxtti_collision reads LocalPlayer.state.seatbelt)
+-- and with GTA itself (ped config flag 32 = can fly through windscreen).
+local function setSeatbelt(on)
+    seatbelt=on==true
+    LocalPlayer.state:set('seatbelt',seatbelt,false)
+    SetPedConfigFlag(PlayerPedId(),32,not seatbelt)
+end
 local cruise=false
 local cruiseSpeed=0.0
 local activeFuelVehicle=0
@@ -23,6 +31,11 @@ end
 
 local function clamp(value,minimum,maximum)
     return math.max(minimum,math.min(maximum,value))
+end
+
+-- fbrp_fuel (gasoline/diesel, pumps) replaces the fuel use + free refuelling below when it's running
+local function fuelResource()
+    return GetResourceState('fbrp_fuel') == 'started'
 end
 
 local function usesFuel(vehicle)
@@ -101,21 +114,78 @@ end,false)
 RegisterCommand('garage',function() ExecuteCommand('vehicles') end,false)
 RegisterKeyMapping('vehicles','Open Florida Bay vehicle garage','keyboard','F7')
 
-RegisterNetEvent('fbrp:vehicles:data',function(categories)
-    FBRP.OpenMenu('vehicles',{categories=categories})
+-- The garage is an ox_lib menu: a category list when there is more than one, then the vehicles.
+local GARAGE_ROOT='fbrp_garage'
+
+local function spawnFromGarage(categoryId,model)
+    if GetGameTimer()-lastSpawn<FBRP.Config.vehicleSpawnCooldownMs then
+        return lib.notify({ description = 'Please wait before spawning again.', type = 'error' })
+    end
+    lastSpawn=GetGameTimer()
+    TriggerServerEvent('fbrp:vehicles:spawn',tostring(categoryId),tostring(model))
+end
+
+-- other resources can ask for a garage spawn by event; the cooldown and server checks stay here
+AddEventHandler('fbrp:garage:spawn',function(categoryId,model)
+    if categoryId and model then spawnFromGarage(categoryId,model) end
 end)
 
-RegisterNUICallback('spawnVehicle',function(data,cb)
-    if GetGameTimer()-lastSpawn<FBRP.Config.vehicleSpawnCooldownMs then cb({ok=false,error='Please wait before spawning again.'}); return end
-    lastSpawn=GetGameTimer()
-    TriggerServerEvent('fbrp:vehicles:spawn',tostring(data.category),tostring(data.model))
-    FBRP.CloseMenu()
-    cb({ok=true})
+RegisterNetEvent('fbrp:vehicles:data',function(categories)
+    categories=type(categories)=='table' and categories or {}
+    if #categories==0 then
+        return lib.notify({ description = 'You have no personal vehicles. Base-game vehicles are spawned from the vMenu Vehicle Spawner.', type = 'info' })
+    end
+
+    -- ox_lib list menu (top-left): one page per category, the Personal page first.
+    -- The RageUI garage in fbrp_tags is no longer used for this.
+    local rootOptions={}
+    local shown
+    for _,category in ipairs(categories) do
+        local menuId='fbrp_garage_'..tostring(category.id)
+        local options={}
+        for _,vehicle in ipairs(category.vehicles or {}) do
+            options[#options+1]={
+                label=vehicle.label or vehicle.model,
+                description=vehicle.note or vehicle.model,
+                icon='car',
+                args={ category=category.id, model=vehicle.key or vehicle.model },
+            }
+        end
+        lib.registerMenu({
+            id=menuId,
+            title=category.label or 'Garage',
+            position='top-left',
+            onClose=function(keyPressed)
+                if keyPressed=='Backspace' and #categories>1 then lib.showMenu(GARAGE_ROOT) end
+            end,
+            options=options,
+        },function(_,_,args)
+            if args then spawnFromGarage(args.category,args.model) end
+        end)
+        rootOptions[#rootOptions+1]={
+            label=category.label or 'Vehicles',
+            description=#(category.vehicles or {})..' vehicles',
+            icon=category.icon or 'car',
+            args={ menu=menuId },
+        }
+        shown=shown or menuId
+    end
+
+    if #categories==1 then return lib.showMenu(shown) end
+    lib.registerMenu({
+        id=GARAGE_ROOT,
+        title='Garage',
+        position='top-left',
+        options=rootOptions,
+    },function(_,_,args)
+        if args and args.menu then lib.showMenu(args.menu) end
+    end)
+    lib.showMenu(GARAGE_ROOT)
 end)
 
 RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     local hash=joaat(model)
-    if not IsModelInCdimage(hash) or not IsModelAVehicle(hash) then return TriggerEvent('fbrp:notify','Vehicle model is not installed.','error') end
+    if not IsModelInCdimage(hash) or not IsModelAVehicle(hash) then return lib.notify({ description = (label or model)..' has no vehicle files on the server yet. Ask the DevOps team to import it in the portal.', type = 'error' }) end
     RequestModel(hash)
     -- Big add-on vehicles can need a while to stream in the first time, so wait longer than for stock cars.
     local startedAt=GetGameTimer()
@@ -124,7 +194,7 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     while not HasModelLoaded(hash) and GetGameTimer()<timeout do
         if not told and GetGameTimer()-startedAt>4000 then
             told=true
-            TriggerEvent('fbrp:notify','Loading '..(label or model)..'... large vehicles can take a few seconds.','info')
+            lib.notify({ description = 'Loading '..(label or model)..'... large vehicles can take a few seconds.', type = 'info' })
         end
         Wait(25)
     end
@@ -136,7 +206,7 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
         local txdLoaded=HasStreamedTextureDictLoaded(model)
         SetStreamedTextureDictAsNoLongerNeeded(model)
         print(('[FBRP] vehicle model %s (%d) did not load: inCdimage=%s isVehicle=%s isValid=%s hasLoaded=%s textureDictAlone=%s'):format(model,hash,tostring(IsModelInCdimage(hash)),tostring(IsModelAVehicle(hash)),tostring(IsModelValid(hash)),tostring(HasModelLoaded(hash)),tostring(txdLoaded)))
-        return TriggerEvent('fbrp:notify','Vehicle model timed out. Send the F8 console line starting with [FBRP] vehicle model to the DevOps team.','error')
+        return lib.notify({ description = 'Vehicle model timed out. Send the F8 console line starting with [FBRP] vehicle model to the DevOps team.', type = 'error' })
     end
     local ped=PlayerPedId(); local coords=GetOffsetFromEntityInWorldCoords(ped,0.0,4.5,0.2); local heading=GetEntityHeading(ped)
     local vehicle=CreateVehicle(hash,coords.x,coords.y,coords.z,heading,true,false)
@@ -149,6 +219,10 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     initialiseFuel(vehicle,true)
     TaskWarpPedIntoVehicle(ped,vehicle,-1)
     SetModelAsNoLongerNeeded(hash)
+    -- the server deletes the garage car they had out before this one
+    if NetworkGetEntityIsNetworked(vehicle) then
+        TriggerServerEvent('fbrp:vehicles:garageSpawned',NetworkGetNetworkIdFromEntity(vehicle))
+    end
     -- Personal vehicles are tagged so every client and the server know who may drive them.
     local personal=type(style)=='table' and tonumber(style.personal) or nil
     if personal then
@@ -161,7 +235,7 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     if not (type(style)=='table' and style.register==false) then
         TriggerServerEvent('fbrp:justice:register',GetVehicleNumberPlateText(vehicle),model,label or model,true)
     end
-    TriggerEvent('fbrp:notify',(label or model)..' ready.','success')
+    lib.notify({ description = (label or model)..' ready.', type = 'success' })
 end)
 
 RegisterNetEvent('fbrp:justice:findDvCandidates',function(maxDistance)
@@ -223,20 +297,20 @@ RegisterCommand('engine',function()
     local vehicle=myVehicle(true); if not vehicle then return end
     local on=GetIsVehicleEngineRunning(vehicle)
     if not on and GetVehicleEngineHealth(vehicle)<=(FBRP.VehicleEngineSafeguard or 100.0)+1.0 then
-        return TriggerEvent('fbrp:notify','The engine has failed. Use /repair for a temporary fix or get to a mechanic.','error')
+        return lib.notify({ description = 'The engine has failed. Use /repair for a temporary fix or get to a mechanic.', type = 'error' })
     end
     if not on and usesFuel(vehicle) and readFuel(vehicle)<=0.05 then
-        return TriggerEvent('fbrp:notify','The tank is empty. Find a gas station to refuel for free.','error')
+        return lib.notify({ description = 'The tank is empty. Find a gas station to refuel.', type = 'error' })
     end
     SetVehicleEngineOn(vehicle,not on,false,true)
-    TriggerEvent('fbrp:notify',on and 'Engine off.' or 'Engine on.','info')
+    lib.notify({ description = on and 'Engine off.' or 'Engine on.', type = 'info' })
 end,false)
 RegisterKeyMapping('engine','Toggle vehicle engine','keyboard','G')
 
 RegisterCommand('seatbelt',function()
     if not myVehicle(false) then return end
-    seatbelt=not seatbelt
-    TriggerEvent('fbrp:notify',seatbelt and 'Seatbelt fastened.' or 'Seatbelt unfastened.',seatbelt and 'success' or 'info')
+    setSeatbelt(not seatbelt)
+    lib.notify({ description = seatbelt and 'Seatbelt fastened.' or 'Seatbelt unfastened.', type = seatbelt and 'success' or 'info' })
 end,false)
 RegisterKeyMapping('seatbelt','Toggle seatbelt','keyboard','B')
 
@@ -250,7 +324,7 @@ RegisterCommand('vehlock',function()
     local locked=GetVehicleDoorLockStatus(vehicle)>=2
     SetVehicleDoorsLocked(vehicle,locked and 1 or 2)
     SetVehicleLights(vehicle,2); Wait(120); SetVehicleLights(vehicle,0)
-    TriggerEvent('fbrp:notify',locked and 'Vehicle unlocked.' or 'Vehicle locked.','info')
+    lib.notify({ description = locked and 'Vehicle unlocked.' or 'Vehicle locked.', type = 'info' })
 end,false)
 RegisterKeyMapping('vehlock','Toggle vehicle locks','keyboard','L')
 
@@ -260,45 +334,15 @@ RegisterCommand('cruise',function()
     cruiseSpeed=math.min(GetEntitySpeed(vehicle),vehicleSpeedLimit())
     if cruise and cruiseSpeed>4.0 then SetEntityMaxSpeed(vehicle,cruiseSpeed) else cruise=false; SetEntityMaxSpeed(vehicle,GetVehicleEstimatedMaxSpeed(vehicle)) end
     if not cruise then applyVehicleSpeedLimit(vehicle) end
-    TriggerEvent('fbrp:notify',cruise and ('Cruise set: %d MPH'):format(math.floor(cruiseSpeed*2.236936)) or 'Cruise disabled.','info')
+    lib.notify({ description = cruise and ('Cruise set: %d MPH'):format(math.floor(cruiseSpeed*2.236936)) or 'Cruise disabled.', type = 'info' })
 end,false)
 RegisterKeyMapping('cruise','Toggle cruise control','keyboard','Y')
-
-RegisterCommand('carcontrols',function()
-    SetNuiFocus(true,true)
-    SendNUIMessage({type='carControls',open=true})
-end,false)
-RegisterKeyMapping('carcontrols','Open vehicle control panel','keyboard','K')
-
-RegisterNUICallback('vehicleControl',function(data,cb)
-    local action=tostring(data.action or '')
-    if action=='engine' then ExecuteCommand('engine')
-    elseif action=='belt' then ExecuteCommand('seatbelt')
-    elseif action=='lock' then ExecuteCommand('vehlock')
-    elseif action=='cruise' then ExecuteCommand('cruise')
-    else
-        local vehicle=myVehicle(true)
-        if vehicle then
-            local door=({hood=4,trunk=5,lf=0,rf=1,lr=2,rr=3})[action]
-            if door then
-                if GetVehicleDoorAngleRatio(vehicle,door)>0.1 then SetVehicleDoorShut(vehicle,door,false) else SetVehicleDoorOpen(vehicle,door,false,false) end
-            end
-        end
-    end
-    cb({ok=true})
-end)
-
-RegisterNUICallback('closeCarControls',function(_,cb)
-    SetNuiFocus(false,false)
-    SendNUIMessage({type='carControls',open=false})
-    cb({ok=true})
-end)
 
 -- An unbelted occupant keeps the car's pre-crash momentum: leave the seat, ragdoll, and
 -- re-apply that velocity for a few frames (ragdoll start resets it) so they are visibly
 -- flung forward, then take damage that scales with how hard the car stopped.
 local ejecting=false
-local function ejectFromVehicle(ped,vehicle,velocity,impact)
+local function ejectFromVehicle(ped,vehicle,velocity,impact,noDamage)
     if ejecting then return end
     ejecting=true
     CreateThread(function()
@@ -307,14 +351,13 @@ local function ejectFromVehicle(ped,vehicle,velocity,impact)
         Wait(0)
         local coords=GetEntityCoords(ped)
         SetEntityCoords(ped,coords.x+forward.x*0.8,coords.y+forward.y*0.8,coords.z+0.3,false,false,false,false)
-        SetPedToRagdoll(ped,3500,3500,0,false,false,false)
-        local fling=vector3(velocity.x*0.9,velocity.y*0.9,math.max(velocity.z,0.0)+2.5)
-        for _=1,8 do
-            SetEntityVelocity(ped,fling.x,fling.y,fling.z)
-            Wait(0)
+        local ms=math.min(7000,3000+(impact-8.0)*260)
+        FBRP.Ragdoll.launch(ped,velocity,ms,2.5)
+        if not noDamage then
+            local damage=math.min(150,math.floor(40+(impact-11.0)*6.0))
+            SetEntityHealth(ped,math.max(0,GetEntityHealth(ped)-damage))
         end
-        local damage=math.min(150,math.floor(40+(impact-11.0)*6.0))
-        SetEntityHealth(ped,math.max(0,GetEntityHealth(ped)-damage))
+        Wait(1500)
         ejecting=false
     end)
 end
@@ -324,7 +367,11 @@ CreateThread(function()
     while true do
         local vehicle=myVehicle(false)
         if vehicle then
+            local class=GetVehicleClass(vehicle)
+            local exposed=class==8 or class==13
             if seatbelt then DisableControlAction(0,75,true) end
+            -- keep GTA's native windscreen ejection off while buckled (flag can get reset on ped/vehicle change)
+            SetPedConfigFlag(PlayerPedId(),32,exposed or not seatbelt)
             if GetPedInVehicleSeat(vehicle,-1)==PlayerPedId() and usesFuel(vehicle) and readFuel(vehicle)<=0.05 then
                 DisableControlAction(0,71,true)
                 SetVehicleEngineOn(vehicle,false,true,true)
@@ -333,15 +380,19 @@ CreateThread(function()
             if GetPedInVehicleSeat(vehicle,-1)==PlayerPedId() then
                 if cruise then SetEntityMaxSpeed(vehicle,math.min(cruiseSpeed,vehicleSpeedLimit())) else applyVehicleSpeedLimit(vehicle) end
             end
-            if not seatbelt and GetEntitySpeed(vehicle)>16.0 then
+            if (exposed or not seatbelt) and GetEntitySpeed(vehicle)>(exposed and 9.0 or 16.0) then
                 local velocity=GetEntityVelocity(vehicle)
                 local impact=#(previousVelocity-velocity)
-                if impact>11.0 then ejectFromVehicle(PlayerPedId(),vehicle,previousVelocity,impact) end
+                if impact>(exposed and 7.5 or 11.0) then ejectFromVehicle(PlayerPedId(),vehicle,previousVelocity,impact) end
                 previousVelocity=velocity
             else previousVelocity=GetEntityVelocity(vehicle) end
+            if not ejecting and (exposed or not seatbelt) and GetEntitySpeed(vehicle)>6.0 and (GetEntityHealth(vehicle)<=0 or IsEntityUpsidedown(vehicle) or not IsVehicleDriveable(vehicle,false)) then
+                ejectFromVehicle(PlayerPedId(),vehicle,GetEntityVelocity(vehicle),16.0,false)
+            end
             Wait(0)
         else
-            seatbelt=false; cruise=false; Wait(250)
+            if seatbelt or LocalPlayer.state.seatbelt then setSeatbelt(false) end
+            cruise=false; Wait(250)
         end
     end
 end)
@@ -353,7 +404,7 @@ CreateThread(function()
         local ped=PlayerPedId()
         local vehicle=GetVehiclePedIsIn(ped,false)
         local isDriver=vehicle~=0 and GetPedInVehicleSeat(vehicle,-1)==ped
-        if isDriver and usesFuel(vehicle) then
+        if isDriver and usesFuel(vehicle) and not fuelResource() then
             if activeFuelVehicle~=vehicle then
                 activeFuelVehicle=vehicle
                 initialiseFuel(vehicle,false)
@@ -370,7 +421,7 @@ CreateThread(function()
                     SetVehicleEngineOn(vehicle,false,true,true)
                     if not emptyFuelWarned then
                         emptyFuelWarned=true
-                        TriggerEvent('fbrp:notify','Out of gas. Gas stations are marked on the map and fuel is free.','error')
+                        lib.notify({ description = 'Out of gas. Gas stations are marked on the map and fuel is free.', type = 'error' })
                     end
                 end
             end
@@ -384,6 +435,7 @@ end)
 
 -- Map blips and the station interaction share the same coordinate list.
 CreateThread(function()
+    if GetResourceState('fbrp_fuel') ~= 'missing' then return end -- fbrp_fuel has its own pumps + blips
     for _,station in ipairs(FBRP.FuelStations or {}) do
         local blip=AddBlipForCoord(station.x+0.0,station.y+0.0,station.z+0.0)
         SetBlipSprite(blip,361)
@@ -410,7 +462,7 @@ CreateThread(function()
                     fuelVehicle=0
                     lastRefuelAt=0
                     lastFuelReplicateAt=0
-                    TriggerEvent('fbrp:notify','Refuelling cancelled. Keep the vehicle stopped with its engine off.','info')
+                    lib.notify({ description = 'Refuelling cancelled. Keep the vehicle stopped with its engine off.', type = 'info' })
                 else
                     local now=GetGameTimer()
                     local elapsed=clamp((now-lastRefuelAt)/1000.0,0.0,0.25)
@@ -424,13 +476,13 @@ CreateThread(function()
                         fuelVehicle=0
                         lastRefuelAt=0
                         lastFuelReplicateAt=0
-                        TriggerEvent('fbrp:notify',('Refuelling stopped at %d%%.'):format(math.floor(level+0.5)),'info')
+                        lib.notify({ description = ('Refuelling stopped at %d%%.'):format(math.floor(level+0.5)), type = 'info' })
                     elseif level>=99.95 then
                         writeFuel(target,100.0,true)
                         fuelVehicle=0
                         lastRefuelAt=0
                         lastFuelReplicateAt=0
-                        TriggerEvent('fbrp:notify','Tank full. No charge.','success')
+                        lib.notify({ description = 'Tank full. No charge.', type = 'success' })
                     end
                 end
             elseif valid then
@@ -448,7 +500,7 @@ CreateThread(function()
                         lastRefuelAt=GetGameTimer()
                         lastFuelReplicateAt=0
                         SetVehicleEngineOn(target,false,true,true)
-                        TriggerEvent('fbrp:notify','Refuelling started. Fuel is free.','success')
+                        lib.notify({ description = 'Refuelling started. Fuel is free.', type = 'success' })
                     end
                 end
             end
@@ -479,6 +531,7 @@ function FBRP.VehicleStatus()
         engineHealth=engineHealth,
         seatbelt=seatbelt,
         cruise=cruise,
+        cruiseSpeed=cruise and math.floor(cruiseSpeed*2.236936+0.5) or nil,
         locked=GetVehicleDoorLockStatus(vehicle)>=2
     }
 end

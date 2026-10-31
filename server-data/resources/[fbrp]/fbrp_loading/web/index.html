@@ -1,122 +1,108 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#061722" />
-    <title>Florida Bay Roleplay</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <div class="sky">
-      <div class="sun"></div>
-      <div class="cloud cloud-a"></div>
-      <div class="cloud cloud-b"></div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com https://cdn.discordapp.com; media-src 'self' blob: https:; frame-src https:; connect-src 'self' https://floridabay.net https://www.youtube.com; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <title>Florida Bay Roleplay | FBRP</title>
+  <link rel="stylesheet" href="assets/css/fonts.css" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <!-- icon sprite -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-pumpkin" viewBox="0 0 24 24">
+      <path d="M12 7.2c-1.4-1-3-1.4-4.8-1C4 6.9 2 9.6 2 13c0 3.9 3.8 7 10 7s10-3.1 10-7c0-3.4-2-6.1-5.2-6.8-1.8-.4-3.4 0-4.8 1z" fill="currentColor"/>
+      <path d="M12 7.2c-2.6 2.2-2.6 10.6 0 12.8M12 7.2c2.6 2.2 2.6 10.6 0 12.8" fill="none" stroke="#0a0610" stroke-width="1.1" stroke-linecap="round" opacity=".55"/>
+      <path d="M12 7c.1-1.9.9-3.3 2.4-4.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><rect x="5" y="5" width="2.2" height="14" rx="1" fill="currentColor"/><path d="M19 5.7v12.6a.5.5 0 0 1-.8.4L9.4 12.4a.5.5 0 0 1 0-.8l8.8-6.3a.5.5 0 0 1 .8.4z" fill="currentColor"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><rect x="16.8" y="5" width="2.2" height="14" rx="1" fill="currentColor"/><path d="M5 5.7v12.6a.5.5 0 0 0 .8.4l8.8-6.3a.5.5 0 0 0 0-.8L5.8 5.3a.5.5 0 0 0-.8.4z" fill="currentColor"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.6v12.8a.6.6 0 0 0 .9.5l10.2-6.4a.6.6 0 0 0 0-1L8.9 5.1a.6.6 0 0 0-.9.5z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="3.8" height="14" rx="1" fill="currentColor"/><rect x="13.7" y="5" width="3.8" height="14" rx="1" fill="currentColor"/></symbol>
+    <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.6v12.8l-4.5-3.9H4z" fill="currentColor"/><path d="M15.5 9.2a4.2 4.2 0 0 1 0 5.6M18.2 6.6a8 8 0 0 1 0 10.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.6v12.8l-4.5-3.9H4z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9.5 6.5H20M9.5 12H20M9.5 17.5H20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="5" cy="6.5" r="1.3" fill="currentColor"/><circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="5" cy="17.5" r="1.3" fill="currentColor"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M8 16L16.5 7.5M9.5 7.5h7v7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <!-- background stack: video -> colour shade -> light/fog -> embers -> bats -> grain -->
+  <video id="mainvideo" playsinline preload="auto"></video>
+  <div id="ytwrap"><div id="ytplayer"></div></div>
+  <div class="shade"></div>
+  <div class="glow"></div>
+  <div class="fog"><i></i><i></i></div>
+  <canvas id="embers"></canvas>
+  <div class="bats" id="bats"></div>
+  <div class="grain"></div>
+
+  <div class="ui">
+    <div class="frame">
+      <main class="overlay">
+        <!-- left: brand + links + player -->
+        <section class="hero">
+          <img class="logo" src="assets/media/logo.png" alt="Florida Bay Roleplay" draggable="false" />
+          <p class="eyebrow"><svg class="ic"><use href="#i-pumpkin"/></svg><span id="eyebrow"></span></p>
+          <p class="pitch" id="pitch"></p>
+          <div class="live-status" id="liveStatus" aria-live="polite">
+            <span><i></i><b id="livePlayers">Checking server</b></span>
+            <span id="liveAop">Live status loading</span>
+          </div>
+          <nav class="links" id="links"></nav>
+
+          <div class="player" id="player">
+            <div class="player-top">
+              <div class="thumb"><img id="pThumb" alt="" draggable="false" /></div>
+              <div class="now">
+                <span class="label"><span class="eq paused" id="pEq"><i></i><i></i><i></i><i></i></span><em id="pState">Now playing</em></span>
+                <strong id="pTitle">&nbsp;</strong>
+                <span class="artist" id="pArtist">&nbsp;</span>
+              </div>
+              <div class="ctrls">
+                <button class="icon-btn" id="btnPrev" aria-label="Previous song"><svg><use href="#i-prev"/></svg></button>
+                <button class="icon-btn play" id="btnPlay" aria-label="Play or pause"><svg><use href="#i-pause"/></svg></button>
+                <button class="icon-btn" id="btnNext" aria-label="Next song"><svg><use href="#i-next"/></svg></button>
+              </div>
+            </div>
+            <div class="player-bottom">
+              <span class="time" id="tCur">0:00</span>
+              <input type="range" class="slider" id="seek" min="0" max="1000" value="0" aria-label="Seek" />
+              <span class="time" id="tDur">0:00</span>
+              <span class="gap"></span>
+              <button class="icon-btn sm" id="btnMute" aria-label="Mute"><svg><use href="#i-vol"/></svg></button>
+              <input type="range" class="slider vol" id="volumeSlider" min="0" max="100" value="15" aria-label="Volume" />
+              <button class="icon-btn sm" id="btnList" aria-label="Song list"><svg><use href="#i-list"/></svg></button>
+            </div>
+          </div>
+        </section>
+
+        <!-- right: info panel -->
+        <aside class="panel">
+          <svg class="web" viewBox="0 0 160 160" aria-hidden="true"><path fill="none" stroke="#fff" stroke-width=".9" stroke-linecap="round" d="M0 0L158.0 0.0M0 0L152.6 40.9M0 0L136.8 79.0M0 0L111.7 111.7M0 0L79.0 136.8M0 0L40.9 152.6M0 0L0.0 158.0M26.0 0.0Q20.6 2.7 25.1 6.7M25.1 6.7Q19.2 8.0 22.5 13.0M22.5 13.0Q16.5 12.7 18.4 18.4M18.4 18.4Q12.7 16.5 13.0 22.5M13.0 22.5Q8.0 19.2 6.7 25.1M6.7 25.1Q2.7 20.6 0.0 26.0M52.0 0.0Q41.2 5.4 50.2 13.5M50.2 13.5Q38.4 15.9 45.0 26.0M45.0 26.0Q33.0 25.3 36.8 36.8M36.8 36.8Q25.3 33.0 26.0 45.0M26.0 45.0Q15.9 38.4 13.5 50.2M13.5 50.2Q5.4 41.2 0.0 52.0M82.0 0.0Q65.0 8.6 79.2 21.2M79.2 21.2Q60.6 25.1 71.0 41.0M71.0 41.0Q52.0 39.9 58.0 58.0M58.0 58.0Q39.9 52.0 41.0 71.0M41.0 71.0Q25.1 60.6 21.2 79.2M21.2 79.2Q8.6 65.0 0.0 82.0M118.0 0.0Q93.6 12.3 114.0 30.5M114.0 30.5Q87.2 36.1 102.2 59.0M102.2 59.0Q74.9 57.5 83.4 83.4M83.4 83.4Q57.5 74.9 59.0 102.2M59.0 102.2Q36.1 87.2 30.5 114.0M30.5 114.0Q12.3 93.6 0.0 118.0M158.0 0.0Q125.3 16.5 152.6 40.9M152.6 40.9Q116.8 48.4 136.8 79.0M136.8 79.0Q100.3 76.9 111.7 111.7M111.7 111.7Q76.9 100.3 79.0 136.8M79.0 136.8Q48.4 116.8 40.9 152.6M40.9 152.6Q16.5 125.3 0.0 158.0"/></svg>
+          <nav class="tabs" id="tabs">
+            <button class="tab active" data-tab="welcome">Welcome</button>
+            <button class="tab" data-tab="updates">Updates</button>
+            <button class="tab" data-tab="team">Team</button>
+            <button class="tab" data-tab="music">Music</button>
+          </nav>
+          <div class="tab-content" id="tab-welcome"><div class="welcome-container"></div></div>
+          <div class="tab-content hidden" id="tab-updates"><div class="news-container"></div></div>
+          <div class="tab-content hidden" id="tab-team"><div class="team-container"></div></div>
+          <div class="tab-content hidden" id="tab-music"><div class="track-list" id="trackList"></div></div>
+        </aside>
+      </main>
+
+      <footer class="bar">
+        <span class="hint"><kbd>F1</kbd>Hide menu</span>
+        <div class="progress"><i id="progressFill"></i></div>
+        <span class="pct" id="progressText">0%</span>
+      </footer>
     </div>
-    <div class="horizon"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="water">
-      <div class="reflection"></div>
-      <div class="wave one"></div>
-      <div class="wave two"></div>
-      <div class="wave three"></div>
-    </div>
-    <div class="grain"></div>
+  </div>
 
-    <audio id="loading-music" autoplay loop preload="auto">
-      <source src="assets/florida-bay-night-drive.ogg" type="audio/ogg" />
-    </audio>
-    <div id="youtube-player" aria-hidden="true"></div>
-    <div class="music-player" aria-label="Loading music controls">
-      <button id="music-toggle" type="button" aria-label="Pause music"><span>♫</span><b>Night Drive</b></button>
-      <input id="music-volume" type="range" min="0" max="100" value="22" aria-label="Music volume" />
-      <form id="music-source" autocomplete="off">
-        <input id="music-url" type="url" inputmode="url" placeholder="Paste YouTube link" aria-label="YouTube link" />
-        <button type="submit">Play</button>
-      </form>
-      <small id="music-error" role="status"></small>
-    </div>
+  <div id="cursor"></div>
 
-    <header class="topbar">
-      <div><span class="live"></span> FLORIDA BAY NETWORK</div>
-      <nav>
-        <span>VMenu RP</span><span>No economy</span
-        ><span>Player-led stories</span>
-      </nav>
-    </header>
-
-    <main>
-      <aside class="side-card left-card">
-        <p class="eyebrow">BUILT FOR ROLEPLAY</p>
-        <h2>Your city.<br />Your story.</h2>
-        <div class="feature">
-          <b>01</b
-          ><span
-            ><strong>Stay in character</strong
-            ><small
-              >Build scenes together. Give others room to respond.</small
-            ></span
-          >
-        </div>
-        <div class="feature">
-          <b>02</b
-          ><span
-            ><strong>Value every life</strong
-            ><small
-              >Choose believable actions and respect active scenes.</small
-            ></span
-          >
-        </div>
-        <div class="feature">
-          <b>03</b
-          ><span
-            ><strong>Use the tools</strong
-            ><small>Alt third eye · F6 tags · F7 vehicles · M vMenu</small></span
-          >
-        </div>
-      </aside>
-
-      <section class="hero">
-        <div class="logo-wrap">
-          <div class="logo-glow"></div>
-          <img src="assets/fbrp-logo.png" alt="Florida Bay Roleplay" />
-        </div>
-        <p class="welcome">WELCOME TO THE COAST</p>
-        <div class="status-line">
-          <span id="status-text">Establishing a secure session</span
-          ><strong id="percent">0%</strong>
-        </div>
-        <div class="track">
-          <div id="progress" class="progress"></div>
-          <i></i>
-        </div>
-        <p id="tip" class="tip">
-          Your server ID is always visible above your character.
-        </p>
-      </section>
-
-      <aside class="side-card right-card">
-        <p class="eyebrow">COASTAL FREQUENCY</p>
-        <div class="radio-visual">
-          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-        </div>
-        <h3>VOICE READY</h3>
-        <p>
-          Use F9 to set your proximity. Radio channels become available through
-          your department or organization.
-        </p>
-        <div class="quote">“Create the scene you would want to join.”</div>
-      </aside>
-    </main>
-
-    <footer>
-      <span>FLORIDA BAY ROLEPLAY</span>
-      <div class="keys">
-        <b>M</b> VMENU <b>ALT</b> THIRD EYE <b>F6</b> TAGS <b>F7</b> GARAGE <b>F11</b> ADMIN
-      </div>
-      <span id="clock">00:00</span>
-    </footer>
-    <script src="config.js"></script>
-    <script src="loading.js"></script>
-    <script src="https://www.youtube.com/iframe_api"></script>
-  </body>
+  <script src="assets/scripts/config.js"></script>
+  <script src="assets/scripts/main.js"></script>
+</body>
 </html>

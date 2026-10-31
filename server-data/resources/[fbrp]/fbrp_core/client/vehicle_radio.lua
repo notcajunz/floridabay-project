@@ -32,7 +32,7 @@ local function hasAccess()
 end
 
 local function denied()
-    TriggerEvent('fbrp:notify', 'You need the required Discord role to use vehicle audio.', 'error')
+    lib.notify({ description = 'You need the required Discord role to use vehicle audio.', type = 'error' })
 end
 
 local function closePanel()
@@ -46,7 +46,7 @@ end
 local function openPanel()
     local _, netId = currentVehicle()
     if not netId then
-        TriggerEvent('fbrp:notify', 'Get in a vehicle to use its sound system.', 'error')
+        lib.notify({ description = 'Get in a vehicle to use its sound system.', type = 'error' })
         return
     end
     if FBRP.IsMenuOpen and FBRP.IsMenuOpen() then FBRP.CloseMenu() end

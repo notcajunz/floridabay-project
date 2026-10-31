@@ -37,7 +37,7 @@ do
 end
 
 local function notify(message, tone)
-    TriggerEvent('fbrp:notify', message, tone or 'info')
+    TriggerEvent('ox_lib:notify', { description = message, type = tone or 'info' })
 end
 
 local function help(text)

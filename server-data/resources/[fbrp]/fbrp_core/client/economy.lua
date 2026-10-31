@@ -1,6 +1,6 @@
 -- Organization economy, client side: lab, business terminal and drop-off
 -- markers, timed production / shift tasks / hand-offs, mechanic repairs,
--- serving customers, the armory, the organization wardrobe and the F2 hub.
+-- serving customers, the armory and the organization wardrobe.
 
 local E = FBRP.Economy
 
@@ -9,9 +9,10 @@ local blips = {}
 local runBlip = nil
 local busy = nil          -- 'produce' | 'task' | 'handoff'
 local grounds = {}        -- cached ground Z per marker key
+local facilityMode = nil  -- focused native menu currently open at a property
 
 local function ui(message) SendNUIMessage(message) end
-local function notify(message, tone) TriggerEvent('fbrp:notify', message, tone or 'info') end
+local function notify(message, tone) lib.notify({ description = message, type = tone or 'info' }) end
 
 local function help(text)
     BeginTextCommandDisplayHelp('STRING')
@@ -35,6 +36,13 @@ local function blocked()
     if LocalPlayer.state['fbrp:jailed'] or LocalPlayer.state['fbrp:communityService'] then return true end
     return false
 end
+
+local function requestFacilities(mode)
+    facilityMode = mode or 'facilities'
+    TriggerServerEvent('fbrp:economy:hub', facilityMode)
+end
+
+FBRP.OpenFacilities = requestFacilities
 
 local function clearBlips()
     for _, blip in ipairs(blips) do
@@ -218,9 +226,9 @@ CreateThread(function()
                         if distance < 1.8 and not busy then
                             local extra = property.service == 'repair' and ' · /mechanic repair' or property.service == 'serve' and ' · /serve' or ''
                             if spot.kind == 'all' then
-                                help(('~INPUT_CONTEXT~ %s · ~INPUT_DETONATE~ armory & wardrobe%s'):format(property.task or 'Work a shift', extra))
+                                help(('~INPUT_CONTEXT~ %s · ~INPUT_DETONATE~ use facilities%s'):format(property.task or 'Work a shift', extra))
                                 if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:taskStart', property.key) end
-                                if IsControlJustReleased(0, 47) then TriggerServerEvent('fbrp:economy:hub') end
+                                if IsControlJustReleased(0, 47) then requestFacilities('facilities') end
                             elseif spot.kind == 'terminal' or spot.kind == 'stash' then
                                 help(('~INPUT_CONTEXT~ %s%s'):format(property.task or 'Work a shift', extra))
                                 if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:taskStart', property.key) end
@@ -228,8 +236,8 @@ CreateThread(function()
                                 help('~INPUT_CONTEXT~ Serve the nearest customer')
                                 if IsControlJustReleased(0, 38) then ExecuteCommand('serve') end
                             else
-                                help(('~INPUT_CONTEXT~ Open the organization %s'):format(spot.kind))
-                                if IsControlJustReleased(0, 38) then TriggerServerEvent('fbrp:economy:hub') end
+                                help(('~INPUT_CONTEXT~ Open %s'):format(spot.kind == 'armory' and 'armory' or 'wardrobe'))
+                                if IsControlJustReleased(0, 38) then requestFacilities(spot.kind) end
                             end
                         end
                     end
@@ -271,13 +279,10 @@ end)
 
 -- ─────────────────────────── commands ───────────────────────────
 
-RegisterCommand('org', function() TriggerServerEvent('fbrp:economy:hub') end, false)
-RegisterCommand('orghub', function() ExecuteCommand('org') end, false)
-RegisterKeyMapping('org', 'Open organization hub', 'keyboard', 'F2')
 RegisterCommand('delivery', function() TriggerServerEvent('fbrp:economy:deliveryStart') end, false)
 RegisterCommand('canceldelivery', function() TriggerServerEvent('fbrp:economy:deliveryCancel') end, false)
-RegisterCommand('armory', function() TriggerServerEvent('fbrp:economy:hub') end, false)
-RegisterCommand('orgwardrobe', function() TriggerServerEvent('fbrp:economy:hub') end, false)
+RegisterCommand('armory', function() requestFacilities('armory') end, false)
+RegisterCommand('orgwardrobe', function() requestFacilities('wardrobe') end, false)
 
 local function nearestVehicle(radius)
     local coords = GetEntityCoords(PlayerPedId())
@@ -396,37 +401,63 @@ RegisterNetEvent('fbrp:economy:wear', function(data, label)
     notify(('Wearing %s.'):format(label or 'organization outfit'), 'success')
 end)
 
--- ─────────────────────────── hub ───────────────────────────
-
-RegisterNetEvent('fbrp:economy:hub', function(payload)
-    payload = payload or {}
-    if FBRP.MenuView() == 'orghub' then
-        ui({ type='orghubData', data=payload })
-    else
-        FBRP.OpenMenu('orghub', payload)
+-- The old full-screen organization hub duplicated the portal, map and commands.
+-- In game, only the two things a player is physically standing at remain here.
+RegisterNetEvent('fbrp:economy:hub', function(payload, requestedMode)
+    payload = type(payload) == 'table' and payload or {}
+    local mode = requestedMode == 'refresh' and facilityMode or requestedMode
+    if mode ~= 'armory' and mode ~= 'wardrobe' and mode ~= 'facilities' then return end
+    facilityMode = mode
+    if not payload.onDuty then
+        return notify('Clock into your organization with /duty first.', 'error')
     end
-end)
 
-RegisterNUICallback('orgAction', function(data, cb)
-    if type(data) ~= 'table' then return cb({ ok=false }) end
-    local action = tostring(data.action or '')
-    if action == 'waypoint' and tonumber(data.x) and tonumber(data.y) then
-        SetNewWaypoint(tonumber(data.x) + 0.0, tonumber(data.y) + 0.0)
-        PlaySoundFrontend(-1, 'WAYPOINT_SET', 'HUD_FRONTEND_DEFAULT_SOUNDSET', true)
-        notify('Waypoint set.', 'success')
-    elseif action == 'delivery' then
-        TriggerServerEvent('fbrp:economy:deliveryStart')
-        FBRP.CloseMenu()
-    elseif action == 'cancelDelivery' then
-        TriggerServerEvent('fbrp:economy:deliveryCancel')
-    elseif action == 'armory' then
-        TriggerServerEvent('fbrp:economy:armory', tostring(data.key or ''))
-    elseif action == 'outfit' then
-        TriggerServerEvent('fbrp:economy:outfit', tostring(data.key or ''))
-    elseif action == 'refresh' then
-        TriggerServerEvent('fbrp:economy:hub')
+    local options = {}
+    if mode ~= 'wardrobe' then
+        local canArmory = payload.can and payload.can.armory ~= false
+        for _, package in ipairs(payload.armory or {}) do
+            local waitMinutes = math.ceil((tonumber(package.cooldown) or 0) / 60)
+            options[#options + 1] = {
+                label = package.label or 'Loadout',
+                description = (not payload.atArmory and 'Use this at an armory.')
+                    or (not canArmory and ('Your rank (' .. tostring(payload.rank or 'Member') .. ') does not have access.'))
+                    or (waitMinutes > 0 and ('Available again in ' .. waitMinutes .. ' min.'))
+                    or table.concat(package.weapons or {}, ', '),
+                icon = 'gun',
+                disabled = not payload.atArmory or not canArmory or waitMinutes > 0,
+                args = { action = 'armory', key = package.key },
+            }
+        end
     end
-    cb({ ok=true })
+    if mode ~= 'armory' then
+        for _, outfit in ipairs(payload.outfits or {}) do
+            options[#options + 1] = {
+                label = outfit.label or 'Organization outfit',
+                description = payload.atArmory and 'Change into this outfit.' or 'Use this at an organization property or station.',
+                icon = 'shirt',
+                disabled = not payload.atArmory,
+                args = { action = 'outfit', key = outfit.key },
+            }
+        end
+    end
+    if #options == 0 then
+        return notify(mode == 'armory' and 'No armory loadouts are available.' or mode == 'wardrobe' and 'No organization outfits are available.' or 'No facilities are available here.', 'info')
+    end
+
+    lib.registerMenu({
+        id = 'fbrp_org_facilities',
+        title = mode == 'armory' and 'Armory' or mode == 'wardrobe' and 'Wardrobe' or 'Armory & wardrobe',
+        position = 'top-left',
+        options = options,
+    }, function(_, _, args)
+        if not args then return end
+        if args.action == 'armory' then
+            TriggerServerEvent('fbrp:economy:armory', tostring(args.key or ''))
+        elseif args.action == 'outfit' then
+            TriggerServerEvent('fbrp:economy:outfit', tostring(args.key or ''))
+        end
+    end)
+    lib.showMenu('fbrp_org_facilities')
 end)
 
 AddEventHandler('onResourceStop', function(name)

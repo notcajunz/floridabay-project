@@ -33,7 +33,7 @@ Florida Bay Roleplay is a standalone, no-economy FiveM framework built around vM
   - Street duels (`/duel`, `/duelaccept`, `/dueldecline`, `/forfeit`): race another driver to your map waypoint. The server watches both cars (teleports and abandoned cars forfeit), keeps an Elo duel rating, win streaks and a leaderboard.
   - Skydiving: four jumps (Maze Bank, Observatory, Chiliad, high altitude) scored by landing distance from the target, with personal bests and server records.
   - Achievements and titles (about 35, computed from fishing, passport, challenges and every pastime), a daily check-in streak, and weekly community goals that everyone on the server fills together.
-- Original Florida Bay loading screen and generated Florida Bay Roleplay logo, with a configurable YouTube loading song and an on-screen link field. Set the server default in `fbrp_loading/web/config.js`.
+- Florida Bay loading screen (`fbrp_loading`, based on zaidqaiser's FiveM-LoadingScreen--Latest): background videos with sound, the logo filling up with the load progress, live players and AOP from the website, rotating tips, community links and quick keys. Text, links and keys are in `fbrp_loading/web/assets/scripts/config.js`.
 - AOP, peacetime, priority, announcements, dispatch calls, audit records, moderation cases, security incidents, tag selection, rosters, and all shift data in MariaDB.
 - Badger-compatible `GetDiscordRoles`, identity, role-list exports plus `DiscordAcePerms`-style role-to-ACE syncing, backed by the centralized bot cache. The Discord bot token is not exposed to FXServer.
 
@@ -56,7 +56,7 @@ One bot owns the Discord-facing control plane:
 - `/security exempt-add|exempt-remove|exempt-list`: owner-only automated-security bypasses. An exemption can apply across the network or only in the server where the command is run; it fully excludes the account from anti-nuke, raid/account-age, spam, and Bot Guard detection in that scope without granting permissions or bypassing manual moderation. Protected roles retain their separate authorization policy.
 - `/ticket`: button/modal panel, private support-channel creation, claiming, queue listing, ticket-count tracking, and audited closure.
 - `/roster`: categorized callsign ranges, rank/role/ACE-group mappings, automatic callsigns for Trial Head Administrator and higher (posted to the staff callsign channel as `@member --> 123`; the bot never changes nicknames), secondary jobs, weekly requirements, statuses, notes, history, warnings/strikes, discipline revocation, profiles, and role reconciliation. All configuration is available through subcommands.
-- `/callsign sync`: Community Director and above can republish every current Trial Head Administrator+ callsign to the staff callsign channel, including callsigns that have not changed.
+- `/callsign sync`: Executive Management and above can republish every current Trial Head Administrator+ callsign to the staff callsign channel, including callsigns that have not changed.
 - `/coc`: a live, multi-card chain-of-command board for Assistant Community Manager and above, backed by the staff roster. Management can publish or relocate it, add/update/remove people, set positions and assistants, and reorder the chain; listed members can update their own positions and assistants. The board edits in place and refreshes after roster changes.
 - `/userinfo`: linked game identities, ACE groups, organizations, hours, cases, and discipline in one investigation view.
 - `/case lookup`: complete lookup for any `FB-...` moderation or `IA-...` Internal Affairs case, also available in the staff website workspace.
@@ -198,7 +198,9 @@ Static player permissions live in `server-data/config/permissions.cfg`. Discord-
 
 Staff groups are marked `staff_only`. Holding the Discord role is not sufficient for in-game staff powers: `fbrp_core` attaches those principals only during `/clockin`. The bound Law Enforcement, Fire & Rescue, and Verified Civilian roles create persistent role-sourced ACE memberships automatically (and manual `/ace member-add` memberships still work). Organization ACE groups are applied only while that organization is on duty.
 
-Everyone can use the stock vMenu Vehicle Spawner for every base-game vehicle class (`vMenu.VehicleSpawner.Menu` plus each class ACE in `config/permissions.cfg`). `vMenu.VehicleSpawner.All`, `Addon`, `SpawnByName` and whitelisted-model permissions are not granted to everyone. The F7 garage lists only personal vehicles and organization garages; set `garageCatalogEnabled = true` in `fbrp_core/config.lua` to offer `FBRP.VehicleCatalog` there again (the catalog also defines which models count as public for personals).
+The menu is upstream legacy vMenu (`[standalone]/vMenu`, v3.8.68; F1 opens it, F2 is NoClip). Its server settings are in `config/vmenu.cfg`, its model/addon data is in `vMenu/config`, and its public defaults are in `config/permissions.cfg`. Existing Discord/web ACE groups use the same legacy permission names directly. NoClip is only active for eligible staff while clocked in, vMenu voice is disabled in favor of pma-voice, and addon weapons are individually locked to the FBRP | Custom Weapons role through `model-whitelists.json`. `vMenu.Everything` is expanded into safe concrete permissions so it cannot bypass the duty or voice protections.
+
+Everyone can use vMenu's Vehicle Spawner for every base-game vehicle class (`vMenu.VehicleSpawner.Menu` plus each class permission in `config/permissions.cfg`). `VehicleSpawner.All`, `Addon`, `SpawnByName` and whitelisted-model permissions are not granted to everyone, so personal vehicles remain in the F7 Florida Bay garage and organization garages. Set `garageCatalogEnabled = true` in `fbrp_core/config.lua` to offer `FBRP.VehicleCatalog` there again (the catalog also defines which models count as public for personals).
 
 ## Security notes
 
@@ -225,7 +227,7 @@ Everyone can use the stock vMenu Vehicle Spawner for every base-game vehicle cla
 - `services/fbrp-bot/src/role-manager-bot.js`: dedicated delegated-role bot.
 - `server-data/resources/[discord]`: Badger compatibility adapters.
 - `server-data/resources/[standalone]/fbrp_chat`: Florida Bay's custom proximity roleplay chat resource.
-- `server-data/resources/[standalone]/sky_phone`: the character phone; `server-data/config/phone.cfg` starts it.
+- `server-data/resources/[standalone]/sky_phone`: the character phone; `server-data/config/phone.cfg` starts it. Every other resource started after `fbrp_core` is listed in `server-data/config/resources.cfg`, which `server.cfg` execs right after `phone.cfg`.
 - `services/fbrp-bot/src/org-logos.js`: organization logos (set with `/organization create logo:`, `/organization logo`, or on the orgs website).
 - `services/fbrp-bot/web/orgs`, `src/orgs-site.js`, `src/org-authority.js`: the organization website.
 - `server-data/resources/[fbrp]/fbrp_loading`: loading screen and primary logo.

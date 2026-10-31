@@ -54,7 +54,7 @@ RegisterNetEvent('fbrp_guns2:setAccess', function(allowed)
     customWeaponAccess = allowed == true
 end)
 
--- vMenu hides the addon entries with ACE permissions. This guard also closes
+-- vMenu locks the custom weapons (model-whitelists.json). This guard also closes
 -- its generic "spawn by name" and saved-loadout paths for players without the role.
 CreateThread(function()
     while true do

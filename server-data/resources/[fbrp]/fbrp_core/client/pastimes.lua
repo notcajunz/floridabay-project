@@ -4,7 +4,7 @@
 local PC = { actions = {} }
 FBRP.PastimeClient = PC
 
-local function notify(message, tone) TriggerEvent('fbrp:notify', message, tone or 'info') end
+local function notify(message, tone) lib.notify({ description = message, type = tone or 'info' }) end
 PC.notify = notify
 
 -- ───────────────────────── drawing helpers ─────────────────────────

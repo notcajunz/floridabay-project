@@ -79,9 +79,9 @@ function Lang(what)
 end
 
 function Notify(message, tone)
-	-- Use the server-wide notification UI so clothing messages look and behave
+	-- Use ox_lib notifications so clothing messages look and behave
 	-- like every other Florida Bay interaction.
-	TriggerEvent('fbrp:notify', message, tone or 'info')
+	TriggerEvent('ox_lib:notify', { description = message, type = tone or 'info' })
 end
 
 function IsMpPed(ped)

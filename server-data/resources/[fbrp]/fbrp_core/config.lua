@@ -1,6 +1,12 @@
 FBRP = FBRP or {}
 
+-- Permission enum names vMenu's client receives. All are forced false so its voice
+-- chat menu and per-frame voice loop never run. Shared because client/vmenu_gate.lua
+-- reads it while config_vmenu.lua is server-only.
+FBRP.VmenuVoicePermissions = { 'VCMenu', 'VCAll', 'VCEnable', 'VCShowSpeaker', 'VCStaffChannel' }
+
 FBRP.Config = {
+    clearTagsOnJoin = true,   -- players join with no headtag / gang tag (chat tag is kept); false = keep last session's tags
     serverName = 'Florida Bay Roleplay',
     discordInvite = GetConvar('fbrp_discordInvite', ''),
     serviceToken = GetConvar('fbrp_serviceToken', ''),
@@ -13,7 +19,7 @@ FBRP.Config = {
         largeImage = GetConvar('fbrp_discordLargeImage', 'https://floridabay.net/logo-720.webp'),
         logoBase = GetConvar('fbrp_discordLogoBase', 'https://floridabay.net/api/orgs/logo/'),
         joinUrl = GetConvar('fbrp_discordJoinUrl', 'https://join.floridabay.net'),
-        inviteUrl = GetConvar('fbrp_discordInviteUrl', 'https://discord.gg/floridabayrp'),
+        inviteUrl = GetConvar('fbrp_discordInviteUrl', 'https://discord.gg/floridabay'),
         refreshMs = 15000, -- Discord rate-limits presence updates; do not go much lower
     },
     -- Keep overhead identity close enough to support a scene without carrying
@@ -51,6 +57,10 @@ FBRP.Config = {
     vehicleSpeedLimitMph = 180,
     vehicleSpeedPrivilegedLimitMph = 250,
     vehicleSpeedPrivilegedRoleId = '1559633446429786162',
+    -- This separate role is the only 330 MPH tier. It is deliberately not part
+    -- of Owners Pass or the privileged-speed role above.
+    vehicleSpeedTopLimitMph = 330,
+    vehicleSpeedTopRoleId = '1566098517427097731',
     -- Only members with this Discord role may open or control vehicle audio.
     -- Playback remains audible to everyone nearby.
     carRadioRoleId = '1560857811364356218',
@@ -58,8 +68,15 @@ FBRP.Config = {
     -- This role and Head Administrator-or-higher staff ranks bypass that guard.
     staffOrgDutyBypassRoleId = '1559580245093253272',
     staffOrgDutyBypassMinGroup = 'head_administrator',
+    -- Staff in this group or higher may wear any tag and clock into any organization without the
+    -- Discord roles or tag grants those normally require.
+    executiveBypassMinGroup = 'executive_management',
     -- Holders of this role may clock in as staff while on duty as a gang (not other org types).
     staffGangDutyBypassRoleId = '1559683033576247326',
+    -- Joining the game needs membership of this Discord server and this role (the Verified role the bot
+    -- grants after website verification) on top of the website verification itself.
+    joinGuildId = '1557594282976747550',
+    joinRoleId = '1557690864526954616',
     -- Fuel is measured as a percentage. A typical car lasts roughly an hour
     -- of mixed driving, while an empty tank takes about 35 seconds to fill.
     fuelTickMs = 1000,
@@ -68,6 +85,10 @@ FBRP.Config = {
     fuelRefillPerSecond = 3.0,
     fuelStationRadius = 18.0,
     characterSlots = 3,
+    -- Suggestions and the preselected value on the character maker's nationality
+    -- field. Players may also type their own.
+    defaultNationality = 'American',
+    nationalities = { 'American', 'British', 'Canadian', 'Mexican', 'Cuban', 'Puerto Rican', 'Jamaican', 'Haitian', 'Brazilian', 'Colombian', 'Irish', 'Italian', 'German', 'French', 'Spanish', 'Polish', 'Russian', 'Ukrainian', 'Chinese', 'Japanese', 'Korean', 'Indian', 'Filipino', 'Australian', 'Nigerian' },
 }
 
 -- GTA V's public filling stations. These drive both the map blips and the
@@ -116,19 +137,89 @@ FBRP.PriorityZones = {
     { id='blaine', label='Sandy / Grapeseed', short='Sandy/Grapeseed' },
     { id='paleto', label='Paleto Bay', short='Paleto' },
     { id='zancudo', label='Fort Zancudo', short='Zancudo' },
+    { id='roxwood', label='Roxwood', short='Roxwood' },
 }
 FBRP.PriorityCooldownDefault = 20
 
--- Quick picks in the /aop menu; any custom text can still be typed in.
-FBRP.AopPresets = { 'Statewide', 'Los Santos', 'Blaine County', 'Sandy Shores', 'Grapeseed', 'Paleto Bay', 'City Limits' }
+FBRP.AopPresets = { 'Statewide', 'Los Santos', 'Blaine County', 'Sandy Shores', 'Grapeseed', 'Paleto Bay', 'Roxwood', 'City Limits' }
+
+-- Roxwood map sits north of Paleto. Anything at or above this Y counts as the Roxwood priority zone.
+-- Tune it to where your Roxwood build starts (stand at the border, /coords, use that Y).
+FBRP.RoxwoodMinY = 7000.0
+
+-- Spawning has to happen inside the current AOP.
+--   zones  = priority zones (FBRP.PriorityZoneAt below) a spawn / last location must be in
+--   spawns = optional list of FBRP.SpawnLocations ids; when set, only these fixed spawns are allowed
+--   all    = every spawn is allowed
+-- An AOP that is not listed here (typed in by staff) allows every spawn.
+FBRP.AopSpawnRules = {
+    ['Statewide']     = { all = true },
+    ['Los Santos']    = { zones = { 'ls' } },
+    ['City Limits']   = { zones = { 'ls' } },
+    ['Blaine County'] = { zones = { 'blaine', 'paleto' } },
+    ['Sandy Shores']  = { zones = { 'blaine' }, spawns = { 'sandy' } },
+    ['Grapeseed']     = { zones = { 'blaine' }, spawns = { 'grapeseed' } },
+    ['Paleto Bay']    = { zones = { 'paleto' } },
+    ['Roxwood']       = { zones = { 'roxwood' } },
+}
+FBRP.AopSpawnDenied = 'The place you selected you can not spawn to due to AOP location.'
 
 -- Which priority zone a position belongs to (client side: uses the game's zone names).
 function FBRP.PriorityZoneAt(x, y, z)
     if GetNameOfZone and GetNameOfZone(x, y, z) == 'ARMYB' then return 'zancudo' end
+    if y >= (FBRP.RoxwoodMinY or 7000.0) then return 'roxwood' end
     if y >= 5600.0 then return 'paleto' end
     if y >= 1500.0 then return 'blaine' end
     return 'ls'
 end
+
+-- Same zones as above without the client-only Zancudo check, so client and server always agree
+function FBRP.AopZoneAt(x, y)
+    y = tonumber(y) or 0.0
+    if y >= (FBRP.RoxwoodMinY or 7000.0) then return 'roxwood' end
+    if y >= 5600.0 then return 'paleto' end
+    if y >= 1500.0 then return 'blaine' end
+    return 'ls'
+end
+
+function FBRP.SpawnAllowedByAop(spawn, aop)
+    if type(spawn) ~= 'table' then return false end
+    local rule = FBRP.AopSpawnRules and FBRP.AopSpawnRules[tostring(aop or 'Statewide')]
+    if not rule or rule.all then return true end
+    local id = tostring(spawn.id or '')
+    if rule.spawns and id ~= 'last' then
+        for _, allowed in ipairs(rule.spawns) do
+            if allowed == id then return true end
+        end
+        return false
+    end
+    local zone = FBRP.AopZoneAt(spawn.x, spawn.y)
+    for _, allowed in ipairs(rule.zones or {}) do
+        if allowed == zone then return true end
+    end
+    return false
+end
+
+-- Marks every spawn with allowed / zone / aop for the spawn selector. If the AOP leaves no spawn at all
+-- (e.g. Roxwood with no Roxwood spawn configured), everything stays allowed so nobody gets stuck.
+function FBRP.MarkSpawnsForAop(spawns, aop)
+    aop = tostring(aop or 'Statewide')
+    local any = false
+    for _, spawn in ipairs(spawns or {}) do
+        spawn.zone = FBRP.AopZoneAt(spawn.x, spawn.y)
+        spawn.allowed = FBRP.SpawnAllowedByAop(spawn, aop)
+        spawn.aop = aop
+        if spawn.allowed then any = true end
+    end
+    if not any then
+        for _, spawn in ipairs(spawns or {}) do spawn.allowed = true end
+    end
+    return spawns, any
+end
+
+-- Tag-access personal vehicles (e.g. "Tag access · BCSO") used to need you clocked in with that organization.
+-- false = being on or off duty does not matter for spawning them. Set true to bring the clock-in check back.
+FBRP.RequireDutyForTagVehicles = false
 
 FBRP.Ace = {
     staff = 'fbrp.staff',
@@ -144,6 +235,7 @@ FBRP.Ace = {
     priority = 'fbrp.priority',
     peacetime = 'fbrp.peacetime',
     announce = 'fbrp.announce',
+    announceCenter = 'fbrp.announce.center',
     staffOnDutyAnnounce = 'fbrp.staff.onduty_announce',
     policeJail = 'fbrp.police.jail',
     policeCite = 'fbrp.police.cite',
@@ -343,9 +435,9 @@ FBRP.Interactions = {
     { id = 'hardcuff', label = 'Hard cuff', ace = FBRP.Ace.policeCuff },
     { id = 'uncuff', label = 'Remove cuffs / ties', aceAny = { FBRP.Ace.policeCuff, FBRP.Ace.civRestrain } },
     { id = 'arrest', label = 'Arrest', ace = FBRP.Ace.policeArrest },
-    { id = 'escort', label = 'Escort / release', ace = FBRP.Ace.policeEscort },
-    { id = 'seat', label = 'Place in vehicle', ace = FBRP.Ace.policeEscort },
-    { id = 'unseat', label = 'Remove from vehicle', ace = FBRP.Ace.policeEscort },
+    { id = 'escort', label = 'Escort / release', ace = FBRP.Ace.policeEscort, anyoneIf = 'restrained' },
+    { id = 'seat', label = 'Place in vehicle', ace = FBRP.Ace.policeEscort, anyoneIf = 'ziptie' },
+    { id = 'unseat', label = 'Remove from vehicle', ace = FBRP.Ace.policeEscort, anyoneIf = 'ziptie' },
     { id = 'search', label = 'Search person', ace = FBRP.Ace.policeSearch },
     { id = 'checkid', label = 'Check identification', aceAny = { FBRP.Ace.police, FBRP.Ace.civRestrain } },
     { id = 'ziptie', label = 'Apply zip tie', ace = FBRP.Ace.civRestrain },
@@ -356,7 +448,8 @@ FBRP.Interactions = {
     { id = 'cite', label = 'Write citation', ace = FBRP.Ace.policeCite },
     { id = 'jail', label = 'Book into prison', aceAny = { FBRP.Ace.policeJail, FBRP.Ace.staffJail } },
     { id = 'commserv', label = 'Assign community service', aceAny = { FBRP.Ace.policeJail, FBRP.Ace.staffJail } },
-    { id = 'revive', label = 'Revive patient', aceAny = { FBRP.Ace.emsRevive, FBRP.Ace.staffRevive } },
+    { id = 'revive', label = 'Revive patient', aceAny = { FBRP.Ace.emsRevive, FBRP.Ace.staffRevive } }, -- DeathScript
+    { id = 'helpup', label = 'Help up', public = true },                                                 -- DeathScript (knocked out)
     { id = 'heal', label = 'Treat wounds', ace = FBRP.Ace.ems },
     { id = 'diagnose', label = 'Check injuries', aceAny = { FBRP.Ace.ems, FBRP.Ace.police } },
     { id = 'showid', label = 'Show my ID', public = true },

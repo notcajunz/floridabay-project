@@ -2,7 +2,7 @@
 RegisterCommand('scenehost', function(_, args)
     local title = table.concat(args, ' ')
     if #title < 4 then
-        TriggerEvent('fbrp:notify', 'Usage: /scenehost <scene title>', 'error')
+        lib.notify({ description = 'Usage: /scenehost <scene title>', type = 'error' })
         return
     end
     TriggerServerEvent('fbrp:scenes:create', title, 'Open roleplay scene · everyone is welcome.')
@@ -16,12 +16,12 @@ RegisterCommand('sceneend', function() TriggerServerEvent('fbrp:scenes:endMine')
 
 RegisterCommand('eventgo', function()
     local event = GlobalState['fbrp:event']
-    if not event then return TriggerEvent('fbrp:notify', 'No community event is active right now.', 'info') end
+    if not event then return lib.notify({ description = 'No community event is active right now.', type = 'info' }) end
     if event.coords then
         SetNewWaypoint(event.coords.x + 0.0, event.coords.y + 0.0)
-        TriggerEvent('fbrp:notify', ('Route set: %s'):format(event.title or 'Community event'), 'success')
+        lib.notify({ description = ('Route set: %s'):format(event.title or 'Community event'), type = 'success' })
     else
-        TriggerEvent('fbrp:notify', ('%s · %s'):format(event.title or 'Community event', event.location or 'Check chat for details.'), 'info')
+        lib.notify({ description = ('%s · %s'):format(event.title or 'Community event', event.location or 'Check chat for details.'), type = 'info' })
     end
 end, false)
 
@@ -31,11 +31,11 @@ end)
 
 RegisterNetEvent('fbrp:scenes:waypoint', function(coords, title)
     SetNewWaypoint(coords.x + 0.0, coords.y + 0.0)
-    TriggerEvent('fbrp:notify', ('Route set to %s.'):format(title or 'scene'), 'success')
+    lib.notify({ description = ('Route set to %s.'):format(title or 'scene'), type = 'success' })
 end)
 
 RegisterNetEvent('fbrp:event:update', function(event)
-    if event then TriggerEvent('fbrp:notify', ('Community event: %s'):format(event.title), 'success') end
+    if event then lib.notify({ description = ('Community event: %s'):format(event.title), type = 'success' }) end
 end)
 
 RegisterNUICallback('sceneWaypoint', function(data, cb)

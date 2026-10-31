@@ -26,11 +26,33 @@ let currentView = null;
 let currentPayload = {};
 let menuLocked = false;
 let lastHud = {};
-let thirdEyePayload = null;
 let thirdEyeTargeting = false;
-let dutyPayload = null;
-let dutyChoice = null;
-const ui = { garageCategory: null, showCharacterForm: false };
+let thirdEyeFocused = false;
+const ui = {
+  garageCategory: null,
+  showCharacterForm: false,
+  selectedCharacterId: null,
+  selectedSpawnId: null,
+};
+
+const HUD_DEFAULTS = Object.freeze({
+  enabled: true,
+  theme: "bay",
+  font: "poppins",
+  scale: 100,
+  speedUnit: "mph",
+  compassPosition: "top-center",
+  statusPosition: "top-right",
+  vitalsPosition: "radar",
+  vehiclePosition: "bottom-right",
+  showCompass: true,
+  showStatus: true,
+  showVitals: true,
+  showPlayer: true,
+  showVehicle: true,
+  showMinimap: true,
+});
+let hudSettings = { ...HUD_DEFAULTS };
 
 /* ───────── Icons ───────── */
 const ICONS = {
@@ -84,6 +106,8 @@ const ICONS = {
   shirt: '<path d="M8 3 4 6l2 4 2-1v12h8V9l2 1 2-4-4-3c0 2-2 3-4 3s-4-1-4-3Z"/>',
   building: '<path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 9h4a1 1 0 0 1 1 1v11M3 21h18M8 8h3M8 12h3M8 16h3"/>',
   target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  ticket: '<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/><path d="M14 6v12" stroke-dasharray="2 2"/>',
+  train: '<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 17l-2 4M15 17l2 4M8.5 14h.01M15.5 14h.01"/>',
   wallet: '<path d="M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-4a2 2 0 0 0 0 4h4v2a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V6"/>',
 };
 const icon = (name) =>
@@ -126,7 +150,7 @@ const RADIAL_CATEGORIES = [
     id: "vehicle", label: "Vehicle", hint: "Garage & controls", icon: "car", color: "#6fb6ff",
     actions: [
       { action: "vehicles", label: "Garage", hint: "Browse vehicles", icon: "car" },
-      { action: "carcontrols", label: "Controls", hint: "Engine, doors & belt", icon: "gauge" },
+      { action: "vehcontrol", label: "Controls", hint: "Doors, seats & lights", icon: "gauge" },
       { action: "carradio", label: "Car Audio", hint: "Play YouTube nearby", icon: "music" },
     ],
   },
@@ -134,7 +158,6 @@ const RADIAL_CATEGORIES = [
     id: "services", label: "Services", hint: "Comms & groups", icon: "grid", color: "#c48bff",
     actions: [
       { action: "radio", label: "Radio", hint: "Tune a channel", icon: "radio" },
-      { action: "org", label: "Organization", hint: "Duty & properties", icon: "building" },
       { action: "tags", label: "Tag Wardrobe", hint: "Choose headtags", icon: "shirt" },
     ],
   },
@@ -246,7 +269,7 @@ function closeRadialDispatch() {
 /* ───────── Scaling ───────── */
 function rescale() {
   document.documentElement.style.setProperty(
-    "--s",
+    "--viewport-scale",
     clamp(window.innerHeight / 1080, 0.7, 2.2).toFixed(3),
   );
 }
@@ -314,30 +337,85 @@ function setTone(selector, tone) {
   const node = $(selector);
   if (node) node.className = tone ? `tone-${tone}` : "";
 }
-function hexLuma(hex) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
-  if (!m) return 1;
-  const n = parseInt(m[1], 16);
-  return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
-}
 const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(String(c || "")) ? c : "#ffffff");
 
 /* ───────── HUD ───────── */
 const PRIORITY = {
   available: ["Available", "ok"],
-  active: ["In Progress", "bad"],
+  active: ["In Progress", "warn"],
   cooldown: ["Cooldown", "warn"],
   hold: ["On Hold", "bad"],
 };
 function priorityDisplay(status, remaining) {
   const [label, tone] = PRIORITY[status] || PRIORITY.available;
-  return [status === "cooldown" ? `Cooldown · ${Number(remaining) || 0}m` : label, tone];
+  return [status === "cooldown" ? `${Number(remaining) || 0}m` : label, tone];
+}
+
+let lastPrioritySignature = "";
+function renderPriorityRows(rows, fallback, peacetime) {
+  const source = (Array.isArray(rows) && rows.length ? [...rows] : [{
+    id: "current",
+    label: fallback?.zone || "Current area",
+    status: fallback?.status || "available",
+    remaining: fallback?.remaining || 0,
+    current: true,
+  }]).sort((a, b) => ({ zancudo: 0, ls: 1, blaine: 2, paleto: 3, roxwood: 4 }[a.id] ?? 9) - ({ zancudo: 0, ls: 1, blaine: 2, paleto: 3, roxwood: 4 }[b.id] ?? 9));
+  const signature = JSON.stringify([peacetime, source.map((row) => [row.id, row.label, row.status, row.remaining])]);
+  if (signature === lastPrioritySignature) return;
+  lastPrioritySignature = signature;
+  const list = $("#priority-list");
+  list.replaceChildren(...source.map((row) => {
+    const [label, tone] = priorityDisplay(row.status, row.remaining);
+    const item = document.createElement("div");
+    item.className = "srow priority-row";
+    const zone = document.createElement("span");
+    zone.textContent = `${({ zancudo: "Fort Zancudo", ls: "Los Angeles", blaine: "Sandy/Grapeseed", paleto: "Paleto Bay", roxwood: "Roxwood" }[row.id] || row.label || row.id || "Priority")}:`;
+    const value = document.createElement("b");
+    value.className = `tone-${tone}`;
+    value.textContent = label;
+    item.append(zone, value);
+    if (row.status === "hold" && peacetime) {
+      const pt = document.createElement("em");
+      pt.textContent = " (PT)";
+      value.append(pt);
+    }
+    return item;
+  }));
+}
+function hudDateTime() {
+  const now = new Date();
+  const date = `${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}/${now.getFullYear()}`;
+  return `${date} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 function voiceInfo(data) {
   const dist = Number(data.voice) || 0;
   const level = dist && dist <= 2 ? 1 : dist && dist <= 4 ? 2 : dist ? 3 : 2;
   const fallback = ["", "Whisper", "Normal", "Shout"][level];
   return { level, label: data.voiceMode || fallback };
+}
+
+function normalizeHudSettings(input = {}) {
+  const next = { ...HUD_DEFAULTS, ...(input || {}) };
+  next.scale = Math.round(clamp(Number(next.scale) || 100, 75, 130));
+  return next;
+}
+
+function applyHudSettings(input = hudSettings) {
+  hudSettings = normalizeHudSettings(input);
+  const hud = $("#hud");
+  hud.dataset.theme = hudSettings.theme;
+  hud.dataset.font = hudSettings.font;
+  hud.dataset.compassPosition = hudSettings.compassPosition;
+  hud.dataset.statusPosition = hudSettings.statusPosition;
+  hud.dataset.vitalsPosition = hudSettings.vitalsPosition;
+  hud.dataset.vehiclePosition = hudSettings.vehiclePosition;
+  hud.style.setProperty("--hud-scale", (hudSettings.scale / 100).toFixed(2));
+  hud.classList.toggle("settings-disabled", !hudSettings.enabled);
+  $("#hud-compass").classList.toggle("hud-part-disabled", !hudSettings.showCompass);
+  $("#hud-status").classList.toggle("hud-part-disabled", !hudSettings.showStatus);
+  $("#hud-vitals").classList.toggle("hud-part-disabled", !hudSettings.showVitals);
+  $("#hud-player").classList.toggle("hud-part-disabled", !hudSettings.showPlayer);
+  $("#vehicle-hud").classList.toggle("hud-part-disabled", !hudSettings.showVehicle);
 }
 
 function updateHud(data) {
@@ -352,34 +430,41 @@ function updateHud(data) {
   setText("#zone", [data.location?.cross, data.location?.zone].filter(Boolean).join(" · "));
 
   // Status
-  setText("#game-time", data.gameTime);
+  setText("#game-time", hudDateTime());
   setText("#aop", data.aop);
   const priority = data.priority || {};
-  const [pText, pTone] = priorityDisplay(priority.status, priority.remaining);
-  setText("#priority-label", priority.zone ? `Priority · ${priority.zone}` : "Priority");
-  setText("#priority", pText);
-  setTone("#priority", pTone);
-  setText("#peacetime", data.peacetime ? "In effect" : "Off");
-  setTone("#peacetime", data.peacetime ? "warn" : "dim");
-  for (const [sel, tag] of [["#hud-headtag", data.headtag], ["#hud-gangtag", data.gangtag]]) {
+  renderPriorityRows(data.priorities, priority, !!data.peacetime);
+  for (const [sel, row, tag] of [["#hud-headtag", "#hud-headtag-row", data.headtag], ["#hud-gangtag", "#hud-gangtag-row", data.gangtag]]) {
     setText(sel, tag?.label || "None");
     const node = $(sel);
     node.className = tag?.label ? "" : "tone-dim";
     node.style.color = tag?.label ? safeColor(tag.color) : "";
   }
-  setText("#hud-org", data.organization ? data.organization.slug || data.organization.name : "Off duty");
-  setTone("#hud-org", data.organization ? "" : "dim");
-  $("#staff-pill").classList.toggle("hidden", !data.staffDuty);
+  const duty = data.organization ? String(data.organization.slug || data.organization.name || "").toUpperCase() : data.staffDuty ? "Staff" : "";
+  setText("#hud-org", duty || "Off Duty");
+  setTone("#hud-org", duty ? "" : "dim");
 
   // Dock - flush against the radar
   const L = data.layout;
   if (L) {
     const dock = $("#dock");
-    const left = (L.radar ? L.right : L.left) * window.innerWidth + 10;
-    const bottom = (1 - L.bottom) * window.innerHeight;
-    dock.style.left = `${Math.round(left)}px`;
-    dock.style.bottom = `${Math.round(bottom)}px`;
+    if (hudSettings.vitalsPosition === "radar") {
+      const left = (L.radar ? L.right : L.left) * window.innerWidth + 10;
+      const bottom = (1 - L.bottom) * window.innerHeight;
+      dock.style.left = `${Math.round(left)}px`;
+      dock.style.bottom = `${Math.round(bottom)}px`;
+    } else {
+      dock.style.removeProperty("left");
+      dock.style.removeProperty("bottom");
+    }
   }
+  const health = clamp(Number(data.health) || 0, 0, 100);
+  const armour = clamp(Number(data.armour) || 0, 0, 100);
+  $("#health-ring").style.strokeDasharray = `${health} 100`;
+  $("#armour-ring").style.strokeDasharray = `${armour} 100`;
+  setText("#health-value", health);
+  setText("#armour-value", armour);
+  $(".health-vital").classList.toggle("critical", health <= 25);
   setText("#player-id", data.id);
   const v = voiceInfo(data);
   setText("#voice", v.label);
@@ -393,7 +478,9 @@ function updateHud(data) {
   const car = data.vehicle || {};
   $("#vehicle-hud").classList.toggle("hidden", !car.inVehicle);
   if (car.inVehicle) {
-    setText("#speed", car.speed ?? 0);
+    const speed = Number(car.speed) || 0;
+    setText("#speed", hudSettings.speedUnit === "kmh" ? Math.round(speed * 1.609344) : Math.round(speed));
+    setText("#speed-unit", hudSettings.speedUnit === "kmh" ? "KM/H" : "MPH");
     const rpm = clamp(Number(car.rpm) || 0, 0, 100);
     const arc = $("#rpm-arc");
     arc.style.strokeDasharray = `${rpm} 100`;
@@ -429,22 +516,35 @@ function showRestraint(active, kind) {
 }
 
 /* ───────── Toasts & dispatch ───────── */
-const TONE_ICON = { info: "info", success: "check", error: "alert", warning: "alert" };
 function dismiss(node, delay) {
   setTimeout(() => {
     node.classList.add("leaving");
     setTimeout(() => node.remove(), 280);
   }, delay);
 }
-function notice(message, tone = "info") {
-  const stack = $("#notifications");
-  const ms = clamp(2600 + String(message || "").length * 45, 3500, 9000);
-  const node = document.createElement("div");
-  node.className = `toast ${esc(tone)}`;
-  node.innerHTML = `<span class="toast-icon">${icon(TONE_ICON[tone] || "info")}</span><p>${esc(message)}</p><i class="timer" style="animation-duration:${ms}ms"></i>`;
-  stack.append(node);
-  while (stack.children.length > 4) stack.firstElementChild.remove();
-  dismiss(node, ms);
+// Centre-screen announcements (/announcement). One shows at a time; the rest queue behind it.
+const announcementQueue = [];
+let announcementActive = false;
+function announce(message, tone) {
+  announcementQueue.push({ message: String(message || ""), tone: ["warning", "urgent"].includes(tone) ? tone : "info" });
+  if (!announcementActive) nextAnnouncement();
+}
+function nextAnnouncement() {
+  const item = announcementQueue.shift();
+  const root = $("#announcement");
+  if (!item) {
+    announcementActive = false;
+    root.classList.add("hidden");
+    return;
+  }
+  announcementActive = true;
+  const ms = clamp(6000 + item.message.length * 55, 8000, 20000);
+  root.className = `announcement ${item.tone}`;
+  root.innerHTML = `<div class="announcement-card"><small>${item.tone === "urgent" ? "Urgent announcement" : item.tone === "warning" ? "Important announcement" : "Server announcement"}</small><p>${esc(item.message)}</p><i class="timer" style="animation-duration:${ms}ms"></i></div>`;
+  setTimeout(() => {
+    root.classList.add("leaving");
+    setTimeout(nextAnnouncement, 450);
+  }, ms);
 }
 
 const DISPATCH_KIND = {
@@ -479,37 +579,6 @@ function dispatch(data) {
 /* ───────── Menu views ───────── */
 const head = (title, sub, chip) =>
   `<div class="view-head"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ""}</div>${chip ? `<span class="chip">${chip}</span>` : ""}</div>`;
-
-function renderTags(data) {
-  const selected = data.selected || {};
-  const find = (kind) => (data[kind] || []).find((t) => Number(t.id) === Number(selected[kind]));
-  const h = find("head");
-  const g = find("gang");
-  const c = find("chat");
-  const id = data.serverId ?? lastHud.id ?? 0;
-  const darkCls = (tag) => (tag && hexLuma(tag.color) < 0.24 ? "dark" : "");
-  const preview = `
-    <div class="tag-stage">
-      <span class="stage-label">Preview</span>
-      <div class="gta-head">${h ? `<span class="${darkCls(h)}" style="color:${safeColor(h.color)}">${esc(h.label)}</span> ` : ""}<span class="gid">[${Number(id) || 0}]</span></div>
-      ${g ? `<div class="gta-sub ${darkCls(g)}" style="color:${safeColor(g.color)}">${esc(g.label)}</div>` : ""}
-      <div class="chat-tag-preview"><span>CHAT</span> ${c ? `<b style="color:${safeColor(c.color)}">${esc(c.label)}</b>` : "<em>No additional tag</em>"} <strong>${esc(lastHud.name || "Your Name")}</strong></div>
-    </div>`;
-  const list = (kind, title, rows) => {
-    const sel = Number(selected[kind]) || 0;
-    const row = (tid, label, color, orgName) => `
-      <button class="tag-row${sel === tid ? " selected" : ""}" data-tag-kind="${kind}" data-tag-id="${tid}">
-        <span class="swatch${tid ? "" : " none"}" style="--c:${safeColor(color)}"></span>
-        <span class="name${tid ? (hexLuma(color) < 0.24 ? " dark" : "") : " muted"}" ${tid ? `style="color:${safeColor(color)}"` : ""}>${esc(label)}</span>
-        ${orgName ? `<span class="duty-lock">${esc(orgName)} duty</span>` : ""}
-        <span class="tick">${icon("check")}</span>
-      </button>`;
-    return `<div><div class="eyebrow">${title}</div><div class="tag-list">${row(0, "None")}${(rows || []).map((t) => row(Number(t.id), t.label, t.color, t.org_name)).join("")}</div></div>`;
-  };
-  const total = (data.head || []).length + (data.gang || []).length + (data.chat || []).length;
-  return `${head("Tag wardrobe", "Choose overhead tags and an optional extra tag beside your name in chat.", `<b>${total}</b> choices`)}${preview}
-    <div class="tag-columns">${list("head", "Headtag", data.head)}${list("gang", "Gang tag", data.gang)}${list("chat", "Additional chat tag", data.chat)}</div>`;
-}
 
 function renderVehicles(data) {
   const cats = data.categories || [];
@@ -557,95 +626,11 @@ const ACTION_META = {
   w_plate: ["Vehicle", "search"],
   w_impound: ["Vehicle", "car", "red"],
   w_work: ["Business", "clock"],
-  w_hub: ["Business", "building"],
+  w_facilities: ["Facilities", "building"],
   w_serve: ["Business", "users"],
   w_door: ["Property", "door"],
   w_breach: ["Property", "alert", "red"],
 };
-function renderThirdEye(data) {
-  thirdEyePayload = data || {};
-  setText("#third-eye-name", Number(data?.target) > 0 ? `${data?.name || "Player"} [${Number(data.target)}]` : (data?.name || "Interact"));
-  const rows = data?.actions || [];
-  const groups = new Map();
-  rows.forEach((action) => {
-    const [group = "Other"] = ACTION_META[action.id] || [];
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(action);
-  });
-  let hotkey = 0;
-  $("#third-eye-actions").innerHTML = rows.length
-    ? [...groups].map(([group, actions]) => `<div class="third-eye-label">${esc(group)}</div>${actions.map((action) => {
-        const [, glyph = "info", tone] = ACTION_META[action.id] || [];
-        hotkey += 1;
-        return `<button class="third-eye-action${tone ? ` tone-${tone}` : ""}" data-third-eye-action="${esc(action.id)}" data-hotkey="${hotkey <= 9 ? hotkey : ""}"><span class="ic" data-icon="${glyph}"></span><strong>${esc(action.label)}</strong>${hotkey <= 9 ? `<kbd>${hotkey}</kbd>` : ""}</button>`;
-      }).join("")}`).join("")
-    : '<div class="third-eye-empty">No interactions are available for this player.</div>';
-  hydrate($("#third-eye-actions"));
-}
-
-/* ───────── /duty organization picker ───────── */
-const DUTY_TYPES = {
-  leo: "Law enforcement",
-  fire: "Fire & EMS",
-  government: "Government",
-  gang: "Gangs",
-  business: "Businesses",
-  other: "Other",
-};
-
-function setDutyList(open) {
-  $("#duty-list").classList.toggle("hidden", !open);
-  $("#duty-toggle").setAttribute("aria-expanded", open ? "true" : "false");
-  $(".duty-select").classList.toggle("open", open);
-}
-
-function renderDuty(data) {
-  dutyPayload = data || {};
-  dutyChoice = null;
-  const orgs = Array.isArray(dutyPayload.orgs) ? dutyPayload.orgs : [];
-  const groups = new Map();
-  orgs.forEach((org) => {
-    const key = DUTY_TYPES[org.type] ? org.type : "other";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(org);
-  });
-  $("#duty-list").innerHTML = Object.keys(DUTY_TYPES)
-    .filter((key) => groups.has(key))
-    .map((key) => `<div class="duty-group">${esc(DUTY_TYPES[key])}</div>${groups.get(key).map((org) => `
-      <button class="duty-option${org.active ? " is-active" : ""}" type="button" role="option" data-duty-slug="${esc(org.slug)}" style="--c:${safeColor(org.color)}">
-        <i class="duty-dot"></i><strong>${esc(org.name)}</strong>${org.active ? "<em>On duty</em>" : org.tag ? `<small>${esc(org.tag)}</small>` : ""}
-      </button>`).join("")}`)
-    .join("");
-  const current = orgs.find((org) => org.active);
-  $("#duty-title").textContent = current ? "Switch duty" : "Clock in";
-  $("#duty-off").classList.toggle("hidden", !current);
-  $("#duty-status").textContent = current ? `Currently on duty as ${current.name}. Pick another organization to switch.` : "";
-  $("#duty-confirm").disabled = true;
-  $("#duty-confirm").textContent = current ? "Switch" : "Clock in";
-  setText("#duty-value", orgs.length ? "Select an organization" : "No organizations");
-  $("#duty-value").classList.remove("chosen");
-  setDutyList(orgs.length > 0);
-}
-
-function chooseDutyOrg(slug) {
-  const org = (dutyPayload?.orgs || []).find((entry) => entry.slug === slug);
-  if (!org || org.active) return;
-  dutyChoice = slug;
-  setText("#duty-value", org.name);
-  $("#duty-value").classList.add("chosen");
-  $$("#duty-list .duty-option").forEach((button) => button.classList.toggle("is-picked", button.dataset.dutySlug === slug));
-  $("#duty-confirm").disabled = false;
-  setDutyList(false);
-  $("#duty-confirm").focus();
-}
-
-function closeDutyPicker() {
-  $("#duty").classList.add("hidden");
-  $("#duty").setAttribute("aria-hidden", "true");
-  dutyPayload = null;
-  dutyChoice = null;
-}
-
 function renderInteractions(data) {
   const rows = data.actions || [];
   if (!rows.length)
@@ -695,67 +680,139 @@ function renderRadio(data) {
   </div>`;
 }
 
-function characterForm() {
-  return `<form id="character-form" class="character-form">
-    <div class="eyebrow">New character</div>
-    <div class="form-grid">
-      <label>First name<input name="firstName" maxlength="40" required autocomplete="off"></label>
-      <label>Last name<input name="lastName" maxlength="40" required autocomplete="off"></label>
-      <label>Date of birth<input name="dateOfBirth" type="date" required></label>
-      <label>Gender<input name="gender" maxlength="24" required autocomplete="off"></label>
-    </div>
-    <label>Biography<textarea name="backstory" maxlength="500" rows="3" placeholder="Optional - a few lines about who they are"></textarea></label>
-    <div class="form-foot"><button type="submit" class="primary-action">${icon("plus")}Create character</button></div>
-  </form>`;
+function onboardingSidebar(body) {
+  return `<aside class="ob-side">
+    <div class="ob-brand"><img src="fbrp-logo.png" alt=""><strong>FBRP</strong></div>
+    <div class="ob-server">FLORIDA BAY ROLEPLAY</div>
+    ${body}
+  </aside>`;
 }
 
+function characterForm(rows, slots, nationalities = [], defaultNationality = "") {
+  const genders = [["Male", "mars"], ["Female", "venus"], ["Unspecified", "circle"]];
+  return `<div class="ob-modal-backdrop"><form id="character-form" class="character-form ob-modal">
+    <header><h3>Character Register</h3><button type="button" class="ob-close" data-cancel-character aria-label="Close">×</button></header>
+    <div class="ob-modal-body">
+      <h4>Character information</h4>
+      <label class="ob-field"><small>First Name *</small><input name="firstName" maxlength="40" required autocomplete="off"></label>
+      <p class="ob-hint">Enter a realistic first name. No celebrity or meme names.</p>
+      <label class="ob-field"><small>Last Name *</small><input name="lastName" maxlength="40" required autocomplete="off"></label>
+      <p class="ob-hint">Enter a realistic last name. No celebrity or meme names.</p>
+      <h4>Identity</h4>
+      <div class="ob-gender" role="radiogroup" aria-label="Gender">
+        ${genders.map(([value], i) => `<label><input type="radio" name="gender" value="${value}"${i === 0 ? " checked" : ""}><span>${value}</span></label>`).join("")}
+      </div>
+      <p class="ob-hint">Choose how your character identifies.</p>
+      <label class="ob-field"><small>Date of Birth *</small><input name="dateOfBirth" type="date" required></label>
+      <p class="ob-hint">Age must be 18-100 years.</p>
+      <div class="ob-row">
+        <label class="ob-field"><small>Nationality</small><input name="nationality" list="nationality-list" maxlength="40" value="${esc(defaultNationality || "")}" autocomplete="off"></label>
+        <label class="ob-field"><small>Height (cm)</small><input name="heightCm" type="number" min="120" max="230" inputmode="numeric" placeholder="175"></label>
+      </div>
+      <datalist id="nationality-list">${nationalities.map((n) => `<option value="${esc(n)}">`).join("")}</datalist>
+      <p class="ob-hint">Nationality and height appear on your State ID and in the police MDT.</p>
+      <label class="ob-field"><small>Background (optional)</small><textarea name="backstory" maxlength="500" rows="3" placeholder="A short note about their history, work, or reason for being in Florida Bay"></textarea></label>
+    </div>
+    <footer class="ob-modal-foot"><button type="submit" class="ob-primary">✓ Create Character</button><button type="button" class="ob-secondary" data-cancel-character>✕ Cancel</button></footer>
+  </form></div>`;
+}
+
+function formatPlaytime(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+function ageFromDob(dob) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob || ""));
+  if (!match) return null;
+  const now = new Date();
+  let age = now.getFullYear() - Number(match[1]);
+  if (now.getMonth() + 1 < Number(match[2]) || (now.getMonth() + 1 === Number(match[2]) && now.getDate() < Number(match[3]))) age -= 1;
+  return age;
+}
+
+// Character select: one fixed row per slot (filled, or a "create new" tile), then
+// a statistics panel for the picked character with the State ID the MDT searches by.
 function renderCharacters(data) {
   const rows = data.characters || [];
   const slots = Number(data.maxSlots) || 3;
   if (!rows.length) ui.showCharacterForm = true;
-  const cards = [];
-  for (let i = 0; i < slots; i++) {
-    const c = rows[i];
-    if (c) {
-      const initials = `${esc(c.first_name?.[0] || "")}${esc(c.last_name?.[0] || "")}`;
-      cards.push(`<button class="slot" data-character-id="${Number(c.id)}">
-        <span class="num">Slot ${i + 1}</span>
-        <span class="monogram">${initials}</span>
-        <h3>${esc(c.first_name)} ${esc(c.last_name)}</h3>
-        <div class="facts"><span>${esc(c.date_of_birth)}</span><span>${esc(c.gender)}</span></div>
-        <p>${esc(c.backstory || "No biography yet.")}</p>
-        <span class="play">Play ${icon("seat")}</span>
-      </button>`);
-    } else {
-      cards.push(`<button class="slot empty-slot${ui.showCharacterForm ? " active" : ""}" data-new-character>
-        <span class="plus" data-icon="plus"></span><b>New character</b><span class="num">Slot ${i + 1}</span>
-      </button>`);
-    }
+  if (!ui.showCharacterForm && !rows.some((c) => Number(c.id) === Number(ui.selectedCharacterId))) {
+    ui.selectedCharacterId = rows[0]?.id ?? null;
   }
-  return `${head("Select character", "Pick who you're playing as. Change your look with vMenu after you spawn.", `<b>${rows.length}</b> / ${slots} slots`)}
-    <div class="slots">${cards.join("")}</div>
-    ${rows.length < slots && ui.showCharacterForm ? characterForm() : ""}`;
+  const selected = rows.find((c) => Number(c.id) === Number(ui.selectedCharacterId)) || rows[0];
+  const showForm = ui.showCharacterForm && rows.length < slots;
+  const cards = Array.from({ length: slots }, (_, i) => {
+    const c = rows[i];
+    if (!c) {
+      return `<button type="button" class="slot slot-new" data-new-character><span class="monogram">+</span>
+        <span class="slot-copy"><strong>Create new character</strong><small>Slot ${i + 1}</small></span></button>`;
+    }
+    const initials = `${esc(c.first_name?.[0] || "")}${esc(c.last_name?.[0] || "")}`;
+    const active = !showForm && Number(c.id) === Number(selected?.id);
+    return `<button type="button" class="slot${active ? " active" : ""}" data-character-preview="${Number(c.id)}">
+      <span class="monogram">${initials}</span>
+      <span class="slot-copy"><strong>${esc(c.first_name)} ${esc(c.last_name)}</strong><span>${esc(c.citizen || "")} · ${esc(c.gender)}</span><small>Slot ${i + 1}</small></span>
+    </button>`;
+  }).join("");
+  const age = ageFromDob(selected?.date_of_birth);
+  const detail = selected
+    ? `<section class="character-detail">
+        <small>Hello, ${esc(selected.first_name)} — select a character</small>
+        <div class="character-monogram">${esc(selected.first_name?.[0] || "")}${esc(selected.last_name?.[0] || "")}</div>
+        <h3>${esc(selected.first_name)} ${esc(selected.last_name)}</h3>
+        <h4 class="character-stats-title">Character Statistics</h4>
+        <dl>
+          <div><dt>State ID (MDT)</dt><dd>${esc(selected.citizen || "—")}</dd></div>
+          <div><dt>Age</dt><dd>${age === null ? "—" : `${age} · ${esc(selected.date_of_birth)}`}</dd></div>
+          <div><dt>Nationality</dt><dd>${esc(selected.nationality || "—")}</dd></div>
+          <div><dt>Gender</dt><dd>${esc(selected.gender)}</dd></div>
+          <div><dt>Height</dt><dd>${selected.height_cm ? `${Number(selected.height_cm)} cm` : "—"}</dd></div>
+          <div><dt>Phone</dt><dd>${esc(selected.phone || "—")}</dd></div>
+          <div><dt>Time played</dt><dd>${formatPlaytime(data.playtime)}</dd></div>
+        </dl>
+        <p>${esc(selected.backstory || "No background has been written for this character.")}</p>
+        <button type="button" class="character-continue" data-character-id="${Number(selected.id)}">Play <span>→</span></button>
+        <em>City awaits you! You will choose where to spawn next.</em>
+      </section>`
+    : `<section class="character-detail"><h3>Create your first character</h3></section>`;
+  return `<div class="onboarding character-select">
+    ${onboardingSidebar(`<div class="ob-card"><h3>Character Selection</h3><p>Please select a character</p><span class="ob-chip">Characters (${rows.length}/${slots})</span><nav class="slots" aria-label="Characters">${cards}</nav></div>`)}
+    <main class="ob-main">${showForm ? "" : detail}</main>
+    ${showForm ? characterForm(rows, slots, data.nationalities || [], data.defaultNationality || "") : ""}
+  </div>`;
 }
 
-const MAP = { minX: -3800, maxX: 4400, minY: -4000, maxY: 8000 };
 function renderSpawns(data) {
   const rows = data.spawns || [];
+  if (!rows.some((s) => String(s.id) === String(ui.selectedSpawnId))) ui.selectedSpawnId = rows[0]?.id ?? null;
+  const selected = rows.find((s) => String(s.id) === String(ui.selectedSpawnId)) || rows[0];
   const cards = rows
     .map(
-      (s) => `<button class="spawn-card" data-spawn-id="${esc(s.id)}" data-x="${Number(s.x)}" data-y="${Number(s.y)}" data-z="${Number(s.z)}" data-h="${Number(s.h || 0)}">
-        <span class="pin" data-icon="pin"></span><span class="txt"><strong>${esc(s.label)}</strong><small>${esc(s.description || "")}</small></span>
+      (s, index) => `<button type="button" class="spawn-card${String(s.id) === String(selected?.id) ? " active" : ""}${s.allowed === false ? " aop-blocked" : ""}" data-spawn-preview="${esc(s.id)}" style="--hue:${(index * 47 + 205) % 360}">
+        <span class="spawn-number">${String(index + 1).padStart(2, "0")}</span><span class="txt"><strong>${esc(s.label)}</strong><small>${esc(s.description || "Choose this location")}</small></span>
+        ${s.allowed === false ? '<span class="spawn-aop-tag off">Outside AOP</span>' : data.aop ? '<span class="spawn-aop-tag">In AOP</span>' : ""}
       </button>`,
     )
     .join("");
-  const dots = rows
-    .map((s) => {
-      const x = clamp((Number(s.x) - MAP.minX) / (MAP.maxX - MAP.minX), 0.04, 0.96);
-      const y = clamp(1 - (Number(s.y) - MAP.minY) / (MAP.maxY - MAP.minY), 0.04, 0.96);
-      return `<i class="dot${x > 0.6 ? " right" : ""}" data-dot="${esc(s.id)}" style="left:${(x * 100).toFixed(1)}%;top:${(y * 100).toFixed(1)}%"><span>${esc(s.label)}</span></i>`;
-    })
-    .join("");
-  return `${head(`Welcome, ${esc(data.character?.name || "")}`, "Where do you want to start?", `<b>${rows.length}</b> locations`)}
-    <div class="spawn-layout"><div class="spawn-list">${cards}</div><div class="spawn-map"><span class="map-label">San Andreas</span>${dots}</div></div>`;
+  const blocked = selected && selected.allowed === false;
+  const spawnAction = blocked
+    ? `<div class="spawn-confirm aop-blocked"><span>Area of Play: ${esc(data.aop || "")}</span><strong>The place you selected you can not spawn to due to AOP location.</strong></div>`
+    : selected ? `<button type="button" class="spawn-confirm" data-spawn-id="${esc(selected.id)}" data-x="${Number(selected.x)}" data-y="${Number(selected.y)}" data-z="${Number(selected.z)}" data-h="${Number(selected.h || 0)}"><span>Spawn at</span><strong>${esc(selected.label)}</strong><em>→</em></button>` : "";
+  const name = esc(data.character?.name || "Your character");
+  return `<div class="onboarding spawn-select">
+    ${onboardingSidebar(`<div class="ob-card"><h3>${name}</h3><p>Spawning as this character</p><span class="ob-chip">${rows.length} locations</span></div>`)}
+    <main class="ob-main">
+      <ol class="ob-steps"><li class="done"><i>✓</i>Choose character</li><li class="now"><i>2</i>Choose spawn</li><li><i>3</i>Spawn</li></ol>
+      <div class="ob-spawning">SPAWNING AS: <b>${name}</b></div>
+      ${data.aop ? `<div class="spawn-aop-banner"><small>Current Area of Play</small><strong>${esc(data.aop)}</strong><span>${rows.filter((r) => r.allowed !== false).length} of ${rows.length} spawns are inside the AOP</span></div>` : ""}
+      <nav class="spawn-list" aria-label="Spawn locations">${cards}</nav>
+      <section class="spawn-detail"><div class="spawn-selected"><small>Selected location</small><strong>${esc(selected?.label || "None")}</strong><span>${esc(selected?.description || "")}</span></div>${spawnAction}</section>
+      <div class="ob-banner">Now choose where to spawn.</div>
+    </main>
+  </div>`;
 }
 
 function renderControl(data) {
@@ -886,10 +943,9 @@ function renderHub(data) {
   ].join("");
   const tools = [
     hubCard("vehicles", "car", "Personal vehicles", "Spawn your personal vehicles."),
-    hubCard("carcontrols", "gauge", "Vehicle controls", "Engine, locks, doors, cruise, and seatbelt."),
+    hubCard("vehcontrol", "gauge", "Vehicle controls", "Engine, doors, windows, seats, headlights, high beams, and dome light."),
     ...(data.carRadioAccess ? [hubCard("carradio", "music", "Vehicle sound system", "Play synchronized YouTube audio inside and around your vehicle.")] : []),
     hubCard("radio", "radio", "Radio network", "Join public or organization frequencies."),
-    hubCard("org", "building", "Organization hub", "Duty work, properties, deliveries, armory, and wardrobe."),
     hubCard("tags", "shirt", "Tag wardrobe", "Choose your granted headtag and organization tag."),
     hubCard("mdt", "file", "Police MDT", "Dispatch, reports, warrants, citations, and corrections.", "DUTY"),
   ].join("");
@@ -1075,12 +1131,71 @@ function renderPastimes(data) {
     ${tabs}${(views[tab] || ptOverview)(data)}`;
 }
 
+function hudSelect(setting, label, options) {
+  return `<label class="hud-setting-field"><span>${esc(label)}</span><select data-hud-setting="${esc(setting)}">${options.map(([value, text]) =>
+    `<option value="${esc(value)}"${hudSettings[setting] === value ? " selected" : ""}>${esc(text)}</option>`).join("")}</select></label>`;
+}
+
+function hudToggle(setting, label, detail) {
+  return `<label class="hud-toggle"><span><b>${esc(label)}</b><small>${esc(detail)}</small></span><input type="checkbox" data-hud-setting="${esc(setting)}"${hudSettings[setting] ? " checked" : ""}><i></i></label>`;
+}
+
+function renderHudSettings() {
+  const themes = [
+    ["bay", "Bay Night", "#22d3ee", "#38bdf8"],
+    ["coastal", "Coastal", "#3fe3d2", "#4fe08c"],
+    ["blue", "Atlantic", "#6fb6ff", "#67e2ff"],
+    ["redline", "Redline", "#ff6b57", "#ffb547"],
+    ["violet", "Nightfall", "#c48bff", "#ff77b7"],
+    ["mono", "Monochrome", "#eef3f5", "#9ba8af"],
+  ];
+  return `${head("HUD customizer", "Every change previews immediately and is saved on this device.", `<kbd>/hud</kbd> quick toggle`)}
+    <section class="hud-settings-grid">
+      <div class="hud-settings-section hud-theme-section">
+        <div class="eyebrow">Color theme</div>
+        <div class="hud-theme-grid">${themes.map(([value, label, first, second]) => `<label class="hud-theme${hudSettings.theme === value ? " selected" : ""}">
+          <input type="radio" name="hud-theme" value="${value}" data-hud-setting="theme"${hudSettings.theme === value ? " checked" : ""}>
+          <i style="--theme-a:${first};--theme-b:${second}"></i><span>${label}</span>
+        </label>`).join("")}</div>
+      </div>
+      <div class="hud-settings-section">
+        <div class="eyebrow">Style & speed</div>
+        <div class="hud-setting-row">
+          ${hudSelect("font", "HUD font", [["poppins", "Poppins"], ["barlow", "Barlow"], ["condensed", "Condensed"], ["system", "System"]])}
+          ${hudSelect("speedUnit", "Vehicle speed", [["mph", "MPH"], ["kmh", "KM/H"]])}
+        </div>
+        <label class="hud-scale"><span>HUD size <b id="hud-scale-value">${hudSettings.scale}%</b></span><input type="range" min="75" max="130" step="5" value="${hudSettings.scale}" data-hud-setting="scale"></label>
+      </div>
+      <div class="hud-settings-section hud-placement-section">
+        <div class="eyebrow">Placement</div>
+        <div class="hud-setting-row">
+          ${hudSelect("compassPosition", "Compass", [["top-center", "Top center"], ["top-left", "Top left"], ["top-right", "Top right"]])}
+          ${hudSelect("statusPosition", "Server information", [["top-right", "Top right"], ["top-left", "Top left"], ["bottom-right", "Bottom right"]])}
+          ${hudSelect("vitalsPosition", "Vitals & voice", [["radar", "Beside radar"], ["bottom-left", "Bottom left"], ["bottom-center", "Bottom center"]])}
+          ${hudSelect("vehiclePosition", "Vehicle cluster", [["bottom-right", "Bottom right"], ["bottom-left", "Bottom left"], ["bottom-center", "Bottom center"]])}
+        </div>
+      </div>
+      <div class="hud-settings-section hud-visibility-section">
+        <div class="eyebrow">Visibility</div>
+        <div class="hud-toggle-grid">
+          ${hudToggle("enabled", "Entire HUD", "Master switch for HUD and minimap")}
+          ${hudToggle("showCompass", "Compass & streets", "Direction and current location")}
+          ${hudToggle("showStatus", "Server information", "AOP, priority, time and duty")}
+          ${hudToggle("showVitals", "Health & armour", "Custom circular player vitals")}
+          ${hudToggle("showPlayer", "ID & voice", "Player ID, proximity and radio")}
+          ${hudToggle("showVehicle", "Vehicle cluster", "Speed, fuel, engine and seatbelt")}
+          ${hudToggle("showMinimap", "Minimap", "GTA map without native health bars")}
+        </div>
+      </div>
+    </section>
+    <footer class="hud-settings-footer"><span>Settings save automatically.</span><button type="button" data-hud-reset>Restore defaults</button></footer>`;
+}
+
 function renderMenu() {
   const titles = {
     hub: "Interaction Menu",
     activities: "Activities",
     pastimes: "Pastimes",
-    tags: "Tags",
     vehicles: "Garage",
     interactions: "Interact",
     radio: "Radio",
@@ -1093,14 +1208,13 @@ function renderMenu() {
     passport: "Coastal Passport",
     scenes: "Scene Hub",
     prisonjobs: "Prison work",
-    orghub: "Organization",
+    hudsettings: "HUD customizer",
   };
   setText("#menu-title", titles[currentView] || "Menu");
   const renderers = {
     hub: renderHub,
     activities: renderActivities,
     pastimes: renderPastimes,
-    tags: renderTags,
     vehicles: renderVehicles,
     interactions: renderInteractions,
     radio: renderRadio,
@@ -1113,13 +1227,16 @@ function renderMenu() {
     passport: renderPassport,
     scenes: renderScenes,
     prisonjobs: renderPrisonJobs,
-    orghub: renderOrgHub,
+    hudsettings: renderHudSettings,
   };
   const shell = $(".menu-shell");
-  shell.classList.toggle("wide", ["mdt", "orghub", "citizen"].includes(currentView));
+  shell.classList.toggle("wide", ["mdt", "citizen"].includes(currentView));
   shell.classList.toggle("cad-mode", currentView === "mdt");
+  shell.classList.toggle("onboarding-mode", ["characters", "spawns"].includes(currentView));
   shell.classList.toggle("radio-mode", currentView === "radio");
+  shell.classList.toggle("hud-settings-shell", currentView === "hudsettings");
   $("#menu").classList.toggle("radio-mode", currentView === "radio");
+  $("#menu").classList.toggle("hud-settings-mode", currentView === "hudsettings");
   const content = $("#menu-content");
   const scroll = content.scrollTop;
   // The radio refreshes itself every couple of seconds. Rebuilding its HTML replays the
@@ -1282,8 +1399,15 @@ function plateFlags(r) {
   if (r.stolen) flags.push(["bad", "Reported stolen"]);
   if (r.impounded) flags.push(["warn", "Impound record"]);
   if (r.warrants > 0) flags.push(["bad", `Owner: ${r.warrants} active warrant${r.warrants > 1 ? "s" : ""}`]);
+  if (r.license === "suspended" || r.license === "revoked") flags.push(["bad", `Owner driver license ${r.license}`]);
+  (r.flags || []).forEach((f) => flags.push(["bad", `Owner flag: ${f}`]));
   (r.bolos || []).forEach((b) => flags.push(["bad", `BOLO #${b.id}: ${b.description}`]));
   return flags;
+}
+/* Wraith ARS 2X plate reader reads the server matched against the MDT. */
+function alprRows(reads, limit) {
+  if (!reads.length) return '<div class="empty compact">No plate reader reads yet. Turn on the radar (F5 in an LEO vehicle); flagged plates lock automatically.</div>';
+  return reads.slice(0, limit).map((a) => `<button class="mdt-person plate-hit" data-mdt-plate-open="${esc(a.plate)}"><span class="plate-tag">${esc(a.plate)}</span><div><b>${esc(a.registered ? a.model || "Vehicle" : "No registration on file")}</b><small>${esc(a.cam === "rear" ? "Rear" : "Front")} camera${a.locked ? " · locked" : ""} · ${ago(a.at)}${a.registered ? ` · ${esc(a.owner || "unknown owner")}` : ""}</small>${(a.hits || []).length ? `<div class="flag-chips">${a.hits.map((h) => `<span class="fchip t-bad">${esc(h)}</span>`).join("")}</div>` : ""}</div></button>`).join("");
 }
 function plateCard(r) {
   const flags = plateFlags(r);
@@ -1414,34 +1538,6 @@ const CALL_TONE = { "911": "panic", PANIC: "panic", EMS: "ems", PRISON: "panic",
 const mdtSend = (kind, body = {}) => post("mdtAction", { kind, ...body });
 const initials2 = (name) => esc(String(name || "?").split(/\s+/).map((p) => p[0] || "").join("").slice(0, 2).toUpperCase());
 
-// San Andreas silhouette in world coordinates, projected onto the CAD map.
-const SA_OUTLINE = [[1250, -3400], [300, -3520], [-900, -3600], [-1900, -3350], [-2350, -2500], [-1950, -1350], [-2150, -700], [-2750, 50], [-3300, 1000], [-3250, 2100], [-2950, 3200], [-2500, 4100], [-1600, 5100], [-850, 6050], [-300, 6750], [500, 7150], [1550, 6750], [2600, 6350], [3400, 5550], [3750, 4500], [3650, 3500], [3250, 2450], [2950, 1500], [2650, 450], [2450, -550], [1900, -1800], [1550, -2650]];
-const SA_LABELS = [["Los Santos", -150, -1000], ["Sandy Shores", 1850, 3650], ["Paleto Bay", -250, 6350], ["Grapeseed", 1900, 4900], ["Fort Zancudo", -2250, 3100], ["Mt Chiliad", 500, 5550], ["Alamo Sea", 1100, 4150], ["Bolingbroke", 1690, 2400], ["Vinewood Hills", 300, 900]];
-const MAP_BOUNDS = { minX: -3800, maxX: 4400, minY: -4000, maxY: 8000 };
-const project = (x, y) => [((Number(x) - MAP_BOUNDS.minX) / (MAP_BOUNDS.maxX - MAP_BOUNDS.minX)) * 100, (1 - (Number(y) - MAP_BOUNDS.minY) / (MAP_BOUNDS.maxY - MAP_BOUNDS.minY)) * 100];
-
-function cadMap(d, big) {
-  const path = SA_OUTLINE.map(([x, y], i) => { const [px, py] = project(x, y); return `${i ? "L" : "M"}${(px * 8.2).toFixed(1)} ${(py * 12).toFixed(1)}`; }).join(" ") + "Z";
-  const [ax, ay] = project(1300, 4050);
-  const units = (d.units || []).filter((u) => Number.isFinite(Number(u.x)) && u.x !== null).map((u) => {
-    const [x, y] = project(u.x, u.y);
-    const me = Number(u.id) === Number(d.me?.id);
-    return `<i class="map-unit ${u.kind}${u.downed ? " down" : ""}${me ? " me" : ""} st-${esc(u.status)}" style="left:${clamp(x, 1, 99)}%;top:${clamp(y, 1, 99)}%"><span>${esc(u.callsign || u.name)}</span></i>`;
-  }).join("");
-  const calls = (d.calls || []).filter((c) => Number.isFinite(Number(c.x)) && c.x !== null).map((c) => {
-    const [x, y] = project(c.x, c.y);
-    return `<i class="map-call k-${esc(String(c.kind).toLowerCase())}" style="left:${clamp(x, 1, 99)}%;top:${clamp(y, 1, 99)}%" data-mdt-call-gps="${Number(c.id)}" title="#${Number(c.id)} ${esc(c.message)}"><span>#${Number(c.id)}</span></i>`;
-  }).join("");
-  const labels = SA_LABELS.map(([label, x, y]) => { const [px, py] = project(x, y); return `<em style="left:${px}%;top:${py}%">${label}</em>`; }).join("");
-  return `<div class="cad-map${big ? " big" : ""}">
-    <svg viewBox="0 0 820 1200" preserveAspectRatio="none" aria-hidden="true"><defs><pattern id="cadgrid" width="41" height="60" patternUnits="userSpaceOnUse"><path d="M41 0H0V60" fill="none" stroke="rgba(124,243,230,.07)" stroke-width="1"/></pattern></defs>
-      <rect width="820" height="1200" fill="url(#cadgrid)"/><path class="land" d="${path}"/><ellipse class="lake" cx="${(ax * 8.2).toFixed(1)}" cy="${(ay * 12).toFixed(1)}" rx="62" ry="30"/></svg>
-    ${labels}${calls}${units}
-    <div class="map-legend"><span><i class="map-unit police"></i>LEO</span><span><i class="map-unit ems"></i>EMS</span><span><i class="map-call"></i>Call</span></div>
-    <div class="map-scan"></div>
-  </div>`;
-}
-
 function mdtInit(payload) {
   const form = payload.profile ? payload.form || null : null;
   ui.mdt = {
@@ -1476,7 +1572,7 @@ const statusMeta = (id) => (currentPayload.statuses || []).find((s) => s.id === 
 const flagMeta = (id) => (currentPayload.flags || []).find((f) => f.id === id) || { id, label: id, tone: "warn" };
 
 function mdtStat(label, value, tone, ic) {
-  return `<div class="cad-stat${tone ? ` tone-${tone}` : ""}"><span class="cad-stat-ic">${icon(ic || "info")}</span><b>${value}</b><small>${label}</small></div>`;
+  return `<div class="cad-stat${tone ? ` tone-${tone}` : ""}"><small>${label}</small><b>${value}</b></div>`;
 }
 
 function mdtRecordRow(r, withName) {
@@ -1518,22 +1614,22 @@ function mdtDashboard(m) {
   const warrants = d.warrants || [], bolos = d.bolos || [], inmates = d.inmates || [], units = d.units || [], calls = d.calls || [], records = d.records || [], services = d.services || [], seizures = d.seizures || [];
   const st = d.stats || { mine: {} };
   const unassigned = calls.filter((c) => !(c.responders || []).length).length;
-  return `<div class="cad-grid-stats">
+  return `<section class="cad-grid-stats"><header><b>Current operations</b><span>Live department summary</span></header>
       ${mdtStat("Units on duty", units.length, "", "users")}
       ${mdtStat("Active calls", calls.length, calls.length ? "warn" : "", "radio")}
       ${mdtStat("Unassigned", unassigned, unassigned ? "bad" : "", "alert")}
       ${mdtStat("Active warrants", warrants.length, warrants.length ? "bad" : "", "gavel")}
       ${mdtStat("Active BOLOs", bolos.length, bolos.length ? "warn" : "", "search")}
       ${mdtStat("In custody", inmates.filter((i) => i.status === "serving").length + services.length, "", "lock")}
-    </div>
+    </section>
     <div class="cad-two">
-      <section class="mdt-panel"><div class="eyebrow">Live map</div>${cadMap(d, false)}</section>
       <div class="cad-stack">
         <section class="mdt-panel shift"><div class="eyebrow">Your shift today</div>
           <div class="shift-grid"><div><b>${Number(st.mine?.arrests) || 0}</b><small>Arrests</small></div><div><b>${Number(st.mine?.citations) || 0}</b><small>Citations</small></div><div><b>${Number(st.mine?.reports) || 0}</b><small>Reports</small></div></div>
           <small class="tone-dim">Department today: ${Number(st.arrests) || 0} arrests · ${Number(st.citations) || 0} citations · ${Number(st.services) || 0} community service · ${Number(st.reports) || 0} reports</small>
         </section>
         <section class="mdt-panel"><div class="eyebrow">Active calls <a data-mdt-tab="dispatch">Open dispatch →</a></div>${calls.length ? calls.slice(0, 4).map((c) => callCard(c, true)).join("") : '<div class="empty compact">No active calls.</div>'}</section>
+        <section class="mdt-panel"><div class="eyebrow">Plate reader <a data-mdt-tab="plates">All reads →</a></div>${alprRows(d.alpr || [], 4)}</section>
       </div>
     </div>
     <div class="mdt-columns">
@@ -1552,10 +1648,7 @@ function mdtDispatch(m) {
   return `<div class="cad-dispatch">
     <section class="cad-calls"><div class="eyebrow">Call queue · ${calls.length}</div>${calls.length ? calls.map((c) => callCard(c, false)).join("") : '<div class="empty">The call queue is clear. Calls from /911, /311, panic buttons and drop-off tips land here.</div>'}
       ${(d.history || []).length ? `<div class="eyebrow spaced">Recently closed</div>${d.history.map((c) => `<div class="mdt-row"><span class="mdt-kind k-${CALL_TONE[c.kind] || "unit"}">${esc(c.kind)}</span><div><b>#${Number(c.id)} · ${esc(c.message)}</b><small>Closed by ${esc(c.closedBy || "dispatch")} ${ago(c.closedAt)}${c.notes ? ` · ${Number(c.notes)} note${c.notes > 1 ? "s" : ""}` : ""}</small></div><button class="ctl-btn small" data-mdt-call-report="${Number(c.id)}">${icon("plus")} Report</button></div>`).join("")}` : ""}</section>
-    <section class="cad-side">
-      <div class="mdt-panel"><div class="eyebrow">Units · ${units.length}</div>${units.length ? units.map(unitRow).join("") : '<div class="empty compact">Nobody on duty.</div>'}</div>
-      <div class="mdt-panel"><div class="eyebrow">Map</div>${cadMap(d, true)}</div>
-    </section>
+    <section class="cad-side"><div class="mdt-panel"><div class="eyebrow">Units · ${units.length}</div>${units.length ? units.map(unitRow).join("") : '<div class="empty compact">Nobody on duty.</div>'}</div></section>
   </div>`;
 }
 
@@ -1569,12 +1662,13 @@ function mdtSearchView(m) {
 
 function mdtPlatesView(m) {
   const r = m.plate;
-  return `${head("Vehicle lookup", "Run any plate. In a vehicle, /runplate checks the car in front of you.")}
+  return `${head("Vehicle lookup", "Run any plate. In a vehicle, /runplate checks the car in front of you, and the radar's plate reader checks every plate it reads.")}
     <form id="mdt-plate-form" class="mdt-bar"><input name="plate" class="mdt-input plate-input" maxlength="8" placeholder="PLATE" value="${esc(r?.plate || "")}" autocomplete="off"><button class="primary-action" type="submit">${icon("car")}Run plate</button></form>
     ${r ? `<section class="mdt-panel plate-report"><div class="plate-hero"><div class="plate-big">${esc(r.plate)}</div><div>${r.registered ? `<b>${esc(r.model)}</b><small>Registered owner: ${r.ownerId ? `<a data-mdt-profile="${Number(r.ownerId)}">${esc(r.owner)}</a>` : esc(r.owner)}</small>${r.license && r.license !== "none" ? `<small>Owner driver license: <b class="tone-${r.license === "valid" ? "ok" : "bad"}">${esc(r.license)}</b></small>` : ""}` : "<b>No registration on file</b>"}</div></div>
       ${plateFlags(r).map(([t, f]) => `<div class="flag ${t}">${esc(f)}</div>`).join("") || '<div class="flag ok">No flags on this plate</div>'}
       ${r.registered ? `<div class="form-foot left">${r.stolen ? `<button class="ctl-btn" data-mdt-vehicle="recovered" data-plate="${esc(r.plate)}">${icon("check")} Mark recovered</button>` : `<button class="ctl-btn" data-mdt-vehicle="stolen" data-plate="${esc(r.plate)}">${icon("alert")} Flag stolen</button>`}${r.impounded ? `<button class="ctl-btn" data-mdt-vehicle="release" data-plate="${esc(r.plate)}">${icon("unlock")} Release impound</button>` : ""}<button class="ctl-btn" data-mdt-plate-bolo="${esc(r.plate)}">${icon("search")} Issue BOLO</button></div>` : ""}
-    </section>` : ""}`;
+    </section>` : ""}
+    <section class="mdt-panel"><div class="eyebrow">Your plate reader reads</div>${alprRows(m.dashboard?.alpr || [], 12)}</section>`;
 }
 
 function mdtWarrantsView(m) {
@@ -1757,9 +1851,9 @@ function cadHeader(m) {
   const unit = me.unit || {};
   const statuses = currentPayload.statuses || [];
   return `<header class="cad-top">
-    <div class="cad-brand"><span class="cad-crest">${icon("shield")}</span><div><small>${esc(currentPayload.department || "Florida Bay Police")}</small><b>Computer aided dispatch</b></div></div>
-    <div class="cad-unit">${m.callsignEdit ? `<form id="mdt-callsign-form"><input name="callsign" class="mdt-input small" maxlength="12" value="${esc(unit.callsign || "")}" placeholder="1-ADAM-12" autofocus></form>` : `<button class="cad-sign" data-mdt-callsign>${esc(unit.callsign || "SET CALLSIGN")}</button>`}<span>${esc(currentPayload.officer || "Officer")}</span></div>
-    <div class="cad-status">${statuses.map((s) => `<button class="tone-${esc(s.tone)}${unit.status === s.id ? " on" : ""}" data-mdt-status="${esc(s.id)}" title="${esc(s.label)}">${esc(s.short)}</button>`).join("")}</div>
+    <div class="cad-brand"><span class="cad-crest">${icon("shield")}</span><div><small>${esc(currentPayload.department || "Florida Bay Police")}</small><b>Mobile Data Terminal</b></div></div>
+    <div class="cad-unit"><span>Signed in as ${esc(currentPayload.officer || "Officer")}</span>${m.callsignEdit ? `<form id="mdt-callsign-form"><input name="callsign" class="mdt-input small" maxlength="12" value="${esc(unit.callsign || "")}" placeholder="1-ADAM-12" autofocus></form>` : `<button class="cad-sign" data-mdt-callsign title="Change callsign">${esc(unit.callsign || "SET CALLSIGN")}</button>`}</div>
+    <div class="cad-status"><span>Status</span>${statuses.map((s) => `<button class="tone-${esc(s.tone)}${unit.status === s.id ? " on" : ""}" data-mdt-status="${esc(s.id)}" title="${esc(s.label)}">${esc(s.short)}</button>`).join("")}</div>
     <div class="cad-quick"><button data-mdt-quick="traffic" title="Log a traffic stop at your position">${icon("car")}Stop</button><button data-mdt-quick="backup" title="Request backup">${icon("radio")}Backup</button><button class="panic" data-mdt-quick="panic" title="Panic button">${icon("siren")}Panic</button></div>
     <time id="cad-clock">${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
     <button class="icon-button" data-mdt-close aria-label="Close">${icon("x")}</button>
@@ -1773,7 +1867,7 @@ function cadTicker(m) {
     ...(d.warrants || []).slice(0, 6).map((w) => `<span class="tk-warrant">WARRANT #${Number(w.id)} · ${esc(w.subject_name)} · ${esc(w.reason)}</span>`),
   ];
   if (!items.length) items.push('<span>All quiet · no active BOLOs or warrants</span>');
-  return `<footer class="cad-ticker"><b>${icon("siren")} LIVE</b><div class="ticker-track"><div>${items.join("")}${items.join("")}</div></div></footer>`;
+  return `<footer class="cad-ticker"><b>${icon("alert")} Alerts</b><div class="ticker-track"><div>${items.join("")}</div></div></footer>`;
 }
 
 function renderMdt() {
@@ -1783,9 +1877,14 @@ function renderMdt() {
   if (m.report) tabs.push(["report", `Report #${m.report.id}`, "file"]);
   const d = m.dashboard || {};
   const counts = { dispatch: (d.calls || []).length, warrants: (d.warrants || []).length, bolos: (d.bolos || []).length, corrections: (d.inmates || []).filter((i) => i.status === "serving").length + (d.services || []).length };
-  const rail = tabs.map(([id, label, ic]) => `<button class="${m.tab === id ? "active" : ""}" data-mdt-tab="${id}"><span data-icon="${ic}"></span><span class="lbl">${esc(label)}</span>${counts[id] ? `<small>${counts[id]}</small>` : ""}</button>`).join("");
+  const tabButton = ([id, label, ic]) => `<button class="${m.tab === id ? "active" : ""}" data-mdt-tab="${id}"><span data-icon="${ic}"></span><span class="lbl">${esc(label)}</span>${counts[id] ? `<small>${counts[id]}</small>` : ""}</button>`;
+  const primary = tabs.filter(([id]) => ["dashboard", "dispatch"].includes(id)).map(tabButton).join("");
+  const records = tabs.filter(([id]) => ["search", "plates", "warrants", "bolos"].includes(id)).map(tabButton).join("");
+  const admin = tabs.filter(([id]) => ["reports", "corrections", "penal"].includes(id)).map(tabButton).join("");
+  const open = tabs.filter(([id]) => ["profile", "report"].includes(id)).map(tabButton).join("");
+  const rail = `<div class="cad-nav-section"><span>Operations</span>${primary}</div><div class="cad-nav-section"><span>Records</span>${records}</div><div class="cad-nav-section"><span>Casework</span>${admin}</div>${open ? `<div class="cad-nav-section cad-nav-open"><span>Open record</span>${open}</div>` : ""}`;
   const views = { dashboard: mdtDashboard, dispatch: mdtDispatch, search: mdtSearchView, plates: mdtPlatesView, warrants: mdtWarrantsView, bolos: mdtBolosView, penal: mdtPenalView, profile: mdtProfileView, reports: mdtReportsView, report: mdtReportView, corrections: mdtCorrections };
-  return `<div class="cad">${cadHeader(m)}<div class="cad-body"><nav class="cad-rail">${rail}</nav><div class="cad-main">${(views[m.tab] || mdtDashboard)(m)}</div></div>${cadTicker(m)}</div>`;
+  return `<div class="cad">${cadHeader(m)}<div class="cad-body"><nav class="cad-rail" aria-label="MDT sections">${rail}<footer><span>${icon("lock")}</span>Authorized law enforcement use only</footer></nav><main class="cad-main">${(views[m.tab] || mdtDashboard)(m)}</main></div>${cadTicker(m)}</div>`;
 }
 
 function mdtData(kind, data) {
@@ -2472,19 +2571,55 @@ function sendCarRadioAction(action, value = carRadioPosition()) {
 
 /* ───────── Messages ───────── */
 function resetCoreUi() {
-  ["#radial-menu", "#menu", "#duty", "#third-eye", "#blindfold", "#downed", "#car-controls", "#car-radio-panel"].forEach((selector) => $(selector)?.classList.add("hidden"));
-  $("#third-eye-panel")?.classList.add("hidden");
+  ["#radial-menu", "#menu", "#third-eye", "#blindfold", "#downed", "#car-radio-panel"].forEach((selector) => $(selector)?.classList.add("hidden"));
   $("#third-eye")?.classList.remove("target-active");
   document.body.classList.remove("menu-locked");
   currentView = null;
   currentPayload = {};
-  thirdEyePayload = null;
   thirdEyeTargeting = false;
-  dutyPayload = null;
-  dutyChoice = null;
+  thirdEyeFocused = false;
   radialCategory = null;
   closeRadialDispatch();
 }
+
+// third eye (ox_target style): options next to the eye, click one once the cursor is active
+function renderThirdEye(data) {
+  thirdEyeTargeting = !!data.open;
+  thirdEyeFocused = thirdEyeTargeting && !!data.focused;
+  const root = $("#third-eye");
+  root.classList.toggle("hidden", !thirdEyeTargeting);
+  root.classList.toggle("target-active", !!data.active);
+  root.classList.toggle("focused", thirdEyeFocused);
+  const options = Array.isArray(data.options) ? data.options : [];
+  const show = thirdEyeTargeting && options.length > 0;
+  $("#third-eye-panel").classList.toggle("hidden", !show);
+  if (!show) {
+    $("#third-eye-options").innerHTML = "";
+    return;
+  }
+  $("#third-eye-name").textContent = data.name || "";
+  $("#third-eye-name").classList.toggle("hidden", !data.name);
+  $("#third-eye-hint").classList.toggle("hidden", thirdEyeFocused);
+  $("#third-eye-options").innerHTML = options
+    .map((o) => `<button class="third-eye-option" data-eye-option="${esc(o.id)}"><span class="ic" data-icon="${esc(o.icon || "chevron")}"></span><span>${esc(o.label)}</span></button>`)
+    .join("");
+  hydrate($("#third-eye-options"));
+}
+
+document.addEventListener("click", (event) => {
+  if (!thirdEyeFocused) return;
+  const option = event.target.closest("[data-eye-option]");
+  thirdEyeFocused = false;
+  if (option) post("thirdEyeSelect", { id: option.dataset.eyeOption });
+  else post("thirdEyeClose"); // clicked off the list
+});
+
+document.addEventListener("contextmenu", (event) => {
+  if (!thirdEyeFocused) return;
+  event.preventDefault();
+  thirdEyeFocused = false;
+  post("thirdEyeClose");
+});
 
 window.addEventListener("message", ({ data }) => {
   if (!data || typeof data !== "object") return;
@@ -2493,7 +2628,33 @@ window.addEventListener("message", ({ data }) => {
     return;
   }
   if (data.type === "hud") updateHud(data.data || {});
-  if (data.type === "notify") notice(data.message, data.tone);
+  if (data.type === "hudVisible") $("#hud").classList.toggle("is-hidden", data.visible === false);
+  if (data.type === "fbrpHud") {
+    const frame = document.getElementById("hud-frame");
+    if (frame && frame.contentWindow) frame.contentWindow.postMessage({ action: data.action, data: data.data }, "*");
+    return;
+  }
+  if (data.type === "hudFrame") {
+    const frame = document.getElementById("hud-frame");
+    if (frame) {
+      frame.classList.toggle("interactive", !!data.interactive);
+      if (data.interactive) { frame.focus(); try { frame.contentWindow.focus(); } catch (e) {} }
+    }
+    return;
+  }
+  if (data.type === "hudSettings") {
+    applyHudSettings(data.settings || {});
+    if (currentView === "hudsettings") currentPayload.settings = { ...hudSettings };
+  }
+  if (data.type === "announcement") announce(data.message, data.tone);
+  if (data.type === "watermark") {
+    const wm = document.getElementById("watermark");
+    if (wm) {
+      wm.classList.toggle("hidden", data.enabled === false);
+      if (typeof data.opacity === "number") wm.style.opacity = data.opacity;
+      if (typeof data.width === "number") wm.style.width = `${data.width}px`;
+    }
+  }
   if (data.type === "dispatch") dispatch(data.data || {});
   if (data.type === "radial") {
     const root = $("#radial-menu");
@@ -2513,9 +2674,22 @@ window.addEventListener("message", ({ data }) => {
   }
   if (data.type === "menu") {
     if (data.open) {
-      if (data.view !== currentView) ui.showCharacterForm = false;
+      const characterCountChanged = data.view === "characters"
+        && currentView === "characters"
+        && (data.payload?.characters || []).length !== (currentPayload.characters || []).length;
+      if (data.view !== currentView) {
+        ui.showCharacterForm = false;
+        if (data.view === "characters") ui.selectedCharacterId = null;
+        if (data.view === "spawns") ui.selectedSpawnId = null;
+      }
+      if (characterCountChanged) {
+        const characters = data.payload?.characters || [];
+        ui.showCharacterForm = false;
+        ui.selectedCharacterId = characters[characters.length - 1]?.id ?? null;
+      }
       currentView = data.view;
       currentPayload = data.payload || {};
+      if (currentView === "hudsettings") applyHudSettings(currentPayload.settings || {});
       if (currentView === "mdt") mdtInit(currentPayload);
       if (currentView === "citizen") citizenInit();
       setLocked(data.locked === true);
@@ -2530,47 +2704,14 @@ window.addEventListener("message", ({ data }) => {
       clearInterval(ui.mdtPoll);
     }
   }
-  if (data.type === "duty") {
-    if (data.open) {
-      renderDuty(data.data || {});
-      $("#duty").classList.remove("hidden");
-      $("#duty").setAttribute("aria-hidden", "false");
-    } else {
-      closeDutyPicker();
-    }
-  }
-  if (data.type === "thirdEye") {
-    if (data.open) {
-      renderThirdEye(data.data || {});
-      $("#third-eye").classList.remove("hidden");
-      $("#third-eye-panel").classList.remove("hidden");
-    } else {
-      $("#third-eye-panel").classList.add("hidden");
-      if (!thirdEyeTargeting) $("#third-eye").classList.add("hidden");
-      thirdEyePayload = null;
-    }
-  }
-  if (data.type === "thirdEyeTarget") {
-    thirdEyeTargeting = !!data.open;
-    $("#third-eye").classList.toggle("hidden", !thirdEyeTargeting && !thirdEyePayload);
-    $("#third-eye").classList.toggle("target-active", !!data.active);
-  }
+  if (data.type === "thirdEyeTarget") renderThirdEye(data);
   if (data.type === "controlUpdate" && currentView === "control") {
     currentPayload = { ...currentPayload, ...(data.data || {}), focus: currentPayload.focus };
     renderMenu();
   }
   if (data.type === "radioTalking") $("#radio-console")?.classList.toggle("transmitting", !!data.active);
-  if (data.type === "tagSelected") {
-    currentPayload.selected = data.data || {};
-    if (currentView === "tags") renderMenu();
-  }
-  if (data.type === "tagsData" && currentView === "tags") {
-    currentPayload = data.data || {};
-    renderMenu();
-  }
   if (data.type === "blindfold") $("#blindfold").classList.toggle("hidden", !data.active);
   if (data.type === "restraint") showRestraint(data.active, data.kind);
-  if (data.type === "carControls") $("#car-controls").classList.toggle("hidden", !data.open);
   if (data.type === "carRadioSync") {
     const wanted = new Set((data.stations || []).map((station) => Number(station.netId)));
     for (const netId of carRadio.players.keys()) if (!wanted.has(netId)) destroyCarRadioPlayer(netId);
@@ -2623,11 +2764,9 @@ window.addEventListener("message", ({ data }) => {
   if (data.type === "citizenData" && currentView === "citizen") citizenData(data.kind, data.data);
   if (data.type === "service") updateService(data);
   if (data.type === "contraband") updateContraband(data);
-  if (data.type === "orghubData" && currentView === "orghub") { currentPayload = data.data || {}; renderMenu(); }
 });
 
 $("#close").addEventListener("click", () => post("close"));
-$("#car-close").addEventListener("click", () => post("closeCarControls"));
 $("#car-radio-close").addEventListener("click", () => post("carRadioClose"));
 $("#car-radio-panel").addEventListener("mousedown", (event) => {
   if (event.target === $("#car-radio-panel")) post("carRadioClose");
@@ -2659,20 +2798,6 @@ $("#car-radio-panel").addEventListener("click", (event) => {
   if (action === "back") sendCarRadioAction("seek", Math.max(0, position - 10));
   if (action === "forward") sendCarRadioAction("seek", position + 10);
   if (action === "stop") sendCarRadioAction("stop", 0);
-});
-$("#third-eye-close").addEventListener("click", () => post("closeThirdEye"));
-$("#duty-close").addEventListener("click", () => post("closeDuty"));
-$("#duty-toggle").addEventListener("click", () => setDutyList($("#duty-list").classList.contains("hidden")));
-$("#duty-list").addEventListener("click", (event) => {
-  const option = event.target.closest("[data-duty-slug]");
-  if (option) chooseDutyOrg(option.dataset.dutySlug);
-});
-$("#duty-confirm").addEventListener("click", () => {
-  if (dutyChoice) post("dutyChoose", { slug: dutyChoice });
-});
-$("#duty-off").addEventListener("click", () => post("dutyChoose", { slug: "off" }));
-$("#duty").addEventListener("mousedown", (event) => {
-  if (event.target === $("#duty")) post("closeDuty");
 });
 $("#radial-center").addEventListener("click", () => {
   if (!$("#radial-dispatch").classList.contains("hidden")) {
@@ -2710,19 +2835,9 @@ function radialClick(event) {
   }
   if (target.dataset.radialAction) post("hubAction", { action: target.dataset.radialAction });
 }
-$("#third-eye-actions").addEventListener("click", (event) => {
-  const action = event.target.closest("[data-third-eye-action]");
-  if (!action || !thirdEyePayload) return;
-  post("thirdEyeAction", {
-    target: Number(thirdEyePayload.target),
-    action: action.dataset.thirdEyeAction,
-  });
-});
-
 $("#menu-content").addEventListener("click", (event) => {
   if (currentView === "mdt" && mdtClick(event)) return;
   if (currentView === "citizen" && citizenClick(event)) return;
-  if (currentView === "orghub" && orgClick(event)) return;
   if (currentView === "pastimes") {
     const tabButton = event.target.closest("[data-pt-tab]");
     if (tabButton) { ui.pastimeTab = tabButton.dataset.ptTab; renderMenu(); return; }
@@ -2731,6 +2846,14 @@ $("#menu-content").addEventListener("click", (event) => {
       post("pastimeAction", { action: pastime.dataset.ptAction, id: pastime.dataset.ptId });
       return;
     }
+  }
+  if (currentView === "hudsettings" && event.target.closest("[data-hud-reset]")) {
+    hudSettings = { ...HUD_DEFAULTS };
+    currentPayload.settings = { ...hudSettings };
+    applyHudSettings();
+    post("hudSettings", { reset: true });
+    renderMenu();
+    return;
   }
   if (currentView === "prisonjobs") {
     const job = event.target.closest("[data-prison-job]");
@@ -2754,6 +2877,13 @@ $("#menu-content").addEventListener("click", (event) => {
     post("emote", { id: emote.dataset.emote });
     return;
   }
+  const characterPreview = event.target.closest("[data-character-preview]");
+  if (characterPreview) {
+    ui.selectedCharacterId = Number(characterPreview.dataset.characterPreview);
+    ui.showCharacterForm = false;
+    renderMenu();
+    return;
+  }
   const character = event.target.closest("[data-character-id]");
   if (character) {
     post("selectCharacter", { id: Number(character.dataset.characterId) });
@@ -2764,6 +2894,18 @@ $("#menu-content").addEventListener("click", (event) => {
     renderMenu();
     const first = $("#character-form input");
     if (first) first.focus();
+    return;
+  }
+  if (event.target.closest("[data-cancel-character]")) {
+    ui.showCharacterForm = false;
+    ui.selectedCharacterId = currentPayload.characters?.[0]?.id ?? null;
+    renderMenu();
+    return;
+  }
+  const spawnPreview = event.target.closest("[data-spawn-preview]");
+  if (spawnPreview) {
+    ui.selectedSpawnId = spawnPreview.dataset.spawnPreview;
+    renderMenu();
     return;
   }
   const spawn = event.target.closest("[data-spawn-id]");
@@ -2780,14 +2922,6 @@ $("#menu-content").addEventListener("click", (event) => {
   const cat = event.target.closest("[data-garage-cat]");
   if (cat) {
     ui.garageCategory = cat.dataset.garageCat;
-    renderMenu();
-    return;
-  }
-  const tag = event.target.closest("[data-tag-id]");
-  if (tag) {
-    post("equipTag", { kind: tag.dataset.tagKind, id: Number(tag.dataset.tagId) });
-    currentPayload.selected = currentPayload.selected || {};
-    currentPayload.selected[tag.dataset.tagKind] = Number(tag.dataset.tagId) || null;
     renderMenu();
     return;
   }
@@ -2838,6 +2972,17 @@ $("#menu-content").addEventListener("click", (event) => {
 $("#menu-content").addEventListener("input", (event) => {
   if (currentView === "mdt" && mdtInput(event)) return;
   if (currentView === "citizen" && citizenInput(event)) return;
+  if (currentView === "hudsettings" && event.target.matches("[data-hud-setting]")) {
+    const field = event.target;
+    const setting = field.dataset.hudSetting;
+    hudSettings[setting] = field.type === "checkbox" ? field.checked : field.type === "range" ? Number(field.value) : field.value;
+    currentPayload.settings = { ...hudSettings };
+    applyHudSettings();
+    if (setting === "scale") setText("#hud-scale-value", `${hudSettings.scale}%`);
+    if (setting === "theme") $$(".hud-theme").forEach((option) => option.classList.toggle("selected", option.contains(field)));
+    post("hudSettings", hudSettings);
+    return;
+  }
   if (event.target.id === "emote-search") {
     ui.emoteSearch = event.target.value;
     $("#emote-grid").innerHTML = emoteGrid(currentPayload);
@@ -2859,8 +3004,7 @@ function fireAction(action) {
 }
 
 $("#menu-content").addEventListener("mouseover", (event) => {
-  const card = event.target.closest("[data-spawn-id]");
-  $$(".spawn-map .dot").forEach((d) => d.classList.toggle("hot", !!card && d.dataset.dot === card.dataset.spawnId));
+  const card = event.target.closest("[data-spawn-preview]");
 });
 
 $("#menu-content").addEventListener("submit", (event) => {
@@ -2900,30 +3044,19 @@ $("#menu-content").addEventListener("submit", (event) => {
   }, 1500);
 });
 
-$$("[data-car]").forEach((button) =>
-  button.addEventListener("click", () => post("vehicleControl", { action: button.dataset.car })),
-);
-
 document.addEventListener("keyup", (event) => {
   if (event.key.toLowerCase() === "m" && !$("#radial-menu").classList.contains("hidden") && !event.target.closest("input,textarea")) {
     post("closeRadial");
     return;
   }
-  if (event.key === "Escape") {
-    if (!$("#radial-menu").classList.contains("hidden")) post("closeRadial");
-    if (thirdEyePayload) post("closeThirdEye");
-    if (dutyPayload) {
-      if (!$("#duty-list").classList.contains("hidden")) setDutyList(false);
-      else post("closeDuty");
-      return;
-    }
-    if (!menuLocked) post("close");
-    post("closeCarControls");
+  if (event.key === "Escape" && thirdEyeFocused) {
+    thirdEyeFocused = false;
+    post("thirdEyeClose");
     return;
   }
-  if (thirdEyePayload && /^[1-9]$/.test(event.key) && !event.target.closest("input,textarea")) {
-    const action = $(`#third-eye-actions [data-hotkey="${event.key}"]`);
-    if (action) action.click();
+  if (event.key === "Escape") {
+    if (!$("#radial-menu").classList.contains("hidden")) post("closeRadial");
+    if (!menuLocked) post("close");
     return;
   }
   if (currentView === "interactions" && /^[1-9]$/.test(event.key) && !event.target.closest("input,textarea")) {
@@ -2934,3 +3067,4 @@ document.addEventListener("keyup", (event) => {
 
 resetCoreUi();
 hydrate();
+applyHudSettings();

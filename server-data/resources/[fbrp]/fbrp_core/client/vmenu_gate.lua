@@ -21,16 +21,45 @@ local function authorized()
         and LocalPlayer.state['fbrp:staffNoclip'] == true
 end
 
+-- Player names and player blips: Senior Moderator and above while clocked in.
+local function seniorAuthorized()
+    return LocalPlayer.state['fbrp:staffDuty'] == true
+        and LocalPlayer.state['fbrp:staffSenior'] == true
+end
+
 local function apply(force)
     if not rawPermissions then return end
     local allowed = authorized()
-    if not force and applied == allowed then return end
+    local senior = seniorAuthorized()
+    local state = tostring(allowed) .. tostring(senior)
+    if not force and applied == state then return end
     local ok, data = pcall(json.decode, rawPermissions)
     if not ok or type(data) ~= 'table' then return end
-    data.Everything = false
-    data.NoClip = allowed
-    for _, name in ipairs(FBRP.VmenuVoicePermissions) do data[name] = false end
-    applied = allowed
+    -- Only rewrite keys vMenu serialized itself. Newtonsoft deserializes this JSON into a
+    -- Dictionary<Permission, bool>; adding a guessed key makes it reject the whole payload,
+    -- which also prevents the valid NoClip change from being applied.
+    if data.Everything ~= nil then data.Everything = false end
+    if data.NoClip ~= nil then data.NoClip = allowed end
+    for _, name in ipairs(FBRP.VmenuVoicePermissions) do
+        if data[name] ~= nil then data[name] = false end
+    end
+    -- "Restore Player Appearance" spams 'You did not set a saved character to restore to...' on every spawn
+    -- (fbrp_core loads your character itself). Turn it off for everyone; if someone has all Misc Settings,
+    -- give them each Misc option except this one.
+    if data.MSAll then
+        data.MSAll = false
+        for name in pairs(data) do
+            if name:sub(1, 2) == 'MS' and name ~= 'MSAll' and name ~= 'MSRestoreAppearance' then
+                data[name] = true
+            end
+        end
+    end
+    if data.MSRestoreAppearance ~= nil then data.MSRestoreAppearance = false end
+    if not senior then
+        if data.MSOverheadNames ~= nil then data.MSOverheadNames = false end
+        if data.MSPlayerBlips ~= nil then data.MSPlayerBlips = false end
+    end
+    applied = state
     applying = true
     TriggerEvent('vMenu:SetPermissions', json.encode(data))
     applying = false
@@ -89,7 +118,7 @@ CreateThread(function()
                     toggles = toggles + 1
                     ExecuteCommand(('vMenu:%s:NoClip'):format(GetConvar('vmenu_keymapping_id', 'Default')))
                     TriggerServerEvent('fbrp:vmenu:unauthorizedNoclip')
-                    TriggerEvent('fbrp:notify', 'NoClip is only available while you are clocked in as staff.', 'error')
+                    lib.notify({ description = 'NoClip is only available while you are clocked in as staff.', type = 'error' })
                 end
             end
         end

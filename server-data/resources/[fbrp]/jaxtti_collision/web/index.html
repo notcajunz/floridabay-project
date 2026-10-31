@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>jaxtti_collision</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; pointer-events: none; }
+  #vignette {
+    position: fixed; inset: 0; opacity: 0;
+    background:
+      linear-gradient(rgba(16, 22, 34, 0.55), rgba(0, 0, 0, 0) 18%, rgba(0, 0, 0, 0) 82%, rgba(16, 22, 34, 0.55)),
+      radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 42%, rgba(42, 56, 80, 0.5) 78%, rgba(8, 12, 20, 0.9) 100%);
+    transition: opacity 0.35s ease;
+  }
+  #vignette.pulse { animation: sway 2.6s ease-in-out infinite; }
+  @keyframes sway {
+    0%, 100% { filter: brightness(1); transform: translateX(0); }
+    25% { filter: brightness(1.2); transform: translateX(-6px); }
+    50% { filter: brightness(0.95); transform: translateX(0); }
+    75% { filter: brightness(1.15); transform: translateX(6px); }
+  }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; }
+  #flash.hit { animation: hit 0.7s ease-out; }
+  @keyframes hit {
+    0% { opacity: 0.7; }
+    35% { opacity: 0.1; }
+    50% { opacity: 0.35; }
+    100% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="vignette"></div>
+<div id="flash"></div>
+<script>
+(() => {
+  const vignette = document.getElementById('vignette');
+  const flash = document.getElementById('flash');
+  const sounds = {};
+  let vignetteTimer = null;
+
+  function sound(name, { loop = false, volume = 0.45, fadeOut = 0 } = {}) {
+    let a = sounds[name];
+    if (!a) { a = new Audio(`sfx/${name}.mp3`); sounds[name] = a; }
+    clearInterval(a._fade);
+    a.loop = loop;
+    a.volume = Math.max(0, Math.min(1, volume));
+    a.currentTime = 0;
+    a.play().catch(() => {});
+    if (fadeOut > 0) {
+      const start = Date.now();
+      const v0 = a.volume;
+      a._fade = setInterval(() => {
+        const k = 1 - (Date.now() - start) / fadeOut;
+        if (k <= 0) { clearInterval(a._fade); a.pause(); return; }
+        a.volume = v0 * k;
+      }, 100);
+    }
+  }
+
+  function stop(name) {
+    const a = sounds[name];
+    if (!a) return;
+    clearInterval(a._fade);
+    a.pause();
+  }
+
+  window.addEventListener('message', ({ data }) => {
+    if (!data || !data.action) return;
+    const d = data.data || {};
+    switch (data.action) {
+      case 'impact':
+        flash.classList.remove('hit');
+        void flash.offsetWidth;
+        flash.style.background = d.strength > 0.6 ? '#f2f6ff' : '#dce4f0';
+        flash.classList.add('hit');
+        break;
+      case 'vignette':
+        clearTimeout(vignetteTimer);
+        vignette.style.opacity = Math.max(0, Math.min(1, d.strength || 0));
+        vignette.classList.toggle('pulse', !!d.pulse);
+        if (d.ms) vignetteTimer = setTimeout(() => { vignette.style.opacity = 0; vignette.classList.remove('pulse'); }, d.ms);
+        break;
+      case 'sound':
+        sound(d.name, d);
+        break;
+      case 'stop':
+        stop(d.name);
+        break;
+      case 'clear':
+        clearTimeout(vignetteTimer);
+        vignette.style.opacity = 0;
+        vignette.classList.remove('pulse');
+        Object.keys(sounds).forEach(stop);
+        break;
+    }
+  });
+})();
+</script>
+</body>
+</html>

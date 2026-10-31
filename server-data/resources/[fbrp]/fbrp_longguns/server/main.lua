@@ -7,7 +7,7 @@ for _, name in ipairs(LG.weapons) do allowed[name] = true end
 local lastAction = {}
 
 local function notify(target, message, tone)
-    TriggerClientEvent('fbrp:notify', target, message, tone or 'info')
+    TriggerClientEvent('ox_lib:notify', target, { description = message, type = tone or 'info' })
 end
 
 local function clamp(value, minimum, maximum)

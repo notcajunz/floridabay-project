@@ -416,10 +416,12 @@ RegisterNetEvent('fbrp:economy:spawned', function()
     end)
 end)
 
-RegisterNetEvent('fbrp:economy:hub', function()
+RegisterNetEvent('fbrp:economy:hub', function(mode)
     local src = source
     if not sessions[src] then return end
-    TriggerClientEvent('fbrp:economy:hub', src, hubPayload(src))
+    mode = tostring(mode or '')
+    if mode ~= 'armory' and mode ~= 'wardrobe' and mode ~= 'facilities' then return end
+    TriggerClientEvent('fbrp:economy:hub', src, hubPayload(src), mode)
 end)
 
 local function reload()
@@ -460,7 +462,7 @@ RegisterNetEvent('fbrp:economy:produceStart', function(labId)
     if (lastProduce[src] or 0) + E.produceCooldownSeconds * 1000 > now() then return notify(src, 'Give the equipment a moment.', 'info') end
     local c = carry[src]
     if c and c.units > 0 and c.drug ~= lab.drug then return notify(src, ('You are already carrying %s. Deliver it first.'):format(E.drugs[c.drug].label:lower()), 'error') end
-    if c and c.units >= capacityOf(src) then return notify(src, ('You cannot carry any more (%d units). Start a delivery from F2.'):format(capacityOf(src)), 'error') end
+    if c and c.units >= capacityOf(src) then return notify(src, ('You cannot carry any more (%d units). Use /delivery to arrange a drop-off.'):format(capacityOf(src)), 'error') end
     local ms = E.produceMs[lab.drug] or 12000
     producing[src] = { lab=lab, started=now(), ms=ms }
     TriggerClientEvent('fbrp:economy:produceApproved', src, lab.id, ms, lab.drug)
@@ -757,13 +759,14 @@ RegisterNetEvent('fbrp:economy:armory', function(key)
     notify(src, ('%s drawn from the armory.'):format(package.label), 'success')
     local s = sessions[src]
     FBRP.DB.audit(s and s.discord or src, 'economy.armory', tostring(org.id), { package=package.label })
-    TriggerClientEvent('fbrp:economy:hub', src, hubPayload(src))
+    TriggerClientEvent('fbrp:economy:hub', src, hubPayload(src), 'refresh')
 end)
 
 RegisterNetEvent('fbrp:economy:outfit', function(key)
     local src = source
     local org = orgOf(src)
     if not org then return notify(src, 'Clock in with /duty first.', 'error') end
+    if not atArmory(src, org) then return notify(src, 'Use the wardrobe at your organization property or department station.', 'error') end
     for _, outfit in ipairs(owned[org.id] and owned[org.id].outfits or {}) do
         if outfit.key == clean(key, 40) then
             return TriggerClientEvent('fbrp:economy:wear', src, outfit.data, outfit.label)

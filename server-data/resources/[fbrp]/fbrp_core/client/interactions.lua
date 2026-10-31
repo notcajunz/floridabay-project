@@ -56,7 +56,7 @@ local function targetedPlayer(maxDistance)
     for _, player in ipairs(GetActivePlayers()) do
         if player ~= PlayerId() then
             local ped = GetPlayerPed(player)
-            if ped ~= 0 and DoesEntityExist(ped) and not IsEntityDead(ped) then
+            if ped ~= 0 and DoesEntityExist(ped) then -- dead players too (medics revive them)
                 local coords = GetEntityCoords(ped)
                 local distance = #(coords - mine)
                 if distance <= (maxDistance or 4.0) and HasEntityClearLosToEntity(me, ped, 17) then
@@ -87,6 +87,55 @@ local function vehicleLabel(vehicle)
     return (label ~= 'NULL' and label or model) .. ' [' .. ((GetVehicleNumberPlateText(vehicle) or ''):gsub('^%s+', ''):gsub('%s+$', '')) .. ']'
 end
 
+-- vehicle doors for the third eye: index, bone, label
+local VEHICLE_DOORS = {
+    { index = 0, bone = 'door_dside_f', label = 'driver door' },
+    { index = 1, bone = 'door_pside_f', label = 'passenger door' },
+    { index = 2, bone = 'door_dside_r', label = 'rear left door' },
+    { index = 3, bone = 'door_pside_r', label = 'rear right door' },
+}
+
+local function doorOpen(vehicle, index)
+    return GetVehicleDoorAngleRatio(vehicle, index) > 0.05
+end
+
+-- the side door closest to you (within reach), so the list stays short
+local function nearestDoor(vehicle)
+    local here = GetEntityCoords(PlayerPedId())
+    local best, bestDistance = nil, 2.6
+    for _, door in ipairs(VEHICLE_DOORS) do
+        local bone = GetEntityBoneIndexByName(vehicle, door.bone)
+        if bone ~= -1 and GetIsDoorValid(vehicle, door.index) and not IsVehicleDoorDamaged(vehicle, door.index) then
+            local distance = #(here - GetWorldPositionOfEntityBone(vehicle, bone))
+            if distance < bestDistance then best, bestDistance = door, distance end
+        end
+    end
+    return best
+end
+
+local function hasDoor(vehicle, index, bone)
+    return GetEntityBoneIndexByName(vehicle, bone) ~= -1 and GetIsDoorValid(vehicle, index) and not IsVehicleDoorDamaged(vehicle, index)
+end
+
+-- open/close a door; doors sync from whoever controls the car, so ask for control first
+local function toggleVehicleDoor(vehicle, index)
+    if not DoesEntityExist(vehicle) then return end
+    if GetVehicleDoorLockStatus(vehicle) >= 2 and GetVehiclePedIsIn(PlayerPedId(), false) ~= vehicle then
+        return lib.notify({ description = 'The vehicle is locked.', type = 'error' })
+    end
+    NetworkRequestControlOfEntity(vehicle)
+    local untilAt = GetGameTimer() + 600
+    while not NetworkHasControlOfEntity(vehicle) and GetGameTimer() < untilAt do
+        Wait(25)
+        NetworkRequestControlOfEntity(vehicle)
+    end
+    if doorOpen(vehicle, index) then
+        SetVehicleDoorShut(vehicle, index, false)
+    else
+        SetVehicleDoorOpen(vehicle, index, false, false)
+    end
+end
+
 local function aimedVehicle(maxDistance)
     local ped = PlayerPedId()
     local origin = GetGameplayCamCoord()
@@ -98,6 +147,84 @@ local function aimedVehicle(maxDistance)
         return entity
     end
     return nil
+end
+
+---------------------------------------------------------------- external targets
+-- Other resources register third eye options here via exports (see bottom of file).
+-- Each entry is one option: a zone (fixed coords) or a set of prop models.
+local externalTargets = {}
+local externalNextId = 0
+local EXTERNAL_MODEL_SEARCH = 4.0
+
+local function externalAllowed(entry, entity, distance, coords)
+    if not entry.canInteract then return true end
+    local ok, result = pcall(entry.canInteract, entity, distance, coords, entry.name)
+    return ok and result ~= false and result ~= nil
+end
+
+local function externalTarget(here)
+    local groups, closestObject = {}, {}
+    for id, entry in pairs(externalTargets) do
+        local coords, entity
+        if entry.kind == 'zone' then
+            coords = entry.coords
+        else
+            for _, hash in ipairs(entry.models) do
+                local found = closestObject[hash]
+                if found == nil then
+                    found = GetClosestObjectOfType(here.x, here.y, here.z, EXTERNAL_MODEL_SEARCH, hash, false, false, false)
+                    closestObject[hash] = found
+                end
+                if found ~= 0 and DoesEntityExist(found) then
+                    local at = GetEntityCoords(found)
+                    if not coords or #(here - at) < #(here - coords) then coords, entity = at, found end
+                end
+            end
+        end
+        if coords then
+            -- props: measure flat distance (their origin sits on the floor, the player's sits at the hips)
+            local distance = entity and (math.abs(here.z - coords.z) <= 2.5 and #(here.xy - coords.xy) or math.huge) or #(here - coords)
+            if distance <= entry.distance and externalAllowed(entry, entity, distance, coords) then
+                local key = entity and ('ent:' .. entity) or ('zone:' .. id)
+                local group = groups[key]
+                if not group then
+                    group = { key = key, entity = entity, coords = coords, distance = distance, entries = {} }
+                    groups[key] = group
+                end
+                group.entries[#group.entries + 1] = entry
+            end
+        end
+    end
+
+    local best
+    for _, group in pairs(groups) do
+        if not best or group.distance < best.distance then best = group end
+    end
+    if not best then return nil end
+
+    table.sort(best.entries, function(a, b) return a.id < b.id end)
+    local actions, ids = {}, {}
+    for _, entry in ipairs(best.entries) do
+        actions[#actions + 1] = { id = 'w_x' .. entry.id, label = entry.label, icon = entry.icon }
+        ids[#ids + 1] = entry.id
+    end
+    return {
+        id = 'ext:' .. best.key .. ':' .. table.concat(ids, ','),
+        name = best.entries[1].title,
+        actions = actions,
+        run = function(action)
+            local entry = externalTargets[tonumber(action:sub(4))]
+            if not entry or not entry.onSelect then return end
+            local data = { entity = best.entity, coords = best.coords, distance = best.distance, name = entry.name }
+            CreateThread(function()
+                local ok, err = pcall(entry.onSelect, data)
+                if not ok then
+                    print(('[fbrp_core] third eye option "%s" from %s errored%s (see that resource\'s error above)'):format(
+                        entry.name or entry.label, entry.resource, err and (': ' .. tostring(err)) or ''))
+                end
+            end)
+        end,
+    }
 end
 
 local function worldTarget()
@@ -119,7 +246,7 @@ local function worldTarget()
             actions[#actions + 1] = { id = 'w_work', label = bestSpot.task or 'Work a shift' }
         end
         if bestSpot.kind == 'all' or bestSpot.kind == 'armory' or bestSpot.kind == 'wardrobe' then
-            actions[#actions + 1] = { id = 'w_hub', label = 'Armory and wardrobe' }
+            actions[#actions + 1] = { id = 'w_facilities', label = bestSpot.kind == 'armory' and 'Open armory' or bestSpot.kind == 'wardrobe' and 'Open wardrobe' or 'Use facilities' }
         end
         if bestSpot.service == 'serve' and (bestSpot.kind == 'terminal' or bestSpot.kind == 'bar') then
             actions[#actions + 1] = { id = 'w_serve', label = 'Serve the nearest customer' }
@@ -128,7 +255,7 @@ local function worldTarget()
             id = 'spot:' .. bestSpot.key .. ':' .. bestSpot.kind, name = bestSpot.label, actions = actions,
             run = function(action)
                 if action == 'w_work' then TriggerServerEvent('fbrp:economy:taskStart', bestSpot.key)
-                elseif action == 'w_hub' then TriggerServerEvent('fbrp:economy:hub')
+                elseif action == 'w_facilities' and FBRP.OpenFacilities then FBRP.OpenFacilities(bestSpot.kind == 'all' and 'facilities' or bestSpot.kind)
                 elseif action == 'w_serve' then ExecuteCommand('serve') end
             end,
         }
@@ -153,26 +280,48 @@ local function worldTarget()
         end
     end
 
+    local external = externalTarget(here)
+    if external then return external end
+
     -- A vehicle in front of the crosshair.
     local vehicle = aimedVehicle(6.0)
     if vehicle then
+        local actions = {}
+        -- doors first: nearest side door, hood, trunk (only the ones this car has)
+        local door = nearestDoor(vehicle)
+        if door then
+            actions[#actions + 1] = { id = 'w_door_side', label = (doorOpen(vehicle, door.index) and 'Close the ' or 'Open the ') .. door.label }
+        end
+        local hood = hasDoor(vehicle, 4, 'bonnet')
+        if hood then actions[#actions + 1] = { id = 'w_hood', label = doorOpen(vehicle, 4) and 'Close the hood' or 'Open the hood' } end
+        local trunk = hasDoor(vehicle, 5, 'boot')
+        if trunk then actions[#actions + 1] = { id = 'w_trunk', label = doorOpen(vehicle, 5) and 'Close the trunk' or 'Open the trunk' } end
+        actions[#actions + 1] = { id = 'w_repair', label = 'Repair the vehicle' }
+        actions[#actions + 1] = { id = 'w_lock', label = GetVehicleDoorLockStatus(vehicle) >= 2 and 'Unlock the vehicle' or 'Lock the vehicle' }
+        actions[#actions + 1] = { id = 'w_plate', label = 'Run the plate' }
+        actions[#actions + 1] = { id = 'w_impound', label = 'Impound the vehicle' }
+
+        -- the key changes when a door opens/closes or you walk to another door, so the list refreshes
+        local key = ('veh:%d:%s:%s:%s:%s:%s'):format(vehicle, door and door.index or '-', door and tostring(doorOpen(vehicle, door.index)) or '',
+            hood and tostring(doorOpen(vehicle, 4)) or '', trunk and tostring(doorOpen(vehicle, 5)) or '', tostring(GetVehicleDoorLockStatus(vehicle) >= 2))
         return {
-            id = 'veh:' .. vehicle, name = vehicleLabel(vehicle),
-            actions = {
-                { id = 'w_repair', label = 'Repair the vehicle' },
-                { id = 'w_lock', label = GetVehicleDoorLockStatus(vehicle) >= 2 and 'Unlock the vehicle' or 'Lock the vehicle' },
-                { id = 'w_plate', label = 'Run the plate' },
-                { id = 'w_impound', label = 'Impound the vehicle' },
-            },
+            id = key, name = vehicleLabel(vehicle),
+            actions = actions,
             run = function(action)
                 if not DoesEntityExist(vehicle) then return end
-                if action == 'w_repair' then
+                if action == 'w_door_side' and door then
+                    CreateThread(function() toggleVehicleDoor(vehicle, door.index) end)
+                elseif action == 'w_hood' then
+                    CreateThread(function() toggleVehicleDoor(vehicle, 4) end)
+                elseif action == 'w_trunk' then
+                    CreateThread(function() toggleVehicleDoor(vehicle, 5) end)
+                elseif action == 'w_repair' then
                     CreateThread(function() FBRP.MechanicRepair(vehicle) end)
                 elseif action == 'w_lock' then
                     local locked = GetVehicleDoorLockStatus(vehicle) >= 2
                     SetVehicleDoorsLocked(vehicle, locked and 1 or 2)
                     SetVehicleLights(vehicle, 2); Wait(120); SetVehicleLights(vehicle, 0)
-                    TriggerEvent('fbrp:notify', locked and 'Vehicle unlocked.' or 'Vehicle locked.', 'info')
+                    lib.notify({ description = locked and 'Vehicle unlocked.' or 'Vehicle locked.', type = 'info' })
                 elseif action == 'w_plate' then
                     ExecuteCommand('runplate ' .. ((GetVehicleNumberPlateText(vehicle) or ''):gsub('^%s+', ''):gsub('%s+$', '')))
                 elseif action == 'w_impound' then
@@ -184,29 +333,136 @@ local function worldTarget()
     return nil
 end
 
-local function openWorldEye(world)
-    thirdEyeWorld = world
-    thirdEyeOpen = true
-    thirdEyeHeld = false
-    SetNuiFocus(true, true)
-    SendNUIMessage({type='thirdEyeTarget',open=true,active=true})
-    SendNUIMessage({type='thirdEye',open=true,data={target=0,name=world.name,actions=world.actions}})
+-- icon per action, names from the NUI icon set (ICONS in web/app.js)
+local thirdEyeIcons = {
+    rob='wallet', softcuff='cuffs', hardcuff='cuffs', arrest='gavel',
+    ziptie='zip', uncuff='unlock', cutziptie='knife', escort='walk',
+    seat='seat', unseat='unseat', blindfold='eyeoff', unblindfold='eye',
+    search='search', checkid='id', gsr='target', cite='file',
+    jail='gavel', commserv='trash', revive='heart-pulse', heal='heart-pulse',
+    diagnose='check', showid='id', w_repair='car', w_lock='lock',
+    w_plate='search', w_impound='car', w_work='building', w_facilities='building',
+    w_serve='sparkles', w_door='door', w_breach='flame',
+    w_door_side='door', w_hood='hood', w_trunk='trunk',
+    helpup='users', w_more='chevron', w_back='chevron',
+}
+
+-- ox_target style: hold the key, look at something, its options show next to the eye.
+-- Left click to get the cursor and click an option. Right click / Escape / letting go (before clicking) closes it.
+local thirdEyeOptions = nil   -- { name, target, actions, world } currently shown
+local thirdEyeFocused = false -- cursor is active (player clicked to select)
+
+local function sendEye(open)
+    local options
+    if open and thirdEyeOptions then
+        options = {}
+        for _, action in ipairs(thirdEyeOptions.actions) do
+            local id = tostring(action.id or '')
+            options[#options + 1] = { id = id, label = tostring(action.label or id), icon = action.icon or thirdEyeIcons[id] or 'chevron' }
+        end
+    end
+    local name = thirdEyeOptions and thirdEyeOptions.name or nil
+    local target = thirdEyeOptions and tonumber(thirdEyeOptions.target) or 0
+    if name and target > 0 then name = ('%s [%d]'):format(tostring(name), target) end
+    SendNUIMessage({
+        type = 'thirdEyeTarget', open = open, active = open and options ~= nil and #options > 0,
+        name = name, options = options, focused = open and thirdEyeFocused,
+    })
 end
 
-local function closeThirdEye()
-    if not thirdEyeOpen and not thirdEyeHeld and not thirdEyePending then return end
+local function setEyeOptions(name, target, actions, world)
+    if actions and #actions > 0 then
+        thirdEyeOptions = { name = name, target = target, actions = actions, world = world }
+    else
+        thirdEyeOptions = nil
+    end
+    sendEye(true)
+end
+
+local function resetThirdEye()
+    if thirdEyeFocused then
+        SetNuiFocus(false, false)
+        SetNuiFocusKeepInput(false)
+    end
     thirdEyeOpen = false
     thirdEyeHeld = false
     thirdEyePending = false
+    thirdEyeFocused = false
+    thirdEyeOptions = nil
     thirdEyeTarget = nil
     thirdEyeHoverAt = 0
     thirdEyeWorld = nil
     thirdEyeWorldKey = nil
     thirdEyeWorldAt = 0
-    SetNuiFocus(false, false)
-    SendNUIMessage({type='thirdEye',open=false})
     SendNUIMessage({type='thirdEyeTarget',open=false,active=false})
 end
+
+local function closeThirdEye()
+    if not thirdEyeOpen and not thirdEyeHeld and not thirdEyePending then return end
+    resetThirdEye()
+end
+
+local function runThirdEyeAction(action, target, world)
+    resetThirdEye()
+    if action:sub(1, 2) == 'w_' then
+        if world and world.run then
+            world.run(action)
+        elseif action == 'w_serve' then
+            ExecuteCommand('serve')
+        end
+        return
+    end
+    local ped = PlayerPedId()
+    local weapon = GetSelectedPedWeapon(ped)
+    TriggerServerEvent('fbrp:interactions:use', tonumber(target), action, {
+        weapon=weapon, firearm=IsPedArmed(ped, 4), ammo=GetAmmoInPedWeapon(ped, weapon)
+    })
+end
+
+-- left click while options are showing: lock the target and give the player a cursor
+local function focusThirdEye()
+    if not thirdEyeOptions or thirdEyeFocused then return end
+    thirdEyeOpen = true
+    thirdEyeFocused = true
+    thirdEyeWorld = thirdEyeOptions.world
+    SetNuiFocus(true, true)
+    SetNuiFocusKeepInput(false)
+    sendEye(true)
+    -- start the cursor on the eye (centre of the screen); from there it moves freely across the screen.
+    -- set it again a couple of frames later because taking NUI focus can put it back where it was.
+    SetCursorLocation(0.5, 0.5)
+    CreateThread(function()
+        for _ = 1, 3 do
+            Wait(0)
+            if thirdEyeFocused then SetCursorLocation(0.5, 0.5) end
+        end
+    end)
+end
+
+RegisterNUICallback('thirdEyeSelect', function(data, cb)
+    cb({ ok = true })
+    local current = thirdEyeOptions
+    local id = tostring(data and data.id or '')
+    if not current or id == '' then return resetThirdEye() end
+    -- "More..." swaps the short list for the rarely used actions (and back) without closing the eye
+    if (id == 'w_more' or id == 'w_back') and current.primary then
+        local shown = id == 'w_more' and current.secondary or current.primary
+        thirdEyeOptions = { name = current.name, target = current.target, actions = shown, world = current.world,
+            primary = current.primary, secondary = current.secondary }
+        return sendEye(true)
+    end
+    for _, action in ipairs(current.actions) do
+        if tostring(action.id) == id then
+            return runThirdEyeAction(id, current.target, current.world)
+        end
+    end
+    resetThirdEye()
+end)
+
+RegisterNUICallback('thirdEyeClose', function(_, cb)
+    cb({ ok = true })
+    resetThirdEye()
+end)
 
 local function loadAnim(dict)
     RequestAnimDict(dict)
@@ -291,22 +547,19 @@ local function openThirdEyeTargeting()
     if IsPauseMenuActive() or (FBRP.IsDowned and FBRP.IsDowned()) then return end
     thirdEyeHeld = true
     thirdEyePending = false
+    thirdEyeOptions = nil
     thirdEyeTarget = nil
     thirdEyeHoverAt = 0
-    SendNUIMessage({type='thirdEyeTarget',open=true,active=false})
+    sendEye(true)
 end
 
 RegisterCommand('+thirdEye', openThirdEyeTargeting, false)
 RegisterCommand('-thirdEye', function()
-    thirdEyeHeld = false
-    thirdEyePending = false
-    thirdEyeTarget = nil
-    thirdEyeHoverAt = 0
-    thirdEyeWorldKey = nil
-    thirdEyeWorldAt = 0
-    if not thirdEyeOpen then SendNUIMessage({type='thirdEyeTarget',open=false,active=false}) end
+    -- letting go before clicking an option closes it (like ox_target); after clicking, the cursor stays
+    if thirdEyeFocused then return end
+    resetThirdEye()
 end, false)
-RegisterKeyMapping('+thirdEye', 'Hold third eye player targeting', 'keyboard', 'LMENU')
+RegisterKeyMapping('+thirdEye', 'Hold third eye targeting', 'keyboard', 'LMENU')
 
 -- Not named 'interactions': players who bound F5 to the old command keep that stored
 -- keybind, which would keep opening third eye. A renamed command leaves it unbound.
@@ -316,30 +569,61 @@ RegisterCommand('thirdeyemenu', function()
 end, false)
 RegisterCommand('rpactions', function() ExecuteCommand('thirdeyemenu') end, false)
 
+-- while targeting: block shooting/punching so the left click selects instead, and watch for the click
 CreateThread(function()
     while true do
-        if thirdEyeHeld and not thirdEyeOpen then
+        if thirdEyeHeld and not thirdEyeFocused then
+            DisableControlAction(0, 24, true)   -- attack
+            DisableControlAction(0, 25, true)   -- aim
+            DisableControlAction(0, 140, true)  -- melee light
+            DisableControlAction(0, 141, true)  -- melee heavy
+            DisableControlAction(0, 142, true)  -- melee alt
+            DisableControlAction(0, 257, true)  -- attack 2
+            DisablePlayerFiring(PlayerId(), true)
+            if thirdEyeOptions and IsDisabledControlJustPressed(0, 24) then focusThirdEye() end
+            if IsDisabledControlJustPressed(0, 25) then resetThirdEye() end
+            Wait(0)
+        else
+            Wait(150)
+        end
+    end
+end)
+
+-- what you're looking at: players first, then work spots / doors / vehicles
+CreateThread(function()
+    while true do
+        if thirdEyeHeld and not thirdEyeFocused then
             local target = targetedPlayer(FBRP.Config.interactionDistance)
             local world = (not target) and worldTarget() or nil
             local worldKey = world and world.id or nil
-            if worldKey ~= thirdEyeWorldKey then
-                thirdEyeWorldKey = worldKey
-                thirdEyeWorldAt = worldKey and GetGameTimer() or 0
-            end
+
             if target ~= thirdEyeTarget then
                 thirdEyeTarget = target
                 thirdEyeHoverAt = target and GetGameTimer() or 0
                 thirdEyePending = false
+                if thirdEyeOptions and thirdEyeOptions.target ~= 0 then setEyeOptions(nil, 0, nil, nil) end
             end
-            SendNUIMessage({type='thirdEyeTarget',open=true,active=(target ~= nil) or (world ~= nil)})
-            if target and not thirdEyePending and GetGameTimer() - thirdEyeHoverAt >= 180 then
+
+            if worldKey ~= thirdEyeWorldKey then
+                thirdEyeWorldKey = worldKey
+                thirdEyeWorldAt = worldKey and GetGameTimer() or 0
+                if world then
+                    setEyeOptions(world.name, 0, world.actions, world)
+                elseif not target then
+                    setEyeOptions(nil, 0, nil, nil)
+                end
+            end
+
+            -- players: the server decides which actions you have, ask once you've looked at them briefly
+            if target and not thirdEyePending and GetGameTimer() - thirdEyeHoverAt >= 150
+                and not (thirdEyeOptions and thirdEyeOptions.target == target) then
                 thirdEyePending = true
                 TriggerServerEvent('fbrp:interactions:request', target)
-                SetTimeout(1200, function()
-                    if not thirdEyeOpen then thirdEyePending = false end
+                SetTimeout(1500, function()
+                    if thirdEyeTarget == target and not (thirdEyeOptions and thirdEyeOptions.target == target) then
+                        thirdEyePending = false
+                    end
                 end)
-            elseif world and #world.actions > 0 and GetGameTimer() - thirdEyeWorldAt >= 180 then
-                openWorldEye(world)
             end
             Wait(45)
         else
@@ -349,42 +633,26 @@ CreateThread(function()
 end)
 
 RegisterNetEvent('fbrp:interactions:data', function(data)
-    if not thirdEyeHeld or tonumber(data and data.target) ~= thirdEyeTarget then return end
-    thirdEyePending = false
-    thirdEyeOpen = true
-    thirdEyeHeld = false
-    SetNuiFocus(true, true)
+    if not thirdEyeHeld or thirdEyeFocused or tonumber(data and data.target) ~= thirdEyeTarget then return end
     data.actions = data.actions or {}
     if FBRP.CanServe and FBRP.CanServe() then data.actions[#data.actions + 1] = { id = 'w_serve', label = 'Serve a drink or meal' } end
-    SendNUIMessage({type='thirdEyeTarget',open=true,active=true})
-    SendNUIMessage({type='thirdEye',open=true,data=data})
-end)
-
-RegisterNUICallback('thirdEyeAction', function(data, cb)
-    local action = tostring(data.action or '')
-    if action:sub(1, 2) == 'w_' then
-        local world = thirdEyeWorld
-        closeThirdEye()
-        cb({ok=true})
-        if world and world.run then
-            world.run(action)
-        elseif action == 'w_serve' then
-            ExecuteCommand('serve')
+    -- A long list is trimmed to the actions used most; the rest sit under "More...".
+    local SECONDARY = { blindfold=true, unblindfold=true, gsr=true, cite=true, commserv=true, diagnose=true, checkid=true, showid=true, cutziptie=true, heal=true }
+    local actions = data.actions
+    if #actions > 6 then
+        local primary, secondary = {}, {}
+        for _, action in ipairs(actions) do
+            if SECONDARY[action.id] then secondary[#secondary + 1] = action else primary[#primary + 1] = action end
         end
-        return
+        if #secondary > 0 and #primary > 0 then
+            primary[#primary + 1] = { id = 'w_more', label = 'More...' }
+            secondary[#secondary + 1] = { id = 'w_back', label = 'Back' }
+            setEyeOptions(data.name, tonumber(data.target), primary, nil)
+            if thirdEyeOptions then thirdEyeOptions.primary, thirdEyeOptions.secondary = primary, secondary end
+            return
+        end
     end
-    local ped = PlayerPedId()
-    local weapon = GetSelectedPedWeapon(ped)
-    TriggerServerEvent('fbrp:interactions:use', tonumber(data.target), tostring(data.action or ''), {
-        weapon=weapon, firearm=IsPedArmed(ped, 4), ammo=GetAmmoInPedWeapon(ped, weapon)
-    })
-    closeThirdEye()
-    cb({ok=true})
-end)
-
-RegisterNUICallback('closeThirdEye', function(_, cb)
-    closeThirdEye()
-    cb({ok=true})
+    setEyeOptions(data.name, tonumber(data.target), actions, nil)
 end)
 
 -- A real firearm shot aimed at the physical cuff prop/wrist removes cuffs.
@@ -413,6 +681,35 @@ end)
 RegisterNetEvent('fbrp:restraints:clear', function()
     setRestrained(nil)
 end)
+
+-- Closest vehicle to a point, scanning the pool instead of GetClosestVehicle (which skips many cars).
+local function nearestVehicle(coords,maxDistance)
+    local best,bestDistance=0,maxDistance
+    for _,vehicle in ipairs(GetGamePool('CVehicle')) do
+        local distance=#(GetEntityCoords(vehicle)-coords)
+        if distance<bestDistance then best,bestDistance=vehicle,distance end
+    end
+    return best
+end
+
+-- Put a ped in the first free passenger seat (rear seats first), then confirm it actually worked.
+local function seatInVehicle(ped,vehicle)
+    if NetworkGetEntityIsNetworked(vehicle) then
+        local deadline=GetGameTimer()+1000
+        NetworkRequestControlOfEntity(vehicle)
+        while not NetworkHasControlOfEntity(vehicle) and GetGameTimer()<deadline do Wait(0) end
+    end
+    local seat
+    for candidate=GetVehicleMaxNumberOfPassengers(vehicle)-1,0,-1 do
+        if IsVehicleSeatFree(vehicle,candidate) then seat=candidate break end
+    end
+    if not seat then return lib.notify({ description = 'There is no free seat.', type = 'error' }) end
+    ClearPedTasksImmediately(ped)
+    TaskWarpPedIntoVehicle(ped,vehicle,seat)
+    local deadline=GetGameTimer()+800
+    while GetVehiclePedIsIn(ped,false)~=vehicle and GetGameTimer()<deadline do Wait(50) end
+    if GetVehiclePedIsIn(ped,false)~=vehicle then SetPedIntoVehicle(ped,vehicle,seat) end
+end
 
 RegisterNetEvent('fbrp:interaction:apply', function(action, actorServerId)
     local ped = PlayerPedId()
@@ -449,18 +746,32 @@ RegisterNetEvent('fbrp:interaction:apply', function(action, actorServerId)
         local actor = GetPlayerFromServerId(tonumber(actorServerId))
         if actor ~= -1 then
             local vehicle = GetVehiclePedIsIn(GetPlayerPed(actor),false)
-            if vehicle == 0 then
-                local coords=GetEntityCoords(ped)
-                vehicle=GetClosestVehicle(coords.x,coords.y,coords.z,5.0,0,70)
-            end
+            if vehicle == 0 then vehicle = nearestVehicle(GetEntityCoords(ped),6.0) end
             if vehicle ~= 0 then
-                for seat=GetVehicleMaxNumberOfPassengers(vehicle)-1,0,-1 do
-                    if IsVehicleSeatFree(vehicle,seat) then TaskWarpPedIntoVehicle(ped,vehicle,seat) break end
+                -- An escorted ped is attached to the escort, and warping an attached ped silently fails.
+                if escortedBy then
+                    DetachEntity(ped,true,false)
+                    escortedBy=nil
                 end
+                seatInVehicle(ped,vehicle)
             end
         end
     elseif action == 'unseat' then
-        if IsPedInAnyVehicle(ped,false) then TaskLeaveVehicle(ped,GetVehiclePedIsIn(ped,false),16) end
+        local vehicle = GetVehiclePedIsIn(ped,false)
+        if vehicle ~= 0 then
+            TaskLeaveVehicle(ped,vehicle,16)
+            -- leaving a vehicle resets the ped's handcuff flag and animation; put the restraint back
+            local held = restrained and restraintType or nil
+            if held then
+                CreateThread(function()
+                    local deadline = GetGameTimer() + 3000
+                    while IsPedInAnyVehicle(PlayerPedId(),false) and GetGameTimer() < deadline do Wait(50) end
+                    Wait(300)
+                    if LocalPlayer.state['fbrp:restrained'] == nil then LocalPlayer.state:set('fbrp:restrained', held, true) end
+                    setRestrained(held)
+                end)
+            end
+        end
     end
 end)
 
@@ -488,19 +799,50 @@ RegisterNetEvent('fbrp:interaction:actor', function(action, targetServerId)
 end)
 
 local visibleWeapons = {
-    {'Pistol',joaat('WEAPON_PISTOL')},{'Combat pistol',joaat('WEAPON_COMBATPISTOL')},{'Heavy pistol',joaat('WEAPON_HEAVYPISTOL')},
-    {'Stun gun',joaat('WEAPON_STUNGUN')},{'SMG',joaat('WEAPON_SMG')},{'Carbine rifle',joaat('WEAPON_CARBINERIFLE')},
-    {'Pump shotgun',joaat('WEAPON_PUMPSHOTGUN')},{'Knife',joaat('WEAPON_KNIFE')},{'Nightstick',joaat('WEAPON_NIGHTSTICK')},
-    {'Baseball bat',joaat('WEAPON_BAT')},{'Crowbar',joaat('WEAPON_CROWBAR')},{'Flashlight',joaat('WEAPON_FLASHLIGHT')}
+    joaat('WEAPON_PISTOL'),joaat('WEAPON_COMBATPISTOL'),joaat('WEAPON_HEAVYPISTOL'),joaat('WEAPON_STUNGUN'),
+    joaat('WEAPON_SMG'),joaat('WEAPON_CARBINERIFLE'),joaat('WEAPON_PUMPSHOTGUN'),joaat('WEAPON_KNIFE'),
+    joaat('WEAPON_NIGHTSTICK'),joaat('WEAPON_BAT'),joaat('WEAPON_CROWBAR'),joaat('WEAPON_FLASHLIGHT')
 }
 
 RegisterNetEvent('fbrp:interaction:search', function()
     local found = {}
     local ped = PlayerPedId()
-    for _, weapon in ipairs(visibleWeapons) do
-        if HasPedGotWeapon(ped,weapon[2],false) then found[#found+1]=weapon[1] end
+    for _, hash in ipairs(visibleWeapons) do
+        if HasPedGotWeapon(ped,hash,false) then found[#found+1]=hash end
     end
     TriggerServerEvent('fbrp:interaction:searchResult',found)
+end)
+
+-- The officer's search results: what the person is carrying, with an option to take each item.
+RegisterNetEvent('fbrp:search:menu', function(data)
+    local options = {}
+    for _, weapon in ipairs(data.weapons or {}) do
+        options[#options + 1] = {
+            title = weapon.label, description = 'Weapon - click to remove', icon = 'gun',
+            onSelect = function() TriggerServerEvent('fbrp:search:take', 'weapon', weapon.hash) end,
+        }
+    end
+    if data.contraband then
+        options[#options + 1] = {
+            title = data.contraband, description = 'Contraband - click to seize', icon = 'cannabis',
+            onSelect = function() TriggerServerEvent('fbrp:search:take', 'contraband') end,
+        }
+    end
+    if #(data.weapons or {}) > 1 then
+        options[#options + 1] = {
+            title = 'Remove all weapons', icon = 'hand',
+            onSelect = function() TriggerServerEvent('fbrp:search:take', 'weapons') end,
+        }
+    end
+    if #options == 0 then
+        options[1] = { title = 'Nothing found', description = 'No visible weapons or contraband.', icon = 'magnifying-glass', readOnly = true }
+    end
+    lib.registerContext({ id = 'fbrp_search', title = ('Search - %s'):format(data.name or 'Person'), options = options })
+    lib.showContext('fbrp_search')
+end)
+
+RegisterNetEvent('fbrp:search:removeWeapon', function(hash)
+    RemoveWeaponFromPed(PlayerPedId(), tonumber(hash))
 end)
 
 AddEventHandler('onClientResourceStart', function(resource)
@@ -510,7 +852,6 @@ AddEventHandler('onClientResourceStart', function(resource)
     thirdEyePending = false
     blindfolded = false
     LocalPlayer.state:set('fbrp:blindfolded', false, true)
-    SendNUIMessage({type='thirdEye',open=false})
     SendNUIMessage({type='thirdEyeTarget',open=false,active=false})
     SendNUIMessage({type='blindfold',active=false})
     local existing = restraintKind(LocalPlayer.state['fbrp:restrained'])
@@ -520,6 +861,59 @@ end)
 AddEventHandler('onClientResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     for serverId in pairs(restraintProps) do clearRestraintProp(serverId) end
+end)
+
+---------------------------------------------------------------- third eye target API
+-- Usage from another resource (client side):
+--   local id = exports.fbrp_core:AddTargetZone({ coords = vec3(...), distance = 2.0, label = 'Do thing',
+--       title = 'Thing', icon = 'ticket', canInteract = function(entity, distance, coords) return true end,
+--       onSelect = function(data) --[[ data.entity, data.coords, data.distance ]] end })
+--   local id = exports.fbrp_core:AddTargetModel({ 'prop_a', 'prop_b' }, { ...same fields, no coords... })
+--   exports.fbrp_core:RemoveTarget(id)
+-- Options are removed automatically when the resource that added them stops.
+-- icon is a name from ICONS in web/app.js (e.g. ticket, train, wallet, door, building).
+
+local function addExternal(kind, def, models)
+    if type(def) ~= 'table' or type(def.onSelect) ~= 'function' and type(def.onSelect) ~= 'table' then
+        error('third eye target needs an onSelect function', 3)
+    end
+    externalNextId = externalNextId + 1
+    local entry = {
+        id = externalNextId,
+        kind = kind,
+        resource = GetInvokingResource() or GetCurrentResourceName(),
+        name = def.name,
+        label = tostring(def.label or 'Interact'),
+        title = def.title and tostring(def.title) or nil,
+        icon = def.icon,
+        distance = math.min(tonumber(def.distance) or 2.0, EXTERNAL_MODEL_SEARCH),
+        canInteract = def.canInteract,
+        onSelect = def.onSelect,
+    }
+    if kind == 'zone' then
+        local c = def.coords
+        if not c then error('AddTargetZone needs coords', 3) end
+        entry.coords = vector3(c.x, c.y, c.z)
+    else
+        entry.models = {}
+        for _, model in ipairs(type(models) == 'table' and models or { models }) do
+            entry.models[#entry.models + 1] = type(model) == 'number' and model or joaat(model)
+        end
+    end
+    externalTargets[entry.id] = entry
+    return entry.id
+end
+
+exports('AddTargetZone', function(def) return addExternal('zone', def) end)
+exports('AddTargetModel', function(models, def) return addExternal('model', def, models) end)
+exports('RemoveTarget', function(id)
+    externalTargets[tonumber(id) or -1] = nil
+end)
+
+AddEventHandler('onClientResourceStop', function(resource)
+    for id, entry in pairs(externalTargets) do
+        if entry.resource == resource then externalTargets[id] = nil end
+    end
 end)
 
 -- Replicated restraint state makes the physical cuffs/tie visible to everyone,
@@ -561,6 +955,7 @@ CreateThread(function()
             DisableControlAction(0,75,true)
             DisablePlayerFiring(PlayerId(),true)
             local down=FBRP.IsDowned and FBRP.IsDowned()
+            SetEnableHandcuffs(ped,true)
             if not down and not escortedBy and not IsEntityPlayingAnim(ped,'mp_arresting','idle',3) and not IsPedInAnyVehicle(ped,false) then
                 if loadAnim('mp_arresting') then TaskPlayAnim(ped,'mp_arresting','idle',8.0,-8.0,-1,49,0,false,false,false) end
             end

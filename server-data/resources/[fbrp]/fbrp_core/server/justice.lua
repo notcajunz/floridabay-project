@@ -18,6 +18,7 @@ local serving = {}      -- source -> live community service
 local spikes = {}       -- officer source -> { entity, expires }
 local units = {}        -- officer source -> { status, callsign }
 local lastMdt = {}
+local alprReads = {}     -- officer source -> recent Wraith plate reader reads, newest first
 
 local RED, AMBER, AQUA, GREEN = { 255, 107, 87 }, { 255, 181, 71 }, { 67, 232, 216 }, { 79, 224, 140 }
 
@@ -276,11 +277,27 @@ end
 
 local endService -- forward declaration (community service section)
 
--- Starts a sentence for an online player. `charges` are resolved penal-code
--- rows; `months` is the final length before any escape penalty.
+-- fbrp_jail replaces this prison when it's running: hand the sentence over (months -> minutes)
+local function jailResource()
+    return GetResourceState('fbrp_jail') == 'started'
+end
+
 local function startSentence(target, actor, months, charges, notes, actorOverride)
     local s = sessions[target]
     if not s then return false, 'That player is not loaded.' end
+    if jailResource() then
+        local reason = chargeTitles(charges or {})
+        if reason == '' then reason = (notes and notes ~= '') and notes or 'No reason given' end
+        local minutes = math.max(1, math.ceil((tonumber(months) or 1) * J.secondsPerMonth / 60))
+        local characterId, name = characterOf(target)
+        local actorId, actorName = officer(actor)
+        if actorOverride then actorId, actorName = 'system', actorOverride end
+        MySQL.insert.await([[
+            INSERT INTO criminal_records(character_id,license,name,kind,charges,months,fine,notes,officer_id,officer_name,created_at)
+            VALUES(?,?,?,'arrest',?,?,0,?,?,?,?)
+        ]], { characterId, s.license, name or GetPlayerName(target), json.encode(charges or {}), months, notes ~= '' and notes or nil, actorId, actorName, now() })
+        return exports.fbrp_jail:JailPlayer(target, minutes, reason, actorOverride or actor)
+    end
     if jailed[target] then return false, 'That player is already serving a sentence.' end
     if serving[target] then endService(target, 'converted') end
     local characterId, name = characterOf(target)
@@ -745,7 +762,9 @@ local function quickBookingCheck(source, target)
     return true
 end
 
+if GetResourceState('fbrp_jail') == 'missing' then
 RegisterCommand('jail', function(source, args)
+    if jailResource() then return end -- fbrp_jail registers its own /jail while it is running
     if source > 0 and not canJail(source) then return S.deny(source, FBRP.Ace.policeJail) end
     local target, months = tonumber(args[1]), tonumber(args[2])
     if not target or not months or not sessions[target] then return notify(source, 'Usage: /jail <server id> <months> [charges/notes]', 'error') end
@@ -756,6 +775,7 @@ RegisterCommand('jail', function(source, args)
     local ok, message = startSentence(target, source, months, charges, '')
     notify(source, message, ok and 'success' or 'error')
 end, false)
+end -- fbrp_jail missing
 
 -- /communityservice <id> <minutes> [reason]
 local function serviceCommand(source, args)
@@ -781,7 +801,9 @@ RegisterCommand('endservice', function(source, args)
     notify(source, 'Community service ended.', 'success')
 end, false)
 
+if GetResourceState('fbrp_jail') == 'missing' then
 RegisterCommand('unjail', function(source, args)
+    if jailResource() then return end -- fbrp_jail registers its own /unjail while it is running
     if source > 0 and not canRelease(source) then return S.deny(source, FBRP.Ace.policeJail) end
     local target = tonumber(args[1])
     if not target or not jailed[target] then return notify(source, 'Usage: /unjail <server id of an inmate>', 'error') end
@@ -790,6 +812,7 @@ RegisterCommand('unjail', function(source, args)
     notify(target, ('You were released early by %s.'):format(select(2, officer(source))), 'success')
     notify(source, 'Inmate released.', 'success')
 end, false)
+end -- fbrp_jail missing
 
 -- Admin+ force release, called by EasyAdmin's player menu. Works on someone online
 -- whatever put them there: a sentence, community service, cuffs, a zip tie or a head bag.
@@ -996,6 +1019,7 @@ local function dashboard(source)
         ]]),
         stats = source and stats(source) or nil,
         me = source and { id=source, unit=unitOf(source) } or nil,
+        alpr = source and alprReads[source] or {},
     }
 end
 
@@ -1381,6 +1405,7 @@ MDT_ACTIONS.callsign = function(src, data)
         MySQL.prepare.await('INSERT INTO mdt_units(discord_id,callsign,updated_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE callsign=VALUES(callsign),updated_at=VALUES(updated_at)', { s.discord, callsign, now() })
     end
     notify(src, ('Callsign set to %s.'):format(callsign), 'success')
+    TriggerEvent('fbrp:callsignUpdated', src, callsign) -- refresh the overhead tag line (main.lua)
     sendMdt(src, 'dashboard', dashboard(src))
 end
 
@@ -1867,6 +1892,129 @@ RegisterNetEvent('fbrp:justice:runplate', function(rawPlate)
     TriggerClientEvent('fbrp:justice:plateResult', src, report)
 end)
 
+-- ─────────────────────────── Wraith ARS 2X plate reader ───────────────────────────
+-- The radar's front and rear plate cameras run every plate they read against the
+-- MDT (registration, stolen flag, vehicle BOLOs, owner warrants, license status
+-- and citizen flags). A hit locks the camera with the BOLO tone and alerts the
+-- officer; a manual lock runs the full plate check. Each officer's recent reads
+-- are listed on the MDT dashboard and Vehicles tab.
+
+local ALPR_KEEP = 12
+local ALPR_CACHE_MS = 15000
+local ALPR_REALERT_MS = 90000
+local alprCache = {}    -- plate -> { report, at }
+local alprAlerted = {}  -- officer source -> { [plate] = ms }
+local alprLast = {}     -- officer source .. cam -> ms of the last event handled
+
+local function alprCam(cam)
+    return cam == 'rear' and 'rear' or 'front'
+end
+
+local function alprReport(rawPlate, fresh)
+    local plate = normalizePlate(rawPlate)
+    if plate == '' then return nil end
+    local stamp = GetGameTimer()
+    local cached = alprCache[plate]
+    if not fresh and cached and stamp - cached.at < ALPR_CACHE_MS then return cached.report end
+    local report = plateReport(plate)
+    alprCache[plate] = { report=report, at=stamp }
+    return report
+end
+
+-- What makes a read a hit worth locking on. An old impound record alone is not.
+local function alprHits(report)
+    local hits = {}
+    if report.stolen then hits[#hits + 1] = 'STOLEN' end
+    for _, bolo in ipairs(report.bolos or {}) do hits[#hits + 1] = ('BOLO #%d'):format(bolo.id) end
+    if (report.warrants or 0) > 0 then hits[#hits + 1] = 'OWNER WANTED' end
+    if report.license == 'suspended' or report.license == 'revoked' then hits[#hits + 1] = ('OWNER LICENSE %s'):format(report.license:upper()) end
+    for _, flag in ipairs(report.flags or {}) do hits[#hits + 1] = flag:upper() end
+    return hits
+end
+
+local function alprRecord(src, cam, report, hits, locked)
+    local list = alprReads[src] or {}
+    for i = #list, 1, -1 do
+        if list[i].plate == report.plate then table.remove(list, i) end
+    end
+    table.insert(list, 1, {
+        plate=report.plate, cam=cam, at=now(), registered=report.registered, model=report.model,
+        owner=report.owner, ownerId=report.ownerId, hits=hits, locked=locked and true or false,
+    })
+    while #list > ALPR_KEEP do table.remove(list) end
+    alprReads[src] = list
+end
+
+local function alprThrottled(src, cam, gap)
+    local key = src .. cam
+    local stamp = GetGameTimer()
+    if alprLast[key] and stamp - alprLast[key] < gap then return true end
+    alprLast[key] = stamp
+    return false
+end
+
+local function camLabel(cam)
+    return cam == 'rear' and 'Rear' or 'Front'
+end
+
+RegisterNetEvent('wk:onPlateScanned', function(cam, rawPlate)
+    local src = source
+    if type(rawPlate) ~= 'string' or not isPolice(src) then return end
+    cam = alprCam(cam)
+    if alprThrottled(src, cam, 300) then return end
+    local report = alprReport(rawPlate, false)
+    if not report then return end
+    local hits = alprHits(report)
+    if #hits == 0 then
+        if report.registered then alprRecord(src, cam, report, hits, false) end
+        return
+    end
+    local alerted = alprAlerted[src] or {}
+    alprAlerted[src] = alerted
+    local stamp = GetGameTimer()
+    if alerted[report.plate] and stamp - alerted[report.plate] < ALPR_REALERT_MS then return end
+    alerted[report.plate] = stamp
+    alprRecord(src, cam, report, hits, true)
+    TriggerClientEvent('wk:mdtPlateHit', src, cam, rawPlate:sub(1, 16))
+    chat(src, 'ALPR', ('%s camera · %s'):format(camLabel(cam), (plateLine(report))), RED)
+    notify(src, ('Plate reader hit: %s · %s'):format(report.plate, table.concat(hits, ' · ')), 'warning')
+    TriggerClientEvent('fbrp:justice:plateResult', src, report)
+end)
+
+RegisterNetEvent('wk:onPlateLocked', function(cam, rawPlate)
+    local src = source
+    if type(rawPlate) ~= 'string' or not isPolice(src) then return end
+    cam = alprCam(cam)
+    if alprThrottled(src, cam .. ':lock', 750) then return end
+    local alerted = alprAlerted[src]
+    local plate = normalizePlate(rawPlate)
+    -- A lock caused by our own hit alert was already reported a moment ago.
+    if alerted and alerted[plate] and GetGameTimer() - alerted[plate] < 5000 then return end
+    local report = alprReport(rawPlate, true)
+    if not report then return end
+    alprRecord(src, cam, report, alprHits(report), true)
+    local text, color = plateLine(report)
+    chat(src, 'ALPR', ('%s camera locked · %s'):format(camLabel(cam), text), color)
+    TriggerClientEvent('fbrp:justice:plateResult', src, report)
+end)
+
+AddEventHandler('playerDropped', function()
+    local src = source
+    alprReads[src], alprAlerted[src] = nil, nil
+    alprLast[src .. 'front'], alprLast[src .. 'rear'] = nil, nil
+    alprLast[src .. 'front:lock'], alprLast[src .. 'rear:lock'] = nil, nil
+end)
+
+CreateThread(function()
+    while true do
+        Wait(60000)
+        local stamp = GetGameTimer()
+        for plate, entry in pairs(alprCache) do
+            if stamp - entry.at > ALPR_CACHE_MS then alprCache[plate] = nil end
+        end
+    end
+end)
+
 RegisterNetEvent('fbrp:justice:impound', function(netId)
     local src = source
     if not hasPermission(src, FBRP.Ace.policeImpound) then return S.deny(src, FBRP.Ace.policeImpound) end
@@ -1967,6 +2115,12 @@ FBRP.InteractionHandlers.checkid = function(src, target)
     chat(src, 'IDENTIFICATION', text, (card.warrants or 0) > 0 and RED or AQUA)
 end
 
+RegisterNetEvent('fbrp:idcard:own', function()
+    local src = source
+    if not sessions[src] then return end
+    TriggerClientEvent('fbrp:idcard:show', src, idCard(src, false))
+end)
+
 FBRP.InteractionHandlers.showid = function(src, target)
     local card = idCard(src, false)
     TriggerClientEvent('fbrp:idcard:show', target, card)
@@ -1990,9 +2144,14 @@ end
 
 FBRP.InteractionVisible.jail = function(src, target)
     if jailed[target] or serving[target] or characterOf(target) == nil then return false end
+    if Player(target).state['fbrp:jailed'] then return false end
     return hasPermission(src, FBRP.Ace.staffJail) or Player(target).state['fbrp:restrained'] ~= nil
 end
 FBRP.InteractionHandlers.jail = function(src, target)
+    if jailResource() then
+        exports.fbrp_jail:OpenDialog(src, target)
+        return
+    end
     local characterId = characterOf(target)
     if not characterId then notify(src, 'This person has not picked a character yet.', 'error') return false end
     openMdt(src, { characterId=characterId, form='sentence' })
@@ -2005,7 +2164,10 @@ FBRP.InteractionHandlers.commserv = function(src, target)
     openMdt(src, { characterId=characterId, form='service' })
 end
 
-FBRP.Justice.IsJailed = function(source) return jailed[tonumber(source)] ~= nil end
+FBRP.Justice.IsJailed = function(source)
+    source = tonumber(source)
+    return jailed[source] ~= nil or (source and Player(source).state['fbrp:jailed'] == true) or false
+end
 FBRP.Justice.IsServing = function(source) return serving[tonumber(source)] ~= nil end
 FBRP.Justice.PrisonSpawn = function() return J.prison.spawns[math.random(#J.prison.spawns)] end
 FBRP.Justice.StartSentence = startSentence
