@@ -30,3 +30,16 @@ export async function refreshSiteUrls() {
 export const publicBase = () => state.site || trim(process.env.FBRP_PUBLIC_URL);
 /** fivem://connect/... address for the Play button. */
 export const connectUrl = () => state.connect || String(process.env.FBRP_CONNECT_URL || "");
+
+/**
+ * Parses an incoming HTTP request target. The origin is fixed, so neither the Host header nor a
+ * "//host/..." target can affect routing; a malformed target returns null (answer 400) instead of
+ * throwing "Invalid URL".
+ */
+export function requestUrl(target) {
+  try {
+    return new URL(String(target || "/").replace(/^\/{2,}/, "/"), "http://localhost");
+  } catch {
+    return null;
+  }
+}

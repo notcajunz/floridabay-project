@@ -192,7 +192,7 @@ async function managerRoles() {
   }, "staff_audit");
 }
 
-/** Creates (once) the Community Director+ channel that mirrors the request queue to the main bot. */
+/** Creates (once) the Executive Management+ channel that mirrors the request queue to the main bot. */
 async function ensureQueueLogChannel(guild) {
   const binding = await db.one("SELECT channel_id FROM discord_channel_bindings WHERE purpose=?", [QUEUE_LOG_PURPOSE]).catch(() => null);
   if (binding && (await guild.channels.fetch(String(binding.channel_id)).catch(() => null))) return;
@@ -202,7 +202,7 @@ async function ensureQueueLogChannel(guild) {
     name: "role-queue-log",
     type: ChannelType.GuildText,
     parent: QUEUE_LOG_CATEGORY_ID,
-    topic: "Role and sync requests the staff bot sends to the main bot: queued and completed. Community Director and above.",
+    topic: "Role and sync requests the staff bot sends to the main bot: queued and completed. Executive Management and above.",
     permissionOverwrites: [
       { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
       ...QUEUE_LOG_ROLE_IDS.map((id) => ({ id, allow: view })),

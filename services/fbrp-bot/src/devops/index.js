@@ -18,6 +18,7 @@ import * as status from "./status.js";
 import * as lookups from "./lookups.js";
 import * as restart from "./restart.js";
 import * as intake from "./intake.js";
+import { startDevReviewWorker } from "../dev-review/worker.js";
 import { refreshPanels, renderPanel } from "./panels.js";
 
 /**
@@ -315,6 +316,8 @@ client.once(Events.ClientReady, async () => {
   every(3_600_000, "task reminders", tasks.remind, 120_000);
   // Twice a day (every 12 hours, persisted across restarts) DM the owner the unfinished reports.
   every(600_000, "intake reminder", () => intake.sendReminder(client), 90_000);
+  // Analyses pushes to the contribution repository and DMs the owner. Deciding happens in the website portal only.
+  startDevReviewWorker(client, { db });
 });
 
 client.on(Events.Error, (e) => console.error("[DevOps] client error:", e.message));

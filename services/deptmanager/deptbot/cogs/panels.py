@@ -128,7 +128,7 @@ class PanelsCog(DeptCog):
     async def refresh_loop(self) -> None:
         kinds = KINDS if self._ticks % HOURS_EVERY == 0 else ("chain",)
         self._ticks += 1
-        for guild in self.bot.guilds:
+        for guild in self.bot.home_guilds():
             await self.refresh(guild, *kinds)
 
     @refresh_loop.before_loop

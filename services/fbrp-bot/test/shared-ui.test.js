@@ -45,3 +45,14 @@ test("dropdowns keep the real select, work from the keyboard and never touch dat
   assert.match(ui, /dispatchEvent\(new Event\("change"/);
   assert.match(read("ui.css"), /\.ui-select > select \{[^}]*opacity: 0/);
 });
+
+test("dropdowns with more than 20 options provide an accessible search filter", () => {
+  const ui = read("ui.js");
+  assert.match(ui, /optionCount > 20/);
+  assert.match(ui, /type = "search"/);
+  assert.match(ui, /aria-label", "Search dropdown options"/);
+  assert.match(ui, /includes\(needle\)/);
+  assert.match(ui, /searchTextOf = \(option\) => `\$\{labelOf\(option\)\} \$\{option\.value \|\| ""\}`/);
+  assert.match(ui, /!searchTextOf\(row\._option\)\.includes\(needle\)/);
+  assert.match(read("ui.css"), /\.ui-search/);
+});

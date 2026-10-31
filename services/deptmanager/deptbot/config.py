@@ -91,6 +91,9 @@ class Config:
     # Department Coordination spreadsheet kept in step with /coord. Empty id disables the sync; the
     # Google service account key file comes from GOOGLE_SERVICE_ACCOUNT_FILE in .env.
     roster_spreadsheet_id: str = ""
+    # Email database whose department tabs are created/archived by the Apps Script endpoint.
+    # Direct Sheets access is used only to move an older same-day archive out of the way.
+    email_spreadsheet_id: str = ""
     roster_tab: str = "Master Roster"
     roster_employee_tab: str = "Employee Database"
     # Coordinator ladder rank -> the rank text in the roster's Rank column (same name when absent).
@@ -271,6 +274,7 @@ class Config:
             email_approver_rank=email_approver_rank,
             launch_group_role_id=channel("launch_group_role_id"),
             roster_spreadsheet_id=str(bot.get("roster_spreadsheet_id", "")).strip(),
+            email_spreadsheet_id=str(bot.get("email_spreadsheet_id", "")).strip(),
             roster_tab=str(bot.get("roster_tab", "Master Roster")),
             roster_employee_tab=str(bot.get("roster_employee_tab", "Employee Database")),
             roster_rank_labels={

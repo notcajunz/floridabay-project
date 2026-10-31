@@ -158,9 +158,16 @@ function isInternalAutomation(guild, userId) {
   );
 }
 
+/** The bot owner and every configured bot superuser (FBRP_SUPERUSER_IDS). */
+const botOwnerIds = () => new Set(
+  [process.env.FBRP_OWNER_DISCORD_ID, ...String(process.env.FBRP_SUPERUSER_IDS || "").split(",")]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean),
+);
+
 /** Global ('*') exemptions apply everywhere; a guild ID applies only there. Cached briefly because the audit stream asks often. */
 async function exempt(guildId, discordId) {
-  if (String(discordId) === String(process.env.FBRP_OWNER_DISCORD_ID || "")) return true;
+  if (botOwnerIds().has(String(discordId))) return true;
   const key = `${guildId}:${discordId}`;
   const hit = exemptCache.get(key);
   if (hit && Date.now() - hit.at < 15000) return hit.value;
@@ -214,7 +221,7 @@ async function auditEntry(guild, type, targetId = null, maxAge = 15000, delay = 
 /** DMs the owners of the given server(s) and the bot owner. Used only for anti-nuke, raid and health alerts. */
 async function alertOwners(guilds, e) {
   const list = Array.isArray(guilds) ? guilds : [guilds];
-  const ids = new Set([...list.map((guild) => String(guild.ownerId)), String(process.env.FBRP_OWNER_DISCORD_ID || "")].filter(Boolean));
+  const ids = new Set([...list.map((guild) => String(guild.ownerId)), ...botOwnerIds()].filter(Boolean));
   const guild = list[0];
   if (!guild) return;
   for (const id of ids) {
@@ -1082,7 +1089,7 @@ function classify(entry) {
   }
 }
 
-const isBotOwner = (id) => String(id) === String(process.env.FBRP_OWNER_DISCORD_ID || "");
+const isBotOwner = (id) => botOwnerIds().has(String(id));
 
 /** Entry point for the guildAuditLogEntryCreate event. */
 export async function handleAuditEntry(entry, guild, log) {

@@ -40,5 +40,5 @@ test("controls are comfortable to hit and text is not tiny", () => {
 
 test("changed assets are cache-busted", () => {
   assert.match(html, /orgs\.css\?v=8/);
-  assert.match(html, /orgs\.js\?v=8/);
+  assert.match(html, /orgs\.js\?v=9/);
 });

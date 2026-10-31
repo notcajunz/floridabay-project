@@ -53,7 +53,7 @@ class DepartmentService:
     async def create(self, guild_id: int, name: str, category: str, **values: Any) -> int:
         allowed = {
             "initials", "status", "role_color", "base_role_id", "command_role_id",
-            "head_id", "fbrp_org_id", "created_by",
+            "head_id", "fbrp_org_id", "external_guild_id", "created_by",
         }
         cols = ["guild_id", "name", "category"]
         params: list[Any] = [guild_id, name.strip(), category]
@@ -65,6 +65,21 @@ class DepartmentService:
         return await self.db.execute(
             f"INSERT INTO departments ({','.join(cols)}) VALUES ({marks})", params
         )
+
+    async def linked_guild_ids(self, home_guild_id: int | None) -> set[int]:
+        """Department Discord servers linked with /dept add guild_id (this bot instance's registry)."""
+        rows = await self.db.fetch_all(
+            "SELECT external_guild_id FROM departments WHERE external_guild_id IS NOT NULL AND external_guild_id<>''"
+            + (" AND guild_id=?" if home_guild_id else ""),
+            (home_guild_id,) if home_guild_id else (),
+        )
+        return {int(row["external_guild_id"]) for row in rows if str(row["external_guild_id"]).isdigit()}
+
+    async def department_for_guild(self, external_guild_id: int):
+        row = await self.db.fetch_one(
+            "SELECT * FROM departments WHERE external_guild_id=?", (str(external_guild_id),)
+        )
+        return dict(row) if row else None
 
     async def setting(self, guild_id: int, key: str, default: str | None = None) -> str | None:
         row = await self.db.fetch_one("SELECT value FROM settings WHERE guild_id=? AND key=?", (guild_id, key))
@@ -101,6 +116,14 @@ def parse_color(value: str) -> int:
     if not 0 <= number <= 0xFFFFFF:
         raise ValueError("Color must be a hex value such as `#5865F2`.")
     return number
+
+
+def parse_guild_id(value: str) -> int:
+    """A Discord server ID (right-click the server icon, Copy Server ID)."""
+    clean = str(value or "").strip()
+    if not clean.isdigit() or not 15 <= len(clean) <= 22:
+        raise ValueError("`guild_id` must be the department Discord's server ID (right-click its icon, Copy Server ID).")
+    return int(clean)
 
 
 def parse_message_id(value: str) -> int:

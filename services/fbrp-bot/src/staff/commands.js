@@ -271,7 +271,7 @@ const examChoice = (o) =>
     .addChoices({ name: "Head Administrator exam", value: "head_admin" }, { name: "Management exam", value: "management" });
 const exam = new SlashCommandBuilder()
   .setName("exam")
-  .setDescription("Give out staff promotion exams (Assistant Community Director and above)")
+  .setDescription("Give out staff promotion exams (Community Director and above)")
   .addSubcommand((s) =>
     s.setName("give").setDescription("Open an exam for a member for 60 minutes")
       .addUserOption((o) => o.setName("member").setDescription("Staff member sitting the exam").setRequired(true))

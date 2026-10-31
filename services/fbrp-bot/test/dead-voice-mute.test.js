@@ -8,15 +8,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const serverData = path.resolve(here, '../../../server-data');
 const read = (relative) => fs.readFileSync(path.join(serverData, relative), 'utf8');
 
-test('the downed state sets and clears the pma-voice dead flag', () => {
-  const medical = read('resources/[fbrp]/fbrp_core/client/medical.lua');
-  assert.match(medical, /LocalPlayer\.state:set\('isDead', muted == true, true\)/);
-  const goDown = medical.slice(medical.indexOf('local function goDown'), medical.indexOf("AddEventHandler('fbrp:characterSpawned'"));
-  assert.match(goDown, /setVoiceMuted\(true\)/);
-  const leave = medical.slice(medical.indexOf('local function leaveDowned'), medical.indexOf('local KEEP'));
-  assert.match(leave, /setVoiceMuted\(false\)/);
-  const stop = medical.slice(medical.indexOf("AddEventHandler('onClientResourceStop'"));
-  assert.match(stop, /setVoiceMuted\(false\)/);
+test('the death system mutes the dead through pma-voice and gives the voice back', () => {
+  const functions = read('resources/[fbrp]/DeathScript/functions_client.lua');
+  assert.match(functions, /ClientConfig\.MuteWhenDead/);
+  assert.match(functions, /exports\["pma-voice"\]:overrideProximityCheck\(function\(\) return false end\)/);
+  assert.match(functions, /exports\["pma-voice"\]:resetProximityCheck\(\)/);
+  assert.match(read('resources/[fbrp]/DeathScript/fxmanifest.lua'), /"fbrp_core"/);
 });
 
 test('pma-voice sends no proximity, call or radio audio while the dead flag is set', () => {

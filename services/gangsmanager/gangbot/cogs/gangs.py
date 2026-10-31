@@ -121,9 +121,15 @@ class GangsCog(GangCog):
             await base_role.delete(reason="Rolling back failed gang creation")
             await command_role.delete(reason="Rolling back failed gang creation")
             raise
+        link_note = ""
+        if fbrp_org_id:
+            try:
+                await self.service.api.link_access_role(fbrp_org_id, guild.id, base_role.id)
+            except FbrpApiError as error:
+                link_note = f"\n⚠️ The gang was created, but its FBRP duty role could not be linked: {error}"
         await self.service.log(guild.id, "gang", "created", actor_id(interaction), name)
         await self._update_gang_tier_directory(guild)
-        await reply(interaction, f"Created **{name}** with {base_role.mention} and {command_role.mention}.")
+        await reply(interaction, f"Created **{name}** with {base_role.mention} and {command_role.mention}.{link_note}")
 
     @gang.command(name="add", description="Add an existing gang record")
     @gang_add_remove_only
@@ -188,6 +194,12 @@ class GangsCog(GangCog):
         except Exception:
             await voice_channel.delete(reason="Rolling back failed gang addition")
             raise
+        link_note = ""
+        if fbrp_org_id:
+            try:
+                await self.service.api.link_access_role(fbrp_org_id, guild.id, base_role.id)
+            except FbrpApiError as error:
+                link_note = f"\n⚠️ The gang was added, but its FBRP duty role could not be linked: {error}"
         await self.service.log(gid, "gang", "added", actor_id(interaction), name)
         await self._update_gang_tier_directory(guild)
         if tier == 3:
@@ -198,7 +210,7 @@ class GangsCog(GangCog):
             await self._announce_launch(interaction, base_role.id, type.value)
         await reply(
             interaction,
-            f"Added **{gang_name}** to the gang registry and created {voice_channel.mention}.",
+            f"Added **{gang_name}** to the gang registry and created {voice_channel.mention}.{link_note}",
         )
 
     @app_commands.command(name="lineadd", description="Create a staff-controlled voice divider")
@@ -613,6 +625,10 @@ class GangsCog(GangCog):
         rank: app_commands.Choice[str],
         category: app_commands.Choice[str],
     ) -> None:
+        # Discord invalidates an unacknowledged interaction after three seconds.
+        # Role updates can take multiple API round trips, so acknowledge before
+        # doing any of that work and let reply() use the follow-up webhook.
+        await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         if guild is None:
             raise ValueError("This command can only be used in a server.")
@@ -679,6 +695,7 @@ class GangsCog(GangCog):
     @coord.command(name="remove", description="Remove all coordinator assignments from a member")
     @manager_only
     async def coord_remove(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        await interaction.response.defer(ephemeral=True)
         if interaction.guild:
             role_ids = {
                 *self.bot.config.coordinator_role_ids.values(),

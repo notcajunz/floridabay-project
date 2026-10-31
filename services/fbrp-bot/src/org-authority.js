@@ -134,8 +134,10 @@ export function createOrgAuthority({ client, db }) {
         try {
           handle = await openDatabase(file);
           if (!handle) continue;
+          // Department registries gained external_guild_id (/dept add guild_id) later; older files lack it.
+          const columns = new Set(handle.prepare(`PRAGMA table_info(${registry.table})`).all().map((column) => column.name));
           const statement = handle.prepare(
-            `SELECT name,guild_id,${registry.owner} AS owner_ref,command_role_id,base_role_id,fbrp_org_id${registry.kind === "department" ? ",NULL AS external_guild_id" : ",external_guild_id"}
+            `SELECT name,guild_id,${registry.owner} AS owner_ref,command_role_id,base_role_id,fbrp_org_id,${columns.has("external_guild_id") ? "external_guild_id" : "NULL AS external_guild_id"}
                FROM ${registry.table} WHERE fbrp_org_id IS NOT NULL AND fbrp_org_id<>''`,
           );
           // Discord IDs are stored as SQLite integers and do not fit in a JavaScript number.

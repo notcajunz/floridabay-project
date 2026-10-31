@@ -82,3 +82,19 @@ test("--max-gb raises the size cap only within a sane range", async () => {
   const { result } = await installEupFolder([...base, "--max-gb", "3"]);
   assert.equal(result.eup.name, "big_pack");
 });
+
+test("a pack replacing a base game dlc keeps its numbers and names and gets no shop meta", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "fbrp-eup-vanilla-"));
+  await mkdir(path.join(dir, "stream"), { recursive: true });
+  await writeFile(path.join(dir, "stream", "mp_m_freemode_01_mp_m_bikerdlc_01^hand_002_u.ydd"), asset(1));
+  await writeFile(path.join(dir, "stream", "mp_m_freemode_01_mp_m_bikerdlc_01^hand_diff_002_a_uni.ytd"), asset(2));
+  const stage = await mkdtemp(path.join(tmpdir(), "fbrp-eup-stage-"));
+  const { result, eupDir } = await installEupFolder(["--dir", dir, "--name", "kutte_pack", "--public", "--stage", stage]);
+  const pack = path.join(eupDir, "fbrp_eup_kutte_pack");
+  assert.deepEqual((await readdir(path.join(pack, "stream"))).sort(), ["mp_m_freemode_01_mp_m_bikerdlc_01^hand_002_u.ydd", "mp_m_freemode_01_mp_m_bikerdlc_01^hand_diff_002_a_uni.ytd"]);
+  assert.deepEqual(await readdir(path.join(pack, "data")), []);
+  const marker = JSON.parse(await readFile(path.join(pack, ".fbrp-eup.json"), "utf8"));
+  assert.equal(marker.pieces[0].index, 2);
+  assert.equal(marker.groups[0].meta, "none");
+  assert.ok(result.eup);
+});

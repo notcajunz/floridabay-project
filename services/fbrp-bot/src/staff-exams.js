@@ -8,7 +8,7 @@ import { publicBase } from "./site-url.js";
  *   Head Administrator exam  - only members whose highest staff group is Trial Head Administrator
  *   Management exam          - only members whose highest staff group is Head Administrator
  *
- * Applications land in a review queue that only Assistant Community Director and above can open. Passing
+ * Applications land in a review queue that only Community Director and above can open. Passing
  * gives the exam's "passed" role in the staff Discord and every submission/decision is logged
  * there; the review itself always happens on the website.
  */
@@ -23,7 +23,7 @@ export const DEFAULT_EXAMS = [
     target_rank: "Head Administrator",
     eligible_group: "trial_head_administrator",
     description:
-      "For Trial Head Administrators who are ready to lead the administration team. Scenario questions are marked automatically and every option is plausible - pick the best one. Written answers are read by Assistant Community Director and above.",
+      "For Trial Head Administrators who are ready to lead the administration team. Scenario questions are marked automatically and every option is plausible - pick the best one. Written answers are read by Community Director and above.",
     pass_role_name: "Head Admin Exam · Passed",
     pass_mark: 75,
     cooldown_days: 14,
@@ -88,7 +88,7 @@ export const DEFAULT_EXAMS = [
     target_rank: "Management",
     eligible_group: "head_administrator",
     description:
-      "For Head Administrators applying to join management. Covers policy, staff leadership, escalation, crisis handling and community communication. Every option is plausible - pick the best one. Reviewed by Assistant Community Director and above.",
+      "For Head Administrators applying to join management. Covers policy, staff leadership, escalation, crisis handling and community communication. Every option is plausible - pick the best one. Reviewed by Community Director and above.",
     pass_role_name: "Management Exam · Passed",
     pass_mark: 80,
     cooldown_days: 21,
@@ -152,7 +152,7 @@ export const DEFAULT_EXAMS = [
 // Bump when the default question banks change: the seed then overwrites the stored questions once.
 const QUESTION_VERSION = 2;
 
-const REVIEWER_GROUP = "assistant_community_director";
+const REVIEWER_GROUP = "community_director";
 export const GRANT_MINUTES = 60;
 const STATUS_OPEN = ["submitted", "under_review"];
 const text = (value, max) => String(value ?? "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0009\u000b-\u001f]/g, " ").trim().slice(0, max);
@@ -334,12 +334,12 @@ export function createStaffExams({ client, db, audit, log }) {
     if (latest && STATUS_OPEN.includes(latest.status)) return { eligible: false, reason: "Your application is waiting for review.", pending: true };
     if (latest?.status === "passed") return { eligible: false, reason: "You have already passed this exam.", passed: true };
     const grant = await activeGrant(exam.exam_key, discordId);
-    // A grant from Assistant Community Director+ is a deliberate decision, so it also overrides a retake cooldown.
+    // A grant from Community Director+ is a deliberate decision, so it also overrides a retake cooldown.
     if (latest?.status === "failed" && !grant) {
       const until = Number(latest.reviewed_at || latest.updated_at) + Number(exam.cooldown_days) * 86400000;
       if (until > Date.now()) return { eligible: false, reason: "You can retake this exam once the cooldown ends.", cooldownUntil: until };
     }
-    if (!grant) return { eligible: false, needsGrant: true, reason: "Assistant Community Director or above has to give you this exam with /exam give. Access lasts 60 minutes." };
+    if (!grant) return { eligible: false, needsGrant: true, reason: "Community Director or above has to give you this exam with /exam give. Access lasts 60 minutes." };
     return { eligible: true, grantId: grant.id, expiresAt: Number(grant.expires_at) };
   }
 
@@ -426,7 +426,7 @@ export function createStaffExams({ client, db, audit, log }) {
     const autoScore = choices ? Math.round((right / choices) * 100) : null;
     const stamp = Date.now();
     const used = await db.query("UPDATE staff_exam_grants SET used_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?", [stamp, state.grantId, stamp]);
-    if (!used.affectedRows) throw new Error("Your exam access expired before you submitted. Ask an Assistant Community Director or above to give you the exam again.");
+    if (!used.affectedRows) throw new Error("Your exam access expired before you submitted. Ask a Community Director or above to give you the exam again.");
     const discordUser = await client.users.fetch(session.id).catch(() => null);
     const displayName = text(discordUser?.globalName || discordUser?.username || session.username || session.id, 100);
     const inserted = await db.query(
@@ -453,7 +453,7 @@ export function createStaffExams({ client, db, audit, log }) {
   }
 
   async function review(session, input) {
-    if (!(await isReviewer(session.id))) throw new Error("Only Assistant Community Director and above can review exams.");
+    if (!(await isReviewer(session.id))) throw new Error("Only Community Director and above can review exams.");
     const decision = String(input.decision || "");
     if (!["under_review", "passed", "failed"].includes(decision)) throw new Error("Choose a valid decision.");
     const app = await db.one("SELECT * FROM staff_exam_applications WHERE id=?", [Number(input.applicationId)]);
@@ -520,9 +520,9 @@ export function createStaffExams({ client, db, audit, log }) {
     return exam;
   }
 
-  /** /exam give: opens one exam for one member for GRANT_MINUTES. Assistant Community Director and above only. */
+  /** /exam give: opens one exam for one member for GRANT_MINUTES. Community Director and above only. */
   async function give(actorId, targetId, examKey) {
-    if (!(await isReviewer(actorId))) throw new Error("Only Assistant Community Director and above can give out exams.");
+    if (!(await isReviewer(actorId))) throw new Error("Only Community Director and above can give out exams.");
     if (String(actorId) === String(targetId)) throw new Error("You cannot give yourself an exam.");
     const exam = await examByKey(examKey);
     if (!exam.enabled) throw new Error(`${exam.title} is closed. Re-open it in live configuration first.`);
@@ -555,7 +555,7 @@ Your access expires <t:${Math.floor(expiresAt / 1000)}:R> (${GRANT_MINUTES} minu
   }
 
   async function revoke(actorId, targetId, examKey) {
-    if (!(await isReviewer(actorId))) throw new Error("Only Assistant Community Director and above can revoke exams.");
+    if (!(await isReviewer(actorId))) throw new Error("Only Community Director and above can revoke exams.");
     const exam = await examByKey(examKey);
     const result = await db.query("UPDATE staff_exam_grants SET revoked_at=?,revoked_by=? WHERE exam_key=? AND discord_id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?", [Date.now(), String(actorId), exam.exam_key, String(targetId), Date.now()]);
     if (!result.affectedRows) throw new Error("They do not have active access to that exam.");
@@ -565,7 +565,7 @@ Your access expires <t:${Math.floor(expiresAt / 1000)}:R> (${GRANT_MINUTES} minu
   }
 
   async function activeGrants(actorId) {
-    if (!(await isReviewer(actorId))) throw new Error("Only Assistant Community Director and above can see exam access.");
+    if (!(await isReviewer(actorId))) throw new Error("Only Community Director and above can see exam access.");
     const all = await exams();
     const rows = await db.query("SELECT * FROM staff_exam_grants WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at>? ORDER BY expires_at", [Date.now()]);
     return rows.map((row) => ({ ...row, title: all.find((exam) => exam.exam_key === row.exam_key)?.title || row.exam_key }));

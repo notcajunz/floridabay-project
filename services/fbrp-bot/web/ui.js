@@ -98,6 +98,7 @@
   let openState = null;
 
   const labelOf = (option) => option.label || option.textContent.trim();
+  const searchTextOf = (option) => `${labelOf(option)} ${option.value || ""}`.toLocaleLowerCase();
 
   function refresh(select) {
     const s = state.get(select);
@@ -122,6 +123,7 @@
     const button = el("button", "ui-select-btn");
     button.type = "button";
     button.setAttribute("aria-haspopup", "listbox");
+    button.setAttribute("aria-expanded", "false");
     const height = parseFloat(cs.height);
     if (height >= 28) button.style.height = `${height}px`;
     button.style.fontSize = cs.fontSize;
@@ -165,11 +167,32 @@
     const s = state.get(select);
     if (!s || select.disabled) return;
     const pop = el("div", "ui-pop");
-    pop.setAttribute("role", "listbox");
     pop.tabIndex = -1;
+    const list = el("div", "ui-options");
+    list.setAttribute("role", "listbox");
+    const items = entries(select);
+    const optionCount = items.filter((item) => item.option).length;
     const rows = [];
-    for (const item of entries(select)) {
-      if (item.group !== undefined) { pop.append(el("div", "ui-group", item.group)); continue; }
+    const groups = [];
+    let currentGroup = null;
+    let search = null;
+    if (optionCount > 20) {
+      const searchWrap = el("div", "ui-search");
+      search = el("input");
+      search.type = "search";
+      search.placeholder = `Search ${optionCount} options…`;
+      search.setAttribute("aria-label", "Search dropdown options");
+      searchWrap.append(search);
+      pop.append(searchWrap);
+    }
+    for (const item of items) {
+      if (item.group !== undefined) {
+        const heading = el("div", "ui-group", item.group);
+        currentGroup = { heading, rows: [] };
+        groups.push(currentGroup);
+        list.append(heading);
+        continue;
+      }
       const row = el("div", "ui-opt");
       row.setAttribute("role", "option");
       row.append(el("span", "", labelOf(item.option) || " "));
@@ -181,17 +204,41 @@
       row.addEventListener("pointermove", () => activate(rows.indexOf(row)));
       row.addEventListener("click", () => choose(rows.indexOf(row)));
       rows.push(row);
-      pop.append(row);
+      currentGroup?.rows.push(row);
+      list.append(row);
     }
+    const empty = el("div", "ui-empty", "No matching options");
+    empty.hidden = true;
+    list.append(empty);
+    pop.append(list);
     host(s.wrap).append(pop);
     s.wrap.classList.add("open");
-    openState = { select, pop, rows, active: -1, buffer: "", timer: 0 };
+    s.button.setAttribute("aria-expanded", "true");
+    openState = { select, pop, rows, groups, empty, search, active: -1, buffer: "", timer: 0 };
     place(pop, s.button);
     const start = rows.findIndex((row) => row._option.selected);
     activate(start >= 0 ? start : rows.findIndex((row) => !row._disabled));
-    pop.focus({ preventScroll: true });
+    (search || pop).focus({ preventScroll: true });
+    search?.addEventListener("input", () => filterRows(search.value));
     pop.addEventListener("keydown", onPopKey);
     pop.addEventListener("focusout", () => setTimeout(() => { if (openState?.pop === pop && !pop.contains(document.activeElement)) closePop(); }, 0));
+  }
+
+  function filterRows(query) {
+    if (!openState) return;
+    const needle = query.trim().toLocaleLowerCase();
+    let visible = 0;
+    for (const row of openState.rows) {
+      row.hidden = needle !== "" && !searchTextOf(row._option).includes(needle);
+      if (!row.hidden) visible += 1;
+    }
+    for (const group of openState.groups) group.heading.hidden = !group.rows.some((row) => !row.hidden);
+    openState.empty.hidden = visible !== 0;
+    if (openState.rows[openState.active]?.hidden) {
+      openState.rows[openState.active]?.classList.remove("active");
+      openState.active = -1;
+    }
+    if (openState.active < 0) activate(openState.rows.findIndex((row) => !row.hidden && !row._disabled));
   }
 
   /** Put the menu under (or above) the button. Works whatever page zoom the site uses, by measuring how far a move really goes. */
@@ -228,7 +275,7 @@
     let i = openState.active;
     for (let n = 0; n < rows.length; n += 1) {
       i = (i + direction + rows.length) % rows.length;
-      if (!rows[i]._disabled) return activate(i);
+      if (!rows[i].hidden && !rows[i]._disabled) return activate(i);
     }
   }
 
@@ -241,13 +288,19 @@
     const from = openState.buffer.length > 1 ? openState.active : openState.active + 1;
     for (let n = 0; n < rows.length; n += 1) {
       const i = (from + n + rows.length) % rows.length;
-      if (!rows[i]._disabled && labelOf(rows[i]._option).toLowerCase().startsWith(openState.buffer)) return activate(i);
+      if (!rows[i].hidden && !rows[i]._disabled && labelOf(rows[i]._option).toLowerCase().startsWith(openState.buffer)) return activate(i);
     }
   }
 
   function onPopKey(event) {
     if (!openState) return;
-    const keys = { ArrowDown: () => step(1), ArrowUp: () => step(-1), Home: () => activate(openState.rows.findIndex((r) => !r._disabled)), End: () => activate(openState.rows.length - 1 - [...openState.rows].reverse().findIndex((r) => !r._disabled)) };
+    if (event.target === openState.search && !["ArrowDown", "ArrowUp", "Home", "End", "Enter", "Escape", "Tab"].includes(event.key)) return;
+    const visible = (row) => !row.hidden && !row._disabled;
+    const lastVisible = () => {
+      for (let i = openState.rows.length - 1; i >= 0; i -= 1) if (visible(openState.rows[i])) return i;
+      return -1;
+    };
+    const keys = { ArrowDown: () => step(1), ArrowUp: () => step(-1), Home: () => activate(openState.rows.findIndex(visible)), End: () => activate(lastVisible()) };
     if (keys[event.key]) { event.preventDefault(); keys[event.key](); }
     else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); choose(openState.active); }
     else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); const { select } = openState; closePop(); state.get(select)?.button.focus(); }
@@ -274,6 +327,7 @@
     clearTimeout(openState.timer);
     openState.pop.remove();
     state.get(openState.select)?.wrap.classList.remove("open");
+    state.get(openState.select)?.button.setAttribute("aria-expanded", "false");
     openState = null;
   }
 

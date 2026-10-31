@@ -7,10 +7,11 @@ const { visibleMemberships, staffDisplayGroups } = await import("../src/sync.js"
 const ranks = new Map([
   ["owner", 1000],
   ["co_owner", 950],
-  ["community_director", 900],
+  ["executive_management", 900],
+  ["community_director", 875],
   ["community_manager", 850],
   ["assistant_community_manager", 825],
-  ["junior_management", 812],
+  ["trial_management", 812],
   ["head_administrator", 800],
   ["admin", 725],
   ["moderator", 650],
@@ -25,20 +26,20 @@ test("staff wear only their top rank role", () => {
 });
 
 test("management wear Head Administrator and every lower management rank", () => {
-  const held = new Set(["community_director", "community_manager", "assistant_community_manager", "head_administrator", "admin", "moderator", "law_enforcement"]);
-  assert.deepEqual(names(visibleMemberships(held, info)), ["assistant_community_manager", "community_director", "community_manager", "head_administrator", "junior_management", "law_enforcement"]);
+  const held = new Set(["executive_management", "community_director", "community_manager", "assistant_community_manager", "head_administrator", "admin", "moderator", "law_enforcement"]);
+  assert.deepEqual(names(visibleMemberships(held, info)), ["assistant_community_manager", "community_director", "community_manager", "executive_management", "head_administrator", "law_enforcement", "trial_management"]);
 });
 
 test("ownership wear every management and ownership rank below them", () => {
-  const held = new Set(["owner", "co_owner", "community_director", "community_manager", "assistant_community_manager", "head_administrator", "admin"]);
-  assert.deepEqual(names(visibleMemberships(held, info)), ["assistant_community_manager", "co_owner", "community_director", "community_manager", "head_administrator", "junior_management", "owner"]);
-  const coOwner = new Set(["co_owner", "community_director", "assistant_community_manager", "head_administrator", "admin"]);
-  assert.deepEqual(names(visibleMemberships(coOwner, info)), ["assistant_community_manager", "co_owner", "community_director", "community_manager", "head_administrator", "junior_management"]);
+  const held = new Set(["owner", "co_owner", "executive_management", "community_director", "community_manager", "assistant_community_manager", "head_administrator", "admin"]);
+  assert.deepEqual(names(visibleMemberships(held, info)), ["assistant_community_manager", "co_owner", "community_director", "community_manager", "executive_management", "head_administrator", "owner", "trial_management"]);
+  const coOwner = new Set(["co_owner", "executive_management", "community_director", "assistant_community_manager", "head_administrator", "admin"]);
+  assert.deepEqual(names(visibleMemberships(coOwner, info)), ["assistant_community_manager", "co_owner", "community_director", "community_manager", "executive_management", "head_administrator", "trial_management"]);
 });
 
 test("a lower management rank does not wear ranks above it", () => {
   const held = new Set(["assistant_community_manager", "head_administrator", "admin"]);
-  assert.deepEqual(names(visibleMemberships(held, info)), ["assistant_community_manager", "head_administrator", "junior_management"]);
+  assert.deepEqual(names(visibleMemberships(held, info)), ["assistant_community_manager", "head_administrator", "trial_management"]);
 });
 
 test("Head Administrator is not management and keeps only its own role", () => {
@@ -46,9 +47,9 @@ test("Head Administrator is not management and keeps only its own role", () => {
   assert.deepEqual(names(visibleMemberships(held, info)), ["head_administrator"]);
 });
 
-test("Junior Management also wears Head Administrator, even without holding that ACE group", () => {
-  const held = new Set(["junior_management", "admin", "moderator"]);
-  assert.deepEqual(names(visibleMemberships(held, info)), ["head_administrator", "junior_management"]);
+test("Trial Management also wears Head Administrator, even without holding that ACE group", () => {
+  const held = new Set(["trial_management", "admin", "moderator"]);
+  assert.deepEqual(names(visibleMemberships(held, info)), ["head_administrator", "trial_management"]);
 });
 
 test("non-staff memberships pass through untouched", () => {

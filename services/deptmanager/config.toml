@@ -32,6 +32,7 @@ transfer_blacklist_role_id = 1560393498639736834
 suspension_role_id = 0                               # suspensions are logged without a role
 launch_group_role_id = 1560393409942917210           # Department Launch Group: may run /dept add and /dept remove
 roster_spreadsheet_id = "1bRyk4fZTHKFkcXKPtO7jzLls8vQFVwCnOGE131Vc6AI"  # FBRP | Department Coordination: /coord add|remove|job fill its Master Roster
+email_spreadsheet_id = "1bEGs0zukEDQs7a9D8x920umCglZEiUazzUkPVft-V_o"  # FBRP | Department Email Database: resolves same-day archive name collisions
 email_approver_rank = "Senior Department Coordinator"  # SDC and above approve email database access
 coord_team_role_id = 1560393453479657563             # FBRP | Department Coordinator, given with every rank from it up
 multi_department_bypass_role_ids = []

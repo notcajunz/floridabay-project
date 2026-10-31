@@ -111,12 +111,44 @@ CREATE TABLE IF NOT EXISTS stickies (
     PRIMARY KEY(guild_id, channel_id)
 );
 
+-- Department Discord servers (linked with /dept add guild_id). Who may give which role there:
+-- role_id 0 is the every-role permission; allowed 0 is an explicit deny.
+CREATE TABLE IF NOT EXISTS dept_role_perms (
+    guild_id INTEGER NOT NULL,
+    role_id INTEGER NOT NULL,
+    subject_type TEXT NOT NULL CHECK(subject_type IN ('user', 'role')),
+    subject_id INTEGER NOT NULL,
+    allowed INTEGER NOT NULL,
+    set_by INTEGER,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(guild_id, role_id, subject_type, subject_id)
+);
+
+CREATE TABLE IF NOT EXISTS dept_role_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id INTEGER NOT NULL,
+    member_id INTEGER NOT NULL,
+    role_id INTEGER NOT NULL,
+    reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    channel_id INTEGER,
+    message_id INTEGER,
+    reviewer_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_departments_guild ON departments(guild_id);
+CREATE INDEX IF NOT EXISTS idx_role_requests_pending ON dept_role_requests(guild_id, member_id, role_id, status);
 CREATE INDEX IF NOT EXISTS idx_activity_guild ON activity_log(guild_id, created_at);
 """
 
 
 SCHEMA += ";\n".join(statement.strip() for statement in TICKET_SCHEMA) + ";\n"
+
+# Columns added after the first release. The website reads external_guild_id (the department's own
+# Discord server) from this database, like the gang and business registries.
+COLUMNS = {"departments": {"external_guild_id": "TEXT"}}
 
 
 class Database:
@@ -132,7 +164,19 @@ class Database:
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         await asyncio.to_thread(self._conn.executescript, SCHEMA)
+        await asyncio.to_thread(self._add_columns)
         await asyncio.to_thread(self._conn.commit)
+
+    def _add_columns(self) -> None:
+        for table, columns in COLUMNS.items():
+            present = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            for name, kind in columns.items():
+                if name not in present:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_departments_external_guild ON departments(external_guild_id) "
+            "WHERE external_guild_id IS NOT NULL AND external_guild_id <> ''"
+        )
 
     async def close(self) -> None:
         if self._conn is not None:

@@ -1,5 +1,5 @@
 import { Client, EmbedBuilder, GatewayIntentBits } from "discord.js";
-import { audit, db, pool } from "./database.js";
+import { audit, db, hasPermission, pool } from "./database.js";
 import { recordInteraction } from "./audit-trail.js";
 import { createPersonalImporter } from "./personal-import.js";
 import { createPersonals } from "./personals.js";
@@ -16,7 +16,7 @@ const token = String(process.env.PERSONALS_BOT_TOKEN || "");
 if (!token) throw new Error("PERSONALS_BOT_TOKEN is required.");
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const personals = createPersonals({ db, audit });
+const personals = createPersonals({ db, audit, hasPermission });
 const importer = createPersonalImporter({ personals, audit, db });
 const clean = (value, max = 1000) =>
   String(value ?? "")

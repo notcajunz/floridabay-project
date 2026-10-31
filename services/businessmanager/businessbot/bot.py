@@ -120,7 +120,12 @@ class BusinessManagerBot(commands.Bot):
         else:
             log.exception("Unhandled slash command error", exc_info=original)
             message = "Something went wrong while running that command. The error was logged."
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except discord.NotFound:
+            # The original failure may itself be an expired interaction. Do not
+            # turn the best-effort error response into an unhandled task error.
+            log.warning("Could not answer an expired Discord interaction")

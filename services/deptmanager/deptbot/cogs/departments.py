@@ -27,8 +27,10 @@ from ..common import (
 )
 from ..constants import DEPARTMENT_CATEGORIES, DEPARTMENT_STATUSES
 from ..fbrp_api import FbrpApi, FbrpApiError
+from ..email_archive import EmailArchiveError, EmailArchiveSheet
 from ..role_policy import department_movement_embed, format_hours_line, today
-from ..services import duration, parse_color
+from ..services import duration, parse_color, parse_guild_id
+from .dept_guilds import bot_invite_url
 from ..sheet_api import SheetApi, SheetApiError
 
 log = logging.getLogger(__name__)
@@ -41,6 +43,12 @@ STATUS_COLORS = {
     "Inactive": discord.Color.dark_grey(),
     "Closed": discord.Color.red(),
 }
+
+ARCHIVE_NAME_COLLISION = re.compile(r"sheet with the name .+ already exists", re.IGNORECASE)
+ARCHIVE_NAME = re.compile(
+    r"sheet with the name\s+[‘'\"](?P<title>.+?)[’'\"]\s+already exists",
+    re.IGNORECASE,
+)
 
 
 # The email database groups departments into its own categories.
@@ -63,15 +71,23 @@ def sheet_code(initials: str | None, name: str) -> str:
 def unique_org_error(error: sqlite3.IntegrityError) -> ValueError:
     if "fbrp_org" in str(error):
         return ValueError("That FBRP organization is already linked to another department.")
+    if "external_guild" in str(error):
+        return ValueError("That Discord server is already linked to another department.")
     return ValueError("A department with that name already exists.")
 
 
 class DepartmentsCog(DeptCog):
     dept = app_commands.Group(name="dept", description="Create and manage departments")
 
-    def __init__(self, bot, sheet: SheetApi | None = None):
+    def __init__(self, bot, sheet: SheetApi | None = None, archive_sheet: EmailArchiveSheet | None = None):
         super().__init__(bot)
         self.sheet = sheet or SheetApi()
+        self.archive_sheet = archive_sheet
+        if archive_sheet is None:
+            try:
+                self.archive_sheet = EmailArchiveSheet.from_config(bot.config)
+            except (EmailArchiveError, ValueError) as error:
+                log.warning("Email archive collision repair is disabled: %s", error)
 
     async def _sheet_add(self, interaction, row: dict, *, category: str, folder_link, handpicked: bool, restricted: bool) -> str:
         """Add the department to the email database. Returns a line for the reply; never fails the command."""
@@ -96,7 +112,7 @@ class DepartmentsCog(DeptCog):
         )
         return f"Email database: added as `{code}` with its own tab."
 
-    async def _sheet_remove(self, interaction, row: dict, *, launched: bool = False) -> str:
+    async def _sheet_remove(self, interaction, row: dict) -> str:
         refs = [value for value in (row.get("initials"), row["name"]) if value]
         data: dict = {}
         try:
@@ -104,17 +120,31 @@ class DepartmentsCog(DeptCog):
                 data = await self.sheet.call(
                     "deptRemove", code=ref, byName=str(interaction.user), byId=str(interaction.user.id)
                 )
-                if data.get("ok") or "Unknown department" not in str(data.get("error", "")):
+                error = str(data.get("error", ""))
+                match = ARCHIVE_NAME.search(error)
+                if not data.get("ok") and match and self.archive_sheet is not None:
+                    # Keep every prior archive, but free the exact title the Apps Script insists on
+                    # using. Retrying the same code then archives the current active tab normally.
+                    try:
+                        await self.archive_sheet.make_available(match.group("title"))
+                        data = await self.sheet.call(
+                            "deptRemove", code=ref, byName=str(interaction.user), byId=str(interaction.user.id)
+                        )
+                        error = str(data.get("error", ""))
+                    except EmailArchiveError as archive_error:
+                        log.warning("Could not resolve email archive collision for %s: %s", ref, archive_error)
+                # Older deployments without direct sheet access still get the full-name fallback.
+                if data.get("ok") or (
+                    "Unknown department" not in error and not ARCHIVE_NAME_COLLISION.search(error)
+                ):
                     break
         except SheetApiError as error:
             return f"Email database: not archived ({error})"
         if data.get("ok"):
             await email_log(
-                self.bot, interaction.guild,
-                "Department launched" if launched else "Department removed",
-                (f"**{row['name']}** was launched; its tab was archived and `/email` no longer works for it."
-                 if launched else f"{interaction.user.mention} removed **{row['name']}**; its tab was archived."),
-                color=discord.Color.green() if launched else discord.Color.red(),
+                self.bot, interaction.guild, "Department removed",
+                f"{interaction.user.mention} removed **{row['name']}**; its tab was archived.",
+                color=discord.Color.red(),
                 fields={"Member records kept": str(data.get("members", 0))},
             )
             return f"Email database: tab archived ({data.get('members', 0)} member record(s) kept)."
@@ -186,6 +216,12 @@ class DepartmentsCog(DeptCog):
             if isinstance(error, sqlite3.IntegrityError):
                 raise unique_org_error(error) from None
             raise
+        link_note = ""
+        if org:
+            try:
+                await self.service.api.link_access_role(str(org["id"]), guild.id, base_role.id)
+            except FbrpApiError as error:
+                link_note = f"\n⚠️ The department was created, but its FBRP duty role could not be linked: {error}"
         await self._place_under_divider(guild, category.value, [base_role, command_role])
         if head:
             self.bot.mark_managed("add", guild.id, head.id, base_role.id)
@@ -196,13 +232,35 @@ class DepartmentsCog(DeptCog):
         await reply(
             interaction,
             f"Created **{name}** with {base_role.mention} and {command_role.mention}."
-            + ("" if org else " Link its FBRP org with `/dept update org_id:` to track hours."),
+            + (link_note if org else " Link its FBRP org with `/dept update org_id:` to track hours."),
         )
 
-    @dept.command(name="add", description="Register a department and its roles (also adds it to the email database)")
+    async def _guild_link_line(self, interaction: discord.Interaction, name: str, guild_id: int) -> str:
+        """Start serving the department's Discord and say whether the bot still has to be added."""
+        cog = self.bot.get_cog("DeptGuildsCog")
+        joined = await cog.link(guild_id)
+        if joined:
+            server = self.bot.get_guild(guild_id)
+            return (
+                f"Department Discord: **{discord.utils.escape_markdown(server.name)}** is linked and the bot is in it; "
+                "`/role`, `/request role` and `/roleperms` are ready there."
+            )
+        url = bot_invite_url(interaction.client.application_id, guild_id)
+        return (
+            f"Department Discord `{guild_id}` is linked. **Add the bot to it:** [invite link]({url})\n"
+            f"Its role commands switch on as soon as the bot joins."
+        )
+
+    @dept.command(name="add", description="Register a department, link its Discord and create or register its roles")
     @launch_or_manager
+    @app_commands.rename(guild_id_value="guild_id")
     @app_commands.choices(category=CATEGORY_CHOICES, email_category=SHEET_CATEGORY_CHOICES)
     @app_commands.describe(
+        guild_id_value="Server ID of the department's own Discord (right-click its icon, Copy Server ID)",
+        base_role="Existing department role; leave empty to create it",
+        command_role="Existing high command role; leave empty to create it",
+        color="Colour for roles the bot creates, e.g. #206694",
+        initials="Short name used in created role names and the email database, e.g. LSPD",
         org_id="FBRP organization ID or slug, used for the hours integration",
         folder_link="Google Drive folder for the department's documents (email database)",
         email_category="Email database category (defaults from the department category)",
@@ -214,45 +272,95 @@ class DepartmentsCog(DeptCog):
         interaction: discord.Interaction,
         name: str,
         category: app_commands.Choice[str],
-        base_role: discord.Role,
-        command_role: discord.Role,
+        guild_id_value: str,
+        base_role: discord.Role | None = None,
+        command_role: discord.Role | None = None,
+        color: str | None = None,
+        initials: str | None = None,
         head: discord.Member | None = None,
         org_id: str | None = None,
-        initials: str | None = None,
         folder_link: str | None = None,
         email_category: app_commands.Choice[str] | None = None,
         handpicked: bool = False,
         restricted: bool = False,
     ) -> None:
         guild = require_guild(interaction)
-        if base_role.id == command_role.id:
+        if base_role and command_role and base_role.id == command_role.id:
             raise ValueError("The department role and high command role must be different.")
-        await interaction.response.defer(ephemeral=True)
+        external_guild_id = parse_guild_id(guild_id_value)
+        if external_guild_id == guild.id:
+            raise ValueError("`guild_id` is the department's own Discord, not this Hub.")
         name = clean_text(name, 80)
+        initials = clean_text(initials, 12).upper() if initials else None
+        creating = base_role is None or command_role is None
+        if creating and not (color and initials):
+            raise ValueError("To create the missing roles, give `color` (e.g. #206694) and `initials` (e.g. LSPD).")
+        role_color = discord.Color(parse_color(color)) if color else None
+        if await self.service.department_for_guild(external_guild_id):
+            raise ValueError("That Discord server is already linked to another department.")
+        await interaction.response.defer(ephemeral=True)
         org = await self.service.validate_org_link(org_id)
+        config = self.bot.config
+        reason = f"Department added by {interaction.user}"
+        created: list[discord.Role] = []
+        if base_role is None:
+            base_role = await guild.create_role(
+                name=config.base_role_format.format(initials=initials, name=name)[:100], color=role_color, reason=reason
+            )
+            created.append(base_role)
+        if command_role is None:
+            try:
+                command_role = await guild.create_role(
+                    name=config.command_role_format.format(initials=initials, name=name)[:100], color=role_color, reason=reason
+                )
+            except Exception:
+                for role in created:
+                    await role.delete(reason="Rolling back failed department registration")
+                raise
+            created.append(command_role)
         try:
             department_id = await self.service.create(
                 guild.id, name, category.value,
-                initials=clean_text(initials, 12).upper() if initials else None,
-                role_color=base_role.color.value,
+                initials=initials,
+                role_color=(role_color or base_role.color).value,
                 base_role_id=base_role.id,
                 command_role_id=command_role.id,
                 head_id=head.id if head else None,
                 fbrp_org_id=str(org["id"]) if org else None,
+                external_guild_id=str(external_guild_id),
                 created_by=interaction.user.id,
             )
-        except sqlite3.IntegrityError as error:
-            raise unique_org_error(error) from None
-        await self.service.log(guild.id, "department", "added", actor_id(interaction), name)
+        except Exception as error:
+            for role in created:
+                await role.delete(reason="Rolling back failed department registration")
+            if isinstance(error, sqlite3.IntegrityError):
+                raise unique_org_error(error) from None
+            raise
+        link_note = ""
+        if org:
+            try:
+                await self.service.api.link_access_role(str(org["id"]), guild.id, base_role.id)
+            except FbrpApiError as error:
+                link_note = f"\n⚠️ The department was registered, but its FBRP duty role could not be linked: {error}"
+        if created:
+            await self._place_under_divider(guild, category.value, created)
+        if head:
+            self.bot.mark_managed("add", guild.id, head.id, base_role.id)
+            await head.add_roles(base_role, command_role, reason=f"Department head of {name}")
+        await self.service.log(guild.id, "department", "added", actor_id(interaction), name, f"guild={external_guild_id}")
         await self._post_movement(interaction, department_id, "Registered", org)
         await refresh_panels(self.bot, guild, "hours")
+        guild_line = await self._guild_link_line(interaction, name, external_guild_id)
         row = dict(await self.db.fetch_one("SELECT * FROM departments WHERE id=?", (department_id,)))
         sheet_line = await self._sheet_add(
             interaction, row,
             category=email_category.value if email_category else SHEET_CATEGORY_DEFAULTS[category.value],
             folder_link=folder_link, handpicked=handpicked or category.value == "Handpicked", restricted=restricted,
         )
-        await reply(interaction, f"Registered **{name}** ({base_role.mention} / {command_role.mention}).\n{sheet_line}")
+        roles_text = f"{base_role.mention} / {command_role.mention}"
+        if created:
+            roles_text += f" (created: {', '.join(role.mention for role in created)})"
+        await reply(interaction, f"Registered **{name}** ({roles_text}).\n{guild_line}\n{sheet_line}{link_note}")
 
     @dept.command(name="join", description="Put a member into a department")
     @app_commands.autocomplete(department=department_autocomplete)
@@ -291,7 +399,10 @@ class DepartmentsCog(DeptCog):
         org_id="FBRP organization ID or slug for the hours integration",
         unlink_org="Remove the linked FBRP organization",
         hide_from_leaderboard="Hide this department from the hours leaderboard",
+        guild_id_value="Server ID of the department's own Discord",
+        unlink_guild="Unlink the department's Discord server",
     )
+    @app_commands.rename(guild_id_value="guild_id")
     async def dept_update(
         self,
         interaction: discord.Interaction,
@@ -305,11 +416,19 @@ class DepartmentsCog(DeptCog):
         base_role: discord.Role | None = None,
         command_role: discord.Role | None = None,
         hide_from_leaderboard: bool | None = None,
+        guild_id_value: str | None = None,
+        unlink_guild: bool = False,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         row = await self.service.department(guild_id(interaction), department)
         if org_id and unlink_org:
             raise ValueError("Choose either `org_id` or `unlink_org`, not both.")
+        if guild_id_value and unlink_guild:
+            raise ValueError("Choose either `guild_id` or `unlink_guild`, not both.")
+        external = parse_guild_id(guild_id_value) if guild_id_value else None
+        if external is not None and external == guild_id(interaction):
+            raise ValueError("`guild_id` is the department's own Discord, not this Hub.")
+        previous_external = int(row["external_guild_id"]) if str(row.get("external_guild_id") or "").isdigit() else None
         org = await self.service.validate_org_link(org_id)
         values = {
             "name": clean_text(new_name, 80) if new_name else None,
@@ -320,6 +439,7 @@ class DepartmentsCog(DeptCog):
             "base_role_id": base_role.id if base_role else None,
             "command_role_id": command_role.id if command_role else None,
             "hide_leaderboard": int(hide_from_leaderboard) if hide_from_leaderboard is not None else None,
+            "external_guild_id": "" if unlink_guild else (str(external) if external is not None else None),
         }
         updates = [(key, value) for key, value in values.items() if value is not None]
         if not updates:
@@ -338,7 +458,13 @@ class DepartmentsCog(DeptCog):
         elif unlink_org and row["fbrp_org_id"]:
             await self._post_movement(interaction, row["id"], "Org Unlinked")
         await refresh_panels(self.bot, interaction.guild, "hours")
-        await reply(interaction, f"Updated **{values['name'] or row['name']}**.")
+        text = f"Updated **{values['name'] or row['name']}**."
+        if (unlink_guild or external is not None) and previous_external and previous_external != external:
+            await self.bot.get_cog("DeptGuildsCog").unlink(previous_external)
+            text += f"\nUnlinked Discord `{previous_external}`."
+        if external is not None and external != previous_external:
+            text += "\n" + await self._guild_link_line(interaction, values["name"] or row["name"], external)
+        await reply(interaction, text)
 
     @dept.command(name="status", description="Change a department's status and announce it")
     @manager_only
@@ -373,12 +499,7 @@ class DepartmentsCog(DeptCog):
             embed.add_field(name="Note", value=clean_text(note, 1000), inline=False)
         await send_to(guild, self.bot.config.status_channel_id, embed=embed)
         await refresh_panels(self.bot, guild, "hours")
-        text = f"**{row['name']}** is now `{status.value}`."
-        if status.value == "Launched":
-            # A launched department runs on its own systems: leave the email database for good.
-            text += "\n" + await self._sheet_remove(interaction, row, launched=True)
-            text += f"\n`/email` commands are now closed for **{row['name']}**."
-        await reply(interaction, text)
+        await reply(interaction, f"**{row['name']}** is now `{status.value}`.")
 
     @dept.command(name="info", description="Show a department's details")
     @coordinator_only
@@ -395,6 +516,13 @@ class DepartmentsCog(DeptCog):
         embed.add_field(name="High Command", value=f"<@&{row['command_role_id']}>" if row["command_role_id"] else "—")
         embed.add_field(name="Members", value=f"{len(base.members):,}" if base else "—")
         embed.add_field(name="FBRP Org ID", value=f"`{row['fbrp_org_id']}`" if row["fbrp_org_id"] else "Not linked")
+        external = int(row["external_guild_id"]) if str(row.get("external_guild_id") or "").isdigit() else None
+        server = self.bot.get_guild(external) if external else None
+        embed.add_field(
+            name="Department Discord",
+            value=(f"{discord.utils.escape_markdown(server.name)} (`{external}`)" if server
+                   else f"`{external}` · bot not added yet" if external else "Not linked"),
+        )
         embed.add_field(name="Hours leaderboard", value="Hidden" if row["hide_leaderboard"] else "Shown")
         embed.set_footer(text=f"Registered {row['created_at']} UTC")
         await reply(interaction, embed=embed)
@@ -467,6 +595,8 @@ class DepartmentsCog(DeptCog):
         ):
             return
         await self.db.execute("DELETE FROM departments WHERE id=?", (row["id"],))
+        if str(row.get("external_guild_id") or "").isdigit():
+            await self.bot.get_cog("DeptGuildsCog").unlink(int(row["external_guild_id"]))
         await self.service.log(guild.id, "department", "removed", actor_id(interaction), row["name"])
         base = f"<@&{row['base_role_id']}>" if row["base_role_id"] else f"**{row['name']}**"
         await send_to(

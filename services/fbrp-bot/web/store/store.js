@@ -55,6 +55,7 @@ async function load() {
     render(); handleReturn();
   } catch (error) {
     $("#loading-grid").hidden = true;
+    $("#results-label").textContent = "Catalog unavailable";
     if (error.status === 503 && error.payload?.configured === false) $("#setup-state").hidden = false;
     else { $("#empty-state").hidden = false; $("#empty-state h3").textContent = "The store is taking a breather."; $("#empty-state p").textContent = error.message; }
   }
@@ -86,11 +87,13 @@ function renderProducts() {
   const query = state.search.toLowerCase();
   const products = allPackages().filter((item) => (state.category === "all" || String(item._category.id) === state.category) && (!query || `${item.name} ${text(item.description)} ${item._category.name}`.toLowerCase().includes(query)));
   const grid = $("#product-grid"); grid.replaceChildren(); $("#empty-state").hidden = products.length > 0;
+  const category = state.category === "all" ? "All packages" : (state.catalog?.categories || []).find((item) => String(item.id) === state.category)?.name || "Packages";
+  $("#results-label").textContent = `${category} · ${products.length} ${products.length === 1 ? "package" : "packages"}${query ? ` matching “${state.search}”` : ""}`;
   for (const item of products) {
     const card = document.createElement("article"); card.className = "product"; card.dataset.product = packageId(item);
     const media = document.createElement("button"); media.type = "button"; media.className = "product-media"; media.setAttribute("aria-label", `View ${item.name}`);
     const image = packageImage(item);
-    media.innerHTML = `${image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy">` : `<span class="monogram">${escapeHtml(initials(item.name))}</span>`}<span class="product-type">${item.type === "subscription" || item.is_recurring ? "Membership" : "One time"}</span>`;
+    media.innerHTML = `${image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy">` : `<span class="monogram">${escapeHtml(initials(item.name))}</span>`}<span class="product-type">${item.type === "subscription" || item.is_recurring ? "Membership" : "One time"}</span><span class="product-view">View details <span aria-hidden="true">↗</span></span>`;
     const body = document.createElement("div"); body.className = "product-body";
     const original = Number(item.base_price || 0) + Number(item.discount || 0);
     body.innerHTML = `<span class="product-category"></span><h3></h3><p class="product-description"></p><div class="product-buy"><span class="price">${Number(item.discount) > 0 ? `<del>${money(original, item.currency)}</del>` : ""}<strong>${money(item.total_price ?? item.base_price, item.currency)}</strong><small>${item.type === "subscription" || item.is_recurring ? "recurring" : "one-time"}</small></span><button class="add" type="button">Add to basket</button></div>`;
@@ -142,10 +145,39 @@ async function ensureBasket() {
   state.basket = (await api("basket/create", { method: "POST", body: "{}" })).basket;
   localStorage.setItem(BASKET_KEY, state.basket.ident); return state.basket;
 }
+const PENDING_KEY = "fbrp_tebex_pending_package";
+function needsAccountLink(basket) { return Boolean(state.catalog?.store?.supports_usernames) && !basket?.username; }
+// Tebex refuses to add packages ("User must login before adding packages to basket") until the basket
+// is linked to the buyer's FiveM account, so link first and remember the package for when they return.
+async function linkAccount(basket, pendingId) {
+  const { providers } = await api("basket/auth", { method: "POST", body: JSON.stringify({ basket: basket.ident }) });
+  const url = safeImage((providers || [])[0]?.url);
+  if (!url) throw new Error("Tebex did not provide an account sign-in link.");
+  if (pendingId) localStorage.setItem(PENDING_KEY, pendingId);
+  toast("Link your FiveM account with Tebex to add packages. Redirecting…");
+  window.location.assign(url);
+}
+async function addToBasket(item, basket) {
+  state.basket = (await api("basket/package", { method: "POST", body: JSON.stringify({ basket: basket.ident, package: packageId(item), quantity: 1, dynamic: packageId(item).startsWith("dyn_") }) })).basket;
+  localStorage.setItem(BASKET_KEY, state.basket.ident); renderCart(); toast(`${item.name} added to your basket.`);
+}
 async function addProduct(item) {
   if (state.busy) return; if (!state.identity?.authenticated) return signIn(); setBusy(true);
-  try { const basket = await ensureBasket(); state.basket = (await api("basket/package", { method: "POST", body: JSON.stringify({ basket: basket.ident, package: packageId(item), quantity: 1, dynamic: packageId(item).startsWith("dyn_") }) })).basket; localStorage.setItem(BASKET_KEY, state.basket.ident); renderCart(); toast(`${item.name} added to your basket.`); }
+  try {
+    const basket = await ensureBasket();
+    if (needsAccountLink(basket)) { await linkAccount(basket, packageId(item)); return; }
+    await addToBasket(item, basket);
+  }
   catch (error) { toast(error.message, true); } finally { setBusy(false); }
+}
+// Back from the Tebex FiveM sign-in: add the package the buyer originally clicked.
+async function resumePending() {
+  const id = localStorage.getItem(PENDING_KEY); if (!id) return;
+  localStorage.removeItem(PENDING_KEY);
+  const item = productById(id); if (!item || !state.basket?.ident) return;
+  if (needsAccountLink(state.basket)) { toast("Tebex did not confirm your FiveM account. Try adding the package again.", true); return; }
+  setBusy(true);
+  try { await addToBasket(item, state.basket); } catch (error) { toast(error.message, true); } finally { setBusy(false); }
 }
 async function cartAction(id, action) {
   if (state.busy || !state.basket) return; const item = productById(id) || state.basket.packages.find((entry) => String(entry.ident || entry.id) === id); const current = quantity(state.basket.packages.find((entry) => String(entry.ident || entry.id) === id) || {}); setBusy(true);
@@ -170,7 +202,7 @@ async function checkout() {
 function openCart() { $("#scrim").hidden=false; $("#cart").classList.add("open"); $("#cart").setAttribute("aria-hidden","false"); $("#cart-open").setAttribute("aria-expanded","true"); document.body.style.overflow="hidden"; setTimeout(()=>$("#cart-close").focus(),50); }
 function closeCart() { $("#cart").classList.remove("open"); $("#cart").setAttribute("aria-hidden","true"); $("#cart-open").setAttribute("aria-expanded","false"); $("#scrim").hidden=true; document.body.style.overflow=""; }
 function openProduct(item) { state.currentProduct=item; const image=packageImage(item); $("#dialog-media").innerHTML=image?`<img src="${escapeHtml(image)}" alt="">`:`<span class="monogram">${escapeHtml(initials(item.name))}</span>`; $("#dialog-category").textContent=item._category.name; $("#dialog-title").textContent=item.name; $("#dialog-description").textContent=text(item.description)||"Support Florida Bay with this package."; $("#dialog-price").textContent=money(item.total_price??item.base_price,item.currency); $("#product-dialog").showModal(); }
-function handleReturn() { const params=new URLSearchParams(location.search); const result=params.get("checkout"); if(result){const node=$("#checkout-result");node.hidden=false;const paid=result==="complete"&&state.basket?.complete;node.textContent=paid?"Thank you for supporting Florida Bay. Tebex has confirmed your payment and will deliver eligible perks automatically.":result==="complete"?"Tebex is still confirming your payment. Keep your receipt and check your account shortly.":"Checkout was cancelled. Your basket is still here whenever you’re ready.";history.replaceState({},"",location.pathname);if(paid){localStorage.removeItem(BASKET_KEY);state.basket=null;renderCart();}} else if(params.get("auth")==="complete"){history.replaceState({},"",location.pathname);toast("FiveM account linked. You can now continue to checkout.");openCart();} else if(params.get("signin")==="complete"){history.replaceState({},"",location.pathname);toast("Discord connected for automatic role delivery.");} else if(params.get("signin")==="expired"){history.replaceState({},"",location.pathname);toast("That Discord sign-in expired. Please try again.",true);} }
+function handleReturn() { const params=new URLSearchParams(location.search); const result=params.get("checkout"); if(result){const node=$("#checkout-result");node.hidden=false;const paid=result==="complete"&&state.basket?.complete;node.textContent=paid?"Thank you for supporting Florida Bay. Tebex has confirmed your payment and will deliver eligible perks automatically.":result==="complete"?"Tebex is still confirming your payment. Keep your receipt and check your account shortly.":"Checkout was cancelled. Your basket is still here whenever you’re ready.";history.replaceState({},"",location.pathname);if(paid){localStorage.removeItem(BASKET_KEY);state.basket=null;renderCart();}} else if(params.get("auth")==="complete"){history.replaceState({},"",location.pathname);toast("FiveM account linked.");openCart();resumePending();} else if(params.get("signin")==="complete"){history.replaceState({},"",location.pathname);toast("Discord connected for automatic role delivery.");} else if(params.get("signin")==="expired"){history.replaceState({},"",location.pathname);toast("That Discord sign-in expired. Please try again.",true);} }
 
 document.addEventListener("click", (event) => {
   const category=event.target.closest("[data-category]"); if(category){state.category=category.dataset.category;renderCategories();renderProducts();return}

@@ -1,6 +1,7 @@
 import { ORG } from "./quota.js";
 import { agencyRoleIds, allMembers, config, db, post, ranks, tierRoleIdsUpTo } from "./store.js";
 import { C, card, mention } from "./util.js";
+import { callGame } from "../sync.js";
 import { AGENCY_BYPASS_IDS, SERVICE_ROLES, queueServiceRoles, serviceRoleHolders } from "../service-roles.js";
 
 /**
@@ -78,13 +79,7 @@ export async function reconcileMainRoles(guild) {
 const TIER_RANKS = { agent: "Agent", supervisor: "Supervisor", low_command: "Low Command", trial_high_command: "Trial High Command", high_command: "High Command" };
 
 async function refreshGame() {
-  const base = String(process.env.FBRP_FIVEM_ORIGIN || "http://127.0.0.1:30120/fbrp_core").replace(/\/$/, "");
-  await fetch(`${base}/economy/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.FBRP_SERVICE_TOKEN || ""}` },
-    body: "{}",
-    signal: AbortSignal.timeout(3500),
-  }).catch(() => null);
+  await callGame("/economy/refresh", {}).catch(() => null);
 }
 
 /**

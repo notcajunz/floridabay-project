@@ -222,6 +222,7 @@ function render() {
     main.innerHTML = workspace(org, current.tab);
     accent = safeColor(org.color);
     if (current.tab === "badges") mountBadges({ api, toast, icon, org: currentOrg });
+    if (current.tab === "applications" && (org.perms?.applications || org.perms?.full)) void mountApplicationLogs(org);
   } else if (current.view === "org" || current.view === "public") {
     const page = state.publicOrgs.get(String(current.ref));
     if (!page) loadPublic(current.ref);
@@ -713,8 +714,65 @@ function applicationsTab(org) {
         <label class="field">Note to the applicant <small>(optional)</small><input name="note-${a.id}" maxlength="500" placeholder="Welcome aboard, see you at orientation"></label>
         <div class="chips" style="justify-content:flex-end"><button class="btn btn-ghost btn-sm" type="button" data-app-review="${a.id}" data-decision="denied" style="color:var(--bad)">Deny</button><button class="btn btn-org btn-sm" type="button" data-app-review="${a.id}" data-decision="accepted">${icon("check")}Accept</button></div>
       </article>`).join("")}</div>` : empty("No pending applications", profile.recruiting ? "New applications show up here." : "Open recruitment to start receiving applications.", "inbox")}</section>
+    <div data-applog-root>${appLogs.get(org.id)?.data ? applicationLogsCard(org, appLogs.get(org.id)) : `<section class="card"><div class="boot"><div class="spinner"></div><span>Loading application logs</span></div></section>`}</div>
     ${reviewed.length ? `<section class="card"><div class="card-head"><div><h2>Reviewed · 30 days</h2></div></div><div class="feed">${reviewed.map((a) => `<div class="feed-row">${person(a.discord_id, { sub: a.review_note || "No note" })}<div class="end"><span class="pill ${a.status === "accepted" ? "pill-good" : a.status === "denied" ? "pill-warn" : ""}">${esc(titleCase(a.status))}</span><time>${esc(a.reviewer_id ? `${nameOf(a.reviewer_id)} · ` : "")}${esc(ago(a.reviewed_at))}</time></div></div>`).join("")}</div></section>` : ""}
   </div>`;
+}
+
+/* ---------- application logs ---------- */
+const joinToast = (join) => !join ? "" : {
+  joined: ` Added to the ${join.guildName || "department"} Discord.`,
+  already: ` Already in the ${join.guildName || "department"} Discord.`,
+  authorization_required: " They are added to the department Discord once they verify.",
+  bot_missing: " The Florida Bay bot is not in the department Discord, so they were not added.",
+  no_guild: " No department Discord is linked, so they were not added.",
+  banned: " They are banned from the department Discord.",
+}[join.state] || " Could not add them to the department Discord.";
+const appLogs = new Map();
+
+/** Load the log settings once per organization and paint them into the Applications tab. */
+async function mountApplicationLogs(org, force = false) {
+  let entry = appLogs.get(org.id);
+  if (!entry || force) {
+    entry = { loading: true };
+    appLogs.set(org.id, entry);
+    try { entry.data = await api(`orgs/application-logs?org=${encodeURIComponent(org.id)}`); }
+    catch (error) { entry.error = error.message; }
+    entry.loading = false;
+  }
+  if (entry.loading) return;
+  const root = $("[data-applog-root]");
+  if (root && route().tab === "applications" && currentOrg()?.id === org.id) root.innerHTML = applicationLogsCard(org, entry);
+}
+
+function channelOptions(servers, selected) {
+  return servers.map((server) => `<optgroup label="${esc(server.name)}">${server.channels.map((c) => `<option value="${esc(c.id)}" ${c.id === selected ? "selected" : ""}>#${esc(c.name)}${c.category ? ` · ${esc(c.category)}` : ""}</option>`).join("")}</optgroup>`).join("");
+}
+
+function applicationLogsCard(org, entry) {
+  if (entry.error) return `<section class="card"><div class="card-body"><div class="callout warn">${icon("alert")}<div>${esc(entry.error)}</div></div></div></section>`;
+  const d = entry.data || {};
+  const log = d.log || {};
+  const servers = d.servers || [];
+  const where = (channelId) => { for (const server of [...servers, ...(d.main?.hub ? [d.main.hub] : [])]) { const c = server.channels.find((row) => row.id === channelId); if (c) return `#${c.name} · ${server.name}`; } return channelId ? `channel ${channelId}` : "Not set"; };
+  const guild = d.departmentGuild;
+  const joinNote = !d.department ? "" : guild
+    ? (guild.botIn ? `<div class="callout org">${icon("check")}<div>Accepted applicants are added to the <b>${esc(guild.name)}</b> Discord automatically.</div></div>`
+      : `<div class="callout warn">${icon("alert")}<div>The Florida Bay bot is not in the department Discord (<code>${esc(guild.id)}</code>) yet, so accepted applicants cannot be added to it automatically.</div></div>`)
+    : `<div class="callout warn">${icon("alert")}<div>No department Discord is linked. Link it in the Department Hub with <code>/dept update guild_id:</code> and accepted applicants are added to it automatically.</div></div>`;
+  const own = d.canEdit ? `<form class="stack" data-applog-form>
+      <div class="row-2"><label class="field">Log channel<select name="channelId"><option value="">No log channel</option>${channelOptions(servers, log.channelId)}</select></label>
+      <label class="field">Role to ping <small>(optional)</small><select name="pingRoleId"><option value="">No ping</option>${servers.map((server) => `<optgroup label="${esc(server.name)}">${server.roles.map((r) => `<option value="${esc(r.id)}" ${r.id === log.pingRoleId ? "selected" : ""}>@${esc(r.name)}</option>`).join("")}</optgroup>`).join("")}</select></label></div>
+      <label class="field">On the message<select name="buttons"><option value="buttons" ${log.channelId && !log.buttons ? "" : "selected"}>Accept and Deny buttons, plus the website link</option><option value="link" ${log.channelId && !log.buttons ? "selected" : ""}>Only a link to the website</option></select></label>
+      <div class="chips" style="justify-content:flex-end"><button class="btn btn-org btn-sm" type="button" data-applog-save>${icon("check")}Save log channel</button></div>
+    </form>` : `<p class="muted">${log.channelId ? `Posting to ${esc(where(log.channelId))}${log.pingRoleId ? " with a role ping" : ""}.` : "No log channel set."} High command sets this.</p>`;
+  const main = d.main ? `<div class="stack" style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line, rgba(255,255,255,.08))">
+      <div><h3 style="font-size:15px">Main application log · Department Hub</h3><p class="muted">Department Management only. Every department application is posted here.</p></div>
+      ${d.main.hub ? `<div class="row-2"><label class="field">Hub channel<select name="mainChannelId"><option value="">No main log</option>${channelOptions([d.main.hub], d.main.channelId)}</select></label><span></span></div>
+      <div class="chips" style="justify-content:flex-end"><button class="btn btn-glass btn-sm" type="button" data-applog-main-save>${icon("check")}Save main log</button></div>` : `<p class="muted">The Florida Bay bot is not in the Department Hub.</p>`}
+    </div>` : "";
+  return `<section class="card"><div class="card-head"><div><h2>Application logs</h2><p>Post new applications to Discord${d.canEdit ? ", ping a role and review from the message" : ""}.</p></div></div>
+    <div class="card-body stack">${joinNote}${own}${main}</div></section>`;
 }
 
 /* ---------- public organization page ---------- */
@@ -1182,12 +1240,25 @@ document.addEventListener("click", async (event) => {
     catch (error) { toast(error.message, true); }
     return;
   }
+  if (target.closest("[data-applog-save]")) {
+    const form = $("[data-applog-form]");
+    const value = (name) => form?.elements.namedItem(name)?.value || "";
+    try { await act("application/log", { orgId: org.id, channelId: value("channelId"), pingRoleId: value("pingRoleId"), buttons: value("buttons") === "buttons" }, (r) => r.cleared ? "Application log removed." : `Applications now post to #${r.channel} in ${r.server}.`); await mountApplicationLogs(org, true); }
+    catch (error) { toast(error.message, true); }
+    return;
+  }
+  if (target.closest("[data-applog-main-save]")) {
+    const channelId = $('[name="mainChannelId"]')?.value || "";
+    try { await act("application/main-log", { channelId }, (r) => r.cleared ? "Main application log removed." : `Department applications now post to #${r.channel}.`); await mountApplicationLogs(org, true); }
+    catch (error) { toast(error.message, true); }
+    return;
+  }
   const review = target.closest("[data-app-review]");
   if (review) {
     const id = review.dataset.appReview;
     const note = $(`[name="note-${CSS.escape(id)}"]`)?.value || "";
     review.disabled = true;
-    try { await act("application/review", { orgId: org.id, applicationId: Number(id), decision: review.dataset.decision, note }, (r) => `Application ${r.decision}.${r.dm ? " The applicant was notified." : " Their DMs are closed, so tell them yourself."}`); }
+    try { await act("application/review", { orgId: org.id, applicationId: Number(id), decision: review.dataset.decision, note }, (r) => `Application ${r.decision}.${r.dm ? " The applicant was notified." : " Their DMs are closed, so tell them yourself."}${joinToast(r.join)}`); }
     catch (error) { toast(error.message, true); review.disabled = false; }
     return;
   }

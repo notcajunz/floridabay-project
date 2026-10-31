@@ -14,10 +14,10 @@ import {
 
 const indexSource = readFileSync(fileURLToPath(new URL("../src/index.js", import.meta.url)), "utf8");
 
-test("global transfer is a confirmed Assistant Community Director account handoff", () => {
+test("global transfer is a confirmed Community Director account handoff", () => {
   const global = commands.find((command) => command.name === "global");
   const transfer = global.options.find((option) => option.name === "transfer");
-  assert.match(transfer.description, /Assistant Community Director\+/);
+  assert.match(transfer.description, /Community Director\+/);
   assert.deepEqual(
     transfer.options.map((option) => [option.name, option.required]),
     [
@@ -27,7 +27,7 @@ test("global transfer is a confirmed Assistant Community Director account handof
       ["confirm", true],
     ],
   );
-  assert.match(indexSource, /requireMinimumStaffRank\(i, "Assistant Community Director", "transfer an account"\)/);
+  assert.match(indexSource, /requireMinimumStaffRank\(i, "Community Director", "transfer an account"\)/);
   assert.match(indexSource, /isVerified\(db, destination\.id\)/);
   assert.match(indexSource, /oauthJoinToken\(db, destination\.id\)/);
   assert.match(indexSource, /await db\.transaction\(async \(query\) =>/);

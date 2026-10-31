@@ -769,6 +769,50 @@ export function createTicketSystem(ctx) {
     return i.respond(types.filter((o)=>o.name.toLowerCase().includes(value)||o.value.includes(value)).slice(0,25));
   }
   /** Staff-portal bridge. Authorization is performed by the portal before this is called. */
+  /**
+   * Website access to one ticket, matching who Discord lets into the channel:
+   * owners and the type's support roles may view and manage; the opener and
+   * invited participants may only view. Returns a resolver that caches role
+   * and member lookups so a whole ticket queue can be filtered cheaply.
+   */
+  function websiteAccessResolver(userId) {
+    const id = String(userId);
+    const roles = new Map();
+    const members = new Map();
+    let isStaff;
+    const rolesFor = (row) => {
+      const key = `${row.guild_id}:${row.type}`;
+      if (!roles.has(key)) roles.set(key, configuredTicketRoles(String(row.guild_id), row.type).catch(() => []));
+      return roles.get(key);
+    };
+    const memberIn = (guildId) => {
+      if (!members.has(guildId)) {
+        const guild = client.guilds?.cache?.get(guildId);
+        members.set(guildId, guild ? guild.members.fetch(id).catch(() => null) : Promise.resolve(null));
+      }
+      return members.get(guildId);
+    };
+    const canManage = async (row) => {
+      if (ownerIds().has(id)) return true;
+      const configured = await rolesFor(row);
+      if (configured.length) {
+        const member = await memberIn(String(row.guild_id));
+        return Boolean(member) && configured.some((entry) => member.roles.cache.has(String(entry.role_id)));
+      }
+      isStaff ??= Promise.resolve(staff(id)).then(Boolean).catch(() => false);
+      return isStaff;
+    };
+    return async (row) => {
+      if (!row) return { view: false, manage: false };
+      const manage = await canManage(row);
+      if (manage || String(row.author_id) === id) return { view: true, manage };
+      const participant = await db.one("SELECT 1 allowed FROM ticket_participants WHERE ticket_id=? AND user_id=?", [row.id, id]);
+      return { view: Boolean(participant), manage: false };
+    };
+  }
+
+  const websiteAccess = (row, userId) => websiteAccessResolver(userId)(row);
+
   async function webAction(ticketId, actorId, action, input = {}) {
     const row = await db.one("SELECT * FROM support_tickets WHERE id=?", [Number(ticketId)]);
     if (!row) throw new Error("Ticket not found.");
@@ -783,5 +827,5 @@ export function createTicketSystem(ctx) {
     else throw new Error("Unknown ticket action.");
     return db.one("SELECT * FROM support_tickets WHERE id=?", [row.id]);
   }
-  return {command,supportCommand,ensurePanel,backfillControls,backfillTranscripts,component,modal,create,autocomplete,ticketTypes,priorities,webAction,websiteTranscript};
+  return {command,supportCommand,ensurePanel,backfillControls,backfillTranscripts,component,modal,create,autocomplete,ticketTypes,priorities,webAction,websiteTranscript,websiteAccess,websiteAccessResolver};
 }

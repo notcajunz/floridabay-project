@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addonPedNames, analyze, assetHeaderProblem, classify, closeGaps, eupPieces, genderHint, shopMetaTarget, shopPedMeta, validateRenames, withPrefix } from "../src/eup-packaging.js";
+import { addonPedNames, analyze, assetHeaderProblem, classify, closeGaps, eupPieces, genderHint, shopMetaTarget, shopPedMeta, validateRenames, isVanillaDlc, withPrefix } from "../src/eup-packaging.js";
 
 test("clothing file names are classified by ped, pack, component and number", () => {
   assert.deepEqual(
@@ -125,4 +125,13 @@ test("every clothing piece is listed once with its textures, alternate and size"
     ["m", "p_head", 0, "Hats & Helmets", true, 1, false, 10],
   ]);
   assert.equal(pieces[0].dlc, "x");
+});
+
+test("base game dlc names are recognised", () => {
+  assert.equal(isVanillaDlc("mp_m_bikerdlc_01"), true);
+  assert.equal(isVanillaDlc("mp_f_heist"), true);
+  assert.equal(isVanillaDlc("mp_m_lowrider_01"), true);
+  assert.equal(isVanillaDlc("mp_m_sdmcfatality"), false);
+  assert.equal(isVanillaDlc("mp_m_security_pack"), false);
+  assert.equal(isVanillaDlc("sheriff"), false);
 });

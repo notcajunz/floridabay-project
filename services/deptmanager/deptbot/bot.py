@@ -11,6 +11,24 @@ from .database import Database
 
 log = logging.getLogger(__name__)
 
+# Events the bot still handles for department Discord servers. Everything else (logs, cooldowns,
+# role conflicts, stickies, tickets) belongs to the home server only.
+FOREIGN_GUILD_EVENTS = frozenset({"guild_join", "guild_remove", "guild_available", "interaction"})
+
+
+def event_guild_id(args) -> int | None:
+    """The server an event belongs to, from its first argument (member, role, message, payload...)."""
+    if not args:
+        return None
+    first = args[0]
+    if isinstance(first, discord.Guild):
+        return first.id
+    guild = getattr(first, "guild", None)
+    if isinstance(guild, discord.Guild):
+        return guild.id
+    raw = getattr(first, "guild_id", None)
+    return int(raw) if isinstance(raw, int) else None
+
 
 class AccessCommandTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -41,6 +59,9 @@ class DepartmentManagerBot(commands.Bot):
         )
         self.config = config
         self.db = Database(config.database_path)
+        # Department Discord servers linked with /dept add guild_id. Their events pass the guild
+        # guard so the bot sees them, but only role commands run there.
+        self.linked_guild_ids: set[int] = set()
         self._limit_to_guild(config.guild_id)
         # Role changes the bot made itself after its own checks; the member-update
         # listener skips cooldowns and conflict checks for these.
@@ -52,17 +73,19 @@ class DepartmentManagerBot(commands.Bot):
         One bot application runs one instance per Discord server (Department Hub,
         Armed Forces), each with its own config and database. Every instance
         receives every event of the application, so each ignores the servers that
-        are not its own, including interactions for buttons and modals.
+        are not its own, including interactions for buttons and modals. Department
+        servers linked to this instance's departments are its own too.
         """
         if not guild_id:
             return
         guild_events = {"GUILD_CREATE", "GUILD_UPDATE", "GUILD_DELETE"}
         parsers = self._connection.parsers
+        linked = self.linked_guild_ids
 
         def guarded(name: str, parser):
             def parse(data):
                 raw = data.get("id") if name in guild_events else data.get("guild_id")
-                if raw is not None and int(raw) != guild_id:
+                if raw is not None and int(raw) != guild_id and int(raw) not in linked:
                     return None
                 return parser(data)
 
@@ -70,6 +93,21 @@ class DepartmentManagerBot(commands.Bot):
 
         for name, parser in list(parsers.items()):
             parsers[name] = guarded(name, parser)
+
+    def home_guilds(self) -> list[discord.Guild]:
+        """The server(s) this instance runs (not the linked department servers)."""
+        if not self.config.guild_id:
+            return [guild for guild in self.guilds if guild.id not in self.linked_guild_ids]
+        guild = self.get_guild(self.config.guild_id)
+        return [guild] if guild else []
+
+    def is_foreign(self, guild_id: int | None) -> bool:
+        return guild_id is not None and guild_id in self.linked_guild_ids and guild_id != self.config.guild_id
+
+    def dispatch(self, event_name: str, /, *args, **kwargs) -> None:
+        if event_name not in FOREIGN_GUILD_EVENTS and self.is_foreign(event_guild_id(args)):
+            return
+        super().dispatch(event_name, *args, **kwargs)
 
     def mark_managed(self, kind: str, guild_id: int, member_id: int, role_id: int) -> None:
         self._managed.add((kind, guild_id, member_id, role_id))
@@ -83,10 +121,14 @@ class DepartmentManagerBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await self.db.connect()
+        from .services import DepartmentService
+
+        self.linked_guild_ids.update(await DepartmentService(self.db).linked_guild_ids(self.config.guild_id))
         from .cogs.coordination import CoordinationCog
         from .cogs.badges import BadgesCog
         from .cogs.core import CoreCog
         from .cogs.departments import DepartmentsCog
+        from .cogs.dept_guilds import DeptGuildsCog
         from .cogs.email import EmailCog
         from .cogs.events import EventsCog
         from .cogs.members import MembersCog
@@ -95,7 +137,7 @@ class DepartmentManagerBot(commands.Bot):
         from .cogs.stickies import StickiesCog
         from .tickets import TicketsCog
 
-        for cog in (CoreCog(self), BadgesCog(self), DepartmentsCog(self), CoordinationCog(self), MembersCog(self), EmailCog(self), EventsCog(self), PanelsCog(self), PositionsCog(self), StickiesCog(self), TicketsCog(self)):
+        for cog in (CoreCog(self), BadgesCog(self), DepartmentsCog(self), CoordinationCog(self), MembersCog(self), EmailCog(self), EventsCog(self), PanelsCog(self), PositionsCog(self), StickiesCog(self), TicketsCog(self), DeptGuildsCog(self)):
             await self.add_cog(cog)
 
         self.tree.on_error = self.on_tree_error
@@ -107,6 +149,7 @@ class DepartmentManagerBot(commands.Bot):
         else:
             synced = await self.tree.sync()
             log.info("Synced %d global commands", len(synced))
+        await self.get_cog("DeptGuildsCog").sync_all()
 
     async def close(self) -> None:
         await self.db.close()
@@ -129,7 +172,12 @@ class DepartmentManagerBot(commands.Bot):
         else:
             log.exception("Unhandled slash command error", exc_info=original)
             message = "Something went wrong while running that command. The error was logged."
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except discord.NotFound:
+            # The original failure may itself be an expired interaction. Do not
+            # turn the best-effort error response into an unhandled task error.
+            log.warning("Could not answer an expired Discord interaction")

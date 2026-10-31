@@ -9,11 +9,29 @@ const root = path.resolve(here, "../../..");
 const core = path.join(root, "server-data/resources/[fbrp]/fbrp_core");
 const read = (...parts) => fs.readFileSync(path.join(...parts), "utf8");
 
-test("headtags never draw for the local player and are smaller", () => {
-  const tags = read(core, "client/tags.lua");
-  assert.match(tags, /player ~= PlayerId\(\) and DoesEntityExist\(ped\)/);
-  assert.doesNotMatch(tags, /ped == mine or HasEntityClearLosToEntity/);
-  assert.match(tags, /TAG_SCALE = 0, 0\.38/);
+test("headtags never draw for the local player and come from the Jaxtti-derived fbrp_tags resource", () => {
+  const tags = read(root, "server-data/resources/[fbrp]/fbrp_tags/client/render.lua");
+  assert.match(tags, /if player ~= mine or preview then/);
+  assert.match(tags, /RegisterCommand\('selftag'/);
+  assert.doesNotMatch(read(root, "server-data/resources/[fbrp]/fbrp_tags/server/main.lua"), /fbrp\.dev\.tagpreview/);
+  assert.match(tags, /Player\(serverId\)\.state/);
+  assert.match(tags, /'fbrp:headtag'/);
+  assert.match(tags, /'fbrp:gangtag'/);
+  assert.match(tags, /fbrp:noclip/);
+  assert.match(tags, /RegisterCommand\('hidetags'/);
+  assert.match(read(root, "server-data/resources/[fbrp]/fbrp_tags/client/functions.lua"), /function DrawTagStack/);
+  assert.doesNotMatch(read(core, "client/tags.lua"), /GetPedBoneCoords|RegisterCommand\('hidetags'/);
+  assert.match(read(root, "server-data/config/resources.cfg"), /^ensure fbrp_tags$/m);
+});
+
+test("fbrp_tags keeps staff tag-toggle server-validated and ID cards limited to LEO/fire duty", () => {
+  const server = read(root, "server-data/resources/[fbrp]/fbrp_tags/server/main.lua");
+  assert.match(server, /state\['fbrp:staffDuty'\] ~= true/);
+  assert.match(server, /cfg\.badgeOrgTypes\[org\.type\]/);
+  const config = read(root, "server-data/resources/[fbrp]/fbrp_tags/config.lua");
+  assert.match(config, /badgeOrgTypes = \{ leo = true, fire = true \}/);
+  const ui = read(root, "server-data/resources/[fbrp]/fbrp_tags/ui/script.js");
+  assert.match(ui, /escapeHtml\(info\.name\)/);
 });
 
 test("F5 no longer opens third eye: the old 'interactions' command is gone", () => {
@@ -22,7 +40,7 @@ test("F5 no longer opens third eye: the old 'interactions' command is gone", () 
   assert.match(eye, /RegisterCommand\('thirdeyemenu'/);
   assert.match(eye, /RegisterKeyMapping\('\+thirdEye'[^\n]*'LMENU'\)/);
   assert.match(read(core, "client/main.lua"), /interactions='thirdeyemenu'/);
-  for (const file of ["server-data/resources/[fbrp]/fbrp_loading/web/index.html", "server-data/resources/[fbrp]/fbrp_loading/web/loading.js"])
+  for (const file of ["server-data/resources/[fbrp]/fbrp_loading/web/index.html", "server-data/resources/[fbrp]/fbrp_loading/web/assets/scripts/config.js"])
     assert.doesNotMatch(read(root, file), /F5/);
 });
 
@@ -37,7 +55,8 @@ test("deaths are reported to the kill log with the killer and weapon", () => {
   const medical = read(core, "server/medical.lua");
   assert.match(medical, /'player\.kill'/);
   assert.match(medical, /'player\.death'/);
-  assert.match(medical, /logKill\(src, info\)/);
+  assert.match(medical, /RegisterNetEvent\('fbrp:medical:died'/);
+  assert.match(medical, /FBRP\.DB\.audit\([^)]*'player\.kill'/);
 });
 
 test("the department leaderboard is a single department-versus-department embed", () => {
@@ -53,4 +72,16 @@ test("a blacklist quarantines the member before the role sync can hand gated rol
   const index = read(root, "services/fbrp-bot/src/index.js");
   assert.match(index, /blacklistPending\.add\(user\.id\);\n\s+blacklistInFlight\.add\(user\.id\);/);
   assert.match(index, /blacklistInFlight\.delete\(user\.id\);[\s\S]{0,300}enforceBlacklistRoles\(again\)/);
+});
+
+test("fbrp_chat carries the Jaxtti chat: staff rank badge, chat tag, cards and moderation on fbrp_core state", () => {
+  const server = read(root, "server-data/resources/[standalone]/fbrp_chat/server/main.lua") + read(root, "server-data/resources/[standalone]/fbrp_chat/server/commands.lua");
+  assert.match(server, /fbrp:chatTag/);
+  assert.match(server, /core\('GetStaffRank', src\)/);
+  for (const command of ["youtube", "tiktok", "twt", "twtname", "vpn", "sms", "reply", "allstaff", "mute", "unmute", "chatclear", "hidestaffrank", "leoannounce"])
+    assert.match(server, new RegExp(`(RegisterCommand|advertisement|post)\\('${command}'`));
+  assert.doesNotMatch(server, /RegisterCommand\('(staff|ondutystaff|panic)'/);
+  assert.match(read(root, "server-data/resources/[standalone]/fbrp_chat/client/main.lua"), /RegisterCommand\('chattag'/);
+  assert.match(read(core, "fxmanifest.lua"), /server_export 'GetStaffRank'/);
+  assert.match(read(root, "server-data/resources/[standalone]/fbrp_chat/web/app.js"), /badgesHtml/);
 });

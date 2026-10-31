@@ -110,7 +110,7 @@ const playerBar = (players, maximum) => {
 };
 
 const priorityLabel = (key) =>
-  ({ ls: "Los Santos", blaine: "Blaine County", paleto: "Paleto Bay", zancudo: "Fort Zancudo" })[key] ||
+  ({ ls: "Los Santos", blaine: "Blaine County", paleto: "Paleto Bay", zancudo: "Fort Zancudo", roxwood: "Roxwood" })[key] ||
   line(key.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()), 40);
 
 const priorityText = (priority) => {

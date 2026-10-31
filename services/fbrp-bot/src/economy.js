@@ -19,37 +19,30 @@ const prop = (key, label, price, types, business, x, y, z, h, area, description,
 
 export const DEFAULT_SHOP = [
   // Properties - one owner at a time. Coordinates are the business terminal; point them at your MLOs in live configuration.
-  prop("bennys", "Benny's Original Motor Works", 95000, "gang,business", "mechanic", -205.7, -1310.6, 31.3, 0, "Strawberry", "Custom shop. Members service cars for income and can /repair customers' vehicles."),
   prop("lsc_burton", "Los Santos Customs - Burton", 85000, "gang,business", "mechanic", -337.4, -136.9, 39.0, 70, "Burton", "Uptown body shop with steady walk-in work."),
   prop("hayes_autos", "Hayes Autos", 60000, "gang,business", "mechanic", 484.6, -1316.6, 29.2, 300, "Strawberry", "Small garage on the south side - cheap way into the repair trade."),
   prop("yellow_jack", "Yellow Jack Inn", 55000, "gang,business", "bar", 1985.9, 3053.9, 47.2, 240, "Sandy Shores", "Biker bar. Members tend bar and /serve drinks to patrons."),
-  prop("bahama_mamas", "Bahama Mamas West", 120000, "gang,business", "club", -1387.5, -588.4, 30.3, 30, "Del Perro", "Nightclub with the best take in the city."),
   prop("vanilla_unicorn", "Vanilla Unicorn", 110000, "gang,business", "club", 128.6, -1298.6, 29.2, 210, "Strawberry", "The city's most notorious club."),
   prop("tequilala", "Tequi-la-la", 80000, "gang,business", "bar", -565.2, 276.6, 83.1, 175, "West Vinewood", "Rock bar on the Vinewood strip."),
   prop("hen_house", "Hen House", 45000, "gang,business", "bar", -302.4, 6266.0, 31.5, 45, "Paleto Bay", "Paleto locals' bar."),
-  prop("upnatom", "Up-n-Atom Burger - Vinewood", 70000, "gang,business", "restaurant", 81.2, 284.3, 110.2, 160, "Vinewood", "Burgers and fries. Members cook orders and /serve meals that heal."),
-  prop("elysian_warehouse", "Elysian Island Warehouse", 65000, "gang,business", "warehouse", 1015.0, -3110.0, 5.9, 0, "Elysian Island", "Dockside logistics: pack and ship crates for income."),
-  prop("lab_sandy", "Sandy Shores Trailer Lab", 75000, "gang", "lab", 1391.9, 3605.9, 38.9, 200, "Sandy Shores", "Private meth lab. Only the owning gang can cook here, with a 50% yield bonus.", { drug: "meth" }),
-  prop("lab_oneil", "O'Neil Ranch Grow House", 60000, "gang", "lab", 2435.8, 4966.3, 42.3, 45, "Grapeseed", "Private weed grow. Owners harvest here with a 50% yield bonus.", { drug: "weed" }),
-  prop("lab_sawmill", "Paleto Sawmill Cut House", 100000, "gang", "lab", -570.5, 5253.0, 70.5, 70, "Paleto Forest", "Private cocaine cut house with a 50% yield bonus.", { drug: "coke" }),
-  prop("lab_raton_bunker", "Raton Canyon Bunker Grow", 70000, "gang", "lab", -391.0, 4354.0, 57.0, 0, "Raton Canyon", "Hidden grow room at the canyon bunker. Private weed lab with a 50% yield bonus.", { drug: "weed" }),
-  prop("lab_zancudo_bunker", "Lago Zancudo Bunker Grow", 65000, "gang", "lab", -3046.0, 3331.0, 11.0, 0, "Lago Zancudo", "Swamp-side grow next to the river mouth. Private weed lab with a 50% yield bonus.", { drug: "weed" }),
-  prop("lab_route68_bunker", "Route 68 Bunker Cookhouse", 85000, "gang", "lab", 31.0, 2945.0, 58.0, 0, "Grand Senora Desert", "Desert bunker off Route 68. Private meth lab with a 50% yield bonus.", { drug: "meth" }),
-  prop("lab_thomson_bunker", "Thomson Scrapyard Bunker", 80000, "gang", "lab", 2491.0, 3150.0, 50.0, 0, "Grand Senora Desert", "Cook under the scrapyard. Private meth lab with a 50% yield bonus.", { drug: "meth" }),
-  prop("lab_farmhouse_bunker", "Farmhouse Bunker Cut House", 110000, "gang", "lab", 1571.0, 2241.0, 79.0, 0, "Grand Senora Desert", "Isolated farmhouse bunker. Private cocaine lab with a 50% yield bonus.", { drug: "coke" }),
-  prop("lab_chumash_bunker", "Chumash Bunker Cut House", 105000, "gang", "lab", -3171.0, 1375.0, 18.0, 0, "Chumash", "Coastal bunker north of Chumash. Private cocaine lab with a 50% yield bonus.", { drug: "coke" }),
-
-  // Hideouts - gang headquarters with an armory and wardrobe. Members guard the stash for a small income.
-  prop("hq_trailer_sandy", "Sandy Shores Trailer", 30000, "gang", "hideout", 1985.5, 3828.8, 32.5, 0, "Sandy Shores", "A run-down trailer on the lake. The cheapest way to give a crew an armory and wardrobe."),
-  prop("hq_forum_drive", "Forum Drive House", 40000, "gang", "hideout", -14.7, -1439.3, 31.1, 0, "Strawberry", "South side family home in the heart of the neighborhood."),
-  prop("hq_grove_street", "Grove Street Cul-de-sac", 50000, "gang", "hideout", 104.0, -1938.0, 21.0, 0, "Davis", "The most famous block in Los Santos. Claim it."),
-  prop("hq_el_burro", "El Burro Heights House", 45000, "gang", "hideout", 1273.9, -1719.7, 54.8, 0, "El Burro Heights", "Quiet house above the refinery, off the police radar."),
-  prop("hq_lost_vinewood", "East Vinewood Clubhouse", 70000, "gang", "hideout", 984.2, -95.4, 74.8, 0, "East Vinewood", "Biker clubhouse with a bar and a garage out back."),
-  prop("hq_chumash_beach", "Chumash Beach House", 120000, "gang,business", "hideout", -3086.4, 339.3, 6.4, 0, "Chumash", "Beachfront house far from the city - good for a low profile."),
-  prop("hq_richman", "Richman Hillside House", 140000, "gang,business", "hideout", -1117.2, 303.1, 66.5, 0, "Richman", "Hillside home among the city's old money."),
-  prop("hq_whispymound", "Whispymound Drive Mansion", 160000, "gang,business", "hideout", 5.1, 532.6, 175.3, 0, "Vinewood Hills", "Modern mansion overlooking the city."),
-  prop("hq_rockford", "Rockford Hills Estate", 190000, "gang,business", "hideout", -818.1, 177.8, 72.2, 0, "Rockford Hills", "Gated estate with a pool and tennis court. Leadership lives here."),
-  prop("hq_fuente_blanca", "La Fuente Blanca Ranch", 220000, "gang", "hideout", 1395.2, 1141.8, 114.6, 0, "Tataviam Mountains", "Walled cartel ranch in the hills. The top address for a criminal empire."),
+  // Interior (MLO) properties. Each ships as a resource under server-data/resources/[mlo]. The
+  // coordinates are the entrance, and the business terminal is set in the property setup menu.
+  prop("mlo_laundromat", "Mirror Park Laundromat", 60000, "gang,business", "warehouse", 896.9, -1032.2, 35.0, 165, "La Mesa", "Self-service laundromat with a back room. A quiet place to move product or stock."),
+  prop("mlo_pipedown", "Pipedown Cigar Shop", 55000, "gang,business", "bar", 1217.4, -467.1, 66.2, 0, "Mirror Park", "Cigar lounge in Mirror Park. Members tend the counter and serve patrons."),
+  prop("mlo_globe_fuel", "Globe Oil Fuel Station", 75000, "gang,business", "mechanic", 640.7, 276.2, 103.1, 210, "Vinewood", "Fuel station with a service area. Members service cars for walk-in income."),
+  prop("mlo_pipeline_inn", "Pipeline Inn", 90000, "gang,business", "restaurant", -2207.1, -388.7, 14.1, 0, "Pacific Bluffs", "Surf-themed roadside restaurant by the beach. Members cook orders and serve meals."),
+  prop("mlo_yacht_club", "Del Perro Yacht Club", 130000, "gang,business", "club", -786.5, -1349.1, 10.9, 0, "La Puerta", "Marina yacht club with a bar and lounge."),
+  prop("mlo_wonka_factory", "Vinewood Fudge Factory", 95000, "gang,business", "warehouse", 481.1, -100.0, 63.1, 0, "Vinewood", "Three-floor confectionery factory with a hall, changing rooms and offices. Pack and ship crates for income."),
+  prop("mlo_power_st_records", "Power St Records", 100000, "gang,business", "club", 102.6, -637.6, 31.7, 0, "Pillbox Hill", "Recording studio and label office with a live room and lounge."),
+  prop("mlo_drug_farm", "Senora Desert Drug Farm", 85000, "gang", "lab", -34.5, 2879.6, 62.1, 0, "Grand Senora Desert", "Hidden processing facility with holding cells. Private weed lab with a 50% yield bonus.", { drug: "weed" }),
+  prop("mlo_crypto_house", "Route 68 Crypto House", 70000, "gang", "lab", 473.6, 2601.8, 42.2, 0, "Harmony", "Crypto mining front off Route 68 near Harmony. Private meth lab with a 50% yield bonus.", { drug: "meth" }),
+  prop("mlo_families_house", "Forum Drive Families House", 60000, "gang", "hideout", -141.3, -1601.7, 34.0, 0, "Chamberlain Hills", "Green-trimmed neighborhood house with a furnished interior. A starter hideout for a crew."),
+  prop("mlo_grove_house", "Davis Grove Street House", 55000, "gang", "hideout", 10.1, -1821.0, 24.8, 0, "Davis", "Grove Street style house on the south side with a full interior. Members guard the stash for a small income."),
+  prop("mlo_noah_mc", "NOAH MC Clubhouse", 120000, "gang", "hideout", 2041.2, 3474.6, 44.7, 0, "Grand Senora Desert", "Desert biker clubhouse with a yard full of props. Members guard the stash for a small income."),
+  prop("mlo_great_ocean_mansion", "Great Ocean Highway Mansion", 180000, "gang,business", "hideout", -2993.8, 709.9, 29.1, 0, "Great Ocean Highway", "Oceanfront mansion with a full interior on the coast road. Leadership lives here."),
+  prop("mlo_open_mansion", "Vinewood Hills Open-Plan Mansion", 190000, "gang,business", "hideout", -450.1, 528.1, 112.6, 0, "Vinewood Hills", "Open-plan hillside mansion with a furnished interior and city views."),
+  prop("mlo_weston_mansion", "Weston Estate", 220000, "gang", "hideout", -2591.7, 1897.0, 165.2, 0, "Tongva Hills", "Sprawling hilltop estate with a large interior. The top address for a criminal empire."),
+  prop("mlo_soa_clubhouse","Cypress Flats Biker Clubhouse", 150000, "gang", "hideout", 985.0, -2515.0, 28.0, 0, "Cypress Flats", "Walled biker compound with a clubhouse, meeting room, boxing ring and garage. Members guard the stash for a small income."),
 
   // More businesses.
   prop("lsc_lamesa", "Los Santos Customs - La Mesa", 80000, "gang,business", "mechanic", 729.2, -1088.2, 22.2, 0, "La Mesa", "East side body shop next to the freeway."),
@@ -57,12 +50,6 @@ export const DEFAULT_SHOP = [
   prop("lsc_harmony", "Los Santos Customs - Harmony", 55000, "gang,business", "mechanic", 1179.1, 2644.0, 37.8, 0, "Harmony", "Route 68 garage serving the desert."),
   prop("beekers", "Beeker's Garage", 50000, "gang,business", "mechanic", 110.7, 6625.6, 31.8, 0, "Paleto Bay", "The only garage in Paleto."),
   prop("pdm", "Premium Deluxe Motorsport", 130000, "business", "mechanic", -47.2, -1115.3, 26.5, 0, "Pillbox Hill", "Showroom with a service bay. Prep and repair customer cars."),
-  prop("golf_club", "Los Santos Golf Club", 140000, "gang,business", "bar", -1369.9, 57.4, 53.7, 0, "Richman", "Clubhouse bar for the city's elite."),
-  prop("pier_stands", "Del Perro Pier Food Stands", 65000, "gang,business", "restaurant", -1843.6, -1219.5, 13.0, 0, "Del Perro", "Food stands on the busiest pier on the coast."),
-  prop("cluckin_bell", "Cluckin' Bell Farms", 95000, "gang,business", "warehouse", -146.4, 6161.5, 31.2, 0, "Paleto Bay", "Poultry plant. Pack and ship orders - or hide something in the crates."),
-  prop("lamesa_factory", "La Mesa Garment Factory", 70000, "gang,business", "warehouse", 716.8, -962.1, 31.6, 0, "La Mesa", "Sweatshop floor with loading docks."),
-  prop("puerta_marina", "Puerta Marina Boathouse", 70000, "gang,business", "warehouse", -854.8, -1425.0, 5.0, 0, "La Puerta", "Marina boathouse. Ship crates by sea."),
-  prop("lsia_hangar", "LSIA Cargo Hangar", 115000, "gang,business", "warehouse", -1152.2, -3410.8, 14.0, 0, "LSIA", "Air cargo hangar at the airport."),
 
   item("veh_baller3", "vehicle", "Baller LE", 18000, "gang,business", { model: "baller3" }, "Executive SUV for the crew."),
   item("veh_sultanrs", "vehicle", "Sultan RS", 28000, "gang", { model: "sultanrs" }, "Rally-bred street car."),
@@ -946,6 +933,6 @@ export function createEconomy({ client, db, audit, log, authority = null, proper
   return {
     seed, portalData, purchase, sellItem, sellProperty: sellItem, transfer, adjust, setLeader,
     saveRank, deleteRank, reorderRanks, setMemberRank, setMotd, saveRosterSettings, importRanksFromDiscord, reconcileAutoRanks, bindableRoles,
-    summary, memberships, canManage, wallet, serviceBatch, money, KIND_LABEL, accessTo,
+    summary, memberships, canManage, wallet, serviceBatch, money, KIND_LABEL, accessTo, managementAccess,
   };
 }

@@ -52,40 +52,6 @@ export const NETWORK_TOP_ROLE_IDS = list(process.env.STAFF_NETWORK_TOP_ROLE_IDS,
  */
 export const MANAGER_ROLE_RULES = [
   {
-    key: "gang",
-    label: "Gang Manager+",
-    targetRole: "1558270290822299778",
-    sourceGuild: "1558950044042797169",
-    // Gang Director, Assistant Gang Director, Gang Manager
-    sourceRoles: ["1559682494364647524", "1559682496549879808", "1559682499251146772"],
-  },
-  {
-    key: "department",
-    label: "Department Manager+",
-    targetRole: "1558270406484557944",
-    sourceGuild: "1558235113295315004",
-    // Department Overseer, Director, Assistant Director, Manager
-    sourceRoles: ["1560393378485637140", "1560393380939300884", "1560393383527059477", "1560393388933513226"],
-  },
-  {
-    key: "staff",
-    label: "Staff Manager+",
-    targetRole: "1558270212267184178",
-    sourceGuild: STAFF_GUILD_ID,
-    // Staff Manager, Assistant Staff Director, Staff Director. Exactly these, so the Owner and Co-Owner
-    // roles do not widen it.
-    sourceRoles: ["1558266752914165911", "1558266750728937643", "1558266725164781680"],
-    networkTop: false,
-  },
-  {
-    key: "business",
-    label: "Business Manager+",
-    targetRole: "1560450541509677186",
-    sourceGuild: "1559682840411635813",
-    // Head of Businesses, Business Director, Assistant Business Director, Business Manager
-    sourceRoles: ["1559701131905728532", "1559701134686556190", "1559701141053513798", "1559701149475536947"],
-  },
-  {
     key: "dev",
     label: "Dev Manager+",
     targetRole: "1559120256788861008",
@@ -99,10 +65,10 @@ export const MANAGER_ROLE_RULES = [
   },
 ];
 
-/** Private channel for the staff bot to main bot request log: Community Director and above only. */
+/** Private channel for the staff bot to main bot request log: Executive Management and above only. */
 export const QUEUE_LOG_CATEGORY_ID = process.env.STAFF_QUEUE_LOG_CATEGORY_ID || "1558274050764054598";
 export const QUEUE_LOG_ROLE_IDS = list(process.env.STAFF_QUEUE_LOG_ROLE_IDS, [
   "1558265913046863892", // Owner
   "1558265973402902539", // Co-Owner
-  "1558266080361840690", // Community Director
+  "1558266080361840690", // Executive Management
 ]);

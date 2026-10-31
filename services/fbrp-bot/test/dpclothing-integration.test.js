@@ -26,7 +26,7 @@ test("dpClothing is a core dependency with rebindable, context-safe controls", a
   assert.doesNotMatch(gui, /IsControlPressed\(1, Config\.GUI\.Key\)/);
   for (const guard of ["fbrp:downed", "fbrp:restrained", "fbrp:jailed", "fbrp:communityService"])
     assert.ok(gui.includes(guard));
-  assert.match(functions, /TriggerEvent\('fbrp:notify'/);
+  assert.match(functions, /TriggerEvent\('ox_lib:notify'/);
   assert.match(functions, /function CanUseClothing/);
   assert.match(functions, /fbrp:appearanceChanged/);
   assert.match(economy, /TriggerEvent\('fbrp:appearanceChanged'\)/);

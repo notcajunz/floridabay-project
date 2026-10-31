@@ -46,6 +46,12 @@ export const ROSTER_ACTIONS = Object.freeze({
   "event/rsvp": "rsvpEvent",
 });
 
+/** Application log settings (handled by org-application-logs.js). */
+export const APPLICATION_LOG_ACTIONS = Object.freeze({
+  "application/log": "saveOrgLog",
+  "application/main-log": "saveMainLog",
+});
+
 /** Badge template actions (handled by org-badges.js). */
 export const BADGE_ACTIONS = Object.freeze({
   badge: "saveBadge",
@@ -60,7 +66,7 @@ export function orgsStaticPath(pathname) {
   if (pathname === "/" || pathname === "/index.html") return "orgs/index.html";
   if (/^\/orgs\/[a-z0-9._-]+$/i.test(pathname)) return pathname.slice(1);
   if (/^\/fonts\/[a-z0-9._-]+\.(?:woff2|ttf)$/i.test(pathname)) return pathname.slice(1);
-  if (["/logo-128.webp", "/logo-720.webp", "/ui.js", "/ui.css"].includes(pathname)) return pathname.slice(1);
+  if (["/logo-128.webp", "/logo-720.webp", "/ui.js", "/ui.css", "/florida.css", "/florida.js"].includes(pathname)) return pathname.slice(1);
   return null;
 }
 
@@ -82,9 +88,9 @@ export function orgsHostFor(publicLocation) {
   return /^[\d.]+$/.test(host) || host === "localhost" ? `orgs.${host}.invalid` : `orgs.${host.replace(/^www\./, "")}`;
 }
 
-export function createOrgsSite({ db, economy, client, resolvePeople, publicLocation, audit = async () => {} }) {
+export function createOrgsSite({ db, economy, client, resolvePeople, publicLocation, audit = async () => {}, applicationLogs = null }) {
   const logos = createOrgLogos({ db, audit });
-  const roster = createOrgRoster({ client, db, economy, audit, resolvePeople, logos });
+  const roster = createOrgRoster({ client, db, economy, audit, resolvePeople, logos, applicationLogs });
   const badges = createOrgBadges({ db, economy, audit });
   const host = orgsHostFor(publicLocation);
   const tickets = new Map();
@@ -103,6 +109,7 @@ export function createOrgsSite({ db, economy, client, resolvePeople, publicLocat
   }
 
   const url = () => forced || (live ? `https://${host}` : `${publicLocation.origin}${publicLocation.pathname.replace(/\/$/, "")}/orgs`);
+  applicationLogs?.attach({ url, review: roster.reviewApplication });
   const isOrgsHost = (requestHost) => String(requestHost || "").toLowerCase().split(":")[0] === host;
 
   function issueTicket(session) {
@@ -183,6 +190,11 @@ export function createOrgsSite({ db, economy, client, resolvePeople, publicLocat
   }
 
   async function action(session, name, input) {
+    const logMethod = APPLICATION_LOG_ACTIONS[name];
+    if (logMethod) {
+      if (!applicationLogs) throw new Error("Application logs are unavailable.");
+      return applicationLogs[logMethod](session.id, input);
+    }
     const badgeMethod = BADGE_ACTIONS[name];
     if (badgeMethod) return badges[badgeMethod](session.id, input);
     const rosterMethod = ROSTER_ACTIONS[name];
@@ -200,6 +212,10 @@ export function createOrgsSite({ db, economy, client, resolvePeople, publicLocat
   const memberFile = (session, orgRef, discordId) => roster.memberFile(session.id, orgRef, discordId);
   const rosterCsv = (session, orgRef) => roster.rosterCsv(session.id, orgRef);
   const publicOrg = (ref) => roster.publicOrg(ref);
+  const applicationLogSettings = (session, orgRef) => {
+    if (!applicationLogs) throw new Error("Application logs are unavailable.");
+    return applicationLogs.overview(session.id, orgRef);
+  };
 
-  return { host, url, isOrgsHost, probe, issueTicket, redeemTicket, directory, data, action, roles, memberFile, rosterCsv, publicOrg, logo, badges };
+  return { host, url, isOrgsHost, probe, issueTicket, redeemTicket, directory, data, action, roles, memberFile, rosterCsv, publicOrg, applicationLogSettings, logo, badges };
 }

@@ -166,3 +166,57 @@ export async function ownedAssets(db, discordId) {
     failed,
   };
 }
+
+/**
+ * Invite tracker data for one Discord account: who invited them (newest join per server), the
+ * members they brought in (newest first) and how many of those are still in the server. A failed
+ * read is named in `failed` instead of failing the report.
+ */
+export async function inviteHistory(db, discordId, { limit = 100 } = {}) {
+  const id = String(discordId);
+  const failed = [];
+  const safe = async (name, run, fallback) => {
+    try {
+      return await run();
+    } catch (error) {
+      console.error(`[FBRP invite history] ${name}:`, error?.message || error);
+      failed.push(name);
+      return fallback;
+    }
+  };
+  const [joins, invited, totals] = await Promise.all([
+    safe("joins", () => db.query(
+      "SELECT guild_id,inviter_id,invite_code,method,joined_at,left_at FROM invite_tracker_joins WHERE member_id=? ORDER BY joined_at DESC LIMIT 50", [id]), []),
+    safe("invited members", () => db.query(
+      "SELECT guild_id,member_id,joined_at,left_at FROM invite_tracker_joins WHERE inviter_id=? ORDER BY joined_at DESC LIMIT ?", [id, limit]), []),
+    safe("invite totals", () => db.one(
+      "SELECT COUNT(*) total, COALESCE(SUM(left_at IS NULL),0) active FROM invite_tracker_joins WHERE inviter_id=?", [id]), null),
+  ]);
+  const seen = new Set();
+  const invitedBy = [];
+  for (const row of joins) {
+    if (seen.has(String(row.guild_id))) continue;
+    seen.add(String(row.guild_id));
+    invitedBy.push({
+      guildId: String(row.guild_id),
+      inviterId: row.inviter_id ? String(row.inviter_id) : null,
+      code: row.invite_code || null,
+      method: row.method,
+      joinedAt: Number(row.joined_at),
+      leftAt: row.left_at ? Number(row.left_at) : null,
+    });
+  }
+  const total = Number(totals?.total ?? 0);
+  const active = Number(totals?.active ?? 0);
+  return {
+    invitedBy,
+    invited: invited.map((row) => ({
+      guildId: String(row.guild_id),
+      memberId: String(row.member_id),
+      joinedAt: Number(row.joined_at),
+      leftAt: row.left_at ? Number(row.left_at) : null,
+    })),
+    totals: { total, active, left: total - active },
+    failed,
+  };
+}

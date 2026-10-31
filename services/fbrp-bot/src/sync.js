@@ -5,6 +5,7 @@ import {
   PermissionsBitField,
 } from "discord.js";
 import { db, audit } from "./database.js";
+import { mirrorToDev } from "./game-mirror.js";
 import { VERIFICATION_CHANNEL_ID } from "./verification.js";
 
 const origin = (guildId) => `discord:${guildId}`;
@@ -29,6 +30,9 @@ export const ROLE_SOURCED_GROUPS = new Set([
   "gang_coordination_team",
   "department_coordinator",
   "business_coordinator",
+  // VIP vMenu vehicle tuning: holding the VIP Membership Discord role is the only way in, and losing the role
+  // takes the permissions away. The role itself is never gated, granted or stripped by the bot.
+  "vip_vehicle_tuning",
 ]);
 const ROLE_SOURCED_GROUP_SQL = [...ROLE_SOURCED_GROUPS].map(() => "?").join(",");
 const MEMBERSHIP_GROUPS = [...ROLE_AUTHORITATIVE_GROUPS, ...ROLE_SOURCED_GROUPS];
@@ -46,6 +50,15 @@ export const DANGEROUS_ROLE_PERMISSIONS =
 /** Network server types, in display order. Global role scopes target one type (or all/satellites/custom). */
 export const NETWORK_KINDS = ["main", "staff", "gang", "department", "community", "business", "partner", "other"];
 export const GLOBAL_SYNC_SCOPES = ["all", "satellites", ...NETWORK_KINDS, "custom"];
+const ROLE_APPEARANCE_BY_KIND = Object.freeze({
+  main: Object.freeze({
+    trial_management: Object.freeze({
+      role_name: "FBRP | Trial Management",
+      color: 0x826bc2,
+      enforce_appearance: true,
+    }),
+  }),
+});
 
 export const isBotOwner = (id) =>
   String(id) === "web-panel" || new Set(
@@ -69,6 +82,7 @@ export async function callGame(path, body, method = "POST") {
   const base = String(
     process.env.FBRP_FIVEM_ORIGIN || "http://127.0.0.1:30120/fbrp_core",
   ).replace(/\/$/, "");
+  mirrorToDev(path, body, method);
   const response = await fetch(`${base}${path}`, {
     method,
     headers: {
@@ -82,8 +96,10 @@ export async function callGame(path, body, method = "POST") {
   return response.json();
 }
 
+/** Asks FiveM to reload permissions; one retry because a busy server can miss the first 3.5-second window. */
 export async function refreshGame() {
-  return callGame("/refresh", {}).catch(() => null);
+  const first = await callGame("/refresh", {}).catch(() => null);
+  return first ?? (await callGame("/refresh", {}).catch(() => null));
 }
 
 async function pickedGuilds(syncId) {
@@ -104,13 +120,19 @@ async function guildSettings(syncId) {
   );
 }
 
-/** Applies one server's explicit settings, falling back to the shared-role defaults. */
-export function effectiveGuildSync(sync, settings = null) {
-  if (!settings) return sync;
+/** Applies one server's explicit settings and any server-specific role appearance. */
+export function effectiveGuildSync(sync, settings = null, kind = null) {
+  const appearance = ROLE_APPEARANCE_BY_KIND[kind]?.[sync.group_name];
+  if (!settings && !appearance) return sync;
   return {
     ...sync,
-    permissions: String(settings.permissions),
-    all_channels: settings.all_channels === true || Number(settings.all_channels) === 1,
+    ...(settings
+      ? {
+          permissions: String(settings.permissions),
+          all_channels: settings.all_channels === true || Number(settings.all_channels) === 1,
+        }
+      : {}),
+    ...(appearance || {}),
   };
 }
 
@@ -219,7 +241,22 @@ export async function scopeText(sync) {
 
 /** Creates, restyles or links one sync's role in one server. Linked roles only accept explicit permission edits. */
 /** Rank roles renamed in place: ACE group -> the role name it used to have (lower case). */
-const LEGACY_ROLE_NAMES = { junior_management: "trial manager" };
+const LEGACY_ROLE_NAMES = { trial_management: "junior management" };
+
+export async function enforceLinkedAppearance(role, sync, spec) {
+  if (!sync.enforce_appearance) return { role, note: "" };
+  const currentColor = role.colors?.primaryColor ?? role.color ?? 0;
+  if (role.name === spec.name && currentColor === spec.colors.primaryColor)
+    return { role, note: " · appearance up to date" };
+  if (!role.editable)
+    return { role, note: " · above the bot's role, appearance unchanged" };
+  const updated = await role
+    .edit({ name: spec.name, colors: spec.colors, reason: `Florida Bay role appearance (${sync.group_name})` })
+    .catch(() => null);
+  return updated
+    ? { role: updated, note: " · appearance updated" }
+    : { role, note: " · appearance update refused" };
+}
 
 async function ensureRole(guild, sync, updateLinkedPermissions = false) {
   const saved = await db.one(
@@ -238,18 +275,20 @@ async function ensureRole(guild, sync, updateLinkedPermissions = false) {
   };
   if (role) {
     if (!saved.managed) {
+      const appearance = await enforceLinkedAppearance(role, sync, spec);
+      role = appearance.role;
       if (!updateLinkedPermissions)
-        return { role, line: `**${clean(role.name)}** · linked existing role (left as-is)` };
+        return { role, line: `**${clean(role.name)}** · linked existing role${appearance.note}` };
       if (role.permissions.bitfield === spec.permissions)
-        return { role, line: `**${clean(role.name)}** · linked existing role · permissions up to date` };
+        return { role, line: `**${clean(role.name)}** · linked existing role${appearance.note} · permissions up to date` };
       if (!role.editable)
-        return { role, line: `**${clean(role.name)}** · linked existing role · above the bot, permissions unchanged` };
+        return { role, line: `**${clean(role.name)}** · linked existing role${appearance.note} · above the bot, permissions unchanged` };
       const ok = await role
         .setPermissions(spec.permissions, `Florida Bay global role sync (${sync.group_name})`)
         .then(() => true, () => false);
       return {
         role,
-        line: `**${clean(role.name)}** · linked existing role · permissions ${ok ? "updated" : "update refused"}`,
+        line: `**${clean(role.name)}** · linked existing role${appearance.note} · permissions ${ok ? "updated" : "update refused"}`,
       };
     }
     const drift =
@@ -297,6 +336,7 @@ async function ensureRole(guild, sync, updateLinkedPermissions = false) {
         .catch(() => null);
   }
   let managed = false;
+  if (role) role = (await enforceLinkedAppearance(role, sync, spec)).role;
   if (!role) {
     role = await guild.roles
       .create({ ...spec, reason: `Florida Bay global role sync for the ${sync.group_name} ACE group` })
@@ -513,7 +553,7 @@ async function syncGuildRoles(client, guild, kind) {
   );
   for (const sync of syncs) {
     if (await inScope(sync, guild.id, kind)) {
-      const effective = effectiveGuildSync(sync, settings.get(Number(sync.id)));
+      const effective = effectiveGuildSync(sync, settings.get(Number(sync.id)), kind);
       const { line, role } = await ensureRole(guild, effective, settings.has(Number(sync.id)));
       // Staff roster ranks normally point at a staff-server role. A migration-created
       // global sync cannot know the new Discord role ID ahead of time, so remember it
@@ -568,9 +608,9 @@ export async function applySync(client, sync, previous = null) {
     const guild = client.guilds.cache.get(String(network.guild_id));
     if (!guild) lines.push(`**${clean(network.name)}** · the bot is not in this server`);
     else if (await inScope(sync, guild.id, network.kind)) {
-      const effective = effectiveGuildSync(sync, currentSettings.get(String(guild.id)));
+      const effective = effectiveGuildSync(sync, currentSettings.get(String(guild.id)), network.kind);
       const before = previous?.sync
-        ? effectiveGuildSync(previous.sync, previousSettings.get(String(guild.id)))
+        ? effectiveGuildSync(previous.sync, previousSettings.get(String(guild.id)), network.kind)
         : null;
       const { line, role } = await ensureRole(guild, effective, currentSettings.has(String(guild.id)));
       const channels =
@@ -586,7 +626,7 @@ export async function applySync(client, sync, previous = null) {
         [sync.id, guild.id],
       );
       const before = previous?.sync
-        ? effectiveGuildSync(previous.sync, previousSettings.get(String(guild.id)))
+        ? effectiveGuildSync(previous.sync, previousSettings.get(String(guild.id)), network.kind)
         : null;
       if (mapped && before?.all_channels)
         await applyChannelAccess(guild, String(mapped.role_id), false);
@@ -602,6 +642,7 @@ export async function applySync(client, sync, previous = null) {
 /** Re-creates missing synced roles in every server, then re-syncs every member. */
 export async function pushGlobalSyncs(client) {
   const lines = [];
+  await renameManagementRankRoles(client);
   for (const network of await networkRows()) {
     const guild = client.guilds.cache.get(String(network.guild_id));
     if (!guild) {
@@ -707,9 +748,24 @@ export async function touchesCoordinationSource(oldMember, newMember) {
   return [...sourceRoleCache.ids].some((id) => before.has(id) !== after.has(id));
 }
 
+/**
+ * A network ban removes the member from Discord servers without producing a member update that can
+ * retract role-sourced ACE rows. Clear those stale rows when the ban is lifted; a source role the
+ * member genuinely holds after rejoining will recreate its own guild-scoped row normally.
+ */
+export async function clearRoleSourcedMemberships(discordId, database = db) {
+  const result = await database.query(
+    `DELETE FROM ace_memberships
+     WHERE discord_id=? AND origin LIKE 'discord:%'
+       AND group_name IN (${ROLE_SOURCED_GROUP_SQL})`,
+    [String(discordId), ...ROLE_SOURCED_GROUPS],
+  );
+  return Number(result.affectedRows || 0);
+}
+
 /** Management and above also wear this rank's Discord roles on top of their own. */
 export const STAFF_MANAGEMENT_EXTRA_GROUP = "head_administrator";
-const STAFF_JUNIOR_MANAGEMENT_GROUP = "junior_management";
+const STAFF_TRIAL_MANAGEMENT_GROUP = "trial_management";
 const MANAGEMENT_FLOOR_GROUP = "mgmt_team";
 export const MANAGEMENT_MEMBERSHIP_GROUP = "mgmt_team";
 export const MANAGEMENT_MINIMUM_GROUP = "assistant_community_manager";
@@ -886,11 +942,11 @@ export async function staffRankInfo() {
 export function staffDisplayGroups(top, info) {
   const keep = new Set([top]);
   const topOrder = info.ranks.get(top) ?? -1;
-  const junior = info.ranks.get(STAFF_JUNIOR_MANAGEMENT_GROUP);
-  if (info.floor !== null && topOrder >= Math.min(info.floor, junior ?? info.floor)) {
-    // Junior Management and up also wear Head Administrator; Assistant Community Manager and up also wear Junior Management.
+  const trial = info.ranks.get(STAFF_TRIAL_MANAGEMENT_GROUP);
+  if (info.floor !== null && topOrder >= Math.min(info.floor, trial ?? info.floor)) {
+    // Trial Management and up also wear Head Administrator; Assistant Community Manager and up also wear Trial Management.
     keep.add(STAFF_MANAGEMENT_EXTRA_GROUP);
-    if (topOrder >= info.floor && junior !== undefined) keep.add(STAFF_JUNIOR_MANAGEMENT_GROUP);
+    if (topOrder >= info.floor && trial !== undefined) keep.add(STAFF_TRIAL_MANAGEMENT_GROUP);
     for (const [name, order] of info.ranks) if (order >= info.floor && order <= topOrder) keep.add(name);
   }
   return keep;
@@ -1277,7 +1333,40 @@ export function queueGlobalSync(client) {
   return next;
 }
 
+export const MANAGEMENT_RANK_ROLE_NAMES = Object.freeze({
+  trial_management: "Trial Management",
+  community_director: "Community Director",
+  executive_management: "Executive Management",
+});
+
+/** Rename the existing bound main and staff roles in place, retaining their IDs and naming prefix. */
+export async function renameManagementRankRoles(client, database = db) {
+  const groups = Object.keys(MANAGEMENT_RANK_ROLE_NAMES);
+  const rows = await database.query(
+    `SELECT guild_id,role_id,group_name FROM discord_role_bindings
+      WHERE group_name IN (${groups.map(() => "?").join(",")})`,
+    groups,
+  );
+  const result = { renamed: 0, unchanged: 0, unavailable: 0 };
+  for (const row of rows) {
+    const guild = client.guilds.cache.get(String(row.guild_id));
+    const role = guild
+      ? guild.roles.cache.get(String(row.role_id)) || await guild.roles.fetch(String(row.role_id)).catch(() => null)
+      : null;
+    if (!role) { result.unavailable += 1; continue; }
+    const base = MANAGEMENT_RANK_ROLE_NAMES[String(row.group_name)];
+    const wanted = /^FBRP\s*\|\s*/i.test(role.name) ? `FBRP | ${base}` : base;
+    if (role.name === wanted) { result.unchanged += 1; continue; }
+    if (!role.editable) { result.unavailable += 1; continue; }
+    const renamed = await role.edit({ name: wanted, reason: `Florida Bay management rank rename (${row.group_name})` }).catch(() => null);
+    if (renamed) result.renamed += 1;
+    else result.unavailable += 1;
+  }
+  return result;
+}
+
 export async function syncAll(client, options = {}) {
+  await renameManagementRankRoles(client);
   const network = await db.query("SELECT guild_id FROM network_guilds");
   let members = 0;
   for (const row of network) {

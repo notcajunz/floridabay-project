@@ -4,36 +4,39 @@ import { BUNDLE_ROLE_IDS, BUNDLE_SOURCE_ROLE_ID } from "./role-bundle.js";
 export const TEBEX_MAIN_GUILD_ID = "1557594282976747550";
 export const TEBEX_DEVOPS_INVITE = "https://discord.gg/4gCvKJRGxk";
 
-const roleProduct = (name, price, type, roleId, extraRoles = []) => Object.freeze({
-  name, price, type, roles: Object.freeze([roleId, ...extraRoles]),
+const roleProduct = (id, name, price, type, roleId, extraRoles = []) => Object.freeze({
+  id, name, price, type, roles: Object.freeze([roleId, ...extraRoles]),
 });
-const manualProduct = (name, price) => Object.freeze({ name, price, type: "single", roles: Object.freeze([]), manual: true });
+const manualProduct = (id, name, price) => Object.freeze({ id, name, price, type: "single", roles: Object.freeze([]), manual: true });
 
-/** Canonical catalog. Exact names keep fulfillment deterministic until Tebex assigns package IDs. */
+/** Canonical catalog. Stable Tebex package IDs are authoritative for fulfillment. */
 export const TEBEX_PRODUCTS = Object.freeze([
-  roleProduct("Founder's Edition", 49.99, "subscription", BUNDLE_SOURCE_ROLE_ID, BUNDLE_ROLE_IDS),
-  roleProduct("VIP Membership", 14.99, "subscription", "1557689749198868520"),
-  roleProduct("Australian Vehicle Pack", 15, "single", "1558237674412974221"),
-  roleProduct("UK Car Pack", 15, "single", "1558237679353593927"),
-  roleProduct("JDM Car Pack", 15, "single", "1558778406403964958"),
-  roleProduct("Aviation Pack", 15, "single", "1558778407280447588"),
-  roleProduct("Queue Bypass", 5, "subscription", "1557689749509120091"),
-  roleProduct("Whitelist Package", 5, "subscription", "1557689750184398999"),
-  roleProduct("Streamer Package", 10, "single", "1558778405724626964"),
-  roleProduct("Custom Weapons", 15, "single", "1558772553789743214"),
-  roleProduct("Any Organization", 25, "single", "1558772560085262356"),
-  manualProduct("LEO Department", 45),
-  manualProduct("Gang", 40),
-  manualProduct("Business", 35),
-  manualProduct("Headtag/Gangtag", 20),
-  manualProduct("Personal Vehicle", 30),
-  manualProduct("Bulletproof Add-on", 10),
-  manualProduct("Custom Handling Add-on", 10),
-  manualProduct("Custom Organization Bot", 50),
-  manualProduct("Car Club", 35),
-  manualProduct("Security", 25),
-  manualProduct("Transport", 45),
-  manualProduct("Miscellaneous Businesses", 25),
+  roleProduct(7761877, "Founder's Edition", 49.99, "subscription", BUNDLE_SOURCE_ROLE_ID, BUNDLE_ROLE_IDS),
+  roleProduct(7761881, "VIP Membership", 14.99, "subscription", "1557689749198868520"),
+  roleProduct(7761883, "Australian Vehicle Pack", 15, "single", "1558237674412974221"),
+  roleProduct(7761884, "UK Car Pack", 15, "single", "1558237679353593927"),
+  roleProduct(7761885, "JDM Car Pack", 15, "single", "1558778406403964958"),
+  roleProduct(7761886, "Aviation Pack", 15, "single", "1558778407280447588"),
+  roleProduct(7761888, "Queue Bypass", 5, "subscription", "1557689749509120091"),
+  roleProduct(7761891, "Whitelist Package", 5, "subscription", "1557689750184398999"),
+  roleProduct(7761892, "Streamer Package", 10, "single", "1558778405724626964"),
+  roleProduct(7761893, "Custom Weapons", 15, "single", "1558772553789743214"),
+  roleProduct(7761894, "Any Organization", 25, "single", "1558772560085262356"),
+  manualProduct(7761895, "LEO Department", 45),
+  manualProduct(7761896, "Gang", 40),
+  manualProduct(7761897, "Business", 35),
+  manualProduct(7761898, "Headtag/Gangtag", 20),
+  manualProduct(7761899, "Personal Vehicle", 30),
+  manualProduct(7761900, "Bulletproof Add-on", 10),
+  manualProduct(7761901, "Custom Handling Add-on", 10),
+  manualProduct(7761903, "Custom Organization Bot", 50),
+  manualProduct(7761904, "Car Club", 35),
+  manualProduct(7761907, "Security", 25),
+  manualProduct(7761908, "Transport", 45),
+  manualProduct(7761910, "Miscellaneous Businesses", 25),
+  roleProduct(7767181, "German Car Pack", 35, "single", "1564110361961959505"),
+  roleProduct(7767259, "Mk2 Weapons", 15, "single", "1564110293846724710"),
+  roleProduct(7768904, "DevOps+", 20, "subscription", "1564380267617984552"),
 ]);
 
 const compact = (value) => String(value || "")
@@ -44,6 +47,7 @@ const compact = (value) => String(value || "")
   .trim()
   .toLowerCase();
 const PRODUCT_BY_NAME = new Map(TEBEX_PRODUCTS.map((product) => [compact(product.name), product]));
+const PRODUCT_BY_ID = new Map(TEBEX_PRODUCTS.map((product) => [String(product.id), product]));
 const SNOWFLAKE = /^\d{17,20}$/;
 const HANDLED = new Set([
   "payment.completed",
@@ -78,6 +82,8 @@ export function verifyTebexSignature(rawBody, signature, secret) {
 }
 
 export function productSpec(product) {
+  const id = String(product?.id || "").trim();
+  if (id) return PRODUCT_BY_ID.get(id) || null;
   return PRODUCT_BY_NAME.get(compact(product?.name)) || null;
 }
 
@@ -166,7 +172,7 @@ export function webhookPlan(event) {
   };
 }
 
-export function createTebexFulfillment({ client, db, audit, guildId = TEBEX_MAIN_GUILD_ID, secret = process.env.TEBEX_WEBHOOK_SECRET } = {}) {
+export function createTebexFulfillment({ client, db, audit, logger, guildId = TEBEX_MAIN_GUILD_ID, secret = process.env.TEBEX_WEBHOOK_SECRET } = {}) {
   const configured = Boolean(String(secret || "").trim());
 
   async function markEvent(event, status, error = null) {
@@ -266,6 +272,7 @@ export function createTebexFulfillment({ client, db, audit, guildId = TEBEX_MAIN
     const prior = await db.one("SELECT status FROM tebex_webhook_events WHERE webhook_id=?", [String(event.id)]);
     if (prior?.status === "done" || prior?.status === "attention") return { received: true, duplicate: true };
     await markEvent(event, "processing");
+    const discordId = plan.discordId || paymentDiscordId(event.subject);
     try {
       let deliveries = [];
       if (plan.kind === "activate") deliveries = await activate(plan, event);
@@ -277,9 +284,11 @@ export function createTebexFulfillment({ client, db, audit, guildId = TEBEX_MAIN
       await audit?.("tebex", `tebex.${event.type}`, plan.transaction || plan.reference || String(event.id), {
         webhook: String(event.id), status: attention ? "attention" : "done", roles: plan.entries?.length || 0,
       }).catch(() => {});
+      await logger?.event(event, { status: attention ? "attention" : "done", note: message, discordId, roles: plan.entries?.length || 0 });
       return { received: true, attention };
     } catch (error) {
       await markEvent(event, "failed", error.message).catch(() => {});
+      await logger?.event(event, { status: "failed", note: error.message, discordId });
       throw error;
     }
   }
@@ -299,5 +308,45 @@ export function createTebexFulfillment({ client, db, audit, guildId = TEBEX_MAIN
     [String(discordId), String(roleId)],
   ));
 
-  return { configured, handle, reconcileMember, reconcileAll, hasActiveRole };
+  /** Every store purchase on record for a member, newest first, with whether each Discord role is currently held. */
+  async function purchasesOf(discordId) {
+    const rows = await db.query(
+      `SELECT source_key,transaction_id,product_id,product_name,role_id,active,granted_at,revoked_at
+         FROM tebex_store_entitlements WHERE discord_id=? ORDER BY granted_at DESC LIMIT 100`,
+      [String(discordId)],
+    );
+    const guild = client.guilds.cache.get(String(guildId));
+    const member = guild ? await guild.members.fetch(String(discordId)).catch(() => null) : null;
+    const byKey = new Map();
+    for (const row of rows) {
+      const entry = byKey.get(row.source_key) || {
+        transaction: String(row.transaction_id || ""), productId: String(row.product_id || ""), name: String(row.product_name || "Store item"),
+        active: false, grantedAt: Number(row.granted_at) || 0, roles: [],
+      };
+      entry.active = entry.active || Boolean(row.active);
+      entry.roles.push({ roleId: String(row.role_id), held: Boolean(member?.roles.cache.has(String(row.role_id))) });
+      byKey.set(row.source_key, entry);
+    }
+    return { purchases: [...byKey.values()], inServer: Boolean(member) };
+  }
+
+  /** Re-applies every active purchase to the member and reports which Discord roles were missing and are now delivered. */
+  async function redeem(discordId) {
+    const roles = await db.query("SELECT DISTINCT role_id FROM tebex_store_entitlements WHERE discord_id=? AND active=TRUE", [String(discordId)]);
+    if (!roles.length) return { active: 0, granted: [], pending: [], inServer: true };
+    const guild = client.guilds.cache.get(String(guildId));
+    const member = guild ? await guild.members.fetch(String(discordId)).catch(() => null) : null;
+    if (!member) return { active: roles.length, granted: [], pending: roles.map((row) => String(row.role_id)), inServer: false };
+    const missing = roles.map((row) => String(row.role_id)).filter((roleId) => !member.roles.cache.has(roleId));
+    await reconcileMember(discordId);
+    const fresh = await guild.members.fetch({ user: String(discordId), force: true }).catch(() => member);
+    return {
+      active: roles.length,
+      granted: missing.filter((roleId) => fresh.roles.cache.has(roleId)),
+      pending: missing.filter((roleId) => !fresh.roles.cache.has(roleId)),
+      inServer: true,
+    };
+  }
+
+  return { configured, handle, reconcileMember, reconcileAll, hasActiveRole, purchasesOf, redeem };
 }

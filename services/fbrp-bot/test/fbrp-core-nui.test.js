@@ -62,6 +62,45 @@ const citizen = {
   options: { themes: [{ id: 'classic', label: 'Bay Classic' }, { id: 'sunset', label: 'Sunset' }], eyeColors: ['Green'], hairColors: ['Black'], bloodTypes: ['O+'], restrictions: ['Corrective lenses'], maxHeightCm: 230, maxWeightKg: 250 },
 };
 
+test('character and spawn screens preview a choice before confirming it', () => {
+  const run = loadApp();
+  const characters = {
+    maxSlots: 3,
+    characters: [
+      { id: 7, first_name: 'Avery', last_name: 'Stone', date_of_birth: '1994-08-17', gender: 'Female', backstory: 'Local dockworker.', citizen: 'FB-000007', nationality: 'Cuban', height_cm: 170 },
+      { id: 9, first_name: 'Miles', last_name: 'Reed', date_of_birth: '1988-11-02', gender: 'Male', backstory: '' },
+    ],
+    playtime: 5400,
+  };
+  const characterHtml = run(`ui.showCharacterForm = false; ui.selectedCharacterId = 7; renderCharacters(${JSON.stringify(characters)})`);
+  assert.match(characterHtml, /class="onboarding character-select"/);
+  assert.match(characterHtml, /data-character-preview="7"/);
+  assert.match(characterHtml, /data-character-id="7"/);
+  assert.match(characterHtml, /Character Statistics/);
+  assert.match(characterHtml, /FB-000007/);
+  assert.match(characterHtml, /Cuban/);
+  assert.match(characterHtml, /170 cm/);
+  assert.match(characterHtml, /1h 30m/);
+  assert.match(characterHtml, /class="slot slot-new" data-new-character/);
+  const formHtml = run(`ui.showCharacterForm = true; renderCharacters(${JSON.stringify({ ...characters, nationalities: ['Cuban'], defaultNationality: 'American' })})`);
+  assert.match(formHtml, /name="nationality"[^>]*value="American"/);
+  assert.match(formHtml, /<option value="Cuban">/);
+  assert.match(formHtml, /name="heightCm"/);
+
+  const spawns = {
+    character: { name: 'Avery Stone' },
+    spawns: [
+      { id: 'legion', label: 'Legion Square', description: 'Downtown', x: 215, y: -810, z: 30, h: 0 },
+      { id: 'sandy', label: 'Sandy Shores', description: 'Blaine County', x: 1800, y: 3700, z: 34, h: 180 },
+    ],
+  };
+  const spawnHtml = run(`ui.selectedSpawnId = 'legion'; renderSpawns(${JSON.stringify(spawns)})`);
+  assert.match(spawnHtml, /class="onboarding spawn-select"/);
+  assert.match(spawnHtml, /data-spawn-preview="legion"/);
+  assert.match(spawnHtml, /class="spawn-confirm" data-spawn-id="legion"/);
+  assert.match(spawnHtml, /Selected location/);
+});
+
 test('My Citizen renders every tab and escapes player text', () => {
   const run = loadApp();
   run('currentView = "citizen"; ui.citizen = { tab: "identity" };');
@@ -128,4 +167,45 @@ test('CAD dashboard, dispatch, profile and reports render the new panels', () =>
   const report = run(`ui.mdt.report = ${JSON.stringify({ id: 9, kind: 'Incident', title: 'T', narrative: 'N', author_name: 'A', created_at: 1, citizens: [], officers: [], addenda: [{ body: 'Later note', author_name: 'B', created_at: 2 }] })}; ui.mdt.tab = "report"; renderMdt()`);
   assert.match(report, /Later note/);
   assert.match(report, /mdt-addendum-form/);
+});
+
+test('MDT lists Wraith plate reader reads and flags suspended owners', () => {
+  const run = loadApp();
+  const alpr = [
+    { plate: 'HOT 1', cam: 'front', at: Date.now(), registered: true, model: 'Buffalo', owner: '<b>Rex</b>', hits: ['STOLEN', 'BOLO #3'], locked: true },
+    { plate: 'NPC 22', cam: 'rear', at: Date.now(), registered: false, hits: [], locked: true },
+  ];
+  const payload = {
+    statuses: [{ id: 'available', label: '10-8', short: '10-8', tone: 'ok' }], flags: [], reportKinds: ['Incident'], licenses: [], penal: [],
+    dashboard: { units: [], warrants: [], bolos: [], inmates: [], services: [], records: [], seizures: [], calls: [], history: [], stats: { mine: {} }, me: { id: 1, unit: { status: 'available' } }, alpr },
+  };
+  run(`currentView = "mdt"; currentPayload = ${JSON.stringify(payload)}; mdtInit(currentPayload);`);
+  const dash = run('ui.mdt.tab = "dashboard"; renderMdt()');
+  assert.match(dash, /Plate reader/);
+  assert.match(dash, /data-mdt-plate-open="HOT 1"/);
+  assert.match(dash, /STOLEN/);
+  assert.match(dash, /Rear camera · locked/);
+  assert.doesNotMatch(dash, /<b>Rex<\/b>/);
+  const plates = run(`ui.mdt.plate = ${JSON.stringify({ plate: 'HOT 1', registered: true, model: 'Buffalo', owner: 'Rex', license: 'suspended', flags: ['Armed & dangerous'], bolos: [] })}; ui.mdt.tab = "plates"; renderMdt()`);
+  assert.match(plates, /Your plate reader reads/);
+  assert.match(plates, /Owner driver license suspended/);
+  assert.match(plates, /Owner flag: Armed &amp; dangerous/);
+});
+
+test('/showid previews the caller card, accepts a target id and is served by the server', () => {
+  const root = new URL('../../../server-data/resources/%5Bfbrp%5D/fbrp_core/', import.meta.url);
+  const client = fs.readFileSync(new URL('client/justice.lua', root), 'utf8');
+  const server = fs.readFileSync(new URL('server/justice.lua', root), 'utf8');
+  assert.match(client, /RegisterCommand\('showid', function\(_, args\)/);
+  assert.match(client, /TriggerServerEvent\('fbrp:idcard:own'\)/);
+  assert.match(server, /RegisterNetEvent\('fbrp:idcard:own'/);
+});
+
+test('placing someone in a vehicle detaches an escorted ped and verifies the warp', () => {
+  const root = new URL('../../../server-data/resources/%5Bfbrp%5D/fbrp_core/', import.meta.url);
+  const client = fs.readFileSync(new URL('client/interactions.lua', root), 'utf8');
+  const seat = client.slice(client.indexOf("action == 'seat'"), client.indexOf("action == 'unseat'"));
+  assert.match(seat, /DetachEntity\(ped,true,false\)/);
+  assert.match(seat, /seatInVehicle\(ped,vehicle\)/);
+  assert.match(client, /SetPedIntoVehicle\(ped,vehicle,seat\)/);
 });

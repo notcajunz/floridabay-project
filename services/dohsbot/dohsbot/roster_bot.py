@@ -48,6 +48,7 @@ import gspread
 from discord import app_commands
 from discord.ext import tasks
 from dotenv import load_dotenv
+from gspread.exceptions import APIError
 
 from .fbrp_api import FbrpApi, FbrpApiError
 from .main_roles import expected_main_roles, plan_main_roles
@@ -383,8 +384,16 @@ class Roster:
     @staticmethod
     def _write(ws, cells: dict, mode=ValueInputOption.raw) -> None:
         if cells:
-            ws.batch_update([{"range": a1, "values": [[v]]} for a1, v in cells.items()],
-                            value_input_option=mode)
+            try:
+                ws.batch_update([{"range": a1, "values": [[v]]} for a1, v in cells.items()],
+                                value_input_option=mode)
+            except APIError as error:
+                if getattr(getattr(error, "response", None), "status_code", None) == 403:
+                    raise RosterError(
+                        "Google blocked that roster edit. Give the DHS roster service account Editor "
+                        "access to the sheet and to any protected row being changed, then retry."
+                    ) from None
+                raise
 
     def _next_badge(self) -> str:
         nums = [int(cell(r, D_BADGE)) for r in self.db[DB_FIRST_ROW - 1:] if cell(r, D_BADGE).isdigit()]

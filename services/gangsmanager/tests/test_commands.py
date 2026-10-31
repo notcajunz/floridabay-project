@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import tomllib
 
 import pytest
@@ -113,6 +114,14 @@ def test_coordinator_rank_hierarchy_and_category_visibility():
         "Trial Gang Coordinator",
     )
     assert coordinator_ranks_at_or_below("Gang Director") == COORDINATOR_RANKS
+
+
+def test_coordinator_role_changes_acknowledge_discord_before_api_work():
+    source = (Path(__file__).parents[1] / "gangbot/cogs/gangs.py").read_text()
+    for command in ("coord_add", "coord_remove"):
+        body = re.search(rf"async def {command}\([\s\S]*?(?=\n    @|\Z)", source)
+        assert body is not None
+        assert body.group().index("interaction.response.defer") < body.group().index("member.")
 
 
 def test_all_coordinator_channels_and_roles_are_id_configurable(tmp_path):

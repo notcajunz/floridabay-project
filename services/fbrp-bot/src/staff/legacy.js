@@ -157,10 +157,10 @@ async function requireCoOwnerControl(i, permission, action) {
   await requirePermission(i, permission);
 }
 
-/** Community Director and above: republish every Trial Head Administrator+ callsign, including unchanged ones. */
+/** Executive Management and above: republish every Trial Head Administrator+ callsign, including unchanged ones. */
 async function callsignCommand(i, sub) {
   if (sub !== "sync") throw new Error("Unknown callsign action.");
-  await requireMinimumStaffRank(i, "Community Director", "synchronize callsigns");
+  await requireMinimumStaffRank(i, "Executive Management", "synchronize callsigns");
 
   const rebalance = await rebalanceStaffCallsigns(i.user.id, { announce: false });
   const channel = await client.channels.fetch(CALLSIGN_CHANNEL_ID).catch(() => null);
@@ -546,7 +546,7 @@ async function staffCommand(i, sub) {
 }
 
 
-/** /exam: Assistant Community Director and above open an exam for one member for 60 minutes. */
+/** /exam: Community Director and above open an exam for one member for 60 minutes. */
 async function examCommand(i, sub) {
   if (sub === "give") {
     const member = i.options.getUser("member", true);

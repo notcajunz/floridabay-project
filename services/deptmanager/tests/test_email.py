@@ -89,3 +89,22 @@ def test_api_requires_configuration_and_explains_401(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", refuse)
     with pytest.raises(SheetApiError, match="Anyone"):
         SheetApi("https://example.test/exec", "s")._post("list", {})
+
+
+async def test_email_autocomplete_includes_launched_departments(tmp_path):
+    class Db:
+        async def fetch_all(self, sql, params):
+            assert "status" not in sql
+            return [{"name": "Launched Dept"}]
+
+    class Client:
+        db = Db()
+
+    class Interaction:
+        guild_id = 1
+        client = Client()
+
+    from deptbot.cogs.email import email_department_autocomplete
+
+    choices = await email_department_autocomplete(Interaction(), "")
+    assert [choice.value for choice in choices] == ["Launched Dept"]

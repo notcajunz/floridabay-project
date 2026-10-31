@@ -17,6 +17,7 @@ import * as blacklist from "./blacklist.js";
 import * as admin from "./admin.js";
 import { refreshPanels } from "./panels.js";
 import { resequence, scheduleResequence } from "./callsigns.js";
+import { MAIN_GUILD_ID, logMainGuildLeave } from "./member-logs.js";
 
 /**
  * FBRP | IAA Systems: a separate Discord application that runs the Internal Affairs Agency server.
@@ -148,10 +149,14 @@ client.on(Events.GuildMemberAdd, (member) => {
 });
 
 client.on(Events.GuildMemberRemove, (member) => {
-  if (member.guild.id !== GUILD_ID || member.user?.bot) return;
-  intel.onLeave(member).catch(() => null);
-  refreshPanels(member.guild, "chain", "directory");
-  ranksync.queue(member.guild);
+  if (member.user?.bot) return;
+  if (member.guild.id === MAIN_GUILD_ID)
+    logMainGuildLeave(client, member).catch((e) => console.warn(`[IAA] main leave log: ${e.message}`));
+  if (member.guild.id === GUILD_ID) {
+    intel.onLeave(member).catch(() => null);
+    refreshPanels(member.guild, "chain", "directory");
+    ranksync.queue(member.guild);
+  }
 });
 
 // Manual role edits (by people, not the bot) still keep the chain of command honest.

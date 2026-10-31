@@ -1,6 +1,7 @@
 import datetime as dt
 
 import pytest
+from gspread.exceptions import APIError
 
 from dohsbot import hours
 from dohsbot.roster_bot import (Actor, Roster, RosterError, clean_text, clip, parse_until, _id)
@@ -70,6 +71,24 @@ def test_sheet_text_is_sanitized():
     put_director(r)
     res = r.add(Actor(1), 10, "ann", "=IMPORTXML(1)\n\nx" + "a" * 200, "Special Agent", None, None)
     assert "\n" not in res["name"] and len(res["name"]) <= 60
+
+
+def test_google_permission_error_is_actionable():
+    class Response:
+        status_code = 403
+        text = "forbidden"
+
+        @staticmethod
+        def json():
+            return {"error": {"code": 403, "message": "The caller does not have permission", "status": "PERMISSION_DENIED"}}
+
+    class DeniedSheet:
+        @staticmethod
+        def batch_update(*args, **kwargs):
+            raise APIError(Response())
+
+    with pytest.raises(RosterError, match="protected row"):
+        Roster._write(DeniedSheet(), {"D17": "Agent"})
 
 
 def test_parse_until_limits():

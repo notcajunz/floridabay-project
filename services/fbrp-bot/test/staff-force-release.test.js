@@ -29,7 +29,7 @@ test('fbrp_core re-checks the release ACE and only unjails with release powers',
   assert.match(canRelease, /policeJail/);
   assert.match(canRelease, /staffRelease/);
   assert.doesNotMatch(canRelease, /staffJail/);
-  assert.match(justice, /RegisterCommand\('unjail', function\(source, args\)\n    if source > 0 and not canRelease\(source\)/);
+  assert.match(justice, /RegisterCommand\('unjail', function\(source, args\)\n    if jailResource\(\) then return end[^\n]*\n    if source > 0 and not canRelease\(source\)/);
 });
 
 test('migration 071 gives Admin and above force release and is registered', () => {

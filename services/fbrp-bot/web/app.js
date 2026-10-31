@@ -189,11 +189,12 @@ async function api(path, options = {}) {
 async function load({ silent = false } = {}) {
   if (!silent) saved("Loading the latest settings…", "working");
   state.data = await api("bootstrap");
-  // Co-Owners get only the organization sections; open on the organization list instead of the home page.
+  // Scoped users open on the first resource they can actually access.
   const scoped = isScoped();
   document.body.classList.toggle("scoped", scoped);
   $("#reconcile").hidden = scoped;
-  if (scoped && !state.view.startsWith("resource:") && state.view !== "audit") state.view = "resource:organizations";
+  const firstScopedView = state.data.capabilities?.organizationSetup ? "orgsetup" : state.data.resources[0] ? `resource:${state.data.resources[0].id}` : "audit";
+  if (scoped && (!(state.view.startsWith("resource:") && resource(state.view.slice(9))) && state.view !== "audit" && state.view !== "orgsetup")) state.view = firstScopedView;
   // "New sync" leaves nothing selected on purpose; only default to the first sync when not creating one.
   if (!state.selectedSync && !state.creatingSync && state.data.globalSyncs.length)
     state.selectedSync = state.data.globalSyncs[0].group_name;
@@ -259,6 +260,8 @@ function sections() {
     areas.find((area) => area.id === "access").items.push({ view: "acegroups", label: "Edit a permission group", blurb: "Tick exactly what each group can do, with a plain description of every permission.", count: null, special: true });
     areas.find((area) => area.id === "discord").items.push({ view: "globalsync", label: "Shared roles", blurb: "Roles that follow a permission group into every network server.", count: state.data.globalSyncs.length, special: true });
   }
+  if (state.data.capabilities?.organizationSetup)
+    areas.find((area) => area.id === "community").items.unshift({ view: "orgsetup", label: "Set up an organization", blurb: "Create the tag, organization, duty permissions and shared portal setup in one guided flow.", count: null, special: true });
   for (const item of state.data.resources) {
     let area = byGroup.get(item.group);
     if (!area) {
@@ -338,7 +341,10 @@ function homeBody() {
   }
   const d = state.data;
   const network = new Map(records("network-guilds").map((row) => [String(row.guild_id), row.kind]));
-  const tasks = TASKS.filter(([view]) => view === "acegroups" || resource(view.slice(9)));
+  const tasks = [
+    ...(d.capabilities?.organizationSetup ? [["orgsetup", "building", "Set up an organization", "Tag, duty access and portal setup in one place"]] : []),
+    ...TASKS,
+  ].filter(([view]) => view === "orgsetup" || view === "acegroups" || resource(view.slice(9)));
   return `
     <h3 class="section-title">Common tasks</h3>
     <div class="tasks">${tasks.map(([view, ic, title, sub]) => `<button class="task" data-go="${esc(view)}"><span class="task-icon">${icon(ic)}</span><span><strong>${esc(title)}</strong><small>${esc(sub)}</small></span></button>`).join("")}</div>
@@ -354,6 +360,70 @@ function homeBody() {
         <div class="list">${auditRows(d.audit.slice(0, 6), true) || `<div class="empty">No activity yet.</div>`}</div>
       </section>
     </div>`;
+}
+
+/* ------------------------- organization setup ------------------------- */
+function setupGuildOptions(family) {
+  const kind = family === "department" ? "department" : family;
+  return (state.data.organizationSetupGuilds || [])
+    .filter((guild) => guild.kind === kind)
+    .map((guild) => `<option value="${esc(guild.id)}">${esc(guild.name)} · ${esc(guild.id)}</option>`)
+    .join("");
+}
+
+function managerHandoff(result) {
+  return [
+    `${result.name} portal setup is complete.`,
+    `Organization ID: ${result.orgId}`,
+    `In ${result.guildName}, run ${result.command}`,
+  ].join("\n");
+}
+
+function renderOrganizationSetup() {
+  if (!state.data.capabilities?.organizationSetup) return go("audit");
+  setTitle("Community & roleplay", "Organization setup");
+  const result = state.lastResult;
+  const complete = result?.slug && result?.bot;
+  $("#content").innerHTML = `
+    <section class="org-setup-hero">
+      <div><span class="chip accent">Guided setup</span><h2>One stop before the assistant bot</h2><p>This creates the headtag, organization, duty permission group, wallet and roster settings together. The correct Discord assistant still creates the actual gang, business or department and its roles.</p></div>
+      <div class="setup-flow" aria-label="Setup flow"><span class="done"><b>1</b>Portal setup</span><i></i><span><b>2</b>Assistant bot</span><i></i><span><b>3</b>Auto-linked</span></div>
+    </section>
+    ${complete ? `<section class="setup-success">
+      <span class="success-mark">${icon("check")}</span><div><p class="crumb">Portal setup complete</p><h2>${esc(result.name)} is ready for ${esc(result.bot)}</h2>
+      <p>Send the manager handoff below to the managers for this sector. It contains the numeric organization ID they need for <strong>${esc(result.managerField)}</strong>.</p>
+      <div class="setup-result"><span><small>Organization ID</small><code>${esc(result.orgId)}</code></span><span><small>Slug</small><code>${esc(result.slug)}</code></span><span><small>Next bot</small><strong>${esc(result.bot)}</strong></span></div>
+      <div class="manager-handoff"><div><span>Manager handoff</span><button type="button" class="btn sm" data-copy-org-handoff>${icon("check")}Copy for managers</button></div><pre>${esc(managerHandoff(result))}</pre></div>
+      <button type="button" class="btn" data-new-org>${icon("plus")}Set up another</button></div>
+    </section>` : ""}
+    <form id="org-setup-form" class="setup-layout">
+      <section class="card setup-main">
+        <div class="card-head"><div><p class="crumb">Step 1</p><h2>What are you setting up?</h2><p>The selection picks the right defaults and hands off to the right bot.</p></div></div>
+        <div class="card-body stack">
+          <div class="setup-types">
+            <label><input type="radio" name="family" value="gang" checked><span>${icon("users")}<strong>Gang</strong><small>Aetherus</small></span></label>
+            <label><input type="radio" name="family" value="business"><span>${icon("building")}<strong>Business</strong><small>Business Assistant</small></span></label>
+            <label><input type="radio" name="family" value="department"><span>${icon("badge")}<strong>Department</strong><small>Department Assistant</small></span></label>
+          </div>
+          <div class="grid-2">
+            <label class="field">Full name<input name="name" required minlength="2" maxlength="80" placeholder="e.g. Bay City Customs" autocomplete="off"><small>The public name used across the portal and in game.</small></label>
+            <label class="field">Short slug<input name="slug" required pattern="[a-z0-9_-]{2,40}" maxlength="40" placeholder="bay_city_customs" autocomplete="off"><small>Generated from the name. This is passed to the assistant bot.</small></label>
+            <label class="field">Headtag<input name="tag" maxlength="40" placeholder="Defaults to the full name"><small>The tag members can show above their character.</small></label>
+            <label class="field">Brand color<input name="color" type="color" value="#43e8d8" required></label>
+            <label class="field" data-department-type hidden>Department type<select name="departmentType"><option value="leo">Law enforcement</option><option value="fire">Fire / EMS</option><option value="government">Government</option><option value="other">Other department</option></select><small>This controls the default in-game duty permissions.</small></label>
+            <label class="field">Assistant bot server<select name="guildId" required data-setup-guilds>${setupGuildOptions("gang")}</select><small>The network Discord where the assistant will create or register the base role.</small></label>
+          </div>
+          <div class="field logo-field" data-setup-logo><span>Organization logo <span class="opt">optional</span></span>
+            <div class="logo-row"><div class="logo-preview" data-logo-preview><span class="faint">No logo</span></div><div class="logo-actions"><label class="btn sm">${icon("plus")}<span data-logo-label>Choose logo</span><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-setup-logo-file hidden></label></div></div>
+            <input type="hidden" name="logo" value="" data-logo-value><small>Shown on the organization website and in Discord.</small>
+          </div>
+        </div>
+        <div class="setup-submit"><div>${icon("info")}<span>No gang, business, department, or Discord role is created here. That stays with the assistant bot.</span></div><button type="submit" class="btn primary">${icon("check")}Create portal setup</button></div>
+      </section>
+      <aside class="card setup-aside"><div class="card-head"><div><p class="crumb">What this handles</p><h2>Everything shared</h2></div></div><div class="setup-checks">
+        <span>${icon("check")}Headtag and color</span><span>${icon("check")}Organization record</span><span>${icon("check")}Duty permission group</span><span>${icon("check")}Type-based permissions</span><span>${icon("check")}Roster defaults</span><span>${icon("check")}Organization wallet</span>
+      </div><div class="setup-handoff"><strong>Then use the bot</strong><p>The assistant creates its normal Discord records and roles. Its new base role is automatically connected to duty access.</p></div></aside>
+    </form>`;
 }
 
 /* --------------------------------- resources --------------------------------- */
@@ -408,7 +478,7 @@ function renderResource(id) {
   const [label, blurb] = friendly(id);
   const area = areaOf(`resource:${id}`);
   setTitle(area?.title || spec.group, label);
-  const fields = spec.fields.filter((item) => !item.advanced && item.type !== "textarea").slice(0, 5);
+  const fields = spec.fields.filter((item) => !item.advanced && !item.inputOnly && item.type !== "textarea").slice(0, 5);
   const editExisting = spec.editExisting !== false;
   $("#content").innerHTML = `
     <section class="page-intro"><span class="page-icon">${icon(area?.icon || "layers")}</span><div><h2>${esc(label)}</h2><p>${esc(blurb)}</p></div></section>
@@ -516,8 +586,11 @@ function openEditor(id, row = null) {
   const auto = spec.fields.find((meta) => meta.auto && row?.[meta.name]);
   $("#editor-title").textContent = row ? `Edit entry${auto ? ` #${row[auto.name]}` : ""}` : "Add new entry";
   // Auto-numbered IDs are shown in the title, never edited.
-  const visible = spec.fields.filter((meta) => !meta.advanced && !meta.auto);
-  const advanced = spec.fields.filter((meta) => meta.advanced);
+  const editorFields = spec.fields
+    .filter((meta) => !meta.createOnly || !row)
+    .map((meta) => !row && meta.createRequired ? { ...meta, required: true } : meta);
+  const visible = editorFields.filter((meta) => !meta.advanced && !meta.auto);
+  const advanced = editorFields.filter((meta) => meta.advanced);
   $("#editor-fields").innerHTML = `<p class="muted">${esc(blurb)}</p>` +
     visible.map((meta) => inputFor(meta, row?.[meta.name])).join("") +
     (advanced.length ? `<details class="more"><summary>${icon("right")}More options</summary><div>${advanced.map((meta) => inputFor(meta, row?.[meta.name])).join("")}</div></details>` : "");
@@ -779,9 +852,10 @@ function renderAudit() {
 function render() {
   if (!state.data) return;
   state.dirty = false;
-  if (isScoped() && !(state.view.startsWith("resource:") && resource(state.view.slice(9))) && state.view !== "audit")
-    state.view = "resource:organizations";
+  if (isScoped() && !(state.view.startsWith("resource:") && resource(state.view.slice(9))) && state.view !== "audit" && !(state.view === "orgsetup" && state.data.capabilities?.organizationSetup))
+    state.view = state.data.resources[0] ? `resource:${state.data.resources[0].id}` : "audit";
   if (state.view === "overview") renderOverview();
+  else if (state.view === "orgsetup") renderOrganizationSetup();
   else if (state.view === "globalsync") renderGlobalSync();
   else if (state.view === "acegroups") renderAceGroups();
   else if (state.view === "audit") renderAudit();
@@ -840,6 +914,16 @@ async function moveSync(key, up) {
 $("#content").addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-go]");
   if (nav) { state.homeFilter = ""; return go(nav.dataset.go); }
+  if (event.target.closest("[data-new-org]")) { state.lastResult = null; return renderOrganizationSetup(); }
+  if (event.target.closest("[data-copy-org-handoff]")) {
+    try {
+      await navigator.clipboard.writeText(managerHandoff(state.lastResult));
+      toast(`Organization ID ${state.lastResult.orgId} copied for managers.`);
+    } catch {
+      toast("Couldn’t copy automatically. Select the manager handoff text instead.", true);
+    }
+    return;
+  }
   const create = event.target.closest("[data-create]");
   if (create) return openEditor(create.dataset.create);
   const edit = event.target.closest("[data-edit]");
@@ -899,9 +983,35 @@ $("#content").addEventListener("keydown", (event) => {
 $("#content").addEventListener("input", (event) => {
   if (event.target.id === "ace-filter") filterAceOptions();
   if (event.target.id === "home-search") { state.homeFilter = event.target.value; $("#home-body").innerHTML = homeBody(); }
+  if (event.target.form?.id === "org-setup-form" && event.target.name === "name") {
+    const slug = event.target.form.elements.slug;
+    if (!slug.dataset.edited)
+      slug.value = event.target.value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  }
+  if (event.target.form?.id === "org-setup-form" && event.target.name === "slug") event.target.dataset.edited = event.target.value ? "true" : "";
 });
 
 $("#content").addEventListener("change", (event) => {
+  if (event.target.form?.id === "org-setup-form" && event.target.name === "family") {
+    const form = event.target.form;
+    const family = event.target.value;
+    form.querySelector("[data-department-type]").hidden = family !== "department";
+    form.querySelector("[data-setup-guilds]").innerHTML = setupGuildOptions(family);
+    return;
+  }
+  if (event.target.matches("[data-setup-logo-file]")) {
+    const input = event.target;
+    const field = input.closest("[data-setup-logo]");
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    scaleLogo(file).then((url) => {
+      field.querySelector("[data-logo-value]").value = url;
+      field.querySelector("[data-logo-preview]").innerHTML = `<img src="${url}" alt="New logo">`;
+      field.querySelector("[data-logo-label]").textContent = "Choose another";
+    }).catch((error) => toast(error.message, true));
+    return;
+  }
   if (event.target.id === "ace-group-select") { state.aceEditor.group = event.target.value; state.lastResult = null; return renderAceGroups(); }
   if (event.target.name === "objects") return refreshAceCount();
   const form = event.target.form;
@@ -929,7 +1039,19 @@ $("#content").addEventListener("submit", async (event) => {
   }
   const restore = busy(submit);
   try {
-    if (form.id === "sync-form") {
+    if (form.id === "org-setup-form") {
+      const result = await post("organization/setup", {
+        family: values.get("family"),
+        departmentType: values.get("departmentType"),
+        name: values.get("name"),
+        slug: values.get("slug"),
+        tag: values.get("tag"),
+        color: values.get("color"),
+        guildId: values.get("guildId"),
+        logo: values.get("logo"),
+      });
+      toast(`${result.result?.name || "Organization"} is ready for the assistant bot.`);
+    } else if (form.id === "sync-form") {
       const pick = values.get("server_mode") === "pick";
       const included = $$("[data-server-row]", form).filter((row) => !row.classList.contains("excluded"));
       const body = {

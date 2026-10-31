@@ -215,7 +215,7 @@ class CoordinationCog(DeptCog):
     @tasks.loop(minutes=30)
     async def sheet_sync_loop(self) -> None:
         """Catch role changes made by hand in Discord, so the sheet never drifts for long."""
-        for guild in self.bot.guilds:
+        for guild in self.bot.home_guilds():
             if not guild.chunked:
                 continue  # an incomplete member list would look like everyone left
             try:

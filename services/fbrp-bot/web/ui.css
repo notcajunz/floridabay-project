@@ -34,13 +34,19 @@
   font: 500 15px/1.35 var(--font, system-ui, sans-serif); color: var(--ui-ink); animation: ui-pop .12s ease-out both;
 }
 @keyframes ui-pop { from { opacity: 0; transform: translateY(-4px); } }
+.ui-search { position: sticky; z-index: 1; top: -6px; margin: -6px -6px 4px; padding: 8px; background: var(--ui-panel); border-bottom: 1px solid var(--ui-line); }
+.ui-search input { box-sizing: border-box; width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--ui-line); border-radius: 9px; outline: none; background: rgba(255, 255, 255, .055); color: var(--ui-ink); font: inherit; }
+.ui-search input::placeholder { color: var(--ui-muted); }
+.ui-search input:focus { border-color: var(--ui-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 18%, transparent); }
 .ui-opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-radius: 9px; cursor: pointer; }
+.ui-opt[hidden], .ui-group[hidden] { display: none; }
 .ui-opt > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-opt.active { background: rgba(255, 255, 255, .08); }
 .ui-opt.selected { color: var(--ui-accent); font-weight: 650; }
 .ui-opt.selected::after { content: ""; width: 5px; height: 10px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); margin: -3px 4px 0 0; flex: none; }
 .ui-opt.disabled { opacity: .4; cursor: not-allowed; }
 .ui-group { padding: 10px 14px 4px; color: var(--ui-muted); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.ui-empty { padding: 18px 14px; color: var(--ui-muted); text-align: center; }
 
 /* ---------- dialogs (replace the browser's alert, confirm and prompt) ---------- */
 .ui-backdrop { position: fixed; inset: 0; z-index: 100001; display: grid; place-items: center; padding: 16px; background: rgba(2, 5, 10, .7); backdrop-filter: blur(6px); animation: ui-fade .15s ease-out both; }

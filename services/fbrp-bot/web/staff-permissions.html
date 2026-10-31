@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#031820">
+    <meta name="color-scheme" content="dark">
+    <title>Staff permissions · Florida Bay</title>
+    <link rel="icon" href="logo-128.webp" type="image/webp">
+    <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="site.css?v=9">
+    <link rel="stylesheet" href="/ui.css?v=3">
+    <link rel="stylesheet" href="staff-permissions.css?v=1">
+    <link rel="stylesheet" href="/v2/design-system.css?v=20261028b">
+    <link rel="stylesheet" href="/v2/responsive.css?v=20261028a">
+    <script src="/ui.js?v=4" defer></script>
+    <script src="/v2/app-shell.js?v=20261028a" defer></script>
+  </head>
+  <body class="sp-page">
+    <header class="transcript-nav">
+      <a class="brand" href="./"><img src="logo-128.webp" alt="" width="36" height="36"><span><b>Florida Bay</b><small>Staff permissions</small></span></a>
+      <a class="btn btn-ghost btn-sm" href="portal.html">Back to portal</a>
+    </header>
+    <main class="sp-shell">
+      <section id="sp-state" class="card sp-state"><div class="spinner"></div><p>Loading the live permission matrix…</p></section>
+      <div id="sp-app" hidden>
+        <div class="sp-head">
+          <div>
+            <h1>Staff permissions by rank</h1>
+            <p>Read straight from the game's permission tables. It refreshes by itself the moment anything changes a permission: the website, the bot, an AI release or a migration.</p>
+          </div>
+          <div class="sp-live" id="sp-live" role="status"><span class="sp-dot"></span><span id="sp-live-text">Live</span></div>
+        </div>
+        <div class="sp-tools">
+          <div class="sp-tabs" id="sp-tabs" role="tablist" aria-label="Permission group"></div>
+          <input id="sp-search" type="search" placeholder="Search permissions…" aria-label="Search permissions" autocomplete="off">
+          <label class="sp-toggle"><input id="sp-diff" type="checkbox"><span>Only rows that differ between ranks</span></label>
+        </div>
+        <div class="sp-legend"><span><i class="sp-chk on">✓</i> rank has it</span><span><i class="sp-chk all">✓</i> every player has it</span><span><i class="sp-chk"></i> not granted</span><span><i class="sp-chk flash">✓</i> changed just now</span></div>
+        <div class="sp-wrap card" id="sp-wrap"><table id="sp-table" class="sp-table"></table></div>
+        <section class="card sp-log" id="sp-log" hidden>
+          <div class="card-head"><div><h2>Changes since you opened this page</h2><p>Newest first.</p></div></div>
+          <ul id="sp-log-list"></ul>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="staff-permissions.js?v=1"></script>
+  </body>
+</html>

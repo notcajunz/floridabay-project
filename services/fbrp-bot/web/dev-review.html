@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#031820">
+    <meta name="color-scheme" content="dark">
+    <title>Dev review · Florida Bay</title>
+    <link rel="icon" href="logo-128.webp" type="image/webp">
+    <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="site.css?v=9">
+    <link rel="stylesheet" href="/ui.css?v=3">
+    <link rel="stylesheet" href="dev-review.css?v=1">
+    <link rel="stylesheet" href="/v2/design-system.css?v=20261028b">
+    <link rel="stylesheet" href="/v2/responsive.css?v=20261028a">
+    <script src="/ui.js?v=4" defer></script>
+    <script src="/v2/app-shell.js?v=20261028a" defer></script>
+  </head>
+  <body class="devreview-page">
+    <header class="transcript-nav">
+      <a class="brand" href="./"><img src="logo-128.webp" alt="" width="36" height="36"><span><b>Florida Bay</b><small>Dev review</small></span></a>
+      <a class="btn btn-ghost btn-sm" href="portal.html">Back to portal</a>
+    </header>
+    <main class="dr-shell">
+      <section id="dr-state" class="card dr-state"><div class="spinner"></div><p>Checking your access…</p></section>
+      <div id="dr-config" class="dr-config" hidden></div>
+      <div id="dr-layout" class="dr-layout" hidden>
+        <aside class="dr-list card">
+          <div class="dr-list-head"><h2>Submissions</h2><button id="dr-refresh" class="btn btn-glass btn-sm" type="button">Refresh</button></div>
+          <div id="dr-items"></div>
+        </aside>
+        <section id="dr-detail" class="dr-detail card"><p class="dr-empty">Select a transfer to see its details.</p></section>
+      </div>
+    </main>
+    <script type="module" src="dev-review.js?v=1"></script>
+  </body>
+</html>

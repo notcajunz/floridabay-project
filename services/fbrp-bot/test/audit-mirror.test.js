@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { describeInteraction, recordInteraction } from "../src/audit-trail.js";
-import { channelName, groupOf, keyForAction, LOG_GROUPS } from "../src/audit-mirror.js";
+import { channelName, destinationPurpose, groupOf, isAuditMirrorChannel, keyForAction, LOG_GROUPS } from "../src/audit-mirror.js";
 
 const fakeCommand = () => ({
   isChatInputCommand: () => true,
@@ -71,14 +71,35 @@ test("every kind of entry is grouped into one of a few channels", () => {
   assert.equal(groupOf("audit-portal"), "system-logs");
   assert.equal(groupOf("audit-zzz"), "system-logs");
   assert.equal(groupOf("log-weird kind!"), "system-logs");
-  assert.equal(groupOf("all-activity"), "all-activity");
-  assert.ok(Object.keys(LOG_GROUPS).length <= 7);
+  assert.ok(Object.keys(LOG_GROUPS).length <= 6);
+});
+
+test("overlapping main-server log purposes share their canonical destinations", () => {
+  assert.equal(destinationPurpose("bans"), "bans");
+  assert.equal(destinationPurpose("blacklists"), "blacklists");
+  assert.equal(destinationPurpose("unbans"), "moderation");
+  assert.equal(destinationPurpose("staff_audit"), "staff_audit");
+  assert.equal(destinationPurpose("role_sync"), "organizations");
+  assert.equal(destinationPurpose("verification"), "verification");
 });
 
 test("mirror channels use the emoji, bar and -logs style of the other log channels", () => {
-  assert.equal(channelName("all-activity"), "📜│all-activity-logs");
   assert.equal(channelName("global-commands"), "⌨️│command-logs");
   assert.equal(channelName("audit-economy"), "🏢│organization-logs");
   assert.equal(channelName("log-staff_duty"), "🛡️│staff-logs");
   for (const key of ["audit-zzz", "log-weird kind!", "commands-iaa"]) assert.match(channelName(key), /^[^a-z0-9-]+│[a-z0-9-]+-logs$/u);
+});
+
+test("existing mirror channels are recognized by canonical name or topic", () => {
+  const channel = (overrides = {}) => ({
+    isTextBased: () => true,
+    parentId: "category",
+    name: "🛡️│staff-logs",
+    topic: null,
+    ...overrides,
+  });
+  assert.equal(isAuditMirrorChannel(channel(), "audit-staff", "category"), true);
+  assert.equal(isAuditMirrorChannel(channel({ name: "old-name", topic: "Automatic audit mirror: staff-logs" }), "staff-logs", "category"), true);
+  assert.equal(isAuditMirrorChannel(channel({ parentId: "elsewhere" }), "staff-logs", "category"), false);
+  assert.equal(isAuditMirrorChannel(channel({ name: "🛡️│staff-logs-copy" }), "staff-logs", "category"), false);
 });

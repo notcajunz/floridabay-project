@@ -2,19 +2,27 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import fsSync from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 const run = promisify(execFile);
 const root = await mkdtemp(path.join(tmpdir(), "fbrp-assets-"));
 process.env.FBRP_VEHICLES_DIR = path.join(root, "vehicles");
 process.env.FBRP_EUP_DIR = path.join(root, "eup");
 process.env.FBRP_VMENU_ADDONS = path.join(root, "addons.json");
-await writeFile(process.env.FBRP_VMENU_ADDONS, JSON.stringify({ vehicles: [], peds: ["addonpedname1"], weapons: ["weapon_x"] }, null, 2));
+await writeFile(process.env.FBRP_VMENU_ADDONS, `${JSON.stringify({
+  vehicles: ["addonvehiclename1"],
+  peds: ["addonpedname1"],
+  weapons: ["weapon_mp9a"],
+}, null, 2)}\n`);
 process.env.OPENAI_API_KEY = "test-key";
 process.env.FBRP_FIVEM_ORIGIN = "http://127.0.0.1:9/fbrp_core"; // never reach the live game server from a test
-const { createCustomAssets, eupSlug, streamPath } = await import("../src/custom-assets.js");
+const { addonPedsIn, createCustomAssets, eupSlug, streamPath, withAddonPeds } = await import("../src/custom-assets.js");
 const { createPersonalImporter } = await import("../src/personal-import.js");
 
 const realFetch = globalThis.fetch;
@@ -324,9 +332,24 @@ test("addon peds from peds.meta are listed in vMenu and removed with the pack", 
   const result = await assets.installEup("manager", { uploadId: staged.id, name: "peds" });
   assert.deepEqual(result.addonPeds.sort(), ["deputy_f", "deputy_m"]);
   assert.match(await readFile(path.join(process.env.FBRP_EUP_DIR, "fbrp_eup_peds", "fxmanifest.lua"), "utf8"), /PED_METADATA_FILE/);
-  const addons = () => readFile(process.env.FBRP_VMENU_ADDONS, "utf8").then(JSON.parse);
-  assert.deepEqual((await addons()).peds.sort(), ["addonpedname1", "deputy_f", "deputy_m"]);
-  assert.deepEqual((await addons()).weapons, ["weapon_x"]);
+  const text = () => readFile(process.env.FBRP_VMENU_ADDONS, "utf8");
+  assert.deepEqual(addonPedsIn(await text()).sort(), ["addonpedname1", "deputy_f", "deputy_m"]);
+  assert.deepEqual(JSON.parse(await text()).vehicles, ["addonvehiclename1"]);
+  assert.deepEqual(JSON.parse(await text()).weapons, ["weapon_mp9a"]);
   await assets.deleteEup("manager", { id: db.eup.find((r) => r.name === "peds").id });
-  assert.deepEqual((await addons()).peds, ["addonpedname1"]);
+  assert.deepEqual(addonPedsIn(await text()), ["addonpedname1"]);
+});
+
+test("the peds list of legacy addons.json is added when missing without changing other addons", () => {
+  const base = `${JSON.stringify({ vehicles: ["adder"], weapons: ["weapon_mp9a"] }, null, 2)}\n`;
+  const added = withAddonPeds(base, ["deputy_m"]);
+  assert.deepEqual(addonPedsIn(added), ["deputy_m"]);
+  assert.deepEqual(JSON.parse(added).vehicles, ["adder"]);
+  assert.deepEqual(JSON.parse(added).weapons, ["weapon_mp9a"]);
+  assert.deepEqual(addonPedsIn(withAddonPeds(added, [])), []);
+  const real = fsSync.readFileSync(path.join(here, "../../../server-data/resources/[standalone]/vMenu/config/addons.json"), "utf8");
+  const rewritten = JSON.parse(withAddonPeds(real, ["deputy_m"]));
+  assert.deepEqual(rewritten.peds, ["deputy_m"]);
+  assert.ok(rewritten.weapons.includes("weapon_mp9a"));
+  assert.equal(rewritten.weapon_components.length, JSON.parse(real).weapon_components.length);
 });

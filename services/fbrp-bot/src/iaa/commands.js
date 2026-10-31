@@ -307,6 +307,12 @@ const intel = new SlashCommandBuilder()
   .addSubcommand((s) => s.setName("lookup").setDescription("Full intel dossier on a user").addUserOption((o) => user(o, "User")))
   .addSubcommand((s) => s.setName("sweep").setDescription("Re-screen every agent against the server lists now"))
   .addSubcommand((s) => s.setName("auth-sweep").setDescription("Check every account that has ever authenticated with Florida Bay"))
+  .addSubcommand((s) =>
+    s
+      .setName("alt-scan")
+      .setDescription("Scan every member of every network server for likely alt accounts")
+      .addIntegerOption((o) => o.setName("min_score").setDescription("Lowest suspicion score to report (default 40)").setMinValue(10).setMaxValue(100)),
+  )
   .addSubcommandGroup((g) => serverGroup(g, "watchlist", "Rival agencies (membership = dual clanning lead)"))
   .addSubcommandGroup((g) => serverGroup(g, "blacklisted-server", "Network-wide blacklisted servers"));
 

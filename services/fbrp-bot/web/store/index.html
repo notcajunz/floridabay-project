@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#05090f">
+    <meta name="theme-color" content="#031820">
     <meta name="color-scheme" content="dark">
     <meta name="description" content="Support Florida Bay Roleplay. Browse live Tebex packages and check out securely through Tebex.">
     <meta property="og:title" content="Florida Bay Roleplay Store">
@@ -13,9 +13,12 @@
     <link rel="icon" href="/logo-128.webp" type="image/webp">
     <link rel="preload" href="/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="store.css?v=2">
-    <link rel="stylesheet" href="/ui.css?v=2">
-    <script src="/ui.js?v=2" defer></script>
+    <link rel="stylesheet" href="store.css?v=3">
+    <link rel="stylesheet" href="/ui.css?v=3">
+    <link rel="stylesheet" href="/v2/design-system.css?v=20261028b">
+    <link rel="stylesheet" href="/v2/responsive.css?v=20261028a">
+    <script src="/ui.js?v=4" defer></script>
+    <script src="/v2/app-shell.js?v=20261028a" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#catalog">Skip to packages</a>
@@ -30,7 +33,7 @@
           <a href="#catalog">Packages</a>
           <a href="#how-it-works">How it works</a>
           <a href="https://floridabay.net">Main site</a>
-          <a href="https://discord.gg/floridabayrp" target="_blank" rel="noopener noreferrer">Discord</a>
+          <a href="https://discord.gg/floridabay" target="_blank" rel="noopener noreferrer">Discord</a>
         </nav>
         <button class="discord-account" id="discord-account" type="button">
           <span class="discord-dot" aria-hidden="true"></span><span id="discord-account-label">Sign in with Discord</span>
@@ -44,16 +47,16 @@
 
     <main>
       <section class="store-hero">
-        <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
-        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-atmosphere" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="hero-horizon" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         <div class="hero-inner">
           <div class="hero-copy">
-            <span class="eyebrow"><i></i> Official Florida Bay store</span>
-            <h1>Back the city.<br><em>Build what’s next.</em></h1>
-            <p>Every purchase goes through Tebex and helps fund reliable servers, original systems, and the next chapter of Florida Bay.</p>
+            <span class="eyebrow"><i></i> Official community store</span>
+            <h1>Fuel the stories<br><em>after sunset.</em></h1>
+            <p>Support the city you play in. Every purchase helps power reliable servers, original systems, and the next chapter of Florida Bay.</p>
             <div class="hero-actions">
-              <a class="button primary" href="#catalog">Browse packages <span>↓</span></a>
-              <a class="button secondary" href="fivem://connect/join.floridabay.net">Play Florida Bay</a>
+              <a class="button primary" href="#catalog">Explore packages <span aria-hidden="true">↘</span></a>
+              <a class="button secondary" href="fivem://connect/join.floridabay.net"><span class="play-dot" aria-hidden="true"></span>Play Florida Bay</a>
             </div>
             <div class="trust-row">
               <span><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"/><path d="M12 3 4 6v6c0 5 3.4 8 8 9 4.6-1 8-4 8-9V6l-8-3Z"/></svg>Secure Tebex checkout</span>
@@ -61,14 +64,20 @@
               <span><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v6h-6"/></svg>Automatic role delivery</span>
             </div>
           </div>
-          <div class="hero-card">
-            <div class="card-glow"></div>
-            <span class="card-kicker">Florida Bay supporter</span>
-            <img src="/logo-128.webp" alt="" width="108" height="108">
-            <strong>YOUR STORY<br>KEEPS MOVING</strong>
-            <div class="card-coast"><i></i><i></i><i></i></div>
-            <div class="card-meta"><span>EST. 2026</span><span>FLORIDA COAST</span></div>
+          <div class="hero-emblem" aria-label="Florida Bay Roleplay supporter pass">
+            <div class="emblem-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="supporter-pass">
+              <div class="pass-top"><span>FBRP / 01</span><span class="live-mark"><i></i>ONLINE</span></div>
+              <img src="/logo-720.webp" alt="Florida Bay Roleplay" width="280" height="280">
+              <div class="pass-copy"><span>THE COAST IS CALLING</span><strong>YOUR STORY<br>KEEPS MOVING.</strong></div>
+              <div class="pass-bottom"><span>COMMUNITY SUPPORTED</span><span>EST. 2026</span></div>
+            </div>
           </div>
+        </div>
+        <div class="hero-proof" aria-label="Store benefits">
+          <div><b>01</b><span><strong>Official packages</strong><small>Live catalog direct from Tebex</small></span></div>
+          <div><b>02</b><span><strong>Linked delivery</strong><small>Discord and Cfx.re connected</small></span></div>
+          <div><b>03</b><span><strong>Secure checkout</strong><small>Payments protected by Tebex</small></span></div>
         </div>
       </section>
 
@@ -76,21 +85,24 @@
 
       <section class="catalog-shell" id="catalog">
         <header class="catalog-head">
-          <div><span class="eyebrow">Live from Tebex</span><h2>Choose your package.</h2></div>
+          <div><span class="eyebrow">Live from Tebex</span><h2>Find your next <em>upgrade.</em></h2><p>Every package supports the same city—choose the one that fits your story.</p></div>
           <label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span class="sr-only">Search packages</span><input id="search" type="search" placeholder="Search packages" autocomplete="off"></label>
         </header>
 
-        <div class="catalog-layout">
-          <aside class="categories" aria-label="Package categories">
+        <aside class="categories" aria-label="Package categories">
+          <div class="category-scroll">
             <button class="category active" type="button" data-category="all"><span>All packages</span><b id="all-count">0</b></button>
             <div id="category-list"></div>
-            <div class="secure-card">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
-              <div><b>Payments by Tebex</b><span>Checkout, taxes, receipts, and payment details are handled securely by Tebex.</span></div>
-            </div>
-          </aside>
+          </div>
+          <div class="secure-card">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <div><b>Protected by Tebex</b><span>Secure payments and receipts</span></div>
+          </div>
+        </aside>
 
+        <div class="catalog-layout">
           <div class="catalog-main">
+            <div class="results-line"><span id="results-label">Loading the catalog…</span><i aria-hidden="true"></i></div>
             <div class="loading-grid" id="loading-grid" aria-label="Loading packages">
               <i></i><i></i><i></i><i></i><i></i><i></i>
             </div>
@@ -98,7 +110,7 @@
               <span>Store setup in progress</span>
               <h3>The shelves are being stocked.</h3>
               <p>Florida Bay’s storefront is live, but the Tebex catalog connection is still waiting for its public token. Check back shortly.</p>
-              <a class="button secondary" href="https://discord.gg/floridabayrp" target="_blank" rel="noopener noreferrer">Visit Discord</a>
+              <a class="button secondary" href="https://discord.gg/floridabay" target="_blank" rel="noopener noreferrer">Visit Discord</a>
             </section>
             <section class="empty-state" id="empty-state" hidden>
               <h3>No packages found.</h3><p>Try another category or search term.</p>
@@ -111,7 +123,7 @@
       </section>
 
       <section class="process" id="how-it-works">
-        <div class="process-intro"><span class="eyebrow">From the coast to your account</span><h2>Simple, secure,<br><em>automatic.</em></h2></div>
+        <div class="process-intro"><span class="eyebrow">From the coast to your account</span><h2>Three steps.<br><em>Zero guesswork.</em></h2><p>Everything stays connected from your first click to delivery.</p></div>
         <ol>
           <li><b>01</b><div><h3>Pick a package</h3><p>Browse the live catalog and add what you want to your basket.</p></div></li>
           <li><b>02</b><div><h3>Verify Discord and FiveM</h3><p>Sign in with Discord for role delivery, then let Tebex verify the Cfx.re identity receiving the purchase.</p></div></li>
@@ -123,7 +135,7 @@
     <footer>
       <div class="footer-brand"><img src="/logo-128.webp" alt="" width="36" height="36"><div><b>Florida Bay Roleplay</b><span>Serious roleplay beyond the bridge.</span></div></div>
       <p>Florida Bay Roleplay is not affiliated with Rockstar Games, Take-Two Interactive, Cfx.re, or any real-world agency. All purchases are processed by Tebex.</p>
-      <div><a href="https://floridabay.net">Home</a><a href="https://discord.gg/floridabayrp" target="_blank" rel="noopener noreferrer">Support</a><a href="https://discord.gg/4gCvKJRGxk" target="_blank" rel="noopener noreferrer">DevOps tickets</a><a href="https://www.tebex.io/legal" target="_blank" rel="noopener noreferrer">Tebex terms</a></div>
+      <div><a href="https://floridabay.net">Home</a><a href="https://discord.gg/floridabay" target="_blank" rel="noopener noreferrer">Support</a><a href="https://discord.gg/4gCvKJRGxk" target="_blank" rel="noopener noreferrer">DevOps tickets</a><a href="https://www.tebex.io/legal" target="_blank" rel="noopener noreferrer">Tebex terms</a></div>
     </footer>
 
     <div class="scrim" id="scrim" hidden></div>
@@ -150,6 +162,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="store.js?v=2" type="module"></script>
+    <script src="store.js?v=3" type="module"></script>
   </body>
 </html>

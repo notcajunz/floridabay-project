@@ -1,6 +1,6 @@
 /**
  * Every ACE object Florida Bay understands: the bot's own control-plane permissions, the in-game
- * fbrp_core permissions, every vMenu permission (vMenu config/permissions.cfg) and every EasyAdmin
+ * fbrp_core permissions, every legacy vMenu permission and every EasyAdmin
  * 7.x permission (EasyAdmin docs/permissions.md plus its Discord bot commands).
  */
 const ace = (category, object, label, description) => ({ category, object, label, description });
@@ -224,8 +224,9 @@ const VMENU = [
     ["Windows", "Windows", "Roll windows up and down."],
     ["Freeze", "Freeze vehicle", "Freeze your vehicle in place."],
     ["Invisible", "Invisible vehicle", "Make your vehicle invisible."],
-    ["TorqueMultiplier", "Torque multiplier", "Increase engine torque."],
-    ["PowerMultiplier", "Power multiplier", "Increase engine power."],
+    ["TorqueMultiplier", "Torque multiplier", "Increase engine torque up to x128."],
+    ["PowerMultiplier", "Power multiplier", "Increase engine power up to x128."],
+    ["UnlimitedMultipliers", "Unlimited multipliers", "Power and torque multipliers above x128 (Community Director and above only)."],
     ["Flip", "Flip vehicle", "Put an upside-down vehicle back on its wheels."],
     ["Alarm", "Alarm", "Toggle the vehicle alarm."],
     ["CycleSeats", "Cycle seats", "Move between seats."],

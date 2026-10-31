@@ -76,15 +76,15 @@ test('property spots, doors and stations are edited in a menu by Dev Manager and
   const html = read('web/index.html');
   assert.ok(html.includes('propmenu.js') && html.includes('propmenu.css'));
   const eye = read('client/interactions.lua');
-  for (const id of ['w_repair', 'w_work', 'w_hub', 'w_serve', 'w_door', 'w_plate']) assert.ok(eye.includes(id), id);
+  for (const id of ['w_repair', 'w_work', 'w_facilities', 'w_serve', 'w_door', 'w_plate']) assert.ok(eye.includes(id), id);
   const ui = fs.readFileSync(path.join(core, 'web/app.js'), 'utf8');
   assert.ok(ui.includes('w_repair:'));
 });
 
-test('police station doors are added by Community Director and above and only clocked-in law enforcement use them', () => {
+test('police station doors are added by Executive Management and above and only clocked-in law enforcement use them', () => {
   const doors = read('server/propertydoors.lua');
-  assert.match(doors, /label='Community Director'/);
-  assert.match(doors, /local function canManageStations\(source\) return isDevManager\(source\) or isCommunityDirector\(source\) end/);
+  assert.match(doors, /label='Executive Management'/);
+  assert.match(doors, /local function canManageStations\(source\) return isDevManager\(source\) or isExecutiveManagement\(source\) end/);
   assert.match(doors, /s\.org\.type == 'leo'/);
   assert.match(doors, /Only law enforcement on duty can use this door/);
   assert.match(doors, /fbrp:stationdoors:add/);

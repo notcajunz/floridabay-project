@@ -35,6 +35,6 @@ test("Junior Management migration creates the requested rank hierarchy and Disco
   assert.match(roles, /guild\.kind='staff'/);
   assert.match(roles, /LOWER\('Assistant Community Manager'\)/);
   const sync = await readFile(new URL("../src/sync.js", import.meta.url), "utf8");
-  assert.match(sync, /LEGACY_ROLE_NAMES = \{ junior_management: "trial manager" \}/);
+  assert.match(sync, /LEGACY_ROLE_NAMES = \{ trial_management: "junior management" \}/);
   assert.match(sync, /\.setName\(/);
 });

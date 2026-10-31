@@ -13,7 +13,6 @@ from ..common import (
     clean_text,
     confirm_action,
     coordinator_only,
-    department_autocomplete,
     email_log,
     guild_id,
     has_bypass,
@@ -42,13 +41,18 @@ def sheet_refs(department) -> list[str]:
     return refs
 
 
-def require_email_open(department) -> None:
-    """Launched departments left the email database; every /email command refuses them."""
-    if department["status"] == "Launched":
-        raise ValueError(
-            f"**{department['name']}** is launched, so it no longer uses the email database "
-            "(its tab was archived when it launched)."
-        )
+async def email_department_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    """Department names available to /email commands."""
+    db = interaction.client.db  # type: ignore[attr-defined]
+    if interaction.guild_id is None:
+        return []
+    rows = await db.fetch_all(
+        "SELECT name FROM departments WHERE guild_id=? AND name LIKE ? ORDER BY name LIMIT 25",
+        (interaction.guild_id, f"%{current}%"),
+    )
+    return [app_commands.Choice(name=row["name"], value=row["name"]) for row in rows]
 
 
 def can_decide(interaction: discord.Interaction) -> bool:
@@ -134,7 +138,7 @@ class EmailCog(DeptCog):
     # commands --------------------------------------------------------------------
 
     @email.command(name="registrar", description="Save your email to a department's database tab")
-    @app_commands.autocomplete(department=department_autocomplete)
+    @app_commands.autocomplete(department=email_department_autocomplete)
     @app_commands.describe(
         department="Your department", email="The Google email address that should get document access",
         rank="Your rank in the department", name="Your name (defaults to your server nickname)",
@@ -145,7 +149,6 @@ class EmailCog(DeptCog):
         await interaction.response.defer(ephemeral=True)
         guild = require_guild(interaction)
         row = await self.service.department(guild.id, department)
-        require_email_open(row)
         member = interaction.user
         # No staff bypass here: only people who hold the department's own role can register in it.
         if not (isinstance(member, discord.Member) and any(role.id == row["base_role_id"] for role in member.roles)):
@@ -175,7 +178,7 @@ class EmailCog(DeptCog):
         await reply(interaction, f"Saved your email for **{row['name']}**.{note}{waiting}")
 
     @email.command(name="adduser", description="Request document access for a registered department member")
-    @app_commands.autocomplete(department=department_autocomplete)
+    @app_commands.autocomplete(department=email_department_autocomplete)
     @app_commands.choices(access=ACCESS_CHOICES)
     @app_commands.describe(
         member="The member who needs access", department="Their department",
@@ -189,7 +192,7 @@ class EmailCog(DeptCog):
         await self._submit(interaction, member, department, access.value, reason, docs)
 
     @email.command(name="removeuser", description="Request that a member's document access be removed")
-    @app_commands.autocomplete(department=department_autocomplete)
+    @app_commands.autocomplete(department=email_department_autocomplete)
     @app_commands.describe(member="The member to remove access from", department="Their department", reason="Why")
     async def removeuser(
         self, interaction: discord.Interaction, member: discord.Member, department: str, reason: str,
@@ -203,7 +206,6 @@ class EmailCog(DeptCog):
         await interaction.response.defer(ephemeral=True)
         guild = require_guild(interaction)
         row = await self.service.department(guild.id, department)
-        require_email_open(row)
         await require_department_access(interaction, row)
         data = await self.dept_call(
             row, "request",
@@ -327,11 +329,10 @@ class EmailCog(DeptCog):
 
     @email.command(name="wipe", description="Delete a member from a department's database tab")
     @coordinator_only
-    @app_commands.autocomplete(department=department_autocomplete)
+    @app_commands.autocomplete(department=email_department_autocomplete)
     async def wipe(self, interaction: discord.Interaction, department: str, member: discord.Member) -> None:
         guild = require_guild(interaction)
         row = await self.service.department(guild.id, department)
-        require_email_open(row)
         if not await confirm_action(
             interaction, f"Delete {member.mention} from **{row['name']}** in the email database? Their document sharing is removed."
         ):
@@ -350,14 +351,13 @@ class EmailCog(DeptCog):
         await reply(interaction, f"Removed {member.mention} from **{row['name']}** in the email database.")
 
     @email.command(name="list", description="List a department's members and their access")
-    @app_commands.autocomplete(department=department_autocomplete)
+    @app_commands.autocomplete(department=email_department_autocomplete)
     @app_commands.choices(show=LIST_CHOICES)
     async def list_members(
         self, interaction: discord.Interaction, department: str, show: app_commands.Choice[str] | None = None,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         row = await self.service.department(guild_id(interaction), department)
-        require_email_open(row)
         await require_department_access(interaction, row)
         flavor = show.value if show else "granted"
         data = await self.dept_call(row, "list", filter=flavor)
@@ -413,7 +413,7 @@ class EmailCog(DeptCog):
 
     @tasks.loop(minutes=15)
     async def role_sync_loop(self) -> None:
-        for guild in self.bot.guilds:
+        for guild in self.bot.home_guilds():
             try:
                 await self.sync_roles(guild)
             except SheetApiError as error:

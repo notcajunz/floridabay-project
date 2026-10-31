@@ -34,10 +34,35 @@ channels, and cooldowns instead of parole.
 - `/badge` makes department ID badges, one picture per rank (see below).
 - `/sticky` keeps an embed as the newest message of a channel; `/embed post|edit` open a pop-up form
   (edit comes pre-filled with the embed's current title, text, colour, footer and image).
-- Setting a department to **Launched** archives its email database tab and closes every `/email`
-  command for it.
+- Changing a department's status does not remove its email database tab or disable `/email`.
+  The tab is archived only when the department itself is removed.
 - Member punishments, delegated role management, protected roles, temporary
   roles, permission overrides, DMs, and member/server/channel logs.
+
+## Department Discords
+
+`/dept add` needs `guild_id`, the server ID of the department's own Discord. Leave `base_role` and
+`command_role` empty and give `color` and `initials`, and the bot creates the Hub roles
+(`FBRP | LSPD`, `LSPD High Command`) in that colour under the category divider. If the bot is not in
+the department Discord yet, the reply has an invite link that adds it to exactly that server; the
+commands below switch on there as soon as it joins. `/dept update guild_id:` or `unlink_guild:`
+changes the link and `/dept info` shows it.
+
+In a linked department Discord (and only there):
+
+- `/role add|remove member role` give and take roles, `/role view role` lists who holds a role, who may
+  give it and the pending requests, `/role create name color` makes a coloured role (Department
+  Management, the Launch Group and server admins).
+- `/request role role [reason]` posts the request with Approve/Deny buttons in the request channel.
+- `/roleperms` is Department Management only (Hub manager level, owners, network management):
+  `set role who Allow|Deny` for one role, `all who Allow|Deny` for every role (the all-role
+  permission), `clear`, `list`, and `requests channel` for where requests go.
+
+Department Management and server admins can give any role. Everyone else needs a rule: a rule for the
+role beats the all-role rule, a rule for the member beats rules for their roles, and between role rules
+a deny wins. Nobody (except management and admins) can give a role above their own highest role, a
+role with Administrator, or change their own roles. The website reads `external_guild_id` from this
+database: accepted department applicants on the orgs website are added to the linked Discord.
 
 ## Access
 

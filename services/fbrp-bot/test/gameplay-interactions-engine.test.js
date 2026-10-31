@@ -11,11 +11,18 @@ const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
 test('third eye uses Left Alt with screen-space player targeting', () => {
   const client = read('server-data/resources/[fbrp]/fbrp_core/client/interactions.lua');
   const web = read('server-data/resources/[fbrp]/fbrp_core/web/app.js');
+  const html = read('server-data/resources/[fbrp]/fbrp_core/web/index.html');
+  const styles = read('server-data/resources/[fbrp]/fbrp_core/web/styles.css');
   assert.match(client, /RegisterKeyMapping\('\+thirdEye',[^\n]*'LMENU'\)/);
   assert.match(client, /GetScreenCoordFromWorldCoord/);
   assert.match(client, /HasEntityClearLosToEntity/);
   assert.match(client, /type='thirdEyeTarget'/);
+  assert.match(client, /thirdEyeOptions/);
+  assert.match(client, /thirdEyeFocused/);
   assert.match(web, /data\.type === "thirdEyeTarget"/);
+  assert.doesNotMatch(web, /data\.type === "thirdEye"/);
+  assert.match(html, /id="third-eye-panel"/);
+  assert.match(styles, /width: 30px; height: 30px/);
   assert.match(read('server-data/config/voice.cfg'), /voice_defaultRadio "CAPITAL"/);
 });
 
@@ -56,6 +63,11 @@ test('RealisticVehicleFailure drives engine damage, /repair, and the engine heal
   assert.match(failure, /RegisterCommand\('repair'/);
   assert.match(failure, /cascadingFailureThreshold/);
   assert.match(failure, /SetVehicleUndriveable\(vehicle,true\)/);
+  assert.match(failure, /HasEntityCollidedWithAnything\(currentVehicle\)/);
+  assert.match(failure, /pendingCrashDamage = math\.max\(pendingCrashDamage, damage\)/);
+  assert.match(failure, /cfg\.classDamageMultiplier\[vehicleClass\] or 1\.0/);
+  assert.match(failure, /math\.max\(healthEngineDeltaScaled, healthBodyDeltaScaled, healthPetrolTankDeltaScaled, crashDamage\)/);
+  assert.match(failure, /healthBodyCurrent - \(crashDamage \* 0\.5\)/);
   assert.doesNotMatch(vehicles, /RegisterCommand\('repair'/);
   assert.doesNotMatch(vehicles, /deadEngines/);
   assert.match(vehicles, /engineHealth=engineHealth/);
@@ -70,9 +82,18 @@ test('unbelted crashes fling the occupant forward with scaled damage, and punche
   const medical = read('server-data/resources/[fbrp]/fbrp_core/client/medical.lua');
   assert.match(vehicles, /local function ejectFromVehicle/);
   assert.match(vehicles, /TaskLeaveVehicle\(ped,vehicle,16\)/);
-  assert.match(vehicles, /SetEntityVelocity\(ped,fling\.x,fling\.y,fling\.z\)/);
+  assert.match(vehicles, /FBRP\.Ragdoll\.launch\(ped,velocity,ms,2\.5\)/);
+  assert.match(read('server-data/resources/[fbrp]/fbrp_core/client/ragdoll.lua'), /SetEntityVelocity\(ped, fling\.x, fling\.y, fling\.z\)/);
   assert.match(vehicles, /SetEntityHealth\(ped,math\.max\(0,GetEntityHealth\(ped\)-damage\)\)/);
   assert.match(medical, /SetWeaponDamageModifier\(unarmed/);
+});
+
+test('a staff revive brings a dead player back where they are, at full health', () => {
+  const medical = read('server-data/resources/[fbrp]/fbrp_core/client/medical.lua');
+  const revive = medical.slice(medical.indexOf("RegisterNetEvent('fbrp:medical:revive'"), medical.indexOf("RegisterNetEvent('fbrp:medical:cpr'"));
+  assert.match(revive, /NetworkResurrectLocalPlayer\(coords\.x, coords\.y, coords\.z, GetEntityHeading\(ped\), true, false\)/);
+  assert.match(revive, /SetEntityHealth\(ped, GetEntityMaxHealth\(ped\)\)/);
+  assert.match(read('server-data/resources/[fbrp]/fbrp_core/server/medical.lua'), /TriggerClientEvent\('fbrp:medical:revive', target/);
 });
 
 test('full mechanic repair is public and supports the spaced command', () => {
@@ -85,15 +106,18 @@ test('full mechanic repair is public and supports the spaced command', () => {
   assert.match(repairHandler, /Vehicle fully repaired/);
 });
 
-test('all existing and new tags use an unconditional strong bold pass', () => {
+test('overhead tags are drawn by fbrp_tags and selection uses RageUI', () => {
   const tags = read('server-data/resources/[fbrp]/fbrp_core/client/tags.lua');
+  const draw = read('server-data/resources/[fbrp]/fbrp_tags/client/functions.lua');
   const styles = read('server-data/resources/[fbrp]/fbrp_core/web/styles.css');
-  assert.match(tags, /local BOLD_PASSES =/);
-  assert.match(tags, /for _, offset in ipairs\(BOLD_PASSES\) do/);
-  assert.match(tags, /EndTextCommandDisplayText\(x \+ offset\[1\], y \+ offset\[2\]\)/);
-  assert.match(styles, /#hud-headtag, #hud-gangtag \{ font-weight: 800; \}/);
-  assert.match(styles, /\.gta-head, \.gta-sub \{ font: 800/);
-  assert.match(styles, /\.tag-row \.name \{[^\n]*font: 800/);
+  assert.match(draw, /SetTextOutline\(\)/);
+  assert.match(draw, /SetTextCentre\(true\)/);
+  assert.match(draw, /function DrawTagStack/);
+  assert.match(styles, /#hud-headtag, #hud-gangtag \{ font-weight: 500; \}/);
+  assert.match(tags, /RageUI\.CreateMenu\(/);
+  assert.match(tags, /RageUI\.Button\(/);
+  assert.doesNotMatch(tags, /lib\.registerMenu|lib\.showMenu/);
+  assert.doesNotMatch(styles, /\.gta-head|\.tag-row \.name/);
 });
 
 test('bulletproof personals keep their glass in the frame', () => {
@@ -112,7 +136,7 @@ test('bulletproof glass stays processed so bullets stop at it, and every pane is
 test('Wraith ARS radar is installed and limited to LEO vehicles through fbrp_core', () => {
   const player = read('server-data/resources/[fbrp]/wk_wars2x/cl_player.lua');
   const emergency = read('server-data/resources/[fbrp]/fbrp_core/client/emergency_vehicles.lua');
-  const cfg = read('server-data/config/phone.cfg');
+  const cfg = read('server-data/config/resources.cfg');
   const config = read('server-data/resources/[fbrp]/wk_wars2x/config.lua');
   assert.match(cfg, /^ensure wk_wars2x$/m);
   assert.match(player, /exports\.fbrp_core:IsLeoVehicle/);

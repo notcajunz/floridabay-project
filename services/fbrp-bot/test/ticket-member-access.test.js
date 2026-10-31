@@ -115,3 +115,52 @@ test("ticket remove can deny access to the member who opened the ticket", async 
     permissions: { ViewChannel: false },
   });
 });
+
+function websiteFixture({ configured = [], memberRoles = [], isStaff = false, participants = [] } = {}) {
+  const row = { id: 7, guild_id: "guild-1", author_id: "opener", type: "management", status: "closed" };
+  const db = {
+    one: async (sql, params = []) => (sql.includes("ticket_participants") && participants.includes(params[1]) ? { allowed: 1 } : null),
+    query: async (sql) => (sql.includes("ticket_support_roles") ? configured : []),
+  };
+  const guild = {
+    members: { fetch: async (id) => ({ id, roles: { cache: new Map(memberRoles.map((role) => [role, true])) } }) },
+  };
+  const system = createTicketSystem({
+    client: { user: { id: "bot" }, guilds: { cache: new Map([["guild-1", guild]]) } },
+    db,
+    audit: async () => {},
+    hasPermission: async () => isStaff,
+    requireMinimumStaffRank: async () => {},
+    clean: (value) => String(value),
+    safeName: (value) => String(value),
+    embed: () => ({}),
+    card: (title, options) => ({ title, options }),
+    colors: { primary: 1, success: 2, warning: 3, danger: 4 },
+    log: async () => {},
+  });
+  return { system, row };
+}
+
+test("website: general support staff cannot read a ticket type they are not a support role for", async () => {
+  const { system, row } = websiteFixture({ configured: [{ role_id: "management-role", level: "support" }], memberRoles: ["staff-role"], isStaff: true });
+  assert.deepEqual(await system.websiteAccess(row, "support-staff"), { view: false, manage: false });
+});
+
+test("website: the ticket type's support role can read and manage the transcript", async () => {
+  const { system, row } = websiteFixture({ configured: [{ role_id: "management-role", level: "support" }], memberRoles: ["management-role"] });
+  assert.deepEqual(await system.websiteAccess(row, "manager"), { view: true, manage: true });
+});
+
+test("website: the opener and invited participants can read but not manage", async () => {
+  const { system, row } = websiteFixture({ configured: [{ role_id: "management-role", level: "support" }], participants: ["guest"] });
+  assert.deepEqual(await system.websiteAccess(row, "opener"), { view: true, manage: false });
+  assert.deepEqual(await system.websiteAccess(row, "guest"), { view: true, manage: false });
+  assert.deepEqual(await system.websiteAccess(row, "stranger"), { view: false, manage: false });
+});
+
+test("website: with no type roles configured, the ticket support permission grants access", async () => {
+  const staffAccess = websiteFixture({ isStaff: true });
+  assert.deepEqual(await staffAccess.system.websiteAccess(staffAccess.row, "support-staff"), { view: true, manage: true });
+  const memberAccess = websiteFixture({ isStaff: false });
+  assert.deepEqual(await memberAccess.system.websiteAccess(memberAccess.row, "member"), { view: false, manage: false });
+});

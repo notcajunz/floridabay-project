@@ -72,6 +72,16 @@ export function cleanEventTime(value, now = Date.now(), editing = false) {
   return at;
 }
 
+/** What an accepted applicant is told about the department Discord. Exported for tests. */
+export function acceptedJoinLine(join, invite, verifyUrl = "") {
+  const name = join?.guildName ? `**${join.guildName}**` : "the department";
+  if (join?.state === "joined") return `\nYou were added to the ${name} Discord.`;
+  if (join?.state === "already") return `\nYou are already in the ${name} Discord.`;
+  if (join?.state === "authorization_required")
+    return `\nVerify${verifyUrl ? ` at ${verifyUrl}` : " on the Florida Bay website"} and you will be added to the ${name} Discord automatically.${invite ? `\nOr join now: ${invite}` : ""}`;
+  return invite ? `\nJoin their Discord: ${invite}` : "";
+}
+
 /** Quote one CSV field. Exported for tests. */
 export function csvField(value) {
   const textValue = String(value ?? "");
@@ -79,7 +89,7 @@ export function csvField(value) {
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-export function createOrgRoster({ client, db, economy, audit, resolvePeople, logos }) {
+export function createOrgRoster({ client, db, economy, audit, resolvePeople, logos, applicationLogs = null }) {
   async function log(orgId, actorId, action, targetId = null, detail = {}) {
     await db.query("INSERT INTO org_roster_log(org_id,actor_id,action,target_id,detail,created_at) VALUES(?,?,?,?,?,?)",
       [Number(orgId), String(actorId), action, targetId == null ? null : String(targetId), JSON.stringify(detail), Date.now()]).catch(() => {});
@@ -448,15 +458,24 @@ export function createOrgRoster({ client, db, economy, audit, resolvePeople, log
     const raw = Array.isArray(input.answers) ? input.answers : [];
     const answers = profile.questions.map((question, index) => ({ question, answer: text(raw[index], 1000) }));
     if (answers.some((row) => row.answer.length < 2)) throw new Error("Answer every question.");
-    await db.query("INSERT INTO org_applications(org_id,discord_id,answers,status,created_at) VALUES(?,?,?,'pending',?)", [org.id, String(actorId), JSON.stringify(answers), Date.now()]);
+    const createdAt = Date.now();
+    const inserted = await db.query("INSERT INTO org_applications(org_id,discord_id,answers,status,created_at) VALUES(?,?,?,'pending',?)", [org.id, String(actorId), JSON.stringify(answers), createdAt]);
     await audit(actorId, "organization.apply", org.id, {});
     await log(org.id, actorId, "application", actorId, {});
+    // Application logs post in the background; a Discord hiccup never fails the application.
+    if (applicationLogs && inserted?.insertId)
+      void applicationLogs.applied({ org, application: { id: Number(inserted.insertId), discord_id: String(actorId), answers, created_at: createdAt } }).catch((error) => console.error("[FBRP orgs] application log:", error.message || error));
     return { org: org.name };
   }
 
   async function withdrawApplication(actorId, input) {
     const result = await db.query("UPDATE org_applications SET status='withdrawn',reviewed_at=? WHERE id=? AND discord_id=? AND status='pending'", [Date.now(), Number(input.applicationId), String(actorId)]);
     if (!result.affectedRows) throw new Error("That application is no longer pending.");
+    if (applicationLogs) {
+      const row = await db.one("SELECT id,org_id,discord_id,answers,created_at FROM org_applications WHERE id=?", [Number(input.applicationId)]).catch(() => null);
+      const org = row ? await activeOrg(row.org_id).catch(() => null) : null;
+      if (org) await applicationLogs.reviewed({ org, application: { ...row, answers: parse(row.answers, []) }, decision: "withdrawn", actorId }).catch(() => null);
+    }
     return { withdrawn: true };
   }
 
@@ -465,18 +484,24 @@ export function createOrgRoster({ client, db, economy, audit, resolvePeople, log
     if (!perms.applications) throw new Error("Your rank cannot review applications.");
     const decision = String(input.decision || "");
     if (!["accepted", "denied"].includes(decision)) throw new Error("Accept or deny the application.");
-    const application = await db.one("SELECT id,discord_id FROM org_applications WHERE id=? AND org_id=? AND status='pending'", [Number(input.applicationId), org.id]);
+    const application = await db.one("SELECT id,discord_id,answers,created_at FROM org_applications WHERE id=? AND org_id=? AND status='pending'", [Number(input.applicationId), org.id]);
     if (!application) throw new Error("That application is no longer pending.");
     const note = text(input.note, 500);
-    await db.query("UPDATE org_applications SET status=?,reviewer_id=?,review_note=?,reviewed_at=? WHERE id=?", [decision, String(actorId), note || null, Date.now(), application.id]);
+    const updated = await db.query("UPDATE org_applications SET status=?,reviewer_id=?,review_note=?,reviewed_at=? WHERE id=? AND status='pending'", [decision, String(actorId), note || null, Date.now(), application.id]);
+    if (updated && updated.affectedRows === 0) throw new Error("That application is no longer pending.");
     await audit(actorId, "organization.application_review", org.id, { applicant: application.discord_id, decision });
     await log(org.id, actorId, `application_${decision}`, application.discord_id, {});
+    // Department applicants are added to the department Discord; log messages show the decision.
+    const hook = applicationLogs
+      ? await applicationLogs.reviewed({ org, application: { ...application, answers: parse(application.answers, []) }, decision, actorId }).catch((error) => { console.error("[FBRP orgs] application review hook:", error.message || error); return null; })
+      : null;
+    const join = hook?.join || null;
     const profile = await profileOf(org.id);
     const message = decision === "accepted"
-      ? `✅ Your application to **${org.name}** was accepted!${note ? `\n> ${note}` : ""}${profile.discordInvite ? `\nJoin their Discord: ${profile.discordInvite}` : ""}\nLeadership will give you the organization's role.`
+      ? `✅ Your application to **${org.name}** was accepted!${note ? `\n> ${note}` : ""}${acceptedJoinLine(join, profile.discordInvite, hook?.verifyUrl)}\nLeadership will give you the organization's role.`
       : `Your application to **${org.name}** was not accepted this time.${note ? `\n> ${note}` : ""}`;
     const dm = await client.users.fetch(String(application.discord_id)).then((user) => user.send(message)).then(() => true).catch(() => false);
-    return { decision, dm };
+    return { decision, dm, join: join ? { state: join.state, guildName: join.guildName || null } : null };
   }
 
   /** What anyone can see about an organization: profile, divisions and (if public) the roster. */
