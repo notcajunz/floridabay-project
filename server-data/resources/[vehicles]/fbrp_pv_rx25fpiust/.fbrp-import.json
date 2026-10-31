@@ -1,0 +1,47 @@
+{
+  "source": "dhsEX.zip",
+  "model": "rx25fpiust",
+  "by": "1090083387638812755",
+  "at": 1792937246074,
+  "request": {},
+  "changes": [
+    {
+      "file": "vehicles.meta",
+      "field": "handlingId",
+      "from": "RX25fpiu",
+      "to": "lib20fpiu",
+      "reason": "Must match the handling.meta handlingName so the vehicle loads its handling correctly."
+    }
+  ],
+  "liveries": [],
+  "vehicleType": "leo",
+  "vehicleTypeReason": "vehicles.meta marks it as law enforcement with VC_EMERGENCY, FLAG_LAW_ENFORCEMENT, and a police driver plus police plate/siren metadata.",
+  "security": {
+    "verdict": "safe",
+    "summary": "No executable or network-capable behavior is present. The pack contains only vehicle assets and metadata, and the uploaded manifest is declarative-only. Any stale wildcard paths in the manifest are harmless because the importer regenerates the manifest from real files.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "fxmanifest.lua",
+        "issue": "Uses broad wildcard paths that may reference files not present in the archive.",
+        "action": "Ignore the uploaded manifest and generate a fresh manifest from the actual .meta and asset files found."
+      }
+    ],
+    "remediation": {
+      "summary": "Quarantined the two runtime Lua scripts so only data-only vehicle assets and regenerated metadata remain for rescanning.",
+      "actions": [
+        {
+          "file": "client.lua",
+          "action": "quarantine",
+          "reason": "Runtime Lua script is not allowed in a data-only vehicle pack and can execute behavior outside the permitted asset set."
+        },
+        {
+          "file": "ulc.lua",
+          "action": "quarantine",
+          "reason": "Runtime Lua script is not allowed in a data-only vehicle pack and can execute behavior outside the permitted asset set."
+        }
+      ],
+      "passes": 1
+    }
+  }
+}

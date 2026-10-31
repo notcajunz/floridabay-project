@@ -5,56 +5,56 @@
       <modelName>scar_ram</modelName>
       <colors>
         <Item>
-          <indices content="char_array"> <!-- Black / Black -->
+          <indices content="char_array">
             0
             0
             0
           </indices>
         </Item>
         <Item>
-          <indices content="char_array"> <!-- Black / Chrome -->
+          <indices content="char_array">
             0
             120
             117
           </indices>
         </Item>
         <Item>
-          <indices content="char_array"> <!-- White -->
+          <indices content="char_array">
             112
             120
             2
           </indices>
         </Item>
         <Item>
-          <indices content="char_array"> <!-- Red -->
+          <indices content="char_array">
             27
             120
             3
           </indices>
         </Item>
         <Item>
-          <indices content="char_array"> <!-- Cabernet -->
+          <indices content="char_array">
             34
             120
             2
           </indices>
         </Item>
         <Item>
-          <indices content="char_array"> <!-- Dark Blue -->
+          <indices content="char_array">
             62
             120
             4
           </indices>
         </Item>
         <Item>
-          <indices content="char_array"> <!-- Sienna -->
+          <indices content="char_array">
             104
             120
             4
           </indices>
         </Item>
         <Item>
-          <indices content="char_array"> <!-- Dark Earth / Black -->
+          <indices content="char_array">
             153
             12
             0
