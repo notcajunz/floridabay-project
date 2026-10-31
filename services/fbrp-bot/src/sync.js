@@ -16,7 +16,6 @@ export const ROLE_AUTHORITATIVE_GROUPS = new Set([
   "law_enforcement",
   "fire_rescue",
   "verified",
-  "ban_blacklist_moderator",
   "custom_weapons",
 ]);
 const ROLE_AUTHORITATIVE_GROUP_SQL = [...ROLE_AUTHORITATIVE_GROUPS]
@@ -33,6 +32,9 @@ export const ROLE_SOURCED_GROUPS = new Set([
   // VIP vMenu vehicle tuning: holding the VIP Membership Discord role is the only way in, and losing the role
   // takes the permissions away. The role itself is never gated, granted or stripped by the bot.
   "vip_vehicle_tuning",
+  // Ban & Blacklist Moderator: the Discord role is the only way in or out. /ace member-add and member-remove
+  // are refused for it and the bot never grants or strips the role itself.
+  "ban_blacklist_moderator",
 ]);
 const ROLE_SOURCED_GROUP_SQL = [...ROLE_SOURCED_GROUPS].map(() => "?").join(",");
 const MEMBERSHIP_GROUPS = [...ROLE_AUTHORITATIVE_GROUPS, ...ROLE_SOURCED_GROUPS];

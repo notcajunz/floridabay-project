@@ -132,3 +132,14 @@ test('the VIP vehicle tuning group still follows the Discord role only', () => {
   const sync = read('../services/fbrp-bot/src/sync.js');
   assert.match(sync, /ROLE_SOURCED_GROUPS = new Set\(\[[\s\S]*"vip_vehicle_tuning"/);
 });
+
+test('the Ban and Blacklist Moderator group follows the Discord role only', () => {
+  const migration = read('resources/[fbrp]/fbrp_core/migrations/116_ban_blacklist_role_one_way.sql');
+  assert.match(migration, /INSERT IGNORE INTO discord_role_sources[\s\S]*FROM discord_role_bindings\s+WHERE group_name='ban_blacklist_moderator'/);
+  assert.match(migration, /'1558329130817421423','ban_blacklist_moderator'/);
+  assert.match(migration, /DELETE FROM discord_role_bindings WHERE group_name='ban_blacklist_moderator'/);
+  assert.doesNotMatch(migration, /^--.*['"`;]/m);
+  const sync = read('../services/fbrp-bot/src/sync.js');
+  assert.match(sync, /ROLE_SOURCED_GROUPS = new Set\(\[[\s\S]*"ban_blacklist_moderator"/);
+  assert.doesNotMatch(sync.slice(sync.indexOf('ROLE_AUTHORITATIVE_GROUPS = new Set'), sync.indexOf('ROLE_AUTHORITATIVE_GROUP_SQL')), /ban_blacklist_moderator/);
+});
