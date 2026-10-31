@@ -2,7 +2,7 @@
 
 <CHandlingDataMgr>
   <HandlingData>
-      <Item type="CHandlingData"><!--22M5 HANDLING STARTS HERE-->
+      <Item type="CHandlingData">
       <handlingName>22w5_BB</handlingName>
       <fMass value="3500.0" />
 			<fInitialDragCoeff value="10.5" />
@@ -63,6 +63,6 @@
         <Item type="NULL" />
         <Item type="NULL" />
       </SubHandlingData>
-    </Item><!--22M5 HANDLING ENDS HERE-->
+    </Item>
   </HandlingData>
 </CHandlingDataMgr>

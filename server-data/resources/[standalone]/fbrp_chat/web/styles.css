@@ -212,3 +212,135 @@ kbd { margin-right: 3px; padding: 1px 4px; border: 1px solid rgba(255, 255, 255,
 @media (max-width: 1100px) {
   .chat-shell { width: clamp(420px, 42vw, 520px); }
 }
+
+/* Restrained game-chat treatment: one workspace when focused, clean text when idle. */
+.chat-shell { width: clamp(410px, 29vw, 540px); filter: drop-shadow(0 8px 20px rgba(0,0,0,.38)); }
+.chat-header {
+  height: 38px;
+  gap: 12px;
+  padding: 0 10px 0 12px;
+  border-color: rgba(255,255,255,.13);
+  border-radius: 7px 7px 0 0;
+  background: rgba(18,24,30,.96);
+}
+.brand-name { font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none; }
+.filters { margin-left: 0; }
+.filters button { height: 24px; padding: 0 7px; border-radius: 4px; font-size: 11px; font-weight: 550; letter-spacing: 0; text-transform: none; }
+.filters button.active { color: #edf4f8; background: rgba(255,255,255,.1); }
+.range { font-size: 10.5px; font-weight: 600; letter-spacing: 0; }
+.range i { width: 5px; height: 5px; background: #69c493; box-shadow: none; }
+.transcript { padding: 3px 4px; }
+.chat-shell.open .transcript {
+  padding: 6px 8px;
+  border-color: rgba(255,255,255,.13);
+  background: rgba(13,18,23,.93);
+}
+.message {
+  margin: 2px 0;
+  padding: 5px 8px;
+  border-radius: 3px;
+  background: rgba(10,14,18,.46);
+  animation-duration: .14s;
+}
+.message::before { display: none; }
+.chat-shell.open .message { background: transparent; border-bottom: 1px solid rgba(255,255,255,.055); }
+.badge { padding: 1px 4px; border-radius: 3px; background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 48%, transparent); font-size: 9.5px; font-weight: 700; letter-spacing: .045em; }
+.author { font-size: 13.5px; font-weight: 650; }
+.chat-tag { padding: 1px 4px; border-radius: 3px; background: transparent; font-size: 9.5px; font-weight: 650; letter-spacing: .025em; text-transform: none; }
+.message-text { margin-top: 1px; font-size: 14px; line-height: 1.38; }
+.suggestions { border-color: rgba(255,255,255,.13); background: rgba(16,21,27,.97); }
+.suggestion { padding: 7px 11px; }
+.suggestion.selected { background: rgba(255,255,255,.075); box-shadow: inset 2px 0 0 #769db8; }
+.suggestion strong { color: #b9d0df; }
+.composer { height: 44px; border-color: rgba(255,255,255,.16); background: rgba(18,24,30,.98); }
+.mode { min-width: 38px; padding: 4px 6px; border-radius: 4px; background: transparent; border: 1px solid color-mix(in srgb, var(--mode) 45%, transparent); font-size: 10px; font-weight: 700; }
+#input { font-size: 14.5px; }
+.composer button { width: 32px; height: 30px; border-radius: 5px; background: rgba(255,255,255,.08); color: #d5e0e7; }
+.composer button:hover { background: rgba(255,255,255,.14); }
+.chat-footer { padding: 4px 9px; border-color: rgba(255,255,255,.13); border-radius: 0 0 7px 7px; background: rgba(13,18,23,.96); font-weight: 550; letter-spacing: .035em; text-transform: none; }
+
+/* Keep the game world visible behind the entire chat, including while typing. */
+.chat-shell { filter: none; }
+.chat-header,
+.chat-shell.open .transcript,
+.suggestions,
+.composer,
+.chat-footer {
+  border-color: transparent;
+  background: transparent;
+}
+.message,
+.chat-shell.open .message { background: transparent; }
+.message-text,
+.author,
+.suggestion strong,
+.suggestion span,
+#input { text-shadow: 0 1px 3px #000, 0 0 8px rgba(0,0,0,.85); }
+
+/* ---------- Jaxtti-style cards (advertisements, SMS, staff and LEO notices) ---------- */
+.message.card { background: linear-gradient(90deg, rgba(42, 42, 42, .92) 0%, color-mix(in srgb, var(--accent) 62%, rgba(42, 42, 42, .92)) 100%); }
+.chat-shell.open .message.card { background: linear-gradient(90deg, rgba(42, 42, 42, .94) 0%, color-mix(in srgb, var(--accent) 62%, rgba(42, 42, 42, .94)) 100%); }
+.badge.card-icon { padding: 3px 6px 2px; border-radius: 5px; background: var(--accent); color: rgba(42, 42, 42, .95); font-size: 12px; letter-spacing: 0; }
+.chat-tag.staff-tag { text-transform: none; letter-spacing: .02em; font-weight: 900; }
+.message[data-card="youtube"] { --accent: #ff3b3b; }
+.message[data-card="tiktok"] { --accent: #fe2c55; }
+.message[data-card="twitter"] { --accent: #2aa9e0; }
+.message[data-card="anonymous"] { --accent: #9a9a9a; }
+.message[data-card="pm"] { --accent: #9b72d6; }
+.message[data-card="staffonly"] { --accent: #1ebc62; }
+.message[data-card="muted"] { --accent: #df7b00; }
+.message[data-card="system"] { --accent: #df7b00; }
+.message[data-card="police"] { --accent: #4a6cfd; }
+.message[data-card="staff"] { --accent: #1ebc62; }
+
+/* ---------- Reference look: dark tab bar and one-line rows ([OOC] Rank Name #id message) ---------- */
+.chat-shell { width: clamp(430px, 28vw, 520px); }
+.chat-header {
+  height: 34px; gap: 0; padding: 0 4px; justify-content: center;
+  border-radius: 0; border-bottom: 1px solid rgba(255,255,255,.08);
+  background: linear-gradient(180deg, rgba(8,10,14,.96), rgba(8,10,14,.78));
+}
+.brand, .range { display: none; }
+.filters { width: 100%; justify-content: space-around; }
+.filters button {
+  height: 34px; padding: 0 10px; border-radius: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: #e8ecef; font: 700 12px/1 inherit; letter-spacing: .06em; text-transform: uppercase;
+}
+.filters button:hover { background: transparent; color: #fff; }
+.filters button.active { background: transparent; color: #fff; border-bottom-color: #8fb4d8; }
+.chat-shell.open .transcript { background: rgba(8,10,14,.62); padding: 8px 10px; border-color: transparent; }
+.message,
+.chat-shell.open .message {
+  margin: 0 0 8px; padding: 10px 14px; border: 0; border-radius: 6px;
+  background: rgba(36,38,42,.93); font-size: 15px; line-height: 1.4;
+}
+.message.card, .chat-shell.open .message.card { background: linear-gradient(90deg, rgba(42,42,42,.95) 0%, color-mix(in srgb, var(--accent) 62%, rgba(42,42,42,.95)) 100%); }
+.message-top { display: inline; }
+.message-top > * { display: inline; margin-right: 6px; }
+.message-top .time { display: none; }
+.badge { padding: 0; border: 0; background: transparent; color: #d6dadd; font: 400 15px/1.4 inherit; letter-spacing: 0; }
+.badge.card-icon { padding: 2px 6px; border-radius: 5px; background: var(--accent); color: rgba(42,42,42,.95); font-size: 12px; }
+.chat-tag { padding: 0; border: 0; background: transparent; color: var(--tag-color); font: 700 15px/1.4 inherit; letter-spacing: 0; text-transform: none; }
+.author { color: #fff; font: 700 15px/1.4 inherit; }
+.player-id { color: #fff; font: 700 15px/1.4 inherit; }
+.message-text { display: inline; margin: 0; color: #f4f6f8; font-size: 15px; line-height: 1.4; }
+.message.system .message-text, .message[data-channel="me"] .message-text, .message[data-channel="do"] .message-text { color: #f4f6f8; font-style: normal; }
+.chat-shell:not(.open) .message { background: rgba(36,38,42,.78); }
+.message-text, .author, .player-id, .chat-tag { text-shadow: none; }
+
+/* ---------- Larger chat, and GME bubbles highlighted green ---------- */
+.chat-shell { width: clamp(560px, 36vw, 700px); }
+.transcript { max-height: 40vh; }
+.chat-shell.open .transcript { max-height: 58vh; }
+.message, .chat-shell.open .message { padding: 12px 16px; font-size: 17px; }
+.badge, .chat-tag, .author, .player-id, .message-text, .message.system .message-text { font-size: 17px; }
+.filters button { font-size: 13px; }
+#input { font-size: 16.5px; }
+.composer { height: 50px; }
+.message[data-channel="gme"],
+.chat-shell.open .message[data-channel="gme"],
+.chat-shell:not(.open) .message[data-channel="gme"] { background: linear-gradient(90deg, rgba(24,128,64,.96), rgba(34,160,84,.92)); }
+.message[data-channel="gme"] .badge,
+.message[data-channel="gme"] .author,
+.message[data-channel="gme"] .player-id,
+.message[data-channel="gme"] .message-text { color: #fff; }

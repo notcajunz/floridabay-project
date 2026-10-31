@@ -1,0 +1,278 @@
+# dps-trains
+
+The DelPerroSands railway: a scheduled passenger service on the heavy-rail
+loop and a metro on the city line, with real station stops, live arrival times
+on the phone, and trains that run to a timetable whether or not anyone is
+watching them.
+
+Forked from [Ehbw-Trains](https://github.com/Ehbw) and substantially rewritten.
+Credit to the upstream author for the track-node architecture and train
+tracking that everything here is built on.
+
+## The four resources
+
+The railway is four resources with one job each. Only `dps-trains` and
+`dps-trains-stock` are required; the other two are optional layers on top.
+
+```
+dps-trains-stock   assets      models, consists, TRAINCONFIGS_FILE
+       │
+dps-trains         engine      scheduling, movement, station stops   <- you are here
+       ├──────────────────────▶ dps-traintools    players     boarding, seating, riders
+       └──getArrivalBoard()───▶ dps-transitapp    passengers  live arrivals on the phone
+```
+
+| Resource | Needs | Works without the others? |
+|---|---|---|
+| `dps-trains-stock` | nothing | yes — it is pure assets |
+| `dps-trains` | `ox_lib`, `dps-trains-stock` | yes, but with no custom rolling stock |
+| `dps-traintools` | `ox_lib` | yes — it works on any train entity, vanilla included |
+| `dps-transitapp` | `lb-phone`, `ox_lib`, `dps-trains` | no — it is a view of `getArrivalBoard` |
+
+## Requirements
+
+| | |
+|---|---|
+| Server artifact | **10188 or newer** |
+| OneSync | **required** — declared in the manifest |
+| `ox_lib` | required |
+| `lb-phone` | only for `dps-transitapp` |
+| Game build | 3258 or newer |
+
+`useServerSetter` **cannot** be enabled on current artifacts — the `CREATE_TRAIN`
+native is absent, and turning it on makes this resource refuse to start. Trains
+are therefore created by nearby clients; see [How a train actually works](#how-a-train-actually-works).
+
+## Installation
+
+1. **Drop all four resources** into your resources folder. `dps-trains-stock` is
+   ~300 MB of models — expect a first-join download.
+
+2. **Start them in this order.** `dps-trains-stock` must register the consist
+   table before `dps-trains` reads it:
+
+   ```cfg
+   ensure ox_lib
+   ensure dps-trains-stock
+   ensure dps-trains
+   ensure dps-traintools     # optional
+   ensure lb-phone
+   ensure dps-transitapp     # optional
+   ```
+
+   If they live in a category folder that is `ensure`d as a whole, alphabetical
+   order already puts `dps-trains` before `dps-trains-stock` — which is the wrong
+   way round. Start them explicitly.
+
+3. **Check the consist indices line up.** `configs/freight.lua` references
+   variations by number, and those numbers come from
+   `dps-trains-stock/data/trains.xml`. An index the game does not have **crashes
+   clients**. Defaults are 28 Axsellya, 29 Brown Streak, 31 metro.
+
+4. **Reboot and rejoin.** Consist data is ingested by the client at join —
+   resource restarts do not reload it.
+
+5. **Verify** with `traindebug` in the server console. You should see one line
+   per train with a node that advances between calls. `handle=nil` is normal for
+   a train with no player near it.
+
+## Configuration
+
+| File | What it controls |
+|---|---|
+| `configs/freight.lua` | mainline trains: how many, where they start, which consist |
+| `configs/metro.lua` | metro trains |
+| `configs/general.lua` | line speed, dwell time, skipped stations, model preload list |
+| `server/main.lua` | station names, keyed by node |
+
+Start locations are **node indices**, not coordinates — `CTrain` derives the
+position from the node, so spacing is exact. Use `trainspace <track> <count>` to
+generate evenly spaced ones.
+
+To change the number of trains, edit both `config.count` and `startLocations` in
+`configs/freight.lua`; they must agree.
+
+## Service
+
+| | |
+|---|---|
+| **Mainline** (track 0) | 6 passenger trains, spaced 704 nodes apart |
+| **Metro** (track 3) | 3 trains |
+| **Consists** | engine + 3 carriages |
+| **Line speed** | 30 m/s (~67 mph) |
+| **Station dwell** | 30 s |
+| **Calling points** | 9 on the mainline |
+| **Headway** | ~3.5 minutes |
+
+Two liveries alternate around the loop: the **Axsellya Express** (blue) and the
+**Brown Streak** (brown). There is no freight service — every train stops and
+opens doors, where a freight consist stopped but never opened, which reads as
+broken to a player who does not know why.
+
+### Calling points
+
+```
+ 462  Lumber Mill                 2434  Davis Interchange (Southbound)
+ 651  Paleto Bay                  2667  Port Depot
+1481  Quarry (Southbound)         2865  Davis Interchange (Northbound)
+1701  Power Plant                 3891  Quarry (Northbound)
+                                  4159  Sandy Shores
+```
+
+Davis and Quarry each appear twice because the line calls at them **in both
+directions** — they are the same station, not duplicates. Davis Interchange is
+about 400 m from the metro's Davis platform and is the connection between the
+two networks.
+
+**Wind Farm (node 1555) is skipped**, via `config.general.skipStations`. It sat
+520 m from Quarry, so with braking starting 500 m out a train decelerated across
+the entire gap and never reached line speed between them. Stations come from the
+game's own track data and cannot be deleted — only ignored.
+
+## How a train actually works
+
+A train exists in one of two states, and the difference is the source of most
+bugs in this resource.
+
+**Ghost** — no entity, just a position the server advances. This is what makes
+the timetable honest: a train is somewhere specific even when nobody is near it,
+so when you reach a platform the service is where it should be.
+
+**Materialised** — a real entity, created by a nearby client. FiveM has no
+server-side entity ownership for trains on this artifact (`CREATE_TRAIN` is
+absent — `useServerSetter` cannot be enabled), so a train can only exist while a
+player is within ~424 m to own it.
+
+The two states must behave identically or the service falls apart:
+
+- **Ghosts advance by distance covered**, not one node per tick. One node per
+  tick on a 1-second interval is ~7 m/s, against a materialised train's 30 — the
+  same service ran four times faster whenever somebody watched it.
+- **Ghosts observe station dwells too.** The station cycle lives inside
+  `if self.handle`, so ghosts used to skip every platform. That made trains
+  materialise *past* the station a player was standing at, and meant only
+  observed trains lost dwell time — which is what made the fleet bunch.
+- **Ghosts obey headway holds** (2026-08-28). A held ghost simply stops
+  advancing. Before this, a ghost could drive straight through the (usually
+  dwelling) train ahead, swapping running order and permanently pairing
+  services.
+- **Ghosts pay the braking bill.** A materialised train loses ~25 s per stop to
+  the 500 m braking ramp and the acceleration back to line speed; a ghost stops
+  instantly, so it holds that long extra at each platform to stay on the same
+  clock.
+- **Every stop is gap-regulated** — ghost or materialised, `DPS_RegulatedDwell`
+  scales the dwell at the moment the stop begins: bunched trains hold up to 2×
+  and drop back into slot, a train with an oversized gap ahead cuts to 0.4× and
+  catches up. The old regulation only ever saw materialised trains, so the
+  fleet ran unregulated whenever nobody was near it — which is most of the
+  time.
+
+## Sharp edges
+
+**Regenerate `data/trains.lua` whenever a consist changes.** It is generated
+from `dps-trains-stock/data/trains.xml` and tells the client which models to
+preload per variation. A stale list makes the client load the wrong stock and
+train creation fails with `carriage hash '...' is not loaded`.
+
+**Model names do not match liveries.** Established in game, not inferred:
+
+```
+BLUE (Amtrak)   streakcoaster (loco) · streakc · streakcab
+BROWN           streak (loco) · streakcoastercab
+```
+
+The `coaster`-named cab car is the **brown** coach; plain `streakc`/`streakcab`
+are Amtrak stock. Pairing carriages with the similarly-named locomotive gives a
+mismatched rake every time.
+
+**`TRAINCONFIGS_FILE` appends to the vanilla table.** Vanilla is indices 0–27,
+so the custom consists start at **28**: `28` Axsellya, `29` Brown Streak,
+`30` freight (unused), `31` metro. **It is registered by `dps-trains-stock`, not
+here** — registering it from this resource crashes clients on join with an
+access violation inside the game's parser.
+
+**An invalid variation index crashes clients** that are not on canary. There is
+no graceful failure.
+
+**Speed control is asymmetric.** `SetTrainCruiseSpeed` sets a target the engine
+works toward, giving natural acceleration and braking. `SetTrainSpeed` forces
+velocity instantly. Applied to every change it makes trains leap off the mark
+and slam to lower speeds; applied *only* to a commanded stop it is
+imperceptible, because staged braking has the train at ~3 m/s by then. A cruise
+target of zero does not stop a moving train — that single fact caused station
+stops, headway holds and bunching to fail simultaneously.
+
+**Station coordinates sit well off the rails** — 51 m at Lumber Mill, 76 m at
+Davis Interchange Northbound even at closest approach. A pure distance test for
+"at the platform" is unreachable at some stops, so the trigger also matches the
+station **node**, within **1 node** and only on the approach side (was 5 nodes
+/ 22 m, which parked trains up to ~35 m short of city platforms — by trigger
+time staged braking has the train at 3 m/s, so the 1-second server sampling
+covers ~3 m per tick and cannot step over the window).
+
+**Private fields are not writable from outside the class.** `server/main.lua`
+cannot assign to `train.private.*`; doing so throws and aborts that pass of the
+update loop. Headway holds and dwell regulation both did this and had never
+executed successfully. Keep per-train flags in module-local tables keyed by id.
+
+**30 m/s is a hard ceiling.** `CTrainGameStateDataNode` cannot represent a
+higher cruise speed, so anything above it desyncs trains between clients
+regardless of `unlimitSpeed`. Note `server/main.lua` reads
+`config.general.defaultSpeed`, **not** `config.freight.speed`.
+
+**Reboot rather than restarting the resource.** There is an `onResourceStop`
+handler that deletes this resource's trains, but data-file changes
+(`TRAINCONFIGS_FILE`, `VEHICLE_METADATA_FILE`) are cached and need a full boot
+plus a client rejoin.
+
+**CfxLua syntax** (backtick hashes, `+=`) appears throughout — vanilla `luac`
+cannot parse these files, so mask before syntax-checking:
+
+```sh
+sed 's/`[A-Za-z0-9_]*`/0x1234/g; s/+=/=/g; s/?\./\./g' file.lua > /tmp/x.lua
+luac5.4 -p /tmp/x.lua
+```
+
+## Safeguards
+
+- **Headway hold** — a train within 40 nodes of the one ahead stops until the
+  gap clears. Applies to ghosts too (they hold by not advancing), and the hold
+  is visible on `private.headwayHold` via `Train:SetHeadwayHold`, so the
+  arrival board can show "delayed" and the speed logic cannot fight it.
+- **Physical separation — removed.** It held a train whenever another was
+  within 60 m on the ground, but track 0 folds back on itself and the check
+  could not tell a legitimate parallel pass from a head-on one, so it stopped
+  trains dead every time services met on adjacent rails. The pass-through it
+  guarded against was actually the node-4226 stranding bug, fixed at source in
+  `getClosestTrackNodeWithinRange`; same-direction following is covered by the
+  headway hold.
+- **Stranded-train recovery** — a materialised train that has not advanced for
+  120 s is culled and respawned. Trains within 40 nodes of a station are exempt:
+  the ghost dwell happens *before* materialisation, so a train can be legitimately
+  stopped at a platform with no dwell flag set.
+- **Orphan cleanup** — `onResourceStop` deletes this resource's train entities.
+  Without it every restart left untracked trains running that ignored every
+  command, because the rogue sweep only culls trains *missing* the `e_trn` state
+  bag and an orphan still carries it.
+
+## Admin / debug
+
+| | |
+|---|---|
+| `traindebug` | every train: id, type, track, node, handle, dwell (mat *and* ghost), hold, coords — plus a per-track **gap table** vs the ideal spacing (the one-line health check for bunching) |
+| `boarddebug` | arrival-board internals: stations, cumulative distances |
+| `trainspace <track> <count>` | evenly spaced node coordinates for start locations |
+| `setr ox:printlevel:dps-trains debug` | verbose lifecycle logging |
+
+`handle=nil` means ghost, a number means materialised. Positions are given as
+**node indices** in `configs/freight.lua`, not coordinates — `CTrain` derives
+`currentCoords` from the node, so spacing is exact rather than eyeballed off a
+map.
+
+## Related resources
+
+| | |
+|---|---|
+| `dps-trains-stock` | rolling stock, consists, station builds, `TRAINCONFIGS_FILE` |
+| `dps-traintools` | boarding, seating, ambient riders, `/traindoors` |
+| `dps-transitapp` | Los Santos Transit — live arrivals on the lb-phone |

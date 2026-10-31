@@ -1,0 +1,90 @@
+<?xml version = "1.0" encoding = "UTF-8"?>
+
+<!-- ********************************************************************************************************************** 
+	NOTE AND WARNING
+	If you do not know how this file works, just close it and leave it alone. One wrong line and you will crash the trains 
+	script. I do not support crashes of your script if you make changes so change it at your own risk. 
+*************************************************************************************************************************** -->
+
+
+<train_configs version = "1">
+
+<!-- PASSENGER CONSISTS -->
+	<train_config name = "passenger_config01" populate_train_dist = "40.0" announce_stations = "false" doors_beep = "false" carriages_hang = "false" carriages_swing = "false" link_tracks_with_adjacent_stations = "false" no_random_spawn = "false" carriage_gap = "-0.2">
+		<!-- Axsellya Express: blue throughout. -->
+		<carriage model_name = "streakcoaster" max_peds_per_carriage = "0" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.64" repeat_count = "1" />
+		<carriage model_name = "streakc" max_peds_per_carriage = "7" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.76" repeat_count = "2" />
+		<carriage model_name = "streakcab" max_peds_per_carriage = "0" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.76" repeat_count = "1" />
+	</train_config>
+
+	<train_config name = "passenger_config02" populate_train_dist = "40.0" announce_stations = "false" doors_beep = "false" carriages_hang = "false" carriages_swing = "false" link_tracks_with_adjacent_stations = "false" no_random_spawn = "false" carriage_gap = "-0.2">
+		<!-- Brown Streak: brown engine, brown carriages. streakcoastercab is the
+		     brown coach - use it for every carriage. streakc and
+		     streakcoasterc are both blue, whatever the names imply. -->
+		<carriage model_name = "streak" max_peds_per_carriage = "0" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.65" repeat_count = "1" />
+		<carriage model_name = "streakcoastercab" max_peds_per_carriage = "7" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.76" repeat_count = "3" />
+	</train_config>
+
+<!-- FREIGHT CONSISTS	 -->
+	<train_config name = "freight_config01" populate_train_dist = "40.0" announce_stations = "false" doors_beep = "false" carriages_hang = "false" carriages_swing = "false" link_tracks_with_adjacent_stations = "false" no_random_spawn = "false" carriage_gap = "-0.2">
+		<!-- Unused - the mainline runs the two passenger consists only. -->
+		<carriage model_name = "sd70mac" max_peds_per_carriage = "0" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.65" repeat_count = "1" />
+		<carriage model_name = "freightflat" max_peds_per_carriage = "0" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.55" repeat_count = "2" />
+		<carriage model_name = "freightcaboose" max_peds_per_carriage = "0" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.65" repeat_count = "1" />
+	</train_config>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- METRO/SUBWAY CONSISTS -->
+	<train_config name = "metro_config01" populate_train_dist = "40.0" announce_stations = "true" doors_beep = "true" carriages_hang = "false" carriages_swing = "false" link_tracks_with_adjacent_stations = "true" carriage_gap = "-0.5">
+		<!-- DPS 2026-09-21: single car. The second (flipped) metrotrain was the
+		     car that slammed into the first at the LS end of the Roxwood shuttle,
+		     throwing riders out. One car has nothing to collide with, and a
+		     metrotrain is double-ended so it still looks right running back.
+		     Restore the second <carriage> line below to go back to a two-car set. -->
+		<carriage 	model_name = "metrotrain" 	max_peds_per_carriage = "4" 	flip_model_dir = "false" 	do_interior_lights = "true" 	carriage_vert_offset = "0.4" repeat_count = "1" />
+	</train_config>
+
+
+<!-- ROXWOOD REGIONAL PASSENGER -->
+	<train_config name = "rox_passenger_config01" populate_train_dist = "40.0" announce_stations = "false" doors_beep = "false" carriages_hang = "false" carriages_swing = "false" link_tracks_with_adjacent_stations = "true" carriage_gap = "0.1">
+		<!-- Roxwood's own passenger set (amb_statrac_config_1 in amb-roxwood-trains), same carriage order and offsets.
+		     The models are escrowed and stream from amb-roxwood-trains; this only references them by name.
+		     Added 2026-09-15 for the regional passenger service (mainline track 0). Game variation 32 (vanilla 0-27, then 28-31 above). -->
+		<carriage model_name = "amb_statrac_loc" max_peds_per_carriage = "0" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.65" repeat_count = "1" />
+		<carriage model_name = "streakc" max_peds_per_carriage = "7" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.76" repeat_count = "3" />
+		<carriage model_name = "streakc" max_peds_per_carriage = "7" flip_model_dir = "false" do_interior_lights = "true" carriage_vert_offset = "1.76" repeat_count = "1" />  <!-- FBRP: was streakcab, which has no seats (max_peds 0); boarding it put players on the roof -->
+	</train_config>
+
+
+<!-- These are all the train engines and cars avilable to use. You should copy and paste from this template into your consists to get the parameters correct because each has its own parameters. -->
+<!--
+-->
+
+		
+	<train_config_group name = "passenger_group">
+		<train_config_ref name = "passenger_config01" />
+		<train_config_ref name = "passenger_config02" />
+	</train_config_group>
+	
+	<train_config_group name = "freight_group">
+		<train_config_ref name = "freight_config01" />
+	</train_config_group>
+	
+	<train_config_group name = "metro_group">
+		<train_config_ref name = "metro_config01" />
+	</train_config_group>
+	
+</train_configs>

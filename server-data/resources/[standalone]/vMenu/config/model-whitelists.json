@@ -8,16 +8,31 @@
   //
   // Copy those entries to your permissions.cfg to start configuring them
   // for the groups that you want.
-  "whitelistedvehicle": [
-    "whitelistedvehiclename1",
-    "whitelistedvehiclename2"
-  ],
-  "whitelistedpeds": [
-    "whitelistedpedname1",
-    "whitelistedpedname2"
-  ],
+  "whitelistedvehicle": [],
+  "whitelistedpeds": [],
   "whitelistedweapons": [
-    "whitelistedweaponname1",
-    "whitelistedweaponname2"
+    "weapon_mp9a",
+    "weapon_fbiarb",
+    "weapon_hk416b",
+    "weapon_mm4",
+    "weapon_m700",
+    "weapon_ghostarp",
+    "weapon_ghostglock",
+    "weapon_tacticalcarbine",
+    "weapon_m249acog",
+    "weapon_m249iron",
+    "weapon_m249red",
+    "weapon_saw",
+    "weapon_sawacog",
+    "weapon_sawred",
+    "weapon_m4m203a",
+    "weapon_m4m203r",
+    "weapon_m4m203",
+    "weapon_m4acog",
+    "weapon_m4iron",
+    "weapon_m4reddot",
+    "weapon_urgi",
+    "weapon_mcxspear",
+    "weapon_xm7"
   ]
 }

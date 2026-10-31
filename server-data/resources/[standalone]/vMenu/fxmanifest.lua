@@ -23,5 +23,9 @@ files {
     'config/*.json'
 }
 
+-- Florida Bay RP build: v3.8.68 + patches/vmenu-3.8.68-fbrp (ox_lib notifications, x128 multiplier cap,
+-- share codes for saved MP characters). Rebuild with scripts/build-vmenu-fbrp.sh.
+dependency 'ox_lib'
+
 client_script 'vMenuClient.net.dll'
 server_script 'vMenuServer.net.dll'

@@ -1,35 +1,29 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Florida Bay Chat</title>
-  <link rel="stylesheet" href="styles.css">
+<meta charset="utf-8">
+<title>Florida Bay chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main id="chat" class="chat-shell" aria-label="Florida Bay chat">
-    <header class="chat-header">
-      <div class="brand"><span class="brand-mark">FB</span><span class="brand-name">Florida Bay</span></div>
-      <nav id="filters" class="filters" aria-label="Channel filters">
-        <button type="button" data-filter="all" class="active">All</button>
-        <button type="button" data-filter="ooc">OOC</button>
-        <button type="button" data-filter="do">Do</button>
-        <button type="button" data-filter="gme">GME</button>
-        <button type="button" data-filter="social">Social</button>
-        <button type="button" data-filter="system">System</button>
-      </nav>
-      <span class="range"><i></i>20m</span>
-    </header>
-    <section id="messages" class="transcript" aria-live="polite"></section>
-    <section id="suggestions" class="suggestions" aria-label="Command suggestions"></section>
-    <form id="composer" class="composer" autocomplete="off">
-      <span id="mode" class="mode" data-mode="say">SAY</span>
-      <input id="input" maxlength="300" placeholder="Say something nearby, or type / for commands" aria-label="Chat message">
-      <span id="counter" class="counter"></span>
-      <button type="submit" aria-label="Send">&#10148;</button>
-    </form>
-    <footer class="chat-footer"><span><kbd>&uarr;</kbd><kbd>&darr;</kbd> history</span><span><kbd>Tab</kbd> complete</span><span><kbd>Esc</kbd> close</span></footer>
-  </main>
-  <script src="app.js"></script>
+<div id="chat" class="faded">
+  <div id="chatFx" class="chat-fx" aria-hidden="true"></div>
+  <div id="messages"></div>
+  <div id="inputWrap" class="hidden">
+    <div id="suggest"></div>
+    <div class="input">
+      <span class="deco season-ic" aria-hidden="true"></span>
+      <span class="slash">›</span>
+      <span class="lead season-ic" aria-hidden="true"></span>
+      <input id="input" maxlength="300" autocomplete="off" spellcheck="false" placeholder="Say something or type / for commands">
+      <span class="hint">ENTER</span>
+      <span class="send" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+    </div>
+  </div>
+</div>
+<script src="seasons.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

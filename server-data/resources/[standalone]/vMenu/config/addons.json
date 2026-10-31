@@ -1,12 +1,6 @@
 {
-  "vehicles": [
-    "addonvehiclename1",
-    "addonvehiclename2"
-  ],
-  "peds": [
-    "addonpedname1",
-    "addonpedname2"
-  ],
+  "vehicles": [],
+  "peds": [],
   "extra_blendable_faces": [],
   "weapons": [
     "weapon_mp9a",

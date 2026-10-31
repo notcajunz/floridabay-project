@@ -359,7 +359,6 @@
           <weight value="0" />
           <type>VMT_HORN</type>
         </Item>
-		<!-- PREVIEW HORN - FOR MOD SHOP USE ONLY -->
 		<Item>
           <identifier>LUXORY_HORN_1</identifier>
           <modifier value="676333254" />
@@ -367,7 +366,6 @@
           <weight value="0" />
           <type>VMT_HORN</type>
         </Item>
-		<!-- PREVIEW HORN - FOR MOD SHOP USE ONLY -->
 		<Item>
           <identifier>LUXURY_HORN_2</identifier>
           <modifier value="2099578296" />
@@ -375,7 +373,6 @@
           <weight value="0" />
           <type>VMT_HORN</type>
         </Item>
-		<!-- PREVIEW HORN - FOR MOD SHOP USE ONLY -->
 		<Item>
           <identifier>LUXURY_HORN_3</identifier>
           <modifier value="1373384483" />
@@ -390,7 +387,6 @@
           <weight value="0" />
           <type>VMT_HORN</type>
         </Item>
-		<!-- PREVIEW HORN - FOR MOD SHOP USE ONLY -->
 		<Item>
           <identifier>ORGAN_HORN_LOOP_01_PREVIEW</identifier>
           <modifier value="3714706952" />
@@ -405,7 +401,6 @@
           <weight value="0" />
           <type>VMT_HORN</type>
         </Item>
-		<!-- PREVIEW HORN - FOR MOD SHOP USE ONLY -->
 		<Item>
           <identifier>ORGAN_HORN_LOOP_02_PREVIEW</identifier>
           <modifier value="3206770359" />
@@ -420,7 +415,6 @@
           <weight value="0" />
           <type>VMT_HORN</type>
         </Item>
-		<!-- PREVIEW HORN - FOR MOD SHOP USE ONLY -->
 		<Item>
           <identifier>LOWRIDER_HORN_1_PREVIEW</identifier>
           <modifier value="2965568987" />
@@ -435,7 +429,6 @@
           <weight value="0" />
           <type>VMT_HORN</type>
         </Item>
-		<!-- PREVIEW HORN - FOR MOD SHOP USE ONLY -->
 		<Item>
           <identifier>LOWRIDER_HORN_2_PREVIEW</identifier>
           <modifier value="965054819" />

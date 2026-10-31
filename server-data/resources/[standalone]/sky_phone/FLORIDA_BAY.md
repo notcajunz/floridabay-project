@@ -27,7 +27,7 @@ ID cards and the MDT phone lookup show the real number.
 ## Changed files
 
 - `source/bridge/server/framework.lua`, `source/bridge/client/framework.lua`:
-  accept the `fbrp` framework (notifications use `fbrp:notify`; dead/cuffed
+  accept the `fbrp` framework (notifications use `ox_lib:notify`; dead/cuffed
   status comes from `fbrp:downed` and `fbrp:restrained`).
 - `source/bridge/server/frameworks/fbrp.lua` (new): identifiers, character
   names, duty organization as the phone job, character-switch handling.

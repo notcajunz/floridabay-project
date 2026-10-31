@@ -150,7 +150,7 @@ function Bridge.Framework.Notify(title, message, notification_type, duration)
         local tone = notification_type == "error" and "error" or notification_type == "success" and "success" or "info"
         local text = tostring(message or "")
         if title and title ~= "" then text = ("%s: %s"):format(tostring(title), text) end
-        TriggerEvent("fbrp:notify", text, tone)
+        TriggerEvent('ox_lib:notify', { description = text, type = tone })
         return
     end
 

@@ -90,21 +90,21 @@ export default {
 
 <style>
 .voiceInfo {
-	font-family: Avenir, Helvetica, Arial, sans-serif;
+	font-family: "Segoe UI", Arial, sans-serif;
 	position: fixed;
 	text-align: right;
-	bottom: 5px;
+	bottom: 7px;
 	padding: 0;
-	right: 5px;
-	font-size: 12px;
-	font-weight: bold;
-	color: rgb(148, 150, 151);
-	/* https://stackoverflow.com/questions/4772906/css-is-it-possible-to-add-a-black-outline-around-each-character-in-text */
-	text-shadow: 1.25px 0 0 #000, 0 -1.25px 0 #000, 0 1.25px 0 #000,
-		-1.25px 0 0 #000;
+	right: 8px;
+	font-size: 10px;
+	line-height: 1.35;
+	font-weight: 600;
+	color: rgba(210, 218, 223, .66);
+	background: transparent;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, .9);
 }
 .talking {
-	color: rgba(255, 255, 255, 0.822);
+	color: rgba(255, 255, 255, .92);
 }
 p {
 	margin: 0;

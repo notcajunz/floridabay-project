@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  body { background: #0e111a; color: #e8ecf1; height: 100vh; overflow-y: auto; }
+  header { padding: 42px 18px 10px; background: linear-gradient(180deg, #161b2b, #0e111a); position: sticky; top: 0; }
+  header h1 { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
+  header p { font-size: 11px; color: #7d8a9a; margin-top: 2px; }
+  .station { margin: 10px 12px; background: #141826; border-radius: 14px; overflow: hidden; }
+  .station-head { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px 6px; }
+  .station-head .name { font-size: 15px; font-weight: 650; }
+  .station-head .dist { font-size: 11px; color: #7d8a9a; }
+  .metro-tag { font-size: 9px; background: #1d3d5c; color: #7fc0ff; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; }
+  .regional-tag { background: #1d4a2c; color: #7fe0a0; }
+  .row { display: flex; align-items: center; padding: 7px 14px; border-top: 1px solid #1a2033; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; margin-right: 9px; flex: none; }
+  .train { font-size: 13px; flex: 1; }
+  .status { font-size: 10px; color: #7d8a9a; margin-right: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .status.boarding { color: #3ad06a; }
+  .status.delayed { color: #f08a3c; }
+  .eta { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
+  .empty { padding: 10px 14px; font-size: 12px; color: #55606d; border-top: 1px solid #1a2033; }
+  footer { text-align: center; font-size: 10px; color: #4a5560; padding: 14px 0 24px; }
+.logo{display:block;margin:0 auto .35rem;height:88px;width:auto;max-width:90%;background:#f4f1ea;border-radius:12px;padding:8px 12px} /* DPS 2026-10-10: cream backing, the black logo was lost on navy */
+.mark{flex:0 0 auto;margin-right:.35rem;vertical-align:middle}
+</style>
+</head>
+<body>
+<header><img src="dps-logo.svg" alt="DelPerroSands" style="display:block;height:64px;width:auto;max-width:90%;margin:0 auto .5rem"><!-- DPS 2026-10-11 (Damon): our logo only; LS Transit logo removed --><p>Live arrivals</p><!-- DPS 2026-10-10: styled name text removed; the logo above carries the brand --></header>
+<div id="list"></div>
+<footer><img src="dps-logo.svg" alt="DelPerroSands" style="height:16px;width:auto;vertical-align:middle;margin-right:6px">Transit Authority</footer><!-- DPS 2026-10-10: house logo replaces "DPS" text -->
+<script>
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) {
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+function fmtEta(s) {
+  if (typeof s !== 'number' || isNaN(s)) return '--';
+  if (s < 45) return 'Due';
+  return Math.round(s / 60) + ' min';
+}
+function fmtDist(d) {
+  if (typeof d !== 'number' || d < 0 || isNaN(d)) return '';
+  return d < 1500 ? d + 'm' : (d / 1000).toFixed(1) + 'km';
+}
+// only allow simple hex / rgb() colors from the server into the style attribute
+function safeColor(c) {
+  return (typeof c === 'string' && /^(#[0-9a-fA-F]{3,8}|rgb\([\d,\s.]+\)|rgba\([\d,\s.]+\))$/.test(c)) ? c : '#888';
+}
+
+function serviceIcon(name, color) {
+  const c = safeColor(color);
+  name = ({ 'Light Rail': 'Metro', 'Regional Train': 'Axsellya Express' })[name] || name;
+  const marks = {
+    'Axsellya Express': '<path d="M2 12h9l4-5 3 5-3 5-4-5H2z" fill="' + c + '"/>',
+    'Brown Streak': '<path d="M2 9h20l-3 3H5z" fill="' + c + '"/><path d="M5 14h14l-3 3H2z" fill="' + c + '" opacity=".7"/>',
+    'Freight':      '<rect x="2" y="7" width="13" height="8" rx="1" fill="' + c + '"/>' +
+                    '<circle cx="6" cy="17" r="1.6" fill="' + c + '"/><circle cx="12" cy="17" r="1.6" fill="' + c + '"/>' +
+                    '<path d="M17 9h5v6h-5z" fill="' + c + '" opacity=".6"/>',
+    'Metro':        '<circle cx="12" cy="12" r="9" fill="none" stroke="' + c + '" stroke-width="2.5"/>' +
+                    '<path d="M7 16V8l5 5 5-5v8" fill="none" stroke="' + c + '" stroke-width="2"/>'
+  };
+  return '<svg class="mark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+         (marks[name] || marks['Freight']) + '</svg>';
+}
+
+async function refresh() {
+  try {
+    // NOTE: do NOT use GetParentResourceName() here. Inside an lb-phone custom app
+    // the UI runs in lb-phone's frame, so it resolves to 'lb-phone' and the request
+    // never reaches this resource - which is why the board was always empty.
+    const res = await fetch('https://dps-transitapp/getBoard', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+    });
+    const board = await res.json();
+    const el = document.getElementById('list');
+    el.innerHTML = '';
+    for (const st of board) {
+      const div = document.createElement('div');
+      div.className = 'station';
+      const metroTag = st.track === 0 ? '<span class="metro-tag regional-tag">REGIONAL</span>' : '<span class="metro-tag">LIGHT RAIL</span>';
+      // One line per station: the NEXT train only, what type it is, and when.
+      // The board used to list three arrivals per stop, which read as a wall of
+      // numbers. A departure board answers one question - what is coming next.
+      const arr = st.arrivals || [];
+      let rows;
+      if (!arr.length) {
+        rows = '<div class="empty">No service</div>';
+      } else {
+        const a = arr[0];
+        let status = a.status || 'en route';
+        // A running service reports how many calls it still has to make before
+        // it gets here. "en route" is true of every moving train and tells a
+        // waiting player nothing; station names were ambiguous because the line
+        // passes Downtown and Quarry twice. 'boarding' and 'delayed' are left
+        // alone - they say something a stop count does not.
+        if (status === 'en route' && typeof a.stopsAway === 'number') {
+          status = a.stopsAway === 0 ? 'next stop'
+                 : a.stopsAway === 1 ? '1 stop away'
+                 : a.stopsAway + ' stops away';
+        }
+        const statusClass = (a.status || 'en route').replace(/[^a-z]/gi, '');
+        rows = `<div class="row">${serviceIcon(a.train, a.color)}` +
+          `<span class="train">${esc(a.train)}</span>` +
+          `<span class="status ${statusClass}">${esc(status)}</span>` +
+          `<span class="eta">${fmtEta(a.eta)}</span></div>`;
+      }
+      div.innerHTML = `<div class="station-head"><span class="name">${esc(st.station)}${metroTag}</span>` +
+        `<span class="dist">${fmtDist(st.dist)}</span></div>` + rows;
+      el.appendChild(div);
+    }
+  } catch (e) {
+    console.error('[dps-transit] refresh failed:', e);
+  }
+}
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

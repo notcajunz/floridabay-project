@@ -1,0 +1,43 @@
+Version 165 30
+{
+	DataCRC 2620056669
+	NumBones 4
+	Bone Prop_FncLog_03a 0
+	{
+		MirrorBoneId 0
+		Flags ROT_X ROT_Y ROT_Z TRANS_X TRANS_Y TRANS_Z
+		RotationQuaternion 0.00000000 0.00000000 0.00000000 1.00000000
+		LocalOffset 0.00000000 0.00000000 0.00000000
+		Scale 1.00000000 1.00000000 1.00000000
+		Children 2
+		{
+			Bone FncLog_03a_chunk1 59622
+			{
+				MirrorBoneId 59622
+				Flags ROT_X ROT_Y ROT_Z
+				RotationQuaternion 0.00000000 0.00000000 0.00000000 1.00000000
+				LocalOffset 0.00000000 0.00000000 0.00000000
+				Scale 1.00000000 1.00000000 1.00000000
+			}
+			Bone fnclog3_root2 42407
+			{
+				MirrorBoneId 42407
+				Flags ROT_X ROT_Y ROT_Z
+				RotationQuaternion 0.00000000 0.00000000 0.00000000 1.00000000
+				LocalOffset 2.72256100 0.00667600 -0.13377700
+				Scale 1.00000000 1.00000000 1.00000000
+				Children 1
+				{
+					Bone fnclog3_chunk2 40609
+					{
+						MirrorBoneId 40609
+						Flags ROT_X ROT_Y ROT_Z
+						RotationQuaternion 0.00000000 0.00000000 0.00000000 1.00000000
+						LocalOffset -0.01935200 0.00577500 0.45298100
+						Scale 1.00000000 1.00000000 1.00000000
+					}
+				}
+			}
+		}
+	}
+}
