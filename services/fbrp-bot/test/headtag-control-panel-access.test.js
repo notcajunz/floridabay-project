@@ -20,7 +20,7 @@ test("existing full, Co-Owner, and personals restrictions remain intact", () => 
 
 test("scoped control-panel UI opens the first resource actually returned by the server", async () => {
   const source = await readFile(new URL("../web/app.js", import.meta.url), "utf8");
-  assert.match(source, /firstScopedView = state\.data\.capabilities\?\.organizationSetup \? "orgsetup"/);
+  assert.match(source, /firstScopedView = state\.data\.resources\[0\]/);
   assert.doesNotMatch(source, /state\.view = "resource:organizations"/);
 });
 

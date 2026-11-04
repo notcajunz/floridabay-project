@@ -116,13 +116,30 @@ local function build()
         return table.concat(out)
     end
 
+    -- Admin features and the unlimited multipliers are tier-gated at runtime (config_vmenu_tiers.lua), so the
+    -- sheet shows a rank as holding them only when its tier does.
+    local floors = {}
+    for _, rank in ipairs(ranks) do
+        for tier, groupName in pairs(FBRP.VmenuTierGroups) do
+            if rank.id == groupName then floors[tier] = tonumber(rank.rank_order) end
+        end
+    end
+    local rankTiers = {}
+    for index, rank in ipairs(ranks) do
+        local order = tonumber(rank.rank_order) or 0
+        rankTiers[index] = 'standard'
+        if floors.coowner and order >= floors.coowner then rankTiers[index] = 'coowner'
+        elseif floors.director and order >= floors.director then rankTiers[index] = 'director'
+        elseif floors.senior and order >= floors.senior then rankTiers[index] = 'senior' end
+    end
+
     local function vmenuCells(target)
         local out = { IsPrincipalAceAllowed(EVERYONE, target) and '1' or '0' }
         for index = 1, #roles do
-            out[#out + 1] = legacyVmenuAllows(roleEntries[index], target) and '1' or '0'
+            out[#out + 1] = (legacyVmenuAllows(roleEntries[index], target) and FBRP.VmenuTierAllows('standard', target)) and '1' or '0'
         end
         for index = 1, #ranks do
-            out[#out + 1] = legacyVmenuAllows(effective[index], target) and '1' or '0'
+            out[#out + 1] = (legacyVmenuAllows(effective[index], target) and FBRP.VmenuTierAllows(rankTiers[index], target)) and '1' or '0'
         end
         return table.concat(out)
     end

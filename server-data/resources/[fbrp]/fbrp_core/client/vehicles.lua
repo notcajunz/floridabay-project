@@ -125,19 +125,12 @@ local function spawnFromGarage(categoryId,model)
     TriggerServerEvent('fbrp:vehicles:spawn',tostring(categoryId),tostring(model))
 end
 
--- other resources can ask for a garage spawn by event; the cooldown and server checks stay here
-AddEventHandler('fbrp:garage:spawn',function(categoryId,model)
-    if categoryId and model then spawnFromGarage(categoryId,model) end
-end)
-
 RegisterNetEvent('fbrp:vehicles:data',function(categories)
     categories=type(categories)=='table' and categories or {}
     if #categories==0 then
         return lib.notify({ description = 'You have no personal vehicles. Base-game vehicles are spawned from the vMenu Vehicle Spawner.', type = 'info' })
     end
 
-    -- ox_lib list menu (top-left): one page per category, the Personal page first.
-    -- The RageUI garage in fbrp_tags is no longer used for this.
     local rootOptions={}
     local shown
     for _,category in ipairs(categories) do
@@ -219,10 +212,6 @@ RegisterNetEvent('fbrp:vehicles:approved',function(model,label,style)
     initialiseFuel(vehicle,true)
     TaskWarpPedIntoVehicle(ped,vehicle,-1)
     SetModelAsNoLongerNeeded(hash)
-    -- the server deletes the garage car they had out before this one
-    if NetworkGetEntityIsNetworked(vehicle) then
-        TriggerServerEvent('fbrp:vehicles:garageSpawned',NetworkGetNetworkIdFromEntity(vehicle))
-    end
     -- Personal vehicles are tagged so every client and the server know who may drive them.
     local personal=type(style)=='table' and tonumber(style.personal) or nil
     if personal then

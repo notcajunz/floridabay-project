@@ -3,15 +3,17 @@ import { logEmbed } from "./ui.js";
 
 /**
  * Mirrors every log entry into one Discord category. Entries are grouped into a handful of text
- * channels (commands, staff, game, organizations, system and in-game kills). Existing purpose-bound
- * channels are reused so the main Discord has one destination for each kind of activity. The footer
- * of each embed keeps the exact action name, so grouping loses no detail.
+ * channels (commands, staff, game, organizations, system and in-game kills), created on first use,
+ * and everything is also copied into #all-activity so nothing depends on a single channel existing.
+ * The footer of each embed keeps the exact action name, so grouping loses no detail.
  */
+export const ALL_KEY = "all-activity";
 export const AUDIT_CATEGORY_ID = process.env.FBRP_AUDIT_CATEGORY_ID || "1559447048552587274";
 
 // The same look as the other log channels: an emoji, a box-drawing bar, then a hyphenated name ending in -logs.
 export const KILL_KEY = "kill-logs";
 export const LOG_GROUPS = {
+  [ALL_KEY]: { emoji: "📜", name: "all-activity-logs" },
   [KILL_KEY]: { emoji: "💀", name: "kill-logs" },
   "command-logs": { emoji: "⌨️", name: "command-logs" },
   "staff-logs": { emoji: "🛡️", name: "staff-logs" },
@@ -45,15 +47,6 @@ export function channelName(key) {
   return `${group.emoji}│${group.name}`.slice(0, 95);
 }
 
-export function isAuditMirrorChannel(channel, key, parentId) {
-  const group = groupOf(key);
-  return Boolean(
-    channel?.isTextBased?.()
-    && channel.parentId === parentId
-    && (channel.name === channelName(group) || channel.topic === `Automatic audit mirror: ${group}`)
-  );
-}
-
 // Mirror keys that mean the same thing as a purpose that already has its own log channel.
 const PURPOSE_ALIAS = {
   "audit-verify": "verification", "audit-verification": "verification",
@@ -61,19 +54,6 @@ const PURPOSE_ALIAS = {
   "audit-staff": "staff_duty",
 };
 export const purposeOf = (key) => PURPOSE_ALIAS[key] || (String(key).startsWith("log-") ? String(key).slice(4) : null);
-
-/** Older purpose-specific feeds that now share a canonical main-server log channel. */
-export const PURPOSE_CONSOLIDATION = Object.freeze({
-  unbans: "moderation",
-  role_sync: "organizations",
-});
-export const destinationPurpose = (purpose) => PURPOSE_CONSOLIDATION[purpose] || purpose;
-
-const GROUP_PURPOSE = Object.freeze({
-  "staff-logs": "moderation",
-  "game-logs": "game",
-  "organization-logs": "organizations",
-});
 
 /** Which mirror channel an audit_log action belongs to. */
 export function keyForAction(action) {
@@ -117,31 +97,13 @@ export function createAuditMirror({ client, db }) {
 
   // A kind that already has a log channel inside the category uses it instead of making a twin.
   async function existingFor(key) {
-    const purpose = destinationPurpose(purposeOf(key) || GROUP_PURPOSE[groupOf(key)]);
+    const purpose = purposeOf(key);
     if (!purpose) return null;
     const parent = await categoryChannel();
     if (!parent) return null;
     const row = await db.one("SELECT channel_id FROM discord_channel_bindings WHERE purpose=?", [purpose]).catch(() => null);
     const found = row ? await client.channels.fetch(String(row.channel_id)).catch(() => null) : null;
     return found?.isTextBased() && found.parentId === parent.id ? found : null;
-  }
-
-  // The database is a routing cache, not the source of truth. Adopt a channel that Discord already
-  // has before creating one, so a lost/stale row or a prior failed INSERT cannot duplicate channels
-  // every time the bot starts.
-  async function discoverExisting(key) {
-    const parent = await categoryChannel();
-    if (!parent) return null;
-    const channels = await parent.guild.channels.fetch().catch(() => parent.guild.channels.cache);
-    return channels?.find((channel) => isAuditMirrorChannel(channel, key, parent.id)) || null;
-  }
-
-  async function remember(key, channel) {
-    ids.set(key, channel.id);
-    await db.query(
-      "INSERT INTO audit_mirror_channels(channel_key,guild_id,channel_id,created_at) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE guild_id=VALUES(guild_id),channel_id=VALUES(channel_id)",
-      [key, channel.guildId, channel.id, Date.now()],
-    ).catch((error) => warn(`could not save #${channel.name}: ${error.message || error}`));
   }
 
   async function resolve(rawKey) {
@@ -166,11 +128,6 @@ export function createAuditMirror({ client, db }) {
     const made = (async () => {
       const parent = await categoryChannel();
       if (!parent) return null;
-      const discovered = await discoverExisting(key);
-      if (discovered) {
-        await remember(key, discovered);
-        return discovered;
-      }
       const created = await parent.guild.channels.create({
         name: channelName(key),
         type: ChannelType.GuildText,
@@ -182,7 +139,11 @@ export function createAuditMirror({ client, db }) {
         return null;
       });
       if (!created) return null;
-      await remember(key, created);
+      ids.set(key, created.id);
+      await db.query(
+        "INSERT INTO audit_mirror_channels(channel_key,guild_id,channel_id,created_at) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE guild_id=VALUES(guild_id),channel_id=VALUES(channel_id)",
+        [key, created.guildId, created.id, Date.now()],
+      ).catch(() => {});
       return created;
     })().finally(() => creating.delete(key));
     creating.set(key, made);
@@ -198,13 +159,15 @@ export function createAuditMirror({ client, db }) {
   }
 
   /**
-   * Copies one entry into its consolidated channel. Posts are chained so a burst keeps its order
-   * and Discord's rate limits are never raced. `skipIds` are channels that already got the entry.
+   * Copies one entry into its channel and into #all-activity. Posts are chained so a burst keeps
+   * its order and Discord's rate limits are never raced. `skipIds` are channels that already got
+   * the entry (the original log destination).
    */
   function post(key, embed, skipIds = null) {
     // Wait for the startup cleanup so a full category never blocks the grouped channels.
     chain = chain.then(() => tidied).then(async () => {
       await send(key, embed, skipIds);
+      if (key !== ALL_KEY) await send(ALL_KEY, embed, skipIds);
     }).catch(() => {});
     return chain;
   }
@@ -216,8 +179,9 @@ export function createAuditMirror({ client, db }) {
   }
 
   // Gives every channel the bot made the shared naming, without waiting for traffic. Channels the
-  // mirror made for a single kind of entry (or superseded by a purpose-bound channel) is retired
-  // from the routing table. Its Discord history is deliberately left intact for archival.
+  // mirror made for a single kind of entry (from before entries were grouped) are deleted; their
+  // entries now live in a grouped channel and in #all-activity. Only channels listed in
+  // audit_mirror_channels, inside the audit category and marked as automatic mirrors are touched.
   function tidy() {
     tidied ??= runTidy().catch((error) => console.error("[FBRP audit mirror] tidy:", error.message || error));
     return tidied;
@@ -227,8 +191,15 @@ export function createAuditMirror({ client, db }) {
     await load();
     for (const [key, id] of [...ids]) {
       const channel = await client.channels.fetch(id).catch(() => null);
-      const replacement = await existingFor(key);
-      if (groupOf(key) !== key || (replacement && replacement.id !== id)) {
+      if (groupOf(key) !== key) {
+        const automatic = channel && channel.parentId === AUDIT_CATEGORY_ID && String(channel.topic || "").startsWith("Automatic audit mirror");
+        if (automatic) {
+          const removed = await channel.delete("FBRP audit mirror: entries are grouped into fewer channels").then(() => true, (error) => {
+            console.error(`[FBRP audit mirror] delete ${key}:`, error.message || error);
+            return false;
+          });
+          if (!removed) continue;
+        }
         ids.delete(key);
         await db.query("DELETE FROM audit_mirror_channels WHERE channel_key=?", [key]).catch(() => {});
         continue;

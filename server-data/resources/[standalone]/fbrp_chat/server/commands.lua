@@ -33,18 +33,6 @@ end, false)
 
 local twitterHandles = {}
 
--- ox_lib popup when an ad / social post goes out (center-right, see Config.Notify)
-local function adAlert(kind, author, text)
-    if not Config.Notify.ads then return end
-    local look = Config.NotifyKinds[kind] or {}
-    Chat.Alert(-1, {
-        title = look.title or 'Advertisement',
-        description = ('%s: %s'):format(author, text),
-        icon = look.icon, iconColor = look.iconColor,
-        duration = Config.Notify.adDuration,
-    })
-end
-
 local function post(command, kind, title, opts)
     opts = opts or {}
     RegisterCommand(command, function(src, args)
@@ -60,10 +48,8 @@ local function post(command, kind, title, opts)
                 if Chat.IsStaffOnDuty(id) then author = ('%s [%s]'):format(author, Chat.DisplayName(src)) end
                 Chat.Send(id, { kind = kind, author = author, text = text })
             end
-            adAlert(kind, title(src), text)  -- popup stays anonymous for everyone
         else
             Chat.Send(-1, { kind = kind, author = title(src), text = text, badges = Chat.Badges(src), source = src })
-            adAlert(kind, title(src), text)
         end
     end, false)
 end
@@ -198,7 +184,9 @@ RegisterCommand('leoannounce', function(src, args)
     end
     local targets = leoTargets()
     Chat.Send(targets, { kind = 'police', label = 'LEO', author = ('LEO Announcement | %s'):format(officerName(src)), text = text })
-    Chat.Alert(targets, { title = 'On-Duty LEO Announcement', description = text, icon = 'bullhorn', iconColor = '#3B82F6' })
+    for _, id in ipairs(targets) do
+        TriggerClientEvent('ox_lib:notify', id, { title = 'On-Duty LEO Announcement', description = text, type = 'inform', position = 'center-right' })
+    end
 end, false)
 
 RegisterCommand('1099', function(src, args)
@@ -213,7 +201,9 @@ RegisterCommand('1099', function(src, args)
         info ~= '' and (' - %s'):format(info) or '')
     local targets = leoTargets()
     Chat.Send(targets, { kind = 'panic', author = '10-99 PANIC', text = text })
-    Chat.Alert(targets, { title = '10-99 PANIC', description = text, type = 'error', icon = 'triangle-exclamation', iconColor = '#FF4D5E', duration = 15000 })
+    for _, id in ipairs(targets) do
+        TriggerClientEvent('ox_lib:notify', id, { title = '10-99 PANIC', description = text, type = 'error', position = 'center-right', duration = 15000 })
+    end
     -- also fire fbrp_core's dispatch panic
     TriggerClientEvent('fbrp_chat:runCommand', src, 'panic')
 end, false)

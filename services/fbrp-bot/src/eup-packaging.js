@@ -61,17 +61,6 @@ export function classify(rel) {
   return { kind: "other", name, rel: path };
 }
 
-/**
- * True for a dlc name that belongs to the base game's freemode clothing (mp_m_bikerdlc_01, mp_f_heist, ...).
- * A pack that declares one replaces GTA's own drawables at the numbers it uses (kutte and patch packs do this on
- * purpose), so its numbering and file names must be left exactly as the author made them. Not exhaustive:
- * anything with "dlc" in it, or one of the known base game collection names.
- */
-export function isVanillaDlc(dlc) {
-  const name = String(dlc || "").toLowerCase();
-  return /^mp_[mf]_/.test(name) && (/dlc/.test(name) || /^mp_[mf]_(?:heist|hipster|lowrider|vinewood|xmas|christmas|valentines|executive|stunt|gunrunning|smuggler|beach|business|apartment|battle|arena|casino|chopper|assault|specialraces|truckfighter|summer|luxe|imponte|biker|tuner|fixer|bountyhunter)(?:_?\d+)?$/.test(name));
-}
-
 /** Name of a classified file with its ped and dlc (re)assigned, keeping the original case of the rest. */
 export function withPrefix(entry, ped, dlc) {
   const bare = entry.name.includes("^") ? entry.name.slice(entry.name.indexOf("^") + 1) : entry.name;

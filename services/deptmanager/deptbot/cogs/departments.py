@@ -216,12 +216,6 @@ class DepartmentsCog(DeptCog):
             if isinstance(error, sqlite3.IntegrityError):
                 raise unique_org_error(error) from None
             raise
-        link_note = ""
-        if org:
-            try:
-                await self.service.api.link_access_role(str(org["id"]), guild.id, base_role.id)
-            except FbrpApiError as error:
-                link_note = f"\n⚠️ The department was created, but its FBRP duty role could not be linked: {error}"
         await self._place_under_divider(guild, category.value, [base_role, command_role])
         if head:
             self.bot.mark_managed("add", guild.id, head.id, base_role.id)
@@ -232,7 +226,7 @@ class DepartmentsCog(DeptCog):
         await reply(
             interaction,
             f"Created **{name}** with {base_role.mention} and {command_role.mention}."
-            + (link_note if org else " Link its FBRP org with `/dept update org_id:` to track hours."),
+            + ("" if org else " Link its FBRP org with `/dept update org_id:` to track hours."),
         )
 
     async def _guild_link_line(self, interaction: discord.Interaction, name: str, guild_id: int) -> str:
@@ -336,12 +330,6 @@ class DepartmentsCog(DeptCog):
             if isinstance(error, sqlite3.IntegrityError):
                 raise unique_org_error(error) from None
             raise
-        link_note = ""
-        if org:
-            try:
-                await self.service.api.link_access_role(str(org["id"]), guild.id, base_role.id)
-            except FbrpApiError as error:
-                link_note = f"\n⚠️ The department was registered, but its FBRP duty role could not be linked: {error}"
         if created:
             await self._place_under_divider(guild, category.value, created)
         if head:
@@ -360,7 +348,7 @@ class DepartmentsCog(DeptCog):
         roles_text = f"{base_role.mention} / {command_role.mention}"
         if created:
             roles_text += f" (created: {', '.join(role.mention for role in created)})"
-        await reply(interaction, f"Registered **{name}** ({roles_text}).\n{guild_line}\n{sheet_line}{link_note}")
+        await reply(interaction, f"Registered **{name}** ({roles_text}).\n{guild_line}\n{sheet_line}")
 
     @dept.command(name="join", description="Put a member into a department")
     @app_commands.autocomplete(department=department_autocomplete)

@@ -18,14 +18,6 @@ const SKIP_ROOT_DIRS = new Set(["alpine", "backups"]);
 const SKIP_FILE = /^(readme|changelog|changes|license|licence|notice|copying|authors|contributing|security|code_of_conduct|history)(\..*)?$|\.(md|markdown|rst|map|log|pid)$|^(\.ds_store|thumbs\.db|\.gitignore|\.gitattributes|\.gitkeep|\.editorconfig)$/i;
 const TEXT_EXT = new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", ".lua", ".css", ".html", ".htm", ".xml", ".meta", ".sql", ".cfg", ".yml", ".yaml", ".json", ".txt", ".vue", ".jst", ".def", ".rel", ".flow", ".lock", ".example"]);
 
-/**
- * Only files inside a folder with this name (anywhere on the dev server) are ever transferred. Whatever else changed on the dev
- * server is ignored and nothing is treated as deleted. The path inside the folder is only a hint: each item goes where it belongs.
- */
-export const MOVE_IN_FOLDER = "[MOVE_IN_TRANSFER]";
-const MOVE_IN_NAMES = new Set([MOVE_IN_FOLDER, "[MOVE_IN_Next_TRANSFER]"].map((name) => name.toLowerCase()));
-export const inMoveInFolder = (rel) => rel.split("/").slice(0, -1).some((part) => MOVE_IN_NAMES.has(part.toLowerCase()));
-
 export const isTextFile = (name) => TEXT_EXT.has(path.extname(name).toLowerCase());
 
 export function sftpConfig(env = process.env) {
@@ -176,9 +168,8 @@ export async function runTransfer({ id, instructions = "", options = {}, config 
   try {
     log("Listing the dev server");
     const remoteFiles = await listRemote(remote, config.root, { exclude: config.exclude || [], onProgress: (p) => log(`Listed ${p.folders} folders, ${p.files} files`) });
-    for (const rel of [...remoteFiles.keys()]) if (!inMoveInFolder(rel)) remoteFiles.delete(rel);
-    log(`${remoteFiles.size} files in ${MOVE_IN_FOLDER}`);
-    const plan = classify(remoteFiles, baseline, () => true);
+    const exclude = config.exclude || [];
+    const plan = classify(remoteFiles, baseline, (rel) => exclude.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`)));
     const fetchNow = [...plan.added, ...plan.modified];
     const bytes = fetchNow.reduce((sum, rel) => sum + remoteFiles.get(rel), 0);
     if (fetchNow.length > (config.maxFiles ?? LIMITS.files)) throw new Error(`${fetchNow.length} files changed, more than the ${config.maxFiles ?? LIMITS.files} a single transfer may carry. Check that the dev server holds the files you expect.`);
@@ -243,8 +234,7 @@ export function transferNotes(item) {
   const lines = [
     `# Dev-server transfer #${item.id}`,
     "",
-    `The owner pulled the changes from the dev game server and approved them. Only files inside the ${MOVE_IN_FOLDER} folder are transferred.`,
-    "Everything else on the dev server is deliberately ignored. The path inside that folder is only a hint: put each item where it belongs in this repository.",
+    "The owner pulled the changes from the dev game server and approved them. These files differ from the exported baseline.",
     "Live permissions and live database data always win: nothing from the dev server's copy of the database or its permission grants is brought in.",
     "The dev server was exported with all comments stripped from code files, so a modified file in repo/ has no comments:",
     "compare it with the real file in your workspace and apply only the real behaviour changes, keeping the existing comments.",
@@ -273,8 +263,7 @@ Allowed commands: git status/diff/log/show/ls-files, "npm test" and "npm run che
 
 Material (read-only, outside your workspace):
 - ${dir}/SUBMISSION.md   the list of added, modified and deleted files
-- ${dir}/repo/server-data/   the files from the dev server's ${MOVE_IN_FOLDER} folder (the folder name is part of each path). Only these files are being moved in:
-  decide for each one where it belongs in this repository (the path after the folder name is only a hint) and never create a ${MOVE_IN_FOLDER} folder here
+- ${dir}/repo/server-data/   the dev server's version of every added or modified file, at the same paths as server-data/ here
 - ${dir}/deleted.txt   files that were removed on the dev server
 
 Standing rules for every transfer (live production data always wins over anything that came from the dev server):

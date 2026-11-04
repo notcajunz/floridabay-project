@@ -21,18 +21,10 @@ local function authorized()
         and LocalPlayer.state['fbrp:staffNoclip'] == true
 end
 
--- Player names and player blips: Senior Moderator and above while clocked in.
-local function seniorAuthorized()
-    return LocalPlayer.state['fbrp:staffDuty'] == true
-        and LocalPlayer.state['fbrp:staffSenior'] == true
-end
-
 local function apply(force)
     if not rawPermissions then return end
     local allowed = authorized()
-    local senior = seniorAuthorized()
-    local state = tostring(allowed) .. tostring(senior)
-    if not force and applied == state then return end
+    if not force and applied == allowed then return end
     local ok, data = pcall(json.decode, rawPermissions)
     if not ok or type(data) ~= 'table' then return end
     -- Only rewrite keys vMenu serialized itself. Newtonsoft deserializes this JSON into a
@@ -55,11 +47,7 @@ local function apply(force)
         end
     end
     if data.MSRestoreAppearance ~= nil then data.MSRestoreAppearance = false end
-    if not senior then
-        if data.MSOverheadNames ~= nil then data.MSOverheadNames = false end
-        if data.MSPlayerBlips ~= nil then data.MSPlayerBlips = false end
-    end
-    applied = state
+    applied = allowed
     applying = true
     TriggerEvent('vMenu:SetPermissions', json.encode(data))
     applying = false

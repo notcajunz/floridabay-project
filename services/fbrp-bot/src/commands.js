@@ -178,8 +178,7 @@ const headtag = new SlashCommandBuilder()
       .addUserOption((o) =>
         o
           .setName("owner")
-          .setDescription("Member who will own the tag")
-          .setRequired(true),
+          .setDescription("Give this member ownership of the tag immediately"),
       )
       .addRoleOption((o) =>
         o
@@ -699,44 +698,6 @@ const role = new SlashCommandBuilder()
       ),
   );
 
-const temp = new SlashCommandBuilder()
-  .setName("temp")
-  .setDescription("Assistant Community Manager and above: temporary access")
-  .addSubcommand((s) =>
-    s
-      .setName("role")
-      .setDescription("Temporarily give a member a non-ACE-bound role in the main Discord")
-      .addUserOption((o) =>
-        o.setName("member").setDescription("Member receiving the temporary role").setRequired(true),
-      )
-      .addRoleOption((o) =>
-        o.setName("role").setDescription("Non-ACE-bound role to assign").setRequired(true),
-      )
-      .addStringOption((o) =>
-        o.setName("duration").setDescription("How long: 30m, 12h, 7d, or 2w (maximum 30d)").setRequired(true).setMaxLength(8),
-      )
-      .addStringOption((o) =>
-        o.setName("reason").setDescription("Reason recorded in the audit log").setRequired(true).setMaxLength(300),
-      ),
-  );
-
-const invites = new SlashCommandBuilder()
-  .setName("invites")
-  .setDescription("Invite tracker: who brought members into the server")
-  .addSubcommand((s) =>
-    s
-      .setName("stats")
-      .setDescription("Show how many members joined through your invites")
-      .addUserOption((o) => o.setName("member").setDescription("Another member (Assistant Community Manager and above)")),
-  )
-  .addSubcommand((s) => s.setName("leaderboard").setDescription("Top inviters in this server"))
-  .addSubcommand((s) =>
-    s
-      .setName("who")
-      .setDescription("Show who invited a member (Assistant Community Manager and above)")
-      .addUserOption((o) => o.setName("member").setDescription("Member to look up").setRequired(true)),
-  );
-
 const botguard = new SlashCommandBuilder()
   .setName("botguard")
   .setDescription("Network bot admission and anti-nuke controls")
@@ -1030,14 +991,6 @@ const playtime = new SlashCommandBuilder()
   .addUserOption((o) => o.setName("member").setDescription("Member to look up (staff only for others)"))
   .addBooleanOption((o) => o.setName("top").setDescription("Show the top 10 players by playtime"));
 
-const purchases = new SlashCommandBuilder()
-  .setName("purchases")
-  .setDescription("See your Florida Bay store purchases and the Discord roles they give");
-
-const redeem = new SlashCommandBuilder()
-  .setName("redeem")
-  .setDescription("Redeem your store purchases: re-applies any Discord role a purchase should give you");
-
 const caseLookup = new SlashCommandBuilder()
   .setName("case")
   .setDescription("Look up any Florida Bay case ID")
@@ -1228,17 +1181,6 @@ const verification = new SlashCommandBuilder()
       .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true)),
   );
 
-const reverify = new SlashCommandBuilder()
-  .setName("reverify")
-  .setDescription("ACM+: ask a member to reverify for an Internal Affairs investigation")
-  .setDMPermission(false)
-  .addUserOption((o) =>
-    o.setName("user").setDescription("Member who must reverify").setRequired(true),
-  )
-  .addStringOption((o) =>
-    o.setName("reason").setDescription("Investigation reason shown to the member and audit log").setRequired(true).setMaxLength(500),
-  );
-
 const orgbank = new SlashCommandBuilder()
   .setName("orgbank")
   .setDescription("Organization wallets: balances, ledger and management")
@@ -1368,7 +1310,6 @@ export const commands = [
   welcome,
   github,
   verification,
-  reverify,
   backup,
   ace,
   headtag,
@@ -1382,8 +1323,6 @@ export const commands = [
   mod,
   server,
   role,
-  temp,
-  invites,
   protectrole,
   botguard,
   security,
@@ -1397,8 +1336,6 @@ export const commands = [
   acelist,
   userinfo,
   playtime,
-  purchases,
-  redeem,
   caseLookup,
   office,
   join,

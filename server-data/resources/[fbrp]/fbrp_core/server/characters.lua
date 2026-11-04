@@ -197,15 +197,8 @@ RegisterNetEvent('fbrp:characters:select', function(rawId)
     if row.last_x and row.last_y and row.last_z then
         spawns[#spawns+1]={id='last',label='Last Location',description='Continue where this character left off',x=row.last_x,y=row.last_y,z=row.last_z,h=row.last_heading or 0.0}
     end
-    for _, spawn in ipairs(FBRP.SpawnLocations or {}) do
-        local copy={}
-        for k,v in pairs(spawn) do copy[k]=v end
-        spawns[#spawns+1]=copy
-    end
-    -- each spawn says whether the current AOP allows it (allowed / zone / aop) so the selector can show it
-    local aop=tostring(GlobalState['fbrp:aop'] or 'Statewide')
-    FBRP.MarkSpawnsForAop(spawns,aop)
-    TriggerClientEvent('fbrp:characters:spawns',src,{character={id=id,name=name},spawns=spawns,aop=aop})
+    for _, spawn in ipairs(FBRP.SpawnLocations or {}) do spawns[#spawns+1]=spawn end
+    TriggerClientEvent('fbrp:characters:spawns',src,{character={id=id,name=name},spawns=spawns})
     -- Per-character systems (the phone) switch to this character.
     TriggerEvent('fbrp:characterSelected',src,id,{firstName=row.first_name,lastName=row.last_name,dateOfBirth=row.date_of_birth})
     FBRP.DB.audit(discord(src) or license,'character.select',id,{name=name})
@@ -223,44 +216,4 @@ RegisterNetEvent('fbrp:characters:save', function(position, spawnKey)
     })
 end)
 
--- /logout: save where they are, drop the character and send them back to character selection
-local lastLogout = {}
-local LOGOUT_COOLDOWN_MS = 10000
-
-RegisterNetEvent('fbrp:characters:logout', function(position, spawnKey)
-    local src=source
-    local active=selected[src]
-    if not active then return end
-    local stamp=GetGameTimer()
-    if lastLogout[src] and stamp-lastLogout[src] < LOGOUT_COOLDOWN_MS then
-        return TriggerClientEvent('ox_lib:notify', src, { title = 'Logout', description = 'Please wait a few seconds before logging out again.', type = 'error', position = 'center-right' })
-    end
-    local player=Player(src)
-    local state=player and player.state
-    if state and (state['fbrp:restrained'] or state['fbrp:jailed'] or state['fbrp:downed']) then
-        return TriggerClientEvent('ox_lib:notify', src, { title = 'Logout', description = 'You cannot log out while restrained, jailed or downed.', type = 'error', position = 'center-right' })
-    end
-    lastLogout[src]=stamp
-
-    if type(position)=='table' then
-        local x,y,z,h=tonumber(position.x),tonumber(position.y),tonumber(position.z),tonumber(position.h)
-        if x and y and z and math.abs(x)<=10000 and math.abs(y)<=10000 and math.abs(z)<=5000 then
-            MySQL.update.await('UPDATE characters SET last_x=?,last_y=?,last_z=?,last_heading=?,last_spawn_key=?,updated_at=? WHERE id=? AND owner_license=?',{
-                x,y,z,h or 0.0,clean(spawnKey,40),os.time()*1000,active.id,active.license
-            })
-        end
-    end
-
-    local name=state and state['fbrp:characterName'] or nil
-    selected[src]=nil
-    if player then
-        player.state:set('fbrp:characterId',nil,true)
-        player.state:set('fbrp:characterName',nil,true)
-    end
-    -- other systems (org duty, etc.) reset on this
-    TriggerEvent('fbrp:characterLogout',src,active.id)
-    FBRP.DB.audit(discord(src) or active.license,'character.logout',active.id,{name=name})
-    TriggerClientEvent('fbrp:characters:loggedOut',src,name)
-end)
-
-AddEventHandler('playerDropped',function() selected[source]=nil lastLogout[source]=nil end)
+AddEventHandler('playerDropped',function() selected[source]=nil end)

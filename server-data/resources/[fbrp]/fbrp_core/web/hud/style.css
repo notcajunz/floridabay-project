@@ -1944,10 +1944,3 @@ html[data-vehicle-style="ring"] #vehicle .readouts:not([data-panel="auto"]) #eng
 
 /* the job card ("Civilian · OFF DUTY") is not used on FBRP: the priority panel already shows the job */
 #job { display: none !important; }
-
-/* spawn selector: only the AOP & priority panel, pinned top right */
-#hud.prio-only > *:not(#prio) { visibility: hidden !important; opacity: 0 !important; }
-#hud.prio-only #prio {
-  display: flex !important; visibility: visible !important; opacity: 1 !important;
-  top: 2vh !important; right: 1vw !important; left: auto !important; bottom: auto !important; transform: none !important;
-}

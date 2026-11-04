@@ -17,49 +17,60 @@ const walk = (dir, out = []) => {
   return out;
 };
 
+const config = read(`${res}/[fbrp]/fbrp_core/config_vmenu_tiers.lua`);
+const listOf = (name) => {
+  const start = config.indexOf(`${name} = {`);
+  const body = config.slice(start, config.indexOf('\n}', start));
+  return [...body.matchAll(/'([^']+)'/g)].map((match) => match[1]);
+};
 
-test('vMenu permissions come only from stored ACE rows, with no hard coded staff tiers', () => {
-  assert.ok(!exists(`${res}/[fbrp]/fbrp_core/config_vmenu_tiers.lua`));
-  assert.doesNotMatch(read(`${res}/[fbrp]/fbrp_core/fxmanifest.lua`), /config_vmenu_tiers/);
-  const main = read(`${res}/[fbrp]/fbrp_core/server/main.lua`);
-  assert.doesNotMatch(main, /VmenuTier|VmenuObjectsForTier|VmenuRequiredTier|groupTierCache|loadGroupTiers|tieredAceRows/);
-  assert.doesNotMatch(read(`${res}/[fbrp]/fbrp_core/server/staffperms.lua`), /VmenuTier|rankTiers/);
-  assert.match(main, /fbrp:staffNoclip', s\.staffDuty == true and \(/);
-  assert.match(main, /fbrp:staffSenior', s\.staffDuty == true and \(/);
+test('vMenu admin features and heavy weapons are Co-Owner and above only', () => {
+  const exact = listOf('FBRP.VmenuCoOwnerObjects');
+  const prefixes = listOf('FBRP.VmenuCoOwnerPrefixes');
+  for (const required of ['vMenu.Staff', 'vMenu.WeaponOptions.Railgun', 'vMenu.WeaponOptions.RailgunXM3', 'vMenu.WeaponOptions.EMPLauncher',
+    'vMenu.WeaponOptions.Minigun', 'vMenu.WeaponOptions.HomingLauncher', 'vMenu.WeaponOptions.RPG', 'vMenu.WeaponOptions.SpawnByName',
+    'vMenu.WeaponOptions.GetAll', 'vMenu.VehicleOptions.God', 'vMenu.MiscSettings.DevTools']) assert.ok(exact.includes(required), required);
+  assert.deepEqual(prefixes.sort(), ['vMenu.OnlinePlayers', 'vMenu.PlayerOptions', 'vMenu.TimeOptions', 'vMenu.WeatherOptions']);
+  assert.deepEqual(listOf('FBRP.VmenuDirectorObjects'), ['vMenu.VehicleOptions.UnlimitedMultipliers']);
+  assert.ok(!exact.includes('vMenu.NoClip'));
+  assert.deepEqual(listOf('FBRP.VmenuSeniorObjects'), ['vMenu.NoClip']);
+  assert.match(config, /VmenuTierGroups = \{ coowner = 'co_owner', director = 'community_director', senior = 'senior_moderator' \}/);
+  assert.match(config, /VmenuTierLevel = \{ standard = 0, senior = 1, director = 2, coowner = 3 \}/);
 
   // Nothing restricted is granted to everyone.
   const active = read('server-data/config/permissions.cfg');
   const granted = [...active.matchAll(/^add_ace builtin\.everyone "(vMenu[^"]+)" allow$/gm)].map((match) => match[1]);
-  for (const object of granted) assert.ok(!/^vMenu\.(OnlinePlayers|PlayerOptions|TimeOptions|WeatherOptions|Staff|NoClip)/.test(object), `${object} must not be public`);
+  for (const object of granted) {
+    assert.ok(!exact.includes(object), `${object} must not be public`);
+    assert.ok(!prefixes.some((prefix) => object === prefix || object.startsWith(`${prefix}.`)), `${object} must not be public`);
+  }
   assert.ok(granted.includes('vMenu.WeaponOptions.Pistol'));
   assert.ok(granted.includes('vMenu.VehicleOptions.Engine'));
+
+  // The ACE loader applies the tiers to stored rows, to vMenu.Everything and to the NoClip state.
+  const main = read(`${res}/[fbrp]/fbrp_core/server/main.lua`);
+  assert.match(main, /FBRP\.VmenuObjectsForTier\(tier, expanded\.object\)/);
+  assert.match(main, /tieredAceRows\(row, groupTiers\[row\.group_name\] or 'standard'\)/);
+  assert.match(main, /FBRP\.VmenuTierAllows\(groupTierCache\[group\.name\] or 'standard', 'vMenu\.NoClip'\)/);
+  assert.match(read(`${res}/[fbrp]/fbrp_core/server/staffperms.lua`), /FBRP\.VmenuTierAllows\(rankTiers\[index\], target\)/);
 });
 
-test('the tier removal migration writes lower groups wildcard rows out as explicit rows', () => {
-  const sql = read(`${res}/[fbrp]/fbrp_core/migrations/113_remove_vmenu_tiers.sql`);
-  assert.match(sql, /e\.object = 'vMenu\.Everything'/);
-  for (const section of ['VehicleOptions', 'WeaponOptions', 'MiscSettings']) assert.match(sql, new RegExp(`e\\.object = 'vMenu\\.${section}\\.All'`));
-  assert.match(sql, /g\.rank_order >= co\.rank_order/);
-  assert.match(sql, /DELETE e FROM ace_entries e/);
-  assert.doesNotMatch(sql, /'vMenu\.OnlinePlayers\.Kick'/);
+test('the tier migration cleans lower groups and grants Co-Owner and Community Director tiers by rank', () => {
+  const sql = read(`${res}/[fbrp]/fbrp_core/migrations/101_vmenu_staff_tiers.sql`);
+  assert.match(sql, /DELETE e FROM ace_entries e[\s\S]*co\.name = 'co_owner'[\s\S]*g\.rank_order < co\.rank_order/);
+  assert.match(sql, /e\.object LIKE 'vMenu\.OnlinePlayers\.%'/);
+  assert.match(sql, /cd\.name = 'community_director'[\s\S]*vMenu\.VehicleOptions\.UnlimitedMultipliers/);
+  assert.match(sql, /INSERT INTO ace_entries[\s\S]*g\.rank_order >= co\.rank_order/);
   assert.doesNotMatch(sql, /^--.*['"`;]/m);
+  for (const object of listOf('FBRP.VmenuCoOwnerObjects')) assert.ok(sql.includes(`'${object}'`), object);
+  const catalog = read('services/fbrp-bot/src/permission-catalog.js');
+  assert.match(catalog, /"UnlimitedMultipliers"/);
 });
 
 test('the NoClip migration grants Senior Moderator and above by rank', () => {
   const sql = read('server-data/resources/[fbrp]/fbrp_core/migrations/104_vmenu_noclip_senior_moderator.sql');
   assert.match(sql, /'vMenu\.NoClip'[\s\S]*sm\.name = 'senior_moderator'[\s\S]*g\.rank_order >= sm\.rank_order/);
   assert.doesNotMatch(sql, /^--.*['"`;]/m);
-});
-
-test('the names and blips migration grants Senior Moderator and above by rank and the gate needs duty', () => {
-  const sql = read(`${res}/[fbrp]/fbrp_core/migrations/109_vmenu_names_blips_senior_moderator.sql`);
-  assert.match(sql, /sm\.name = 'senior_moderator'[\s\S]*OverheadNames[\s\S]*PlayerBlips[\s\S]*g\.rank_order >= sm\.rank_order/);
-  assert.doesNotMatch(sql, /^--.*['"`;]/m);
-  const gate = read(`${res}/[fbrp]/fbrp_core/client/vmenu_gate.lua`);
-  assert.match(gate, /fbrp:staffSenior/);
-  assert.match(gate, /data\.MSOverheadNames = false/);
-  assert.match(gate, /data\.MSPlayerBlips = false/);
-  assert.match(read(`${res}/[fbrp]/fbrp_core/server/main.lua`), /fbrp:staffSenior', s\.staffDuty == true and \(/);
 });
 
 test('the patched vMenu build is reproducible and ships the ox_lib bridge, multiplier cap and share codes', () => {
@@ -125,10 +136,6 @@ test('outfit share codes: server validates and rate limits, the client shows the
   assert.match(server, /BAD_CODES_BEFORE_LOCK/);
   assert.match(server, /MALE_MODEL, FEMALE_MODEL = 1885233650, 2627665880/);
   assert.match(server, /INSERT IGNORE INTO outfit_shares/);
-  // Validation must not demand nested sections by name (builds differ) and must say why it rejected.
-  assert.doesNotMatch(server, /PedHeadBlendData/);
-  assert.match(server, /outfit share from .* rejected: /);
-  assert.ok(server.indexOf('lastCreate[src] = now') > server.indexOf('validCharacter(payload)'));
   assert.match(server, /owner_license=\?/);
   assert.match(client, /lib\.setClipboard\(code\)/);
   assert.match(client, /RegisterCommand\('outfitcodes'/);

@@ -1,27 +1,38 @@
-local MENU_X, MENU_Y = 1400, 125
+-- Tag menus in the Jaxtti style (RageUI fork in src/). Three separate menus, one per command:
+--   /headtag  /gangtag  /chattag   (/tags and /tagmenu open the headtag menu)
+-- The tags themselves still come from fbrp_core: it sends the player's wardrobe ('fbrp:tags:data') and saves the
+-- pick ('fbrp:tags:equip'). fbrp_core skips its own tag menu while this resource is running.
+
+local MENU_X, MENU_Y = 1400, 125 -- starting values only; placeMenus() moves them to the right-middle on every open
 
 local KINDS = {
-    { kind = 'head', title = 'Headtag',  none = 'No Headtag',  search = 'Headtag Search Filter', example = 'Example: UK Scammers' },
-    { kind = 'gang', title = 'Gangtag',  none = 'No Gangtag',  search = 'Gangtag Search Filter', example = 'Example: Jax Dev Trolls' },
+    { kind = 'head', title = 'Headtag',  none = 'No Headtag',  search = 'Headtag Search Filter', example = 'Example: London Scammers' },
+    { kind = 'gang', title = 'Gangtag',  none = 'No Gangtag',  search = 'Gangtag Search Filter', example = "Example: Grav's Plugs" },
     { kind = 'chat', title = 'Chat tag', none = 'No Chat tag', search = 'Chat tag Search Filter', example = 'Example: Verified' },
 }
 
-local bannerTxd = CreateRuntimeTxd('fbrp_menubanner')
-CreateRuntimeTextureFromImage(bannerTxd, 'banner', 'ui/img/banner.png')
+-- no image banner: a plain dark header with "FBRP | Tags" text on every page
+local HEADER_TEXT = 'FBRP | Tags'
 local function textHeader(menu)
-    menu.Sprite = { Dictionary = 'fbrp_menubanner', Texture = 'banner', Color = { R = 255, G = 255, B = 255, A = 255 } }
-    menu.Rectangle = nil
-    menu.Title = ''
+    menu.Sprite = nil
+    menu.Rectangle = RageUI.Style.Header
+    menu.Title = HEADER_TEXT
+    menu.TitleFont = 4
+    menu.TitleScale = RageUI.Settings.Items.Title.Text.Scale
 end
 
-local menus, orgMenus, filters = {}, {}, {}
+-- each kind is its own root menu, with Org Tags and About tabs inside it
+local menus, orgMenus, aboutMenus, filters = {}, {}, {}, {}
 local allMenus = {}
 for _, k in ipairs(KINDS) do
     local root = RageUI.CreateMenu(' ', ('~p~FBRP | %s Menu'):format(k.title), MENU_X, MENU_Y)
     local org = RageUI.CreateSubMenu(root, ' ', ('~y~FBRP | Org %ss'):format(k.title), MENU_X, MENU_Y)
+    local about = RageUI.CreateSubMenu(root, ' ', '~p~FBRP | About Tag Menu', MENU_X, MENU_Y)
+    -- CreateSubMenu upper-cases subtitles (which breaks the colour codes); keep them as written
     org.Subtitle = ('~y~FBRP | Org %ss'):format(k.title)
-    menus[k.kind], orgMenus[k.kind] = root, org
-    for _, m in ipairs({ root, org }) do
+    about.Subtitle = '~p~FBRP | About Tag Menu'
+    menus[k.kind], orgMenus[k.kind], aboutMenus[k.kind] = root, org, about
+    for _, m in ipairs({ root, org, about }) do
         textHeader(m)
         allMenus[#allMenus + 1] = m
     end
@@ -37,12 +48,13 @@ local function isOpen()
     return false
 end
 
+-- top-middle of the screen, just under the compass (same spot as fbrp_donatormenu).
+-- RageUI draws in 1920x1080 units from the top-left of the safe zone, so convert from the real screen position.
 local MENU_WIDTH = 431
 local function menuPos()
     local sz = GetSafeZoneSize()
     local inset = (1.0 - sz) / 2
-    local x = TagsConfig.menuX or ((1920 * sz - MENU_WIDTH) / 2)
-    return sz, math.max(0, x - inset * 1920), math.max(0, (TagsConfig.menuTop or 110) - inset * 1080)
+    return sz, (1920 * sz - MENU_WIDTH) / 2, math.max(0, (TagsConfig.menuTop or 110) - inset * 1080)
 end
 
 local function placeMenus()
@@ -65,6 +77,7 @@ local function selectedId(kind)
     return tonumber((tagData.selected or {})[kind]) or 0
 end
 
+-- a tag's colour as { r, g, b } (same hex the overhead tag uses), or nil for plain white
 local function colorOf(row)
     local hex = row and (row.color or row.colour or row.hex)
     if not hex or tostring(hex):gsub('#', '') == '' then return nil end
@@ -79,6 +92,7 @@ local function hasOrgTags(kind)
     return false
 end
 
+-- one "[n] Label" row in the tag's own colour; the worn tag gets a green "Selected" on the right
 local function tagButton(Items, kind, number, row)
     local id = tonumber(row.id) or 0
     local worn = id == selectedId(kind)
@@ -93,19 +107,23 @@ end
 RegisterNetEvent('fbrp:tags:data', function(data)
     tagData = type(data) == 'table' and data or {}
     if pendingOpen then
+        -- a command asked for a specific menu: open it (switches over if another tag menu is already open)
         placeMenus()
         RageUI.Visible(menus[pendingOpen], true)
     elseif not isOpen() then
+        -- data requested by another script (fbrp_chat's /chattag asks fbrp_core directly)
         placeMenus()
         RageUI.Visible(menus.chat, true)
     end
     pendingOpen = nil
 end)
 
+-- after a pick, fbrp_core confirms; refresh so the "Selected" mark moves
 RegisterNetEvent('fbrp:tags:selected', function(selected)
     if type(selected) == 'table' then tagData.selected = selected end
 end)
 
+-- going on / off duty changes which org tags are allowed
 AddStateBagChangeHandler('fbrp:organization', nil, function(bagName)
     if bagName ~= ('player:%s'):format(GetPlayerServerId(PlayerId())) then return end
     if isOpen() then SetTimeout(100, function() TriggerServerEvent('fbrp:tags:request') end) end
@@ -132,14 +150,7 @@ function RageUI.PoolMenus:FbrpTags()
             end
             Items:AddButton('~g~Org Tags', 'This will show tags under your current organisation.',
                 { RightLabel = '→', IsDisabled = not hasOrgTags(kind) }, function() end, orgMenus[kind])
-            if kind == 'head' then
-                Items:AddButton('~b~Chat Tags', 'Open the chat tag menu.', { RightLabel = '→' }, function(onSelected)
-                    if onSelected then
-                        RageUI.CloseAll()
-                        RageUI.Visible(menus.chat, true)
-                    end
-                end)
-            end
+            Items:AddButton('About Tag Menu', 'Information about this menu.', { RightLabel = '→' }, function() end, aboutMenus[kind])
             Items:AddSeparator('')
 
             local worn = selectedId(kind)
@@ -170,15 +181,23 @@ function RageUI.PoolMenus:FbrpTags()
                 Items:AddButton('No organisation tags', 'Clock in with an organisation to see its tags.', { IsDisabled = true }, function() end)
             end
         end, function() end)
+
+        aboutMenus[kind]:IsVisible(function(Items)
+            Items:AddButton('Tag Menu', 'FBRP | Tags - headtags, gangtags and chat tags.', { RightLabel = '~p~FBRP | Tags' }, function() end)
+            Items:AddButton('Designed by', 'FBRP | Tag Menu - designed by Jaxtti.', { RightLabel = '~p~Jaxtti' }, function() end)
+        end, function() end)
     end
 end
 
 RegisterCommand('headtag', function() request('head') end, false)
 RegisterCommand('gangtag', function() request('gang') end, false)
 RegisterCommand('chattag', function() request('chat') end, false)
+RegisterCommand('tags', function() request('head') end, false)
+RegisterCommand('tagmenu', function() request('head') end, false)
 TriggerEvent('chat:addSuggestion', '/headtag', 'Open the headtag menu')
 TriggerEvent('chat:addSuggestion', '/gangtag', 'Open the gangtag menu')
 TriggerEvent('chat:addSuggestion', '/chattag', 'Open the chat tag menu')
 
+-- other scripts can open a specific menu: TriggerEvent('fbrp_tags:open', 'head' | 'gang' | 'chat')
 AddEventHandler('fbrp_tags:open', function(kind) request(kind) end)
 exports('OpenMenu', function(kind) request(kind) end)

@@ -21,7 +21,7 @@ test("headtags never draw for the local player and come from the Jaxtti-derived 
   assert.match(tags, /RegisterCommand\('hidetags'/);
   assert.match(read(root, "server-data/resources/[fbrp]/fbrp_tags/client/functions.lua"), /function DrawTagStack/);
   assert.doesNotMatch(read(core, "client/tags.lua"), /GetPedBoneCoords|RegisterCommand\('hidetags'/);
-  assert.match(read(root, "server-data/config/resources.cfg"), /^ensure fbrp_tags$/m);
+  assert.match(read(root, "server-data/config/phone.cfg"), /^ensure fbrp_tags$/m);
 });
 
 test("fbrp_tags keeps staff tag-toggle server-validated and ID cards limited to LEO/fire duty", () => {

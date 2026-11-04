@@ -106,8 +106,6 @@ const ICONS = {
   shirt: '<path d="M8 3 4 6l2 4 2-1v12h8V9l2 1 2-4-4-3c0 2-2 3-4 3s-4-1-4-3Z"/>',
   building: '<path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 9h4a1 1 0 0 1 1 1v11M3 21h18M8 8h3M8 12h3M8 16h3"/>',
   target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
-  ticket: '<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/><path d="M14 6v12" stroke-dasharray="2 2"/>',
-  train: '<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 17l-2 4M15 17l2 4M8.5 14h.01M15.5 14h.01"/>',
   wallet: '<path d="M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-4a2 2 0 0 0 0 4h4v2a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V6"/>',
 };
 const icon = (name) =>
@@ -791,23 +789,18 @@ function renderSpawns(data) {
   const selected = rows.find((s) => String(s.id) === String(ui.selectedSpawnId)) || rows[0];
   const cards = rows
     .map(
-      (s, index) => `<button type="button" class="spawn-card${String(s.id) === String(selected?.id) ? " active" : ""}${s.allowed === false ? " aop-blocked" : ""}" data-spawn-preview="${esc(s.id)}" style="--hue:${(index * 47 + 205) % 360}">
+      (s, index) => `<button type="button" class="spawn-card${String(s.id) === String(selected?.id) ? " active" : ""}" data-spawn-preview="${esc(s.id)}" style="--hue:${(index * 47 + 205) % 360}">
         <span class="spawn-number">${String(index + 1).padStart(2, "0")}</span><span class="txt"><strong>${esc(s.label)}</strong><small>${esc(s.description || "Choose this location")}</small></span>
-        ${s.allowed === false ? '<span class="spawn-aop-tag off">Outside AOP</span>' : data.aop ? '<span class="spawn-aop-tag">In AOP</span>' : ""}
       </button>`,
     )
     .join("");
-  const blocked = selected && selected.allowed === false;
-  const spawnAction = blocked
-    ? `<div class="spawn-confirm aop-blocked"><span>Area of Play: ${esc(data.aop || "")}</span><strong>The place you selected you can not spawn to due to AOP location.</strong></div>`
-    : selected ? `<button type="button" class="spawn-confirm" data-spawn-id="${esc(selected.id)}" data-x="${Number(selected.x)}" data-y="${Number(selected.y)}" data-z="${Number(selected.z)}" data-h="${Number(selected.h || 0)}"><span>Spawn at</span><strong>${esc(selected.label)}</strong><em>→</em></button>` : "";
+  const spawnAction = selected ? `<button type="button" class="spawn-confirm" data-spawn-id="${esc(selected.id)}" data-x="${Number(selected.x)}" data-y="${Number(selected.y)}" data-z="${Number(selected.z)}" data-h="${Number(selected.h || 0)}"><span>Spawn at</span><strong>${esc(selected.label)}</strong><em>→</em></button>` : "";
   const name = esc(data.character?.name || "Your character");
   return `<div class="onboarding spawn-select">
     ${onboardingSidebar(`<div class="ob-card"><h3>${name}</h3><p>Spawning as this character</p><span class="ob-chip">${rows.length} locations</span></div>`)}
     <main class="ob-main">
       <ol class="ob-steps"><li class="done"><i>✓</i>Choose character</li><li class="now"><i>2</i>Choose spawn</li><li><i>3</i>Spawn</li></ol>
       <div class="ob-spawning">SPAWNING AS: <b>${name}</b></div>
-      ${data.aop ? `<div class="spawn-aop-banner"><small>Current Area of Play</small><strong>${esc(data.aop)}</strong><span>${rows.filter((r) => r.allowed !== false).length} of ${rows.length} spawns are inside the AOP</span></div>` : ""}
       <nav class="spawn-list" aria-label="Spawn locations">${cards}</nav>
       <section class="spawn-detail"><div class="spawn-selected"><small>Selected location</small><strong>${esc(selected?.label || "None")}</strong><span>${esc(selected?.description || "")}</span></div>${spawnAction}</section>
       <div class="ob-banner">Now choose where to spawn.</div>
@@ -2647,14 +2640,6 @@ window.addEventListener("message", ({ data }) => {
     if (currentView === "hudsettings") currentPayload.settings = { ...hudSettings };
   }
   if (data.type === "announcement") announce(data.message, data.tone);
-  if (data.type === "watermark") {
-    const wm = document.getElementById("watermark");
-    if (wm) {
-      wm.classList.toggle("hidden", data.enabled === false);
-      if (typeof data.opacity === "number") wm.style.opacity = data.opacity;
-      if (typeof data.width === "number") wm.style.width = `${data.width}px`;
-    }
-  }
   if (data.type === "dispatch") dispatch(data.data || {});
   if (data.type === "radial") {
     const root = $("#radial-menu");

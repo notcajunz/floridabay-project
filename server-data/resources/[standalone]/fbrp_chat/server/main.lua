@@ -69,23 +69,7 @@ end
 
 function Chat.Notify(src, msg, nType)
     if src == 0 then return print(('[fbrp_chat] %s'):format(msg)) end
-    TriggerClientEvent('ox_lib:notify', src, {
-        title = 'Chat', description = msg, type = nType or 'inform',
-        position = Config.Notify.position, duration = Config.Notify.duration,
-    })
-end
-
--- ox_lib popup. target = -1 (everyone), a player id, or a list of ids.
--- data = { title, description, type?, icon?, iconColor?, duration?, position? }
-function Chat.Alert(target, data)
-    data.type = data.type or 'inform'
-    data.position = data.position or Config.Notify.position
-    data.duration = data.duration or Config.Notify.duration
-    if type(target) == 'table' then
-        for _, id in ipairs(target) do TriggerClientEvent('ox_lib:notify', id, data) end
-    else
-        TriggerClientEvent('ox_lib:notify', target, data)
-    end
+    TriggerClientEvent('ox_lib:notify', src, { title = 'Chat', description = msg, type = nType or 'inform', position = 'center-right' })
 end
 
 ---------------------------------------------------------------- sending
@@ -284,16 +268,9 @@ AddEventHandler('_chat:messageEntered', function(author, _, message, mode)
     routeMessage(source, author, message, mode)
 end)
 
--- unknown /commands: tell the player it isn't a real command (center-right ox_lib popup)
-AddEventHandler('__cfx_internal:commandFallback', function()
-    local src = source
-    if src > 0 then
-        Chat.Alert(src, {
-            title = 'FBRP Systems',
-            description = 'That is not a valid command. Try again.',
-            type = 'error', icon = 'triangle-exclamation',
-        })
-    end
+-- unknown /commands: swallow them quietly
+AddEventHandler('__cfx_internal:commandFallback', function(command)
+    routeMessage(source, GetPlayerName(source), '/' .. command, nil, true)
     CancelEvent()
 end)
 

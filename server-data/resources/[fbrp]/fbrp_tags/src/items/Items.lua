@@ -73,7 +73,7 @@ function Items:AddButton(Label, Description, Style, Actions, Submenu)
             if Style.RightLabel then
                 local rc = Style.RightLabelColor
                 if rc then
-
+                    -- custom colour (e.g. a tag's own colour); outlined so it stays readable on the white highlight bar
                     Graphics.Text(Style.RightLabel, CurrentMenu.X + 420 - RightBadgeOffset + CurrentMenu.WidthOffset, CurrentMenu.Y + 4 + CurrentMenu.SubtitleHeight + RageUI.ItemOffset, 0, 0.35, rc[1], rc[2], rc[3], 255, 2, false, Active)
                 else
                     Graphics.Text(Style.RightLabel, CurrentMenu.X + 420 - RightBadgeOffset + CurrentMenu.WidthOffset, CurrentMenu.Y + 4 + CurrentMenu.SubtitleHeight + RageUI.ItemOffset, 0, 0.35, Active and 0 or 245, Active and 0 or 245, Active and 0 or 245, 255, 2)
@@ -81,7 +81,7 @@ function Items:AddButton(Label, Description, Style, Actions, Submenu)
             end
             local lc = Style.LabelColor
             if lc then
-
+                -- base colour of the label; ~s~ inside the label resets to this colour
                 Graphics.Text(Label, CurrentMenu.X + 8 + LeftBadgeOffset, CurrentMenu.Y + 3 + CurrentMenu.SubtitleHeight + RageUI.ItemOffset, 0, 0.33, lc[1], lc[2], lc[3], 255, nil, false, Active)
             else
                 Graphics.Text(Label, CurrentMenu.X + 8 + LeftBadgeOffset, CurrentMenu.Y + 3 + CurrentMenu.SubtitleHeight + RageUI.ItemOffset, 0, 0.33, Active and 0 or 245, Active and 0 or 245, Active and 0 or 245, 255)

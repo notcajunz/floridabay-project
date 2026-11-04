@@ -3,6 +3,7 @@ local appliedPrincipals = {}
 local connectPrincipals = {} -- discord id -> { [principal]=true } granted at connect time (see playerConnecting)
 local appliedAces = {}
 local permissionRows = {}
+local groupTierCache = {}   -- ACE group name -> vMenu staff tier, refreshed with the permission model
 local pendingSearches = {}
 local cuffShotCooldowns = {}
 local ready = false
@@ -126,8 +127,6 @@ end
 local function offDutyVmenuObject(object)
     if type(object) ~= 'string' or object:sub(1, 6) ~= 'vMenu.' then return false end
     return not acePatternMatches(object, 'vMenu.NoClip')
-        and not acePatternMatches(object, 'vMenu.MiscSettings.OverheadNames')
-        and not acePatternMatches(object, 'vMenu.MiscSettings.PlayerBlips')
 end
 
 -- vMenu.Everything is never applied as a wildcard (see config_vmenu.lua): it is the
@@ -316,26 +315,52 @@ end
 
 local wildcardCleared = {}
 
-local permissionModelLoaded = false
-
--- vMenu hands a player their permissions once, when they join, and builds its menus from that snapshot.
--- A grant changed while someone is connected reaches the server's ACEs but not their open vMenu, so say so.
-local function notifyVmenuChange(changedGroups)
-    for source, s in pairs(sessions) do
-        local affected = s.org and s.org.ace_group and changedGroups[s.org.ace_group]
-        for _, group in ipairs(s.groups or {}) do
-            if changedGroups[group.name] then affected = true end
-        end
-        if affected then
-            notify(source, 'Your vMenu permissions were changed. Rejoin the server to get the new menu options.', 'inform')
+-- Staff tier of every ACE group: Co-Owner and above, Community Director up to Co-Owner, Senior Moderator up to Community Director, or standard.
+-- Tiers follow rank_order, so a rank added between two existing ones lands in the right tier. When the
+-- Co-Owner or Community Director group cannot be found the tier stays unreachable and fails closed.
+local function loadGroupTiers()
+    local rows = MySQL.query.await('SELECT name,rank_order,staff_only FROM ace_groups') or {}
+    local floors = {}
+    for _, row in ipairs(rows) do
+        local staff = row.staff_only == 1 or row.staff_only == true
+        for tier, groupName in pairs(FBRP.VmenuTierGroups) do
+            if staff and row.name == groupName then floors[tier] = tonumber(row.rank_order) end
         end
     end
+    local tiers = {}
+    for _, row in ipairs(rows) do
+        local order = tonumber(row.rank_order) or 0
+        local tier = 'standard'
+        if row.staff_only == 1 or row.staff_only == true then
+            if floors.coowner and order >= floors.coowner then tier = 'coowner'
+            elseif floors.director and order >= floors.director then tier = 'director'
+            elseif floors.senior and order >= floors.senior then tier = 'senior' end
+        end
+        tiers[row.name] = tier
+    end
+    return tiers
+end
+
+-- A stored row after vMenu.Everything expansion and the vMenu staff tiers: admin features and the
+-- unlimited power/torque multipliers only survive for groups of the tier that owns them.
+local function tieredAceRows(row, tier)
+    local out = {}
+    for _, expanded in ipairs(effectiveAceRows(row)) do
+        if expanded.mode ~= 'allow' then
+            out[#out + 1] = expanded
+        else
+            for _, object in ipairs(FBRP.VmenuObjectsForTier(tier, expanded.object)) do
+                out[#out + 1] = { group_name = expanded.group_name, object = object, mode = 'allow' }
+            end
+        end
+    end
+    return out
 end
 
 local function loadPermissionModel()
-    local changedVmenuGroups = nil
     local nextRows = {}      -- rows exactly as stored, used for permission lookups
     local effective = {}     -- rows actually applied as ACEs, after vMenu.Everything expansion
+    local groupTiers = loadGroupTiers()
     for _, row in ipairs(MySQL.query.await('SELECT group_name,object,mode FROM ace_entries')) do
         nextRows[row.group_name] = nextRows[row.group_name] or {}
         nextRows[row.group_name][#nextRows[row.group_name] + 1] = row
@@ -346,8 +371,7 @@ local function loadPermissionModel()
             ExecuteCommand(('remove_ace %s vMenu.Everything allow'):format(groupPrincipal(row.group_name)))
             ExecuteCommand(('remove_ace %s vMenu.Everything allow'):format(vmenuPrincipal(row.group_name)))
         end
-        local appliedRows = effectiveAceRows(row)
-        for _, applied in ipairs(appliedRows) do
+        for _, applied in ipairs(tieredAceRows(row, groupTiers[row.group_name] or 'standard')) do
             effective[row.group_name][#effective[row.group_name] + 1] = applied
             local key = applied.group_name .. '|' .. applied.object
             if not appliedAces[key] or appliedAces[key] ~= applied.mode then
@@ -356,10 +380,6 @@ local function loadPermissionModel()
                 end
                 ExecuteCommand(('add_ace %s %s %s'):format(groupPrincipal(applied.group_name), applied.object, applied.mode))
                 appliedAces[key] = applied.mode
-                if permissionModelLoaded and applied.object:sub(1, 6) == 'vMenu.' then
-                    changedVmenuGroups = changedVmenuGroups or {}
-                    changedVmenuGroups[applied.group_name] = true
-                end
             end
             if offDutyVmenuObject(applied.object) then
                 local vmenuKey = applied.group_name .. '|vmenu|' .. applied.object
@@ -385,16 +405,11 @@ local function loadPermissionModel()
             local principal = scopedObject and vmenuPrincipal(group) or groupPrincipal(group)
             ExecuteCommand(('remove_ace %s %s %s'):format(principal, object, mode))
             appliedAces[key] = nil
-            if permissionModelLoaded and not scopedObject and object:sub(1, 6) == 'vMenu.' then
-                changedVmenuGroups = changedVmenuGroups or {}
-                changedVmenuGroups[group] = true
-            end
         end
     end
     permissionRows = nextRows
+    groupTierCache = groupTiers
     for source in pairs(sessions) do reconcilePrincipals(source) end
-    permissionModelLoaded = true
-    if changedVmenuGroups then notifyVmenuChange(changedVmenuGroups) end
 end
 
 local function tagRow(row)
@@ -432,17 +447,7 @@ local function selectedTagOnDuty(s, tag)
 end
 
 local function selectedTagVisible(s, tag)
-    return tag and (not tag.orgId or s.execBypass or selectedTagOnDuty(s, tag)) and tag or nil
-end
-
-local function vehicleSpeedLimitFor(discord)
-    if discordHasRole(discord, FBRP.Config.vehicleSpeedTopRoleId) then
-        return FBRP.Config.vehicleSpeedTopLimitMph or 330
-    end
-    if discordHasRole(discord, FBRP.Config.vehicleSpeedPrivilegedRoleId) then
-        return FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250
-    end
-    return FBRP.Config.vehicleSpeedLimitMph or 180
+    return tag and (not tag.orgId or selectedTagOnDuty(s, tag)) and tag or nil
 end
 
 local function publishPlayer(source)
@@ -453,12 +458,13 @@ local function publishPlayer(source)
     player.state:set('fbrp:id', source, true)
     player.state:set('fbrp:name', player.state['fbrp:characterName'] or GetPlayerName(source) or s.name, true)
     player.state:set('fbrp:staffDuty', s.staffDuty == true, true)
-    -- NoClip, player names and player blips come only from the stored ACE rows, and only while clocked in.
-    player.state:set('fbrp:staffNoclip', s.staffDuty == true and (
+    -- NoClip is a vMenu staff feature: Senior Moderator and above only, and then only while clocked in.
+    local noclipTier = false
+    for _, group in ipairs(s.groups or {}) do
+        if FBRP.VmenuTierAllows(groupTierCache[group.name] or 'standard', 'vMenu.NoClip') then noclipTier = true break end
+    end
+    player.state:set('fbrp:staffNoclip', s.staffDuty == true and noclipTier and (
         databasePermission(source, 'vMenu.NoClip') or databasePermission(source, 'vMenu.Everything')
-    ), true)
-    player.state:set('fbrp:staffSenior', s.staffDuty == true and (
-        databasePermission(source, 'vMenu.MiscSettings.OverheadNames') or databasePermission(source, 'vMenu.MiscSettings.PlayerBlips')
     ), true)
     player.state:set('fbrp:maxVehicleSpeedMph', s.maxVehicleSpeedMph or FBRP.Config.vehicleSpeedLimitMph or 180, true)
     player.state:set('fbrp:carRadioAccess', s.carRadioAccess == true, true)
@@ -476,17 +482,7 @@ local function publishPlayer(source)
     player.state:set('fbrp:gangtag', gangtag, true)
     player.state:set('fbrp:chatTag', chatTag and { id=chatTag.id,label=chatTag.label,color=chatTag.color } or nil, true)
     player.state:set('fbrp:organization', s.org and { id=s.org.id,slug=s.org.slug,name=s.org.name,type=s.org.type,logo=s.org.logo } or nil, true)
-    -- MDT callsign, shown by fbrp_tags between the headtag and gang tag while on organization duty.
-    player.state:set('fbrp:callsign', s.org and s.callsign or nil, true)
 end
-
--- Fired by justice.lua when a callsign is changed in the MDT, so the overhead line updates live.
-AddEventHandler('fbrp:callsignUpdated', function(source, callsign)
-    local s = sessions[tonumber(source)]
-    if not s then return end
-    s.callsign = callsign and callsign ~= '' and callsign or nil
-    if s.org then publishPlayer(tonumber(source)) end
-end)
 
 local function closeShift(tableName, shift, reason)
     if not shift then return end
@@ -526,12 +522,6 @@ local function clockOutOrg(source, reason)
     return true
 end
 
--- /logout (server/characters.lua): the next character should not stay clocked in with the old one's organization
-AddEventHandler('fbrp:characterLogout', function(source)
-    source = tonumber(source)
-    if source and sessions[source] and sessions[source].org then clockOutOrg(source, 'logout') end
-end)
-
 local autoClockInStaff -- defined with the /clockin command below
 
 local function initializePlayer(source)
@@ -553,14 +543,14 @@ local function initializePlayer(source)
         MySQL.prepare.await('INSERT IGNORE INTO player_identifiers(player_id,identifier) VALUES(?,?)', { playerId, value })
     end
 
+    local privilegedSpeed = discordHasRole(discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
     local carRadioAccess = discordHasRole(discord, FBRP.Config.carRadioRoleId)
     sessions[source] = {
         source=source, playerId=tonumber(playerId), license=license, discord=discord, name=name,
         groups=membershipRows(discord), staffDuty=false, staffShift=nil, org=nil, orgShift=nil,
-        maxVehicleSpeedMph=vehicleSpeedLimitFor(discord),
+        maxVehicleSpeedMph=privilegedSpeed and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250) or (FBRP.Config.vehicleSpeedLimitMph or 180),
         carRadioAccess=carRadioAccess
     }
-    sessions[source].execBypass = hasStaffGroupAtLeast(source, FBRP.Config.executiveBypassMinGroup)
     -- everyone joins with no headtag / gang tag on; they pick them again with /tags
     if FBRP.Config.clearTagsOnJoin ~= false and discord then
         MySQL.update.await('UPDATE player_tag_selection SET headtag_id=NULL,gangtag_id=NULL,updated_at=? WHERE discord_id=?', { now(), discord })
@@ -582,9 +572,10 @@ local function refreshPlayer(source)
     local s = sessions[source]
     if not s then return initializePlayer(source) end
     s.groups = membershipRows(s.discord)
-    s.maxVehicleSpeedMph = vehicleSpeedLimitFor(s.discord)
+    s.maxVehicleSpeedMph = discordHasRole(s.discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
+        and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250)
+        or (FBRP.Config.vehicleSpeedLimitMph or 180)
     s.carRadioAccess = discordHasRole(s.discord, FBRP.Config.carRadioRoleId)
-    s.execBypass = hasStaffGroupAtLeast(source, FBRP.Config.executiveBypassMinGroup)
     if s.staffDuty and s.staffShift then
         local ended = MySQL.scalar.await('SELECT ended_at FROM staff_shifts WHERE id=?', { s.staffShift.id })
         if ended then
@@ -605,70 +596,52 @@ local function setSharedState(key, value, actor)
     stateVersion = stateVersion + 1
 end
 
--- execBypass (Executive Management and above) lists every enabled tag without a Discord grant and
--- without clocking into the tag's organization.
-local function wardrobe(discord, kind, orgId, execBypass)
+local function wardrobe(discord, kind, orgId)
     if not discord then return {} end
     local dutyFilter = 'AND t.org_id IS NULL'
-    local params = execBypass and {} or { discord }
-    if execBypass then
-        dutyFilter = ''
-    elseif orgId then
+    local params = { discord }
+    if orgId then
         dutyFilter = 'AND (t.org_id IS NULL OR t.org_id=?)'
         params[#params + 1] = tonumber(orgId)
     end
     local slotFilter = kind == 'chat' and 'AND t.chat_tag=TRUE' or "AND (t.kind=? OR t.kind='both')"
-    if kind ~= 'chat' then table.insert(params, execBypass and 1 or 2, kind) end
-    local grantJoin = execBypass and '' or 'JOIN headtag_grants g ON g.tag_id=t.id'
-    local grantFilter = execBypass and '1=1' or 'g.discord_id=?'
+    if kind ~= 'chat' then table.insert(params, 2, kind) end
     return MySQL.query.await(([=[
         SELECT DISTINCT t.id,t.kind,t.label,t.color,t.priority,t.org_id,o.name org_name,t.chat_tag
         FROM headtags t
-        %s
+        JOIN headtag_grants g ON g.tag_id=t.id
         LEFT JOIN organizations o ON o.id=t.org_id
-        WHERE %s %s AND t.enabled=TRUE
+        WHERE g.discord_id=? %s AND t.enabled=TRUE
           %s
         ORDER BY t.priority DESC,t.label
-    ]=]):format(grantJoin, grantFilter, slotFilter, dutyFilter), params)
+    ]=]):format(slotFilter, dutyFilter), params)
 end
 
 local function tagWardrobePayload(s)
     local orgId = s.org and s.org.id or nil
     return {
-        head=wardrobe(s.discord,'head',orgId,s.execBypass),
-        gang=wardrobe(s.discord,'gang',orgId,s.execBypass),
-        chat=wardrobe(s.discord,'chat',orgId,s.execBypass),
+        head=wardrobe(s.discord,'head',orgId),
+        gang=wardrobe(s.discord,'gang',orgId),
+        chat=wardrobe(s.discord,'chat',orgId),
         selected={head=s.headtag and s.headtag.id or nil,gang=s.gangtag and s.gangtag.id or nil,chat=s.chatTag and s.chatTag.id or nil}
     }
 end
 
-local function canWear(discord, tagId, kind, orgId, execBypass)
+local function canWear(discord, tagId, kind, orgId)
     if not tagId then return true, nil end
     local eligibility = kind == 'chat' and 't.chat_tag=TRUE' or "(t.kind=? OR t.kind='both')"
-    local params = kind == 'chat' and { tagId } or { tagId, kind }
-    local grantJoin, grantFilter = 'JOIN headtag_grants g ON g.tag_id=t.id', 'g.discord_id=? AND '
-    if execBypass then
-        grantJoin, grantFilter = '', ''
-    else
-        table.insert(params, 1, discord)
-    end
+    local params = kind == 'chat' and { discord, tagId } or { discord, tagId, kind }
     local row = MySQL.single.await(([=[
-        SELECT t.org_id FROM headtags t %s
-        WHERE %st.id=? AND %s AND t.enabled=TRUE LIMIT 1
-    ]=]):format(grantJoin, grantFilter, eligibility), params)
+        SELECT t.org_id FROM headtags t JOIN headtag_grants g ON g.tag_id=t.id
+        WHERE g.discord_id=? AND t.id=? AND %s AND t.enabled=TRUE LIMIT 1
+    ]=]):format(eligibility), params)
     if not row then return false, 'grant' end
-    if not execBypass and row.org_id and tonumber(row.org_id) ~= tonumber(orgId) then return false, 'duty' end
+    if row.org_id and tonumber(row.org_id) ~= tonumber(orgId) then return false, 'duty' end
     return true, nil
 end
 
--- anyoneIf lets any player use an interaction on a restrained target: 'restrained' = cuffed or zip-tied,
--- 'ziptie' = zip-tied only (police-applied cuffs keep their police-only handling).
-local function interactionAllowed(source, spec, target)
+local function interactionAllowed(source, spec)
     if spec.public then return true end
-    if spec.anyoneIf and target then
-        local held = Player(target).state['fbrp:restrained']
-        if held and (spec.anyoneIf == 'restrained' or tostring(held):find('zip', 1, true)) then return true end
-    end
     if spec.ace and hasPermission(source, spec.ace) then return true end
     for _, object in ipairs(spec.aceAny or {}) do
         if hasPermission(source, object) then return true end
@@ -706,32 +679,11 @@ local function selectedWeapon(source, evidence)
     return weapon or joaat('WEAPON_UNARMED'), ped
 end
 
-local function targetRestrained(target)
+FBRP.InteractionVisible.uncuff = function(_, target)
     return Player(target).state['fbrp:restrained'] ~= nil
 end
-local function targetInVehicle(target)
-    local ped = GetPlayerPed(target)
-    return ped > 0 and GetVehiclePedIsIn(ped, false) ~= 0
-end
-
-FBRP.InteractionVisible.uncuff = function(_, target)
-    return targetRestrained(target)
-end
-
--- Keep the third-eye list short: only offer what makes sense for the target's current state.
-for _, id in ipairs({ 'softcuff', 'hardcuff', 'arrest', 'ziptie' }) do
-    FBRP.InteractionVisible[id] = function(_, target) return not targetRestrained(target) end
-end
-FBRP.InteractionVisible.escort = function(src, target)
-    return targetRestrained(target) or hasPermission(src, FBRP.Ace.policeEscort)
-end
-FBRP.InteractionVisible.seat = function(_, target) return not targetInVehicle(target) end
-FBRP.InteractionVisible.unseat = function(_, target) return targetInVehicle(target) end
-FBRP.InteractionVisible.blindfold = function(_, target) return Player(target).state['fbrp:blindfolded'] ~= true end
-FBRP.InteractionVisible.unblindfold = function(_, target) return Player(target).state['fbrp:blindfolded'] == true end
-FBRP.InteractionVisible.cutziptie = function(src, target)
-    if Player(target).state['fbrp:restrained'] ~= 'ziptie' then return false end
-    return not (hasPermission(src, FBRP.Ace.policeCuff) or hasPermission(src, FBRP.Ace.civRestrain))
+FBRP.InteractionVisible.cutziptie = function(_, target)
+    return Player(target).state['fbrp:restrained'] == 'ziptie'
 end
 FBRP.InteractionHandlers.cutziptie = function(source, target, evidence)
     if Player(target).state['fbrp:restrained'] ~= 'ziptie' then return false end
@@ -845,11 +797,6 @@ local function recordEasyAdminBan(ban, actorSource)
     end
 end
 
--- CarPlay (and any other audio resource) asks whether the player holds the Car Radio Discord role.
-exports('HasCarRadioAccess', function(source)
-    return FBRP.HasCarRadioAccess(source) == true
-end)
-
 -- EasyAdmin calls this export synchronously so the public ID is attached before it
 -- writes banlist.json, sends its webhook, or disconnects the player.
 exports('RecordEasyAdminBan', function(ban, actorSource)
@@ -928,31 +875,6 @@ local function verificationRejection(discord)
     return ('Florida Bay requires a verified account. Verify with Discord at %s, then reconnect.'):format(url)
 end
 
--- Discord membership gate. The bot keeps discord_member_cache current and drops a member's row
--- when they leave the server, so a missing row means "not in the Discord". Returns the rejection
--- text, or nil. A database error lets the player in (never lock everyone out).
-local function membershipRejection(discord)
-    local invite = GetConvar('fbrp_discordInvite', 'https://discord.gg/floridabay')
-    local ok, roles = pcall(function()
-        return MySQL.single.await('SELECT roles FROM discord_member_cache WHERE guild_id=? AND discord_id=? LIMIT 1', {
-            FBRP.Config.joinGuildId, tostring(discord)
-        })
-    end)
-    if not ok then return nil end
-    if not roles then
-        return ('You must be in the Florida Bay Discord to join. Join at %s, verify, then reconnect.'):format(invite)
-    end
-    local held = false
-    for _, id in ipairs(json.decode(roles.roles or '[]') or {}) do
-        if tostring(id) == FBRP.Config.joinRoleId then held = true break end
-    end
-    if not held then
-        return ('You need the Verified role in the Florida Bay Discord to join. Verify at %s, then reconnect.'):format(
-            GetConvar('fbrp_verify_url', 'https://floridabay.net/verify.html'))
-    end
-    return nil
-end
-
 AddEventHandler('playerConnecting', function(_, _, deferrals)
     local src = source
     if not ready then return end
@@ -965,11 +887,6 @@ AddEventHandler('playerConnecting', function(_, _, deferrals)
         local rejection = verificationRejection(discord)
         if rejection then
             deferrals.done(rejection)
-            return
-        end
-        local memberRejection = membershipRejection(discord)
-        if memberRejection then
-            deferrals.done(memberRejection)
             return
         end
     end
@@ -1104,15 +1021,6 @@ RegisterCommand('clockout', function(source)
     notify(source, ('Clocked out. Shift saved: %dm.'):format(math.floor((seconds or 0) / 60)), 'success')
 end, false)
 
--- Roles are kept current from Discord by the control bot; this just re-reads them for the player right now.
-RegisterCommand('refreshroles', function(source)
-    if source == 0 then return end
-    local s = sessions[source]
-    if not s or not s.discord then return notify(source, 'Your Discord is not linked.', 'error') end
-    refreshPlayer(source)
-    notify(source, 'Your Discord roles have been refreshed.', 'success')
-end, false)
-
 RegisterCommand('staffhours', function(source)
     if source <= 0 then return end
     local s = sessions[source]
@@ -1128,9 +1036,8 @@ end, false)
 -- Every active organization the player may clock into (gangs, businesses, departments and the
 -- rest). The general access role or any rank role bound to the organization proves membership.
 -- Accepting the bound rank directly keeps department members working when a network access-role
--- sync is delayed. Executive Management and above (execBypass) may clock into every active
--- organization. A slug narrows the result to one organization.
-local function dutyOrganizations(discord, slug, execBypass)
+-- sync is delayed. A slug narrows the result to one organization.
+local function dutyOrganizations(discord, slug)
     slug = slug or ''
     return MySQL.query.await([[
         SELECT DISTINCT o.*,t.label tag_label,t.color tag_color,t.kind tag_kind,t.outline tag_outline
@@ -1138,8 +1045,7 @@ local function dutyOrganizations(discord, slug, execBypass)
         JOIN headtags t ON t.id=o.tag_id
         WHERE o.active=TRUE AND (?='' OR o.slug=?)
           AND (
-            ?=1
-            OR EXISTS(SELECT 1 FROM organization_duty_global_access g WHERE g.discord_id=?)
+            EXISTS(SELECT 1 FROM organization_duty_global_access g WHERE g.discord_id=?)
             OR EXISTS(
               SELECT 1 FROM organization_role_requirements r
               JOIN discord_member_cache c ON c.guild_id=r.guild_id AND c.discord_id=?
@@ -1154,7 +1060,7 @@ local function dutyOrganizations(discord, slug, execBypass)
             )
           )
         ORDER BY o.name
-    ]], { slug, slug, execBypass and 1 or 0, discord, discord, discord }) or {}
+    ]], { slug, slug, discord, discord, discord }) or {}
 end
 
 local dutyLastChoice = {}
@@ -1162,7 +1068,7 @@ local dutyLastChoice = {}
 -- /duty: send the organizations this player can clock in as to the client's
 -- centered dropdown. The choice comes back through fbrp:duty:choose and is re-validated there.
 local function openDutyMenu(source, s)
-    local rows = dutyOrganizations(s.discord, nil, s.execBypass)
+    local rows = dutyOrganizations(s.discord)
     if #rows == 0 then return notify(source, 'You do not belong to an organization.', 'error') end
     local orgs = {}
     for _, row in ipairs(rows) do
@@ -1176,7 +1082,7 @@ local function openDutyMenu(source, s)
 end
 
 local function clockInOrganization(source, s, requested)
-    local rows = dutyOrganizations(s.discord, requested, s.execBypass)
+    local rows = dutyOrganizations(s.discord, requested)
     if #rows == 0 then return notify(source, 'You are not a member of that organization.', 'error') end
     local org = rows[1]
     if s.org then clockOutOrg(source, 'switch') end
@@ -1192,9 +1098,6 @@ local function clockInOrganization(source, s, requested)
         tag=tagRow({ id=org.tag_id,label=org.tag_label,color=org.tag_color,kind=org.tag_kind,org_id=org.id,org_name=org.name,outline=org.tag_outline })
     }
     s.orgShift = { id=id,startedAt=started }
-    -- MDT callsign (same table duty blips read); nil when the player never set one.
-    local okCs, cs = pcall(MySQL.scalar.await, 'SELECT callsign FROM mdt_units WHERE discord_id=?', { s.discord })
-    s.callsign = okCs and cs and tostring(cs) ~= '' and tostring(cs) or nil
     reconcilePrincipals(source)
     publishPlayer(source)
     notify(source, ('On duty: %s'):format(org.name), 'success')
@@ -1712,7 +1615,7 @@ RegisterNetEvent('fbrp:tags:equip', function(kind, rawId)
     local src=source; local s=sessions[src]
     if not s or not s.discord or (kind~='head' and kind~='gang' and kind~='chat') then return end
     local tagId=tonumber(rawId); if tagId and tagId<=0 then tagId=nil end
-    local allowed, reason=canWear(s.discord,tagId,kind,s.org and s.org.id or nil,s.execBypass)
+    local allowed, reason=canWear(s.discord,tagId,kind,s.org and s.org.id or nil)
     if not allowed then
         if reason=='duty' then return notify(src,'Clock into this tag\'s organization before wearing it.','error') end
         return notify(src,'That Discord role does not grant this tag.','error')
@@ -1738,7 +1641,7 @@ RegisterNetEvent('fbrp:interactions:request', function(target)
     local actions={}
     for _,spec in ipairs(FBRP.Interactions) do
         local visible=FBRP.InteractionVisible[spec.id]
-        if interactionAllowed(src,spec,target) and (not visible or visible(src,target)) then actions[#actions+1]={id=spec.id,label=spec.label} end
+        if interactionAllowed(src,spec) and (not visible or visible(src,target)) then actions[#actions+1]={id=spec.id,label=spec.label} end
     end
     TriggerClientEvent('fbrp:interactions:data',src,{target=target,name=GetPlayerName(target),actions=actions})
 end)
@@ -1747,9 +1650,7 @@ RegisterNetEvent('fbrp:interactions:use', function(target, action, evidence)
     local src=source; target=tonumber(target); action=clean(action,24)
     local spec=interactionSpec(action)
     if not spec or not target or target==src or not sessions[target] or not playersNear(src,target,FBRP.Config.interactionDistance) then return notify(src,'Interaction rejected: target moved away.','error') end
-    if not interactionAllowed(src,spec,target) then return notify(src,'You do not have permission for that interaction.','error') end
-    local visibleFor=FBRP.InteractionVisible[action]
-    if (action=='escort' or action=='seat' or action=='unseat') and visibleFor and not visibleFor(src,target) then return notify(src,'That is not possible right now.','error') end
+    if not interactionAllowed(src,spec) then return notify(src,'You do not have permission for that interaction.','error') end
     local handler=FBRP.InteractionHandlers[action]
     if handler then
         if handler(src,target,evidence)~=false then FBRP.DB.audit(sessions[src].discord or src,'interaction.'..action,sessions[target].discord or target,{source=src,target=target}) end
@@ -1764,70 +1665,17 @@ RegisterNetEvent('fbrp:interactions:use', function(target, action, evidence)
     FBRP.DB.audit(sessions[src].discord or src,'interaction.'..action,sessions[target].discord or target,{source=src,target=target})
 end)
 
--- Weapons a pat-down can reveal. The client reports hashes; only these are ever listed or removable.
-local SEARCH_WEAPONS = {}
-for label, name in pairs({
-    ['Pistol']='WEAPON_PISTOL', ['Combat pistol']='WEAPON_COMBATPISTOL', ['Heavy pistol']='WEAPON_HEAVYPISTOL',
-    ['Stun gun']='WEAPON_STUNGUN', ['SMG']='WEAPON_SMG', ['Carbine rifle']='WEAPON_CARBINERIFLE',
-    ['Pump shotgun']='WEAPON_PUMPSHOTGUN', ['Knife']='WEAPON_KNIFE', ['Nightstick']='WEAPON_NIGHTSTICK',
-    ['Baseball bat']='WEAPON_BAT', ['Crowbar']='WEAPON_CROWBAR', ['Flashlight']='WEAPON_FLASHLIGHT',
-}) do SEARCH_WEAPONS[joaat(name)] = label end
-
-local openSearches = {} -- actor -> { target, expires, weapons = {[hash]=label}, contraband = text|nil }
-
-local function sendSearchMenu(actor)
-    local rec = openSearches[actor]
-    if not rec then return end
-    local weapons = {}
-    for hash, label in pairs(rec.weapons) do weapons[#weapons+1] = { hash = hash, label = label } end
-    table.sort(weapons, function(x, y) return x.label < y.label end)
-    TriggerClientEvent('fbrp:search:menu', actor, { target = rec.target, name = GetPlayerName(rec.target), weapons = weapons, contraband = rec.contraband })
-end
-
 RegisterNetEvent('fbrp:interaction:searchResult', function(items)
     local src=source; local pending=pendingSearches[src]; pendingSearches[src]=nil
     if not pending or pending.expires<GetGameTimer() or not playersNear(src,pending.actor,FBRP.Config.interactionDistance+1.0) then return end
-    local weapons={}
-    if type(items)=='table' then
-        for _,hash in ipairs(items) do
-            hash=tonumber(hash)
-            if hash and SEARCH_WEAPONS[hash] then weapons[hash]=SEARCH_WEAPONS[hash] end
-        end
+    local safe={}; if type(items)=='table' then for _,item in ipairs(items) do safe[#safe+1]=clean(item,50); if #safe>=20 then break end end end
+    -- Packaged product is found and, by police, seized on the spot.
+    if FBRP.Economy and FBRP.Economy.contrabandText and FBRP.Economy.contrabandText(src) then
+        local found=hasPermission(pending.actor,FBRP.Ace.policeSearch) and FBRP.Economy.seize(src,pending.actor) or FBRP.Economy.contrabandText(src)
+        if found then safe[#safe+1]=found..(hasPermission(pending.actor,FBRP.Ace.policeSearch) and ' - SEIZED' or '') end
     end
-    local contraband=FBRP.Economy and FBRP.Economy.contrabandText and FBRP.Economy.contrabandText(src) or nil
-    openSearches[pending.actor]={ target=src, expires=GetGameTimer()+120000, weapons=weapons, contraband=contraband }
-    sendSearchMenu(pending.actor)
+    chat(pending.actor,'SEARCH · '..GetPlayerName(src),#safe>0 and table.concat(safe,', ') or 'No visible weapons or contraband found.')
 end)
-
--- The officer picks what to take from the open search menu.
-RegisterNetEvent('fbrp:search:take', function(kind, hash)
-    local actor=source; local rec=openSearches[actor]
-    if not rec or rec.expires<GetGameTimer() or not sessions[rec.target] or not hasPermission(actor,FBRP.Ace.policeSearch)
-        or not playersNear(actor,rec.target,FBRP.Config.interactionDistance+1.0) then
-        openSearches[actor]=nil
-        return notify(actor,'The search is over. Search the person again.','error')
-    end
-    local taken={}
-    if kind=='weapon' or kind=='weapons' then
-        hash=tonumber(hash)
-        for h,label in pairs(rec.weapons) do
-            if kind=='weapons' or h==hash then
-                rec.weapons[h]=nil; taken[#taken+1]=label
-                TriggerClientEvent('fbrp:search:removeWeapon',rec.target,h)
-            end
-        end
-    elseif kind=='contraband' and rec.contraband then
-        local text=FBRP.Economy and FBRP.Economy.seize and FBRP.Economy.seize(rec.target,actor)
-        rec.contraband=nil
-        if text then taken[#taken+1]=text end
-    end
-    if #taken==0 then return end
-    notify(actor,'Removed: '..table.concat(taken,', '),'success')
-    notify(rec.target,('%s took items from you: %s'):format(displayName(actor),table.concat(taken,', ')),'error')
-    FBRP.DB.audit(sessions[actor].discord or actor,'interaction.search_take',sessions[rec.target].discord or rec.target,{source=actor,target=rec.target,items=taken})
-    sendSearchMenu(actor)
-end)
-AddEventHandler('playerDropped', function() openSearches[source]=nil end)
 
 RegisterNetEvent('fbrp:vehicles:request', function()
     local src=source; local categories={}
@@ -1845,46 +1693,6 @@ RegisterNetEvent('fbrp:vehicles:request', function()
     TriggerClientEvent('fbrp:vehicles:data',src,categories)
 end)
 
--- One garage vehicle per player: spawning a new one from the garage deletes the one they had out.
--- The client reports the new car's net id; we only accept it right after a garage approval and only once
--- the reporter is in its driver seat, so nobody can get someone else's car deleted.
-local garageVehicles = {}   -- source -> net id of their current garage vehicle
-local garageApproved = {}   -- source -> GetGameTimer() of the last garage approval
-
-function FBRP.MarkGarageApproval(source)
-    garageApproved[tonumber(source)] = GetGameTimer()
-end
-
-RegisterNetEvent('fbrp:vehicles:garageSpawned', function(netId)
-    local src = source
-    local approvedAt = garageApproved[src]
-    if not approvedAt or GetGameTimer() - approvedAt > 60000 then return end
-    netId = tonumber(netId)
-    if not netId then return end
-    CreateThread(function()
-        local vehicle = 0
-        for _ = 1, 20 do
-            vehicle = NetworkGetEntityFromNetworkId(netId)
-            if vehicle ~= 0 and DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) == GetPlayerPed(src) then break end
-            vehicle = 0
-            Wait(250)
-        end
-        if vehicle == 0 then return end
-        garageApproved[src] = nil
-        local previous = garageVehicles[src]
-        garageVehicles[src] = netId
-        if previous and previous ~= netId then
-            local old = NetworkGetEntityFromNetworkId(previous)
-            if old ~= 0 and DoesEntityExist(old) then DeleteEntity(old) end
-        end
-    end)
-end)
-
-AddEventHandler('playerDropped', function()
-    garageVehicles[source] = nil
-    garageApproved[source] = nil
-end)
-
 RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
     local src=source; categoryId=clean(categoryId,32); model=clean(model,40):lower()
     if categoryId=='personal' then
@@ -1895,7 +1703,6 @@ RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
     if orgGarage then
         for _,vehicle in ipairs(orgGarage.vehicles) do
             if vehicle.model:lower()==model then
-                FBRP.MarkGarageApproval(src)
                 TriggerClientEvent('fbrp:vehicles:approved',src,model,vehicle.label,orgGarage.style)
                 return FBRP.DB.audit(sessions[src].discord or src,'vehicle.spawn',model,{category='org',organization=orgGarage.label})
             end
@@ -1905,7 +1712,6 @@ RegisterNetEvent('fbrp:vehicles:spawn', function(categoryId, model)
         if category.id==categoryId and hasPermission(src,category.ace) and (not category.onDuty or (sessions[src] and sessions[src].staffDuty)) then
             for _,vehicle in ipairs(category.vehicles) do
                 if vehicle.model:lower()==model then
-                    FBRP.MarkGarageApproval(src)
                     TriggerClientEvent('fbrp:vehicles:approved',src,model,vehicle.label)
                     return FBRP.DB.audit(sessions[src].discord or src,'vehicle.spawn',model,{category=categoryId})
                 end

@@ -20,7 +20,7 @@
                 <span class="chip brand"><img :src="'./images/' + (serverLogo || 'fbrp-logo.png')" alt="">Florida Bay Roleplay</span>
                 <span class="chip dim">{{ Locales["mainTitle"] }}</span>
             </div>
-            <div class="topbar-center">
+            <div>
                 <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>{{ steamID }}</span>
                 <span class="chip"><img v-if="steamProfile" :src="steamProfile" class="avatar" alt=""><template v-else><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></template>{{ steamName }}</span>
             </div>
@@ -120,7 +120,7 @@
                 <span class="chip brand"><img :src="'./images/' + (serverLogo || 'fbrp-logo.png')" alt="">Florida Bay Roleplay</span>
                 <span class="chip dim">{{ editingId ? Locales["editCharacterTitle"] : Locales["registerTitle"] }}</span>
             </div>
-            <div class="topbar-center">
+            <div>
                 <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>{{ steamID }}</span>
                 <span class="chip"><img v-if="steamProfile" :src="steamProfile" class="avatar" alt=""><template v-else><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></template>{{ steamName }}</span>
             </div>
@@ -355,29 +355,11 @@
                 <span class="chip brand"><img :src="'./images/' + (serverLogo || 'fbrp-logo.png')" alt="">Florida Bay Roleplay</span>
                 <span class="chip dim">{{ Locales["spawnTitle"] }}</span>
             </div>
-            <div class="topbar-center">
+            <div>
                 <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>{{ steamID }}</span>
                 <span class="chip"><img v-if="steamProfile" :src="steamProfile" class="avatar" alt=""><template v-else><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></template>{{ steamName }}</span>
             </div>
         </header>
-
-        <section v-if="prio" class="prio-hud" :style="prioStyle" aria-label="AOP and priority">
-            <div class="prio-main">
-                <h5 v-if="prioServerName" class="prio-server">{{ prioServerName }}</h5>
-                <h5><span class="prio-label">{{ prioText("AOPLabel", "AOP:") }}</span> <span class="prio-aop">{{ prio.data.aop }}</span></h5>
-                <h5 v-for="z in (prio.data.zones || [])" :key="'zone-' + z.id">
-                    <span class="prio-label">{{ z.label }}:</span>&nbsp;<span class="prio-status" :class="prioStatus(z).cls">{{ prioStatus(z).text }}<span v-if="prio.data.peacetime && z.status === 'hold'" class="prio-pt"> {{ prioText("Peacetime", "(PT)") }}</span></span>
-                </h5>
-            </div>
-            <div class="prio-side">
-                <h5 class="prio-time">{{ prioClock }}</h5>
-                <div class="prio-tags">
-                    <h5><span class="prio-label">{{ prioText("HeadtagLabel", "Headtag") }}</span><br><span class="prio-tag" :class="{ 'is-na': !tagLabel(prio.data.headtag) }" :style="tagStyle(prio.data.headtag)">{{ tagLabel(prio.data.headtag) || prioText("NotAvailable", "Hidden") }}</span></h5>
-                    <h5><span class="prio-label">{{ prioText("GangtagLabel", "Gangtag") }}</span><br><span class="prio-tag" :class="{ 'is-na': !tagLabel(prio.data.gangtag) }" :style="tagStyle(prio.data.gangtag)">{{ tagLabel(prio.data.gangtag) || prioText("NotAvailable", "Hidden") }}</span></h5>
-                    <h5><span class="prio-label">{{ prioText("JobLabel", "Job") }}</span><br><span class="prio-tag">{{ prio.data.job || prioText("OffDuty", "Off Duty") }}</span></h5>
-                </div>
-            </div>
-        </section>
 
         <section class="panel left" aria-label="Spawn locations">
             <div class="panel-head">
@@ -387,30 +369,23 @@
                 </div>
                 <span class="pill">{{ (spawnData.spawns || []).length }}</span>
             </div>
-            <div v-if="spawnData.aop" class="aop-bar">
-                <span class="aop-bar-label">Current AOP</span>
-                <strong>{{ spawnData.aop }}</strong>
-                <span class="aop-bar-count">{{ allowedCount }} / {{ (spawnData.spawns || []).length }} open</span>
-            </div>
             <button v-for="spawn in spawnData.spawns" :key="'spawn-' + spawn.id" type="button" class="slot"
-                    :class="{ active: selectedSpawn && selectedSpawn.id === spawn.id, 'aop-blocked': spawn.allowed === false }" @click="pickSpawn(spawn); playClickSound()">
+                    :class="{ active: selectedSpawn && selectedSpawn.id === spawn.id }" @click="pickSpawn(spawn); playClickSound()">
                 <span class="mono" :class="{ ghost: !(selectedSpawn && selectedSpawn.id === spawn.id) }"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span>
                 <span class="slot-text">
                     <strong>{{ spawn.label }}</strong>
                     <span>{{ spawn.description }}</span>
                 </span>
                 <span v-if="selectedSpawn && selectedSpawn.id === spawn.id" class="pill viewing"><i></i>{{ Locales["spawnViewing"] }}</span>
-                <span v-else-if="spawnData.aop && spawn.allowed === false" class="pill aop-out">Outside AOP</span>
-                <span v-else-if="spawnData.aop && spawn.allowed !== false" class="pill aop-in">In AOP</span>
             </button>
         </section>
 
         <div class="bottom">
-            <button type="button" class="btn-play" :class="{ disabled: !selectedSpawn || spawning, 'aop-blocked': selectedBlocked }" @click="confirmSpawn(); playClickSound()">
+            <button type="button" class="btn-play" :class="{ disabled: !selectedSpawn || spawning }" @click="confirmSpawn(); playClickSound()">
                 <template v-if="spawning"><span class="loading"></span></template>
                 <template v-else>{{ Locales["spawnButton"] }}<svg viewBox="0 0 24 24" fill="none" stroke="#15181b" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></template>
             </button>
-            <span class="hint" :class="{ error: selectedBlocked }">{{ selectedBlocked ? Locales["spawnAopBlocked"] : (selectedSpawn ? Locales["spawnConfirmHint"] : Locales["spawnPickHint"]) }}</span>
+            <span class="hint">{{ selectedSpawn ? Locales["spawnConfirmHint"] : Locales["spawnPickHint"] }}</span>
         </div>
     </div>
 </div>

@@ -196,7 +196,7 @@
         if (data && data.placeholder && cfg.style !== 'minimal' && cfg.style !== 'imessage') input.placeholder = data.placeholder;
         break;
       case 'visibility':
-        // 1 = chat text always shown, 2 = hidden (L key)
+        // 0 = show when active (fades), 1 = always show, 2 = always hide (from /toggleChat or the L key)
         document.body.classList.toggle('chat-always', data === 1);
         document.body.classList.toggle('chat-hidden', data === 2);
         break;

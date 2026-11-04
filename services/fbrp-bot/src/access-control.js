@@ -1,9 +1,9 @@
 export const OWNER_DISCORD_ID = "1090083387638812755";
 
-/** Accounts with full owner authority over the bot: owner-only commands, security, backups and ACE editing. */
-export const OWNER_DISCORD_IDS = Object.freeze([OWNER_DISCORD_ID, "1099651002208104488"]);
-
-export const PROTECTED_ROLE_MANAGER_IDS = Object.freeze([...OWNER_DISCORD_IDS]);
+export const PROTECTED_ROLE_MANAGER_IDS = Object.freeze([
+  OWNER_DISCORD_ID,
+  "1099651002208104488",
+]);
 
 export function isProtectedRoleManagerId(discordId) {
   return PROTECTED_ROLE_MANAGER_IDS.includes(String(discordId));
@@ -15,6 +15,6 @@ export function requireProtectedRoleManagerId(discordId) {
 }
 
 export function requireOwnerId(discordId, action = "make this change") {
-  if (OWNER_DISCORD_IDS.includes(String(discordId))) return;
+  if (String(discordId) === OWNER_DISCORD_ID) return;
   throw new Error(`Only the Florida Bay owner can ${action}.`);
 }

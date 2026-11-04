@@ -5,19 +5,18 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { ChannelType } from "discord.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MANAGEMENT_MEMBERSHIP_GROUP, NETWORK_KINDS, callGame, enrollNewGuild, syncGuild } from "./sync.js";
+import { NETWORK_KINDS, callGame, enrollNewGuild } from "./sync.js";
 import { PERMISSION_BUNDLES, PERMISSION_CATALOG, VMENU_BUNDLES } from "./permission-catalog.js";
 import { connectUrl, requestUrl } from "./site-url.js";
 import { queueServiceRoles, serviceRoleHolders } from "./service-roles.js";
 import { createAppeals } from "./appeals.js";
-import { createPortalStaff } from "./portal-staff.js";
 import { OWNER_DISCORD_ID } from "./access-control.js";
 import { createDevReviewRoutes } from "./dev-review/routes.js";
 import { isApprover } from "./dev-review/config.js";
 import { OFFICE_OWNER_PERMISSIONS } from "./office-permissions.js";
 import { staffLevel } from "./database.js";
 import { findLinkedAccounts } from "./alts.js";
-import { inviteHistory, organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
+import { organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
 import { lookupAnyCase } from "./case-lookup.js";
 import { MAX_TRUSTED, MAX_TRUSTED_WITH_TAG } from "./personals.js";
 import { createOrgsSite, orgsApiAllowed, orgsStaticPath, safeNext } from "./orgs-site.js";
@@ -25,8 +24,6 @@ import { createOrgLogos, decodeDataUrl } from "./org-logos.js";
 import { MAX_BADGE_REQUEST_BYTES } from "./org-badges.js";
 import { createTebexStore, TebexStoreError } from "./tebex-store.js";
 import { TebexWebhookError } from "./tebex-fulfillment.js";
-import { createLiveStaffPermissions } from "./staff-permissions-live.js";
-import { createOrganizationSetup, linkOrganizationAccessRole } from "./organization-setup.js";
 
 /** Objects the checkbox editor offers: real permissions only (templates like `<model>` are excluded). */
 const EDITOR_CATALOG = PERMISSION_CATALOG.filter((entry) => !entry.object.includes("<"));
@@ -37,7 +34,6 @@ const logoFile = path.resolve(webRoot, "../../../server-data/resources/[fbrp]/fb
 const commandReferenceFile = path.resolve(webRoot, "../../../BOT_COMMANDS.md");
 const ACTOR = OWNER_DISCORD_ID;
 const INVESTIGATION_ROLE_ID = "1558227272107036755";
-const ORGANIZATION_SETUP_ROLE_ID = "1564093317187371109";
 const PORTAL_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const PORTAL_SESSION_TTL_SECONDS = PORTAL_SESSION_TTL_MS / 1000;
 /** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
@@ -284,12 +280,6 @@ export const PANEL_RESOURCES = {
     order: "kind,priority DESC,label",
     fields: [
       field("id", "ID", "number", { readonly: true, auto: true }),
-      field("owner_id", "Owner Discord ID", "snowflake", {
-        inputOnly: true,
-        createOnly: true,
-        createRequired: true,
-        help: "Required when creating a tag. The owner receives a direct grant immediately.",
-      }),
       field("kind", "Tag slot", "select", { options: ["head", "gang", "both"], default: "head" }),
       field("label", "Label", "text", { required: true }),
       field("color", "Color", "color", { default: "#43E8D8" }),
@@ -305,17 +295,7 @@ export const PANEL_RESOURCES = {
     // Role-backed grants are materialized in headtag_grants. Refreshing FiveM alone
     // leaves a newly created/retargeted tag invisible until each holder changes roles.
     // syncAll rebuilds those grants for every cached Discord member and refreshes FiveM.
-    afterInsert: async ({ query, actor }, values) => {
-      await query(
-        "INSERT INTO headtag_grants(discord_id,tag_id,origin,added_by,added_at) VALUES(?,?,'manual',?,?)",
-        [values.owner_id, values.id, actor, now()],
-      );
-    },
-    afterSave: async ({ client, syncAll }, values, original) => {
-      if (!original && values?.owner_id)
-        await setRole(client, values.guild_id, values.role_id, values.owner_id, true, "Headtag owner assigned at creation (control panel)");
-      await syncAll(client);
-    },
+    afterSave: async ({ client, syncAll }) => syncAll(client),
     afterDelete: async ({ client, syncAll }) => syncAll(client),
   },
   "headtag-grants": {
@@ -1002,7 +982,6 @@ async function serveStatic(request, response, forced = null) {
     "/verify": "verify.html",
     "/transcript": "transcript.html",
     "/control": "control.html",
-    "/staff-permissions": "staff-permissions.html",
     "/dev-review": "dev-review.html",
     "/auth/callback": "callback.html",
     "/auth/callback.html": "callback.html",
@@ -1050,14 +1029,13 @@ export function startWebPanel(context) {
   const isStoreHost = (request) => requestHost(request) === storeHost;
   const storeUrl = (request) => isStoreHost(request) ? `https://${storeHost}/` : `${baseUrl(request)}/store`;
   const storeStaticPath = (pathname) => {
-    const common = pathname === "/logo-128.webp" || pathname === "/logo-720.webp" || pathname === "/ui.js" || pathname === "/ui.css" || pathname === "/florida.css" || pathname === "/florida.js" || pathname.startsWith("/fonts/");
+    const common = pathname === "/logo-128.webp" || pathname === "/logo-720.webp" || pathname === "/ui.js" || pathname === "/ui.css" || pathname.startsWith("/fonts/");
     if (common) return path.resolve(webRoot, pathname.slice(1));
     const name = pathname === "/" ? "index.html" : pathname.slice(1);
     if (!["index.html", "store.css", "store.js"].includes(name)) return null;
     return path.resolve(webRoot, "store", name);
   };
   const ownerDiscordId = String(context.ownerDiscordId || OWNER_DISCORD_ID);
-  const portalStaff = createPortalStaff({ client: context.client, db: context.db, audit: context.audit });
   const oauthStates = new Map();
   const storeAuthTickets = new Map();
   const {
@@ -1129,33 +1107,17 @@ export function startWebPanel(context) {
 
   /**
    * How much live configuration a member may use: full for the owner, organization sections for
-   * Co-Owner+, the headtag editor by ACE, or only the setup wizard for its exact Discord role.
+   * Co-Owner+, or the headtag editor for anyone explicitly granted fbrp.headtags.manage.
    */
   async function panelScope(discordId) {
     if (String(discordId) === ownerDiscordId) return "full";
-    const setupGuild = client.guilds.cache.find((guild) => guild.roles.cache.has(ORGANIZATION_SETUP_ROLE_ID));
-    const [level, coOwner, headtags, setupMember] = await Promise.all([
+    const [level, coOwner, headtags] = await Promise.all([
       staffLevel(discordId),
       db.one("SELECT rank_order FROM ace_groups WHERE name='co_owner'"),
       hasPermission?.(discordId, "fbrp.headtags.manage"),
-      memberOf(client, setupGuild?.id, discordId),
     ]);
     if (level >= Number(coOwner?.rank_order ?? 950)) return "organizations";
-    if (headtags) return "headtags";
-    return setupMember?.roles.cache.has(ORGANIZATION_SETUP_ROLE_ID) ? "setup" : null;
-  }
-
-  async function canSetupOrganization(discordId) {
-    const guild = client.guilds.cache.find((item) => item.roles.cache.has(ORGANIZATION_SETUP_ROLE_ID));
-    const member = await memberOf(client, guild?.id, discordId);
-    return Boolean(member?.roles.cache.has(ORGANIZATION_SETUP_ROLE_ID));
-  }
-
-  // The live permission matrix is for Co-Owners and above (and the owner), like the settings app.
-  const liveStaffPermissions = createLiveStaffPermissions({ origin: process.env.FBRP_FIVEM_ORIGIN, token: process.env.FBRP_SERVICE_TOKEN });
-  async function canViewStaffPermissions(discordId) {
-    const scope = await panelScope(discordId);
-    return scope === "full" || scope === "organizations";
+    return headtags ? "headtags" : null;
   }
 
   async function staffGuild() {
@@ -1227,7 +1189,7 @@ export function startWebPanel(context) {
     const owner = String(discordId) === ownerDiscordId;
     const roster = await db.one("SELECT status FROM staff_roster_members WHERE discord_id=?", [String(discordId)]);
     const staff = owner || Boolean(roster && roster.status !== "removed");
-    const [opsControl, sceneModerate, gameUnban, staffRank, communityManager, staffCoordinator, managementTeam, rosterManagePerm, rosterDisciplinePerm] = await Promise.all([
+    const [opsControl, sceneModerate, gameUnban, staffRank, communityManager] = await Promise.all([
       owner ? true : hasPermission?.(discordId, "fbrp.announce"),
       owner ? true : hasPermission?.(discordId, "fbrp.staff.manage"),
       owner ? true : hasPermission?.(discordId, "easyadmin.player.ban.remove"),
@@ -1239,33 +1201,22 @@ export function startWebPanel(context) {
         [String(discordId)],
       ),
       db.one("SELECT rank_order FROM ace_groups WHERE name='community_manager'"),
-      db.one("SELECT 1 present FROM ace_memberships WHERE discord_id=? AND group_name='staff_coordination_team' LIMIT 1", [String(discordId)]),
-      db.one("SELECT 1 present FROM ace_memberships WHERE discord_id=? AND group_name=? LIMIT 1", [String(discordId), MANAGEMENT_MEMBERSHIP_GROUP]),
-      owner ? true : hasPermission?.(discordId, "fbrp.roster.manage"),
-      owner ? true : hasPermission?.(discordId, "fbrp.roster.discipline"),
     ]);
-    // Management and the Staff Coordination Team run the roster from the portal as they do with /roster.
-    const rosterLead = Boolean(owner || staffCoordinator || managementTeam);
     const commandReference = owner || Number(staffRank?.level ?? -1) >= Number(communityManager?.rank_order ?? 850);
-    const [managementScope, investigationRole, organizationSetup] = await Promise.all([
+    const [managementScope, investigationRole] = await Promise.all([
       panelScope(discordId),
       hasInvestigationRole(discordId),
-      canSetupOrganization(discordId),
     ]);
     const organizationAdmin = managementScope === "full" || managementScope === "organizations";
     return {
       owner,
       orgAdmin: organizationAdmin,
       headtagAdmin: managementScope === "headtags",
-      orgSetup: organizationSetup,
       investigate: Boolean(organizationAdmin || investigationRole),
       staff,
       support: owner || staff || Boolean(await hasPermission?.(discordId, "fbrp.tickets.support")),
       opsControl: Boolean(opsControl),
       sceneModerate: Boolean(sceneModerate),
-      rosterAnalysis: Boolean(rosterLead || sceneModerate || rosterManagePerm || rosterDisciplinePerm),
-      rosterManage: Boolean(rosterLead || rosterManagePerm),
-      rosterDiscipline: Boolean(rosterLead || rosterDisciplinePerm),
       gameUnban: Boolean(gameUnban),
       commandReference,
     };
@@ -1339,7 +1290,7 @@ export function startWebPanel(context) {
     }
   }
 
-  async function bootstrap(scope = "full", personalManager = false, organizationSetup = false) {
+  async function bootstrap(scope = "full", personalManager = false) {
     const scoped = scope !== "full";
     const allowed = ([id]) => panelResourceAllowed(scope, id, personalManager);
     const records = {};
@@ -1369,18 +1320,15 @@ export function startWebPanel(context) {
         records[id] = await db.query(`SELECT ${columns.map((name) => `\`${name}\``).join(",")} FROM \`${resource.table}\` ORDER BY ${resource.order} LIMIT 1000`);
       }
     const scopedActions = Object.keys(PANEL_RESOURCES).filter((id) => panelResourceAllowed(scope, id, personalManager)).map((id) => `panel.${id}.%`);
-    const [syncs, syncGuilds, syncRoles, syncGuildSettings, syncAnchors, auditRows, setupGuildRows] = await Promise.all([
+    const [syncs, syncGuilds, syncRoles, syncGuildSettings, syncAnchors, auditRows] = await Promise.all([
       scoped ? [] : db.query("SELECT * FROM network_syncs ORDER BY sort_order,id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_guilds ORDER BY sync_id,guild_id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_roles ORDER BY sync_id,guild_id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_guild_settings ORDER BY sync_id,guild_id"),
       scoped ? [] : db.query("SELECT * FROM network_sync_anchors ORDER BY sync_id,guild_id"),
       scoped
-        ? scopedActions.length
-          ? db.query(`SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log WHERE ${scopedActions.map(() => "action LIKE ?").join(" OR ")} ORDER BY id DESC LIMIT 80`, scopedActions)
-          : []
+        ? db.query(`SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log WHERE ${scopedActions.map(() => "action LIKE ?").join(" OR ")} ORDER BY id DESC LIMIT 80`, scopedActions)
         : db.query("SELECT id,actor_id,action,target_id,payload,created_at FROM audit_log ORDER BY id DESC LIMIT 80"),
-      organizationSetup ? db.query("SELECT guild_id,kind,name FROM network_guilds WHERE kind IN ('gang','business','department') ORDER BY kind,name") : [],
     ]);
     const guilds = [...client.guilds.cache.values()].map((guild) => ({
       id: guild.id,
@@ -1404,8 +1352,6 @@ export function startWebPanel(context) {
     }));
     return {
       scope,
-      capabilities: { organizationSetup },
-      organizationSetupGuilds: setupGuildRows.map((row) => ({ id: String(row.guild_id), kind: row.kind, name: row.name || client.guilds.cache.get(String(row.guild_id))?.name || row.guild_id })),
       online: client.isReady(),
       bot: client.user ? { id: client.user.id, tag: client.user.tag } : null,
       generatedAt: now(),
@@ -1436,24 +1382,22 @@ export function startWebPanel(context) {
     const resource = PANEL_RESOURCES[id];
     if (!resource) throw new Error("Unknown configuration resource.");
     const values = {};
-    const virtualValues = {};
-    const oldKey = original && Object.fromEntries(resource.pk.map((key) => [key, original[key]]));
-    const exists = oldKey && resource.pk.every((key) => oldKey[key] !== undefined && oldKey[key] !== null && oldKey[key] !== "");
     // A new or replacement logo is checked before anything is written, so a bad image saves nothing.
     const logoInput = id === "organizations" ? String(record.logo ?? "") : "";
     const logoImage = logoInput.startsWith("data:") ? decodeDataUrl(logoInput) : null;
     for (const meta of resource.fields) {
       if (meta.virtual) continue;
-      if (meta.createOnly && exists) continue;
       if (meta.readonly && meta.auto && !record[meta.name]) continue;
       let value = meta.alwaysNow ? now() : record[meta.name];
       if ((value === undefined || value === "") && meta.default !== undefined)
         value = meta.default === "now" ? now() : meta.name === "created_by" ? actor : meta.default;
-      if ((meta.required || (!exists && meta.createRequired)) && (value === undefined || value === "" || value === null))
+      if (meta.required && (value === undefined || value === "" || value === null))
         throw new Error(`${meta.label} is required.`);
-      if (value !== undefined) (meta.inputOnly ? virtualValues : values)[meta.name] = normalizedValue(meta, value);
+      if (value !== undefined) values[meta.name] = normalizedValue(meta, value);
     }
-    await resource.validate?.({ ...values, ...virtualValues }, context);
+    await resource.validate?.(values, context);
+    const oldKey = original && Object.fromEntries(resource.pk.map((key) => [key, original[key]]));
+    const exists = oldKey && resource.pk.every((key) => oldKey[key] !== undefined && oldKey[key] !== null && oldKey[key] !== "");
     if (exists) {
       const set = Object.keys(values).map((name) => `\`${name}\`=?`).join(",");
       const where = resource.pk.map((name) => `\`${name}\`=?`).join(" AND ");
@@ -1463,25 +1407,12 @@ export function startWebPanel(context) {
       ]);
     } else {
       const names = Object.keys(values);
-      const insert = async (query) => {
-        const result = await query(
-          `INSERT INTO \`${resource.table}\` (${names.map((name) => `\`${name}\``).join(",")}) VALUES (${names.map(() => "?").join(",")})`,
-          Object.values(values),
-        );
-        if (resource.pk.length === 1) {
-          const key = resource.pk[0];
-          const meta = resource.fields.find((item) => item.name === key);
-          if (meta?.auto && result.insertId !== undefined) values[key] = result.insertId;
-        }
-        await resource.afterInsert?.({ ...context, query, actor }, { ...values, ...virtualValues });
-      };
-      if (resource.afterInsert) await db.transaction(insert);
-      else await insert(db.query.bind(db));
+      await db.query(
+        `INSERT INTO \`${resource.table}\` (${names.map((name) => `\`${name}\``).join(",")}) VALUES (${names.map(() => "?").join(",")})`,
+        Object.values(values),
+      );
     }
-    const savedValues = { ...values, ...virtualValues };
-    const detailedAsset = ["headtags", "headtag-grants", "personals", "personal-trust", "personal-tags"].includes(id);
-    const auditPayload = detailedAsset && exists ? { before: original, after: savedValues } : savedValues;
-    await audit(actor, `panel.${id}.${exists ? "edit" : "create"}`, resource.pk.map((key) => values[key]).join(":"), auditPayload);
+    await audit(actor, `panel.${id}.${exists ? "edit" : "create"}`, resource.pk.map((key) => values[key]).join(":"), values);
     if (id === "organizations" && (logoImage || logoInput === "remove")) {
       const saved = await db.one("SELECT id FROM organizations WHERE slug=?", [values.slug]);
       if (saved) {
@@ -1489,7 +1420,7 @@ export function startWebPanel(context) {
         else await panelLogos.remove(saved.id, actor);
       }
     }
-    await resource.afterSave?.(context, savedValues, exists ? original : null);
+    await resource.afterSave?.(context, values, exists ? original : null);
     await effects(resource);
   }
 
@@ -1535,7 +1466,7 @@ export function startWebPanel(context) {
       group: name, ...change, gameRefreshed,
       lines: [
         `${creating ? "Created" : "Saved"} ${name}: ${objects.length} allowed objects (+${change.added.length} / -${change.removed.length}).`,
-        gameRefreshed ? "The game server has the new permissions; Discord roles are updating in the background. vMenu only reads permissions when a player joins, so anyone already in the server must rejoin to see vMenu changes." : "Saved, but the game server did not answer. It re-reads permissions on its next refresh.",
+        gameRefreshed ? "The game server has the new permissions; Discord roles are updating in the background." : "Saved, but the game server did not answer. It re-reads permissions on its next refresh.",
       ],
     };
   }
@@ -1549,8 +1480,7 @@ export function startWebPanel(context) {
     const row = await db.one(`SELECT * FROM \`${resource.table}\` WHERE ${where}`, params);
     if (!row) throw new Error("That record no longer exists. Refresh the panel.");
     await db.query(`DELETE FROM \`${resource.table}\` WHERE ${where}`, params);
-    const detailedAsset = ["headtags", "headtag-grants", "personals", "personal-trust", "personal-tags"].includes(id);
-    await audit(actor, `panel.${id}.delete`, params.join(":"), detailedAsset ? { deleted: row } : key);
+    await audit(actor, `panel.${id}.delete`, params.join(":"), key);
     await resource.afterDelete?.(context, key, row);
     await effects(resource);
   }
@@ -1582,7 +1512,7 @@ export function startWebPanel(context) {
 
   async function rosterDirectory() {
     const week = Date.now() - 7 * 86400000;
-    const [rows, assignments] = await Promise.all([db.query(
+    return db.query(
       `SELECT m.discord_id,m.display_name,m.username,m.rank_name,m.callsign,m.status,m.joined_at,m.rank_changed_at,m.tickets_handled,m.activity_note,
               r.id rank_id,r.sort_order rank_sort,r.weekly_seconds,c.name category_name,c.sort_order category_sort,
               COALESCE(h.total_seconds,0) total_seconds,COALESCE(h.week_seconds,0) week_seconds,COALESCE(h.shift_count,0) shift_count
@@ -1596,24 +1526,10 @@ export function startWebPanel(context) {
         WHERE m.status<>'removed'
         ORDER BY COALESCE(c.sort_order,9999),COALESCE(r.sort_order,9999),m.callsign,m.display_name`,
       [week],
-    ), db.query(
-      `SELECT mj.discord_id,j.id,j.name,j.description
-         FROM staff_roster_member_jobs mj
-         JOIN staff_roster_jobs j ON j.id=mj.job_id
-        ORDER BY j.sort_order,j.name`,
-    )]);
-    const jobs = new Map();
-    for (const job of assignments) {
-      if (!jobs.has(job.discord_id)) jobs.set(job.discord_id, []);
-      jobs.get(job.discord_id).push({ id: job.id, name: job.name, description: job.description });
-    }
-    const profiles = await resolvePeople(rows.map((row) => row.discord_id), { fetchLimit: 200 });
-    return rows.map((row) => ({
-      ...row,
-      avatar: profiles[row.discord_id]?.avatar || null,
-      discord_name: profiles[row.discord_id]?.username || null,
-      jobs: jobs.get(row.discord_id) || [],
-    }));
+    ).then(async (rows) => {
+      const profiles = await resolvePeople(rows.map((row) => row.discord_id), { fetchLimit: 200 });
+      return rows.map((row) => ({ ...row, avatar: profiles[row.discord_id]?.avatar || null, discord_name: profiles[row.discord_id]?.username || null }));
+    });
   }
 
   async function staffProfile(discordId, viewer) {
@@ -1631,29 +1547,15 @@ export function startWebPanel(context) {
       [Date.now() - 7 * 86400000, String(discordId)],
     );
     if (!roster) return null;
-    const now = Date.now();
-    const weekStart = now - 7 * 86400000;
-    const previousWeekStart = now - 14 * 86400000;
-    const monthStart = now - 30 * 86400000;
-    const [jobs, recentShifts, discipline, history, analysis] = await Promise.all([
+    const [jobs, recentShifts, discipline, history] = await Promise.all([
       db.query(`SELECT j.id,j.name,j.description FROM staff_roster_member_jobs mj JOIN staff_roster_jobs j ON j.id=mj.job_id WHERE mj.discord_id=? ORDER BY j.sort_order,j.name`, [discordId]),
       db.query("SELECT id,name,started_at,ended_at,seconds,end_reason FROM staff_shifts WHERE discord_id=? ORDER BY id DESC LIMIT 20", [discordId]),
-      viewer.rosterAnalysis || String(viewer.id) === String(discordId)
+      viewer.staff || String(viewer.id) === String(discordId)
         ? db.query("SELECT id,kind,reason,actor_id,created_at,revoked_at,revoke_reason FROM staff_roster_discipline WHERE discord_id=? ORDER BY id DESC LIMIT 30", [discordId])
         : [],
-      viewer.rosterAnalysis || String(viewer.id) === String(discordId)
+      viewer.staff || String(viewer.id) === String(discordId)
         ? db.query("SELECT id,action,actor_id,details,created_at FROM staff_roster_history WHERE discord_id=? ORDER BY id DESC LIMIT 30", [discordId])
         : [],
-      db.one(
-        `SELECT COALESCE(SUM(IF(started_at>=?,seconds,0)),0) month_seconds,
-                COALESCE(SUM(IF(started_at>=? AND started_at<?,seconds,0)),0) previous_week_seconds,
-                COUNT(DISTINCT IF(started_at>=?,FROM_UNIXTIME(started_at/1000,'%Y-%m-%d'),NULL)) active_days,
-                COALESCE(ROUND(AVG(NULLIF(seconds,0))),0) average_shift_seconds,
-                COALESCE(MAX(seconds),0) longest_shift_seconds,
-                MAX(started_at) last_shift_at
-           FROM staff_shifts WHERE discord_id=?`,
-        [monthStart, previousWeekStart, weekStart, weekStart, String(discordId)],
-      ),
     ]);
     const profiles = await resolvePeople([discordId, ...history.map((row) => row.actor_id), ...discipline.map((row) => row.actor_id)]);
     return {
@@ -1662,14 +1564,6 @@ export function startWebPanel(context) {
       discord_name: profiles[discordId]?.username || null,
       jobs,
       recentShifts,
-      analysis: {
-        monthSeconds: Number(analysis?.month_seconds || 0),
-        previousWeekSeconds: Number(analysis?.previous_week_seconds || 0),
-        activeDays: Number(analysis?.active_days || 0),
-        averageShiftSeconds: Number(analysis?.average_shift_seconds || 0),
-        longestShiftSeconds: Number(analysis?.longest_shift_seconds || 0),
-        lastShiftAt: analysis?.last_shift_at ? Number(analysis.last_shift_at) : null,
-      },
       discipline: discipline.map((row) => ({ ...row, actor: profiles[row.actor_id] || null })),
       history: history.map((row) => ({ ...row, details: parseJson(row.details), actor: profiles[row.actor_id] || null })),
     };
@@ -1683,7 +1577,7 @@ export function startWebPanel(context) {
     if (!user) throw new Error("That Discord account could not be found.");
     const stamp = Date.now();
     const shiftDuration = "CASE WHEN ended_at IS NULL THEN GREATEST(0,FLOOR((heartbeat_at-started_at)/1000)) ELSE seconds END";
-    const [players, groups, organizations, cases, discipline, staffHours, verification, storedGuilds, blacklist, network, linked, punishments, assets, invites] = await Promise.all([
+    const [players, groups, organizations, cases, discipline, staffHours, verification, storedGuilds, blacklist, network, linked, punishments, assets] = await Promise.all([
       db.query("SELECT id,name,created_at,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 20", [id]),
       db.query(`SELECT g.name,g.label,g.rank_order,m.origin FROM ace_memberships m JOIN ace_groups g ON g.name=m.group_name WHERE m.discord_id=? ORDER BY g.rank_order DESC,g.label`, [id]),
       organizationActivity(db, id, stamp),
@@ -1705,7 +1599,6 @@ export function startWebPanel(context) {
       findLinkedAccounts(db, id),
       punishmentHistory(db, id),
       ownedAssets(db, id),
-      inviteHistory(db, id),
     ]);
 
     const networkById = new Map(network.map((row) => [String(row.guild_id), row]));
@@ -1759,8 +1652,6 @@ export function startWebPanel(context) {
       ...discipline.map((row) => row.actor_id),
       ...punishments.entries.map((row) => row.actorId),
       ...altAccounts.map((row) => row.id),
-      ...invites.invitedBy.map((row) => row.inviterId).filter(Boolean),
-      ...invites.invited.slice(0, 50).map((row) => row.memberId),
     ], { fetchLimit: 100 });
 
     const normalizeDate = (value) => value ? new Date(value).getTime() : null;
@@ -1778,11 +1669,6 @@ export function startWebPanel(context) {
       groups,
       organizations,
       assets,
-      invites: {
-        ...invites,
-        invitedBy: invites.invitedBy.map((row) => ({ ...row, guildName: client.guilds.cache.get(row.guildId)?.name || row.guildId })),
-        invited: invites.invited.map((row) => ({ ...row, guildName: client.guilds.cache.get(row.guildId)?.name || row.guildId })),
-      },
       cases: cases.map((row) => ({ ...row, id: Number(row.id), active: Boolean(Number(row.active)), expires_at: row.expires_at ? Number(row.expires_at) : null, created_at: Number(row.created_at) })),
       discipline: discipline.map((row) => ({ ...row, id: Number(row.id), created_at: Number(row.created_at), revoked_at: row.revoked_at ? Number(row.revoked_at) : null })),
       punishments,
@@ -1858,7 +1744,6 @@ export function startWebPanel(context) {
       ticketTypes: Object.entries(ticketTypeMap).map(([key, spec]) => ({ key, ...spec })),
       priorities,
       devReview: isApprover(session.id),
-      staffPermissions: await canViewStaffPermissions(session.id),
       generatedAt: Date.now(),
     };
     if (access.staff) {
@@ -2013,13 +1898,6 @@ export function startWebPanel(context) {
             return response.end();
           }
         }
-        if (["/staff-permissions", "/staff-permissions.html"].includes(url.pathname)) {
-          const session = await sessionFor(request);
-          if (!session || !(await canViewStaffPermissions(session.id))) {
-            response.writeHead(302, { Location: `${baseUrl(request)}/portal.html?next=staff-permissions`, "Cache-Control": "no-store" });
-            return response.end();
-          }
-        }
         if (["/control", "/control.html"].includes(url.pathname)) {
           const session = await sessionFor(request);
           if (!session || !(await panelScope(session.id))) {
@@ -2104,27 +1982,6 @@ export function startWebPanel(context) {
         if (url.pathname === "/api/gangs/economy/batch") {
           if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
           return sendJson(response, 200, await economy.serviceBatch(await bodyJson(request)));
-        }
-        if (url.pathname === "/api/gangs/org/access-role") {
-          if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
-          try {
-            const input = await bodyJson(request);
-            const linked = await linkOrganizationAccessRole({ db, client, actorId: `${String(input.family || "organization")}-assistant`, input });
-            await audit(`${String(input.family || "organization")}-assistant`, "organization.access_role", linked.org.id, {
-              guildId: linked.guild.id,
-              roleId: linked.role.id,
-              family: input.family,
-            });
-            await syncGuild(client, linked.guild);
-            return sendJson(response, 200, {
-              ok: true,
-              org: linked.org,
-              role: { id: linked.role.id, name: linked.role.name },
-              guild: { id: linked.guild.id, name: linked.guild.name },
-            });
-          } catch (error) {
-            return sendJson(response, 400, { error: error.message || "Could not link the organization access role." });
-          }
         }
         // Agency bots (IAA, DOHS) read who holds their main-server roles and ask for changes. Only the
         // fixed roles in service-roles.js can be queued; the main bot carries them out.
@@ -2391,16 +2248,6 @@ export function startWebPanel(context) {
         return sendJson(response, 200, { transcript, viewer: { id: session.id, staff: allowed.manage, canRefresh: allowed.manage || ticket.status !== "closed" } });
       }
 
-      if (request.method === "GET" && url.pathname === "/api/staff-permissions") {
-        if (!(await canViewStaffPermissions(session.id))) return sendJson(response, 403, { error: "Staff permissions are for Co-Owners and above." });
-        try {
-          return sendJson(response, 200, await liveStaffPermissions.snapshot(String(url.searchParams.get("since") || "").slice(0, 64)));
-        } catch (error) {
-          console.error("[FBRP staff permissions page]", error.message || error);
-          return sendJson(response, 502, { error: "The game server did not answer. Showing the last copy until it does." });
-        }
-      }
-
       if (request.method === "GET" && url.pathname === "/api/portal/bootstrap")
         return sendJson(response, 200, await portalBootstrap(session));
       if (request.method === "GET" && url.pathname === "/api/orgs/data")
@@ -2448,8 +2295,6 @@ export function startWebPanel(context) {
       if (request.method === "GET" && url.pathname === "/api/portal/staff-profile") {
         const access = await accessFor(session.id);
         const id = String(url.searchParams.get("id") || session.id);
-        if (id !== String(session.id) && !access.rosterAnalysis)
-          return sendJson(response, 403, { error: "Staff Coordination Team or management access is required." });
         const profile = await staffProfile(id, { id: session.id, ...access });
         if (!profile) return sendJson(response, 404, { error: "Staff profile not found." });
         return sendJson(response, 200, profile);
@@ -2548,8 +2393,6 @@ export function startWebPanel(context) {
         } else if (url.pathname === "/api/portal/appeal/review") {
           if (!access.staff) return sendJson(response, 403, { error: "Staff access is required." });
           result = await appeals.staffAction(session, input);
-        } else if (url.pathname === "/api/portal/staff/manage") {
-          result = await portalStaff.act(session, access, input);
         } else if (url.pathname === "/api/portal/game-ban/undo") {
           if (!access.gameUnban) return sendJson(response, 403, { error: "The easyadmin.player.ban.remove permission is required." });
           result = await liftEasyAdminCase(input.banId, session.id, textValue(input.reason, 300));
@@ -2599,42 +2442,10 @@ export function startWebPanel(context) {
       const scope = await panelScope(session.id);
       if (!scope) return sendJson(response, 403, { error: "You do not have access to live configuration." });
       const personalManager = await personals.canManage(session.id);
-      const organizationSetup = await canSetupOrganization(session.id);
       if (request.method === "GET" && url.pathname === "/api/bootstrap")
-        return sendJson(response, 200, await bootstrap(scope, personalManager, organizationSetup));
+        return sendJson(response, 200, await bootstrap(scope, personalManager));
       if (request.method !== "POST") return sendJson(response, 405, { error: "Method not allowed." });
       const input = await bodyJson(request);
-      if (url.pathname === "/api/organization/setup") {
-        if (!organizationSetup) return sendJson(response, 403, { error: `Discord role ${ORGANIZATION_SETUP_ROLE_ID} is required.` });
-        const logo = input.logo ? decodeDataUrl(String(input.logo)) : null;
-        const created = await createOrganizationSetup({ db, client, actorId: session.id, input });
-        await audit(session.id, "organization.setup", created.orgId, {
-          slug: created.slug,
-          type: created.type,
-          tagId: created.tagId,
-          guildId: created.guildId,
-          family: created.family,
-        });
-        await audit(session.id, "headtag.create", created.tagId, {
-          kind: "gang", label: created.tag, color: created.color, guildId: created.guildId, orgId: created.orgId, source: "organization.setup",
-        });
-        if (logo) await panelLogos.save(created.orgId, logo, session.id);
-        await refreshGame();
-        return sendJson(response, 200, {
-          result: {
-            orgId: created.orgId,
-            slug: created.slug,
-            name: created.name,
-            type: created.type,
-            family: created.family,
-            bot: created.bot,
-            command: created.nextCommand,
-            managerField: created.managerField,
-            guildName: created.guildName,
-          },
-          data: await bootstrap(scope, personalManager, organizationSetup),
-        });
-      }
       if (scope !== "full" && !(["/api/record/save", "/api/record/delete"].includes(url.pathname) && panelResourceAllowed(scope, String(input.resource), personalManager)))
         return sendJson(response, 403, { error: "That resource is outside your control-panel access." });
       // The generic editor bypasses personals.js, so enforce the same ACE-backed

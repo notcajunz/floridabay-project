@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { callGame } from "./sync.js";
 import { PERSONAL_VEHICLES_DIR, personalResourceName } from "./personal-resources.js";
 import { MAX_BYTES, PERSONAL_MARKER, STREAM_EXT, UPLOAD_DIR, UPLOAD_ID, askStructured, reviewVehicleSecurity, unzip, walk } from "./personal-import.js";
-import { addonPedNames, analyze, assetHeaderProblem, classify, closeGaps, eupPieces, genderHint, isVanillaDlc, shopMetaTarget, shopPedMeta, validateRenames, withPrefix } from "./eup-packaging.js";
+import { addonPedNames, analyze, assetHeaderProblem, classify, closeGaps, eupPieces, genderHint, shopMetaTarget, shopPedMeta, validateRenames, withPrefix } from "./eup-packaging.js";
 
 /**
  * Custom EUP and personal vehicle liveries (website side, personal vehicle manager only).
@@ -232,8 +232,6 @@ export async function makeEupReady({ items, metas, packDlc, packName }) {
   const generated = [];
   for (const group of analysis.groups.filter((g) => g.dlc)) {
     if (own.has(`${group.ped}|${group.dlc}`)) continue;
-    // A base game collection is replaced in place: keep the author's numbers and write no shop meta for it.
-    if (isVanillaDlc(group.dlc)) { warnings.push(`${group.ped}_${group.dlc} is a base game clothing collection: this pack replaces GTA's own items at the numbers it uses. Its files were kept exactly as named.`); continue; }
     const fixes = closeGaps(group.entries);
     if (fixes.length) { apply(fixes); notes.push(`${group.ped}_${group.dlc}: renumbered ${fixes.length} file${fixes.length === 1 ? "" : "s"} so the drawable numbers have no gaps.`); }
     generated.push({ ped: group.ped, dlc: group.dlc, xml: shopPedMeta(group.ped, group.dlc, { creature: group.ymt }) });
@@ -244,7 +242,7 @@ export async function makeEupReady({ items, metas, packDlc, packName }) {
   warnings.push(...analysis.warnings);
   const groups = analysis.groups.map((g) => ({
     ped: g.ped, dlc: g.dlc, style: g.style, drawables: g.drawables, textures: g.textures, props: g.props, ymt: g.ymt,
-    meta: g.dlc && !isVanillaDlc(g.dlc) ? (own.has(`${g.ped}|${g.dlc}`) ? "pack" : "generated") : g.dlc && own.has(`${g.ped}|${g.dlc}`) ? "pack" : "none",
+    meta: g.dlc ? (own.has(`${g.ped}|${g.dlc}`) ? "pack" : "generated") : "none",
   }));
   if (!groups.length && !pedNames.length) warnings.push("No freemode clothing was recognised, so nothing will show in the vMenu appearance menu.");
   return { items, generated, groups, addonPeds: pedNames, notes, warnings, dlc, summary: ai?.summary ? String(ai.summary).slice(0, 400) : "" };

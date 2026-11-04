@@ -69,7 +69,7 @@ const PATHS = {
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[name] || ""}</svg>`;
 
 /* ---------- state ---------- */
-const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, personalId: null, investigation: null, investigationLoading: false, caseLookup: null, caseLookupLoading: false, filters: {}, commandReference: null };
+const state = { data: null, view: location.hash.slice(1) || "dashboard", dialog: null, profile: null, investigation: null, investigationLoading: false, caseLookup: null, caseLookupLoading: false, filters: {}, commandReference: null };
 const filter = (key, fallback = "") => state.filters[key] ?? fallback;
 
 async function api(path, options = {}) {
@@ -161,7 +161,7 @@ function nav() {
       ...(exams.reviewer ? [["examreviews", "Exam reviews", "review", pendingExams]] : []),
       ...(access.commandReference ? [["commands", "Bot commands", "code"]] : []),
     ]]] : []),
-    ...(access.owner ? [["Owner", [["settings", "Live configuration", "gear"]]]] : access.orgAdmin ? [["Management", [["settings", "Organization admin", "gear"]]]] : access.headtagAdmin ? [["Management", [["settings", "Headtag configuration", "tag"]]]] : access.orgSetup ? [["Management", [["settings", "Organization setup", "building"]]]] : []),
+    ...(access.owner ? [["Owner", [["settings", "Live configuration", "gear"]]]] : access.orgAdmin ? [["Management", [["settings", "Organization admin", "gear"]]]] : access.headtagAdmin ? [["Management", [["settings", "Headtag configuration", "tag"]]]] : []),
   ];
   $("#portal-nav").innerHTML = groups.map(([label, items]) => `<div class="nav-label">${esc(label)}</div>${items.map(([view, title, ico, badge]) => `<button type="button" data-view="${view}" class="${state.view === view && !(view === "profile" && state.profile && state.profile.discord_id !== data.user.id) ? "active" : ""}">${icon(ico)}<span>${esc(title)}</span>${badge ? `<span class="badge">${fmt(badge)}</span>` : ""}</button>`).join("")}`).join("");
   const u = data.user;
@@ -226,9 +226,8 @@ function dashboard() {
           <button type="button" data-view="punishments" style="--tone:143 124 255"><span class="feed-ico">${icon("scale")}</span><div><b>Appeal a punishment</b><small>Use the case ID from your DM</small></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>
           <button type="button" data-view="roster" style="--tone:53 226 205"><span class="feed-ico">${icon("users")}</span><div><b>Meet the staff</b><small>Live roster with activity</small></div>${icon("chev").replace("<svg", '<svg class="chev"')}</button>
           <a href="${esc(d.orgsSite?.url || "/orgs")}" target="_blank" rel="noopener" style="--tone:255 122 69"><span class="feed-ico">${icon("building")}</span><div><b>Organizations</b><small>Gangs, businesses and departments</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>
-          ${d.staffPermissions ? `<a href="staff-permissions" style="--tone:61 220 151"><span class="feed-ico">${icon("shield")}</span><div><b>Staff permissions</b><small>Live permission matrix by rank</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : ""}
           ${d.devReview ? `<a href="dev-review" style="--tone:143 124 255"><span class="feed-ico">${icon("shield")}</span><div><b>Dev review</b><small>Approve or decline developer submissions</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : ""}
-          ${d.access.owner ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Live configuration</b><small>Owner control plane</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : d.access.orgAdmin ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Organization admin</b><small>Create and edit every organization</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : d.access.headtagAdmin ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("tag")}</span><div><b>Headtag configuration</b><small>View and edit headtags only</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : d.access.orgSetup ? `<a href="control.html" style="--tone:53 226 205"><span class="feed-ico">${icon("building")}</span><div><b>Organization setup</b><small>Prepare a new organization for its assistant bot</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : ""}
+          ${d.access.owner ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Live configuration</b><small>Owner control plane</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : d.access.orgAdmin ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("gear")}</span><div><b>Organization admin</b><small>Create and edit every organization</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : d.access.headtagAdmin ? `<a href="control.html" style="--tone:255 194 77"><span class="feed-ico">${icon("tag")}</span><div><b>Headtag configuration</b><small>View and edit headtags only</small></div>${icon("external").replace("<svg", '<svg class="chev"')}</a>` : ""}
         </div>
       </section>
     </div>`;
@@ -252,30 +251,31 @@ function roster() {
   setTitle("Community", "Staff roster");
   const all = state.data.roster;
   const query = filter("roster-q");
-  const shown = all.filter((p) => matches(query, p.display_name, p.username, p.discord_name, p.discord_id, p.rank_name, p.callsign, ...(p.jobs || []).map((job) => job.name)));
-  const pageSize = 30;
-  const pages = Math.max(1, Math.ceil(shown.length / pageSize));
-  const page = Math.min(pages, Math.max(1, Number(filter("roster-page", 1)) || 1));
-  const people = shown.slice((page - 1) * pageSize, page * pageSize);
-  const canInspect = Boolean(state.data.access.rosterAnalysis);
+  const cat = filter("roster-cat", "all");
+  const categories = [...new Set(all.map((p) => p.category_name || "Staff"))];
+  const shown = all.filter((p) => (cat === "all" || (p.category_name || "Staff") === cat) && matches(query, p.display_name, p.username, p.discord_name, p.rank_name, p.callsign));
+  const groups = new Map();
+  for (const p of shown) {
+    const key = p.category_name || "Staff";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
   $("#portal-content").innerHTML = `
-    <div class="toolbar roster-toolbar">${searchBox("roster-q", "Search name, Discord ID, job, or rank")}<span class="roster-count">${plural(shown.length, "member")}${shown.length !== all.length ? ` of ${fmt(all.length)}` : ""}</span></div>
-    ${people.length ? `<section class="roster-list-card">
-      <div class="roster-head" aria-hidden="true"><span>Staff member</span><span>Discord ID</span><span>Staff jobs</span><span>Rank</span><span>Hours</span><span></span></div>
-      <div class="roster-list">${people.map((p) => {
+    <div class="toolbar">${searchBox("roster-q", "Search name, rank, or callsign")}${categories.length > 1 ? seg("roster-cat", [["all", "Everyone", all.length], ...categories.map((c) => [c, c, all.filter((p) => (p.category_name || "Staff") === c).length])], cat) : ""}</div>
+    ${groups.size ? [...groups].map(([name, people]) => `<section class="roster-group">
+      <div class="group-head"><h2>${esc(name)}</h2><span>${plural(people.length, "member")}</span></div>
+      <div class="roster">${people.map((p) => {
         const display = p.display_name || p.discord_name || p.username;
-        const jobs = p.jobs || [];
-        return `<button class="roster-row${canInspect ? " is-clickable" : ""}" type="button" ${canInspect ? `data-profile="${esc(p.discord_id)}" aria-label="Open ${esc(display)} staff evaluation"` : "disabled"}>
-          <span class="roster-person">${avatar(p.avatar, display, "", p.discord_id)}<span><b>${esc(display)}</b><small>${p.discord_name ? `@${esc(p.discord_name)}` : "Discord staff member"}${p.callsign ? ` · Callsign ${esc(p.callsign)}` : ""}</small></span></span>
-          <span class="roster-id mono">${esc(p.discord_id)}</span>
-          <span class="roster-jobs">${jobs.length ? jobs.map((job) => `<span class="pill plain" title="${esc(job.description || "")}">${esc(job.name)}</span>`).join("") : `<small>—</small>`}</span>
-          <span class="roster-rank"><b>${esc(p.rank_name)}</b>${p.status && p.status !== "active" ? pill(p.status) : ""}</span>
-          <span class="roster-hours"><b>${hours(p.week_seconds)}</b><small>${p.weekly_seconds ? `${hours(p.weekly_seconds)} required` : "this week"}</small></span>
-          <span class="roster-open">${canInspect ? `${icon("chev")}<small>Evaluation</small>` : ""}</span>
+        const required = Number(p.weekly_seconds || 0);
+        const progress = required ? Math.min(100, (Number(p.week_seconds || 0) / required) * 100) : 0;
+        return `<button class="member" type="button" data-profile="${esc(p.discord_id)}">
+          ${p.callsign ? `<span class="callsign">${esc(p.callsign)}</span>` : ""}
+          <div class="top">${avatar(p.avatar, display, "", p.discord_id)}<div><b>${esc(display)}</b><small>${esc(p.rank_name)}${p.discord_name ? ` · @${esc(p.discord_name)}` : ""}</small></div></div>
+          <div><div class="meter"><i style="width:${progress.toFixed(1)}%"></i></div></div>
+          <div class="foot"><span class="hrs"><b>${hours(p.week_seconds)}</b> this week</span>${p.status && p.status !== "active" ? pill(p.status) : required ? `<span class="hrs"><b>${hours(required)}</b> required</span>` : `<span class="hrs">No requirement</span>`}</div>
         </button>`;
       }).join("")}</div>
-    </section>
-    ${pages > 1 ? `<nav class="roster-pages" aria-label="Staff roster pages"><button class="btn btn-ghost btn-sm" type="button" data-roster-page="${page - 1}" ${page === 1 ? "disabled" : ""}>Previous</button><span>Page <b>${page}</b> of ${pages}</span><button class="btn btn-ghost btn-sm" type="button" data-roster-page="${page + 1}" ${page === pages ? "disabled" : ""}>Next</button></nav>` : ""}` : `<section class="card">${empty(query ? "No matches" : "Roster unavailable", query ? "Try a different name, Discord ID, job, or rank." : "No active staff members are listed right now.", "users")}</section>`}`;
+    </section>`).join("") : `<section class="card">${empty(query ? "No matches" : "Roster unavailable", query ? "Try a different name, rank, or callsign." : "No active staff members are listed right now.", "users")}</section>`}`;
 }
 
 function profileView() {
@@ -290,24 +290,6 @@ function profileView() {
   const shifts = [...(p.recentShifts || [])].reverse();
   const maxShift = Math.max(1, ...shifts.map((s) => Number(s.seconds || 0)));
   const weekPct = p.weekly_seconds ? Math.min(100, (Number(p.week_seconds || 0) / Number(p.weekly_seconds)) * 100) : null;
-  const analysis = p.analysis || {};
-  const requiredDays = Number(p.minimum_days || 0);
-  const activeDays = Number(analysis.activeDays || 0);
-  const hourDelta = Number(p.week_seconds || 0) - Number(analysis.previousWeekSeconds || 0);
-  const meetsHours = !Number(p.weekly_seconds) || Number(p.week_seconds || 0) >= Number(p.weekly_seconds);
-  const meetsDays = !requiredDays || activeDays >= requiredDays;
-  const evaluation = p.status !== "active" ? titleCase(p.status) : meetsHours && meetsDays ? "On target" : "Needs attention";
-  const evaluationTone = p.status === "active" && meetsHours && meetsDays ? "good" : "warn";
-  const canManage = Boolean(state.data.access.rosterManage);
-  const canDiscipline = Boolean(state.data.access.rosterDiscipline);
-  const manageBtn = (kind, text, ico, tone = "btn-glass") => `<button class="btn ${tone} btn-sm" type="button" data-staff-manage="${kind}" data-member="${esc(p.discord_id)}">${icon(ico)} ${text}</button>`;
-  const manageCard = (canManage || canDiscipline) ? `<section class="card">
-      <div class="card-head"><div><h2>Manage staff member</h2><p>Same actions as <span class="mono">/roster</span> and <span class="mono">/staff forceout</span> in Discord. Everything is logged.</p></div></div>
-      <div class="card-body" style="display:flex;flex-wrap:wrap;gap:10px">
-        ${canManage ? manageBtn("note", "Edit activity note", "info") + manageBtn("status", "Change status", "badge") + manageBtn("forceout", "Force off duty", "clock") : ""}
-        ${canDiscipline && !mine ? manageBtn("discipline", "Issue warning or strike", "alert", "btn-danger") : ""}
-      </div>
-    </section>` : "";
   $("#portal-content").innerHTML = `
     ${!mine ? `<div><button class="btn btn-ghost btn-sm" type="button" data-view="roster">← Back to roster</button></div>` : ""}
     <section class="profile-hero">
@@ -328,17 +310,6 @@ function profileView() {
       <div class="stat-tile tone-sky"><div class="ico">${icon("ticket")}</div><span>Tickets handled</span><strong>${fmt(p.tickets_handled)}</strong><small>Support workload</small></div>
       <div class="stat-tile tone-dusk"><div class="ico">${icon("badge")}</div><span>On staff since</span><strong style="font-size:1.35rem;margin-top:10px">${esc(day(p.joined_at))}</strong><small>${p.rank_changed_at ? `Rank since ${esc(day(p.rank_changed_at))}` : "&nbsp;"}</small></div>
     </div>
-    <section class="card staff-evaluation">
-      <div class="card-head"><div><h2>Staff evaluation & analysis</h2><p>Current activity, consistency, and requirement performance.</p></div><span class="pill pill-${evaluationTone}">${esc(evaluation)}</span></div>
-      <div class="evaluation-grid">
-        <div><small>30-day duty</small><b>${hours(analysis.monthSeconds)}</b><span>Rolling activity total</span></div>
-        <div><small>Active days</small><b>${fmt(activeDays)}${requiredDays ? ` / ${fmt(requiredDays)}` : ""}</b><span>${requiredDays ? "Required days this week" : "Days worked this week"}</span></div>
-        <div><small>Week-over-week</small><b class="${hourDelta >= 0 ? "trend-up" : "trend-down"}">${hourDelta >= 0 ? "+" : "−"}${hours(Math.abs(hourDelta))}</b><span>Compared with previous 7 days</span></div>
-        <div><small>Average shift</small><b>${hours(analysis.averageShiftSeconds)}</b><span>Longest ${hours(analysis.longestShiftSeconds)}</span></div>
-        <div><small>Last shift</small><b class="evaluation-date">${esc(analysis.lastShiftAt ? ago(analysis.lastShiftAt) : "Never")}</b><span>${esc(analysis.lastShiftAt ? date(analysis.lastShiftAt) : "No duty recorded")}</span></div>
-      </div>
-      ${p.activity_note ? `<div class="evaluation-note">${icon("info")}<div><b>Activity note</b><p>${esc(p.activity_note)}</p></div></div>` : ""}
-    </section>
     <div class="grid-2">
       <section class="card">
         <div class="card-head"><div><h2>Recent shifts</h2><p>Last ${plural(shifts.length, "clocked session")}.</p></div></div>
@@ -352,10 +323,9 @@ function profileView() {
         ${p.history?.length ? `<div class="timeline">${p.history.map((h) => `<div class="tl">${avatar(h.actor?.avatar, h.actor?.name || "System", "av-sm", h.actor_id)}<div><b>${esc(titleCase(h.action))}${h.details?.rank ? ` · ${esc(h.details.rank)}` : ""}</b><small>${esc(h.actor?.name ? `by ${h.actor.name}` : "System")} · ${esc(date(h.created_at))}</small></div></div>`).join("")}</div>` : empty("No visible history", "Roster changes will appear here.", "history")}
       </section>
     </div>
-    ${manageCard}
     ${p.discipline?.length ? `<section class="card">
       <div class="card-head"><div><h2>Discipline</h2><p>Visible only to this member and staff.</p></div></div>
-      <div class="feed">${p.discipline.map((x) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3;background:rgba(255,95,109,.1)">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(x.kind))} #${Number(x.id)}${x.revoked_at ? " · revoked" : ""}</b><small>${esc(x.reason)}${x.actor?.name ? ` - ${esc(x.actor.name)}` : ""}${x.revoked_at && x.revoke_reason ? ` · Revoked: ${esc(x.revoke_reason)}` : ""}</small></div>${canDiscipline && !x.revoked_at ? `<button class="btn btn-ghost btn-sm" type="button" data-staff-manage="discipline_revoke" data-id="${Number(x.id)}" data-member="${esc(p.discord_id)}">Revoke</button>` : ""}<time>${esc(date(x.created_at))}</time></div>`).join("")}</div>
+      <div class="feed">${p.discipline.map((x) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3;background:rgba(255,95,109,.1)">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(x.kind))}${x.revoked_at ? " · revoked" : ""}</b><small>${esc(x.reason)}${x.actor?.name ? ` - ${esc(x.actor.name)}` : ""}</small></div><time>${esc(date(x.created_at))}</time></div>`).join("")}</div>
     </section>` : ""}`;
 }
 
@@ -454,20 +424,6 @@ function liveOps() {
 }
 
 function settings() {
-  if (!state.data.access.owner && !state.data.access.orgAdmin && !state.data.access.headtagAdmin && state.data.access.orgSetup) {
-    setTitle("Management", "Organization setup");
-    $("#portal-content").innerHTML = `
-    <section class="welcome">
-      <div class="who">
-        <small>Organization setup team</small>
-        <h2>Prepare a new organization in one place.</h2>
-        <p>Create the linked headtag, organization, duty permissions, wallet and roster defaults, then hand off to the correct Discord assistant bot.</p>
-        <div class="chips"><span class="pill pill-good">Setup role verified</span></div>
-      </div>
-      <a class="btn btn-sun btn-lg" href="control.html">Open organization setup ${icon("external")}</a>
-    </section>`;
-    return;
-  }
   if (!state.data.access.owner && !state.data.access.orgAdmin && state.data.access.headtagAdmin) {
     setTitle("Management", "Headtag configuration");
     $("#portal-content").innerHTML = `
@@ -1057,7 +1013,7 @@ async function liveryRemove(button) {
   }
 }
 
-function personalDetailHtml(p, d) {
+function personalCardHtml(p, d) {
   const edit = p.viewer === "owner" || d.manage;
   const trustLimit = p.tags.length ? d.taggedLimit : d.limit;
   const [viaLabel, viaTone] = PERSONAL_VIA[p.viewer] || PERSONAL_VIA.manage;
@@ -1071,7 +1027,7 @@ function personalDetailHtml(p, d) {
   const tags = p.tags.length
     ? `<div class="personal-tags">${p.tags.map((t) => `<span class="pill" style="--tone:${esc(t.color || "#35e2cd")}">${esc(t.label)}${edit ? `<button type="button" class="personal-x" data-personal-untag="${p.id}:${t.id}" title="Remove this tag lock" aria-label="Remove ${esc(t.label)} lock">×</button>` : ""}</span>`).join("")}</div>`
     : `<p class="personal-none">Not locked to a tag.</p>`;
-  return `<article class="card personal personal-detail-card">
+  return `<article class="card personal">
     <div class="personal-shot">${icon("car")}<img class="personal-img" src="https://docs.fivem.net/vehicles/${encodeURIComponent(String(p.model).toLowerCase())}.webp" alt="" loading="lazy" referrerpolicy="no-referrer"></div>
     <div class="personal-main">
       <div class="card-head"><div><h2>${esc(p.label)}</h2><p><span class="mono">${esc(p.model)}</span> · plate <span class="mono">${esc(p.plate)}</span> · #${p.id}</p></div><div class="row-end"><span class="pill${viaTone ? ` pill-${viaTone}` : ""}">${viaLabel}</span>${emergencyClass !== "civilian" ? `<span class="pill" title="Emergency controls: Q for lights; 1, 2, or 3 for siren tones.">${icon("alert")} ${esc(emergency.label)}</span>` : `<span class="pill plain">${esc(emergency.label)}</span>`}${p.bulletproof ? `<span class="pill" title="Bullets cannot break the glass or hit anyone inside. Nobody inside can shoot out.">${icon("shield")} Bulletproof</span>` : ""}${p.enabled ? "" : '<span class="pill pill-bad">Disabled</span>'}${p.locked ? `<span class="pill pill-bad" title="Locked by the DevOps team. It cannot be spawned and despawns when anyone tries to use it.">${icon("alert")} Locked</span>` : ""}</div></div>
@@ -1086,20 +1042,6 @@ function personalDetailHtml(p, d) {
       </div>` : ""}
     </div>
   </article>`;
-}
-
-function personalRowHtml(p, d) {
-  const emergencyClass = p.emergencyClass || "civilian";
-  const emergency = PERSONAL_EMERGENCY[emergencyClass] || PERSONAL_EMERGENCY.civilian;
-  const owner = state.data.people?.[p.owner_id]?.name || `User ${String(p.owner_id).slice(-4)}`;
-  return `<button class="card personal-row" type="button" data-personal-open="${p.id}">
-    <span class="personal-row-shot">${icon("car")}<img class="personal-img" src="https://docs.fivem.net/vehicles/${encodeURIComponent(String(p.model).toLowerCase())}.webp" alt="" loading="lazy" referrerpolicy="no-referrer"></span>
-    <span class="personal-row-name"><b>${esc(p.label)}</b><small><span class="mono">${esc(p.model)}</span> · ${esc(p.plate)} · #${p.id}</small></span>
-    ${d.manage ? `<span class="personal-row-owner"><small>Owner</small><b>${esc(owner)}</b></span>` : ""}
-    <span class="personal-row-access"><small>Access</small><b>${plural(p.trusted.length, "trusted driver")} · ${plural(p.tags.length, "tag lock")}</b></span>
-    <span class="personal-row-status"><span class="pill plain">${esc(emergency.label)}</span>${p.bulletproof ? `<span class="pill">${icon("shield")} Bulletproof</span>` : ""}${p.enabled ? "" : '<span class="pill pill-bad">Disabled</span>'}${p.locked ? '<span class="pill pill-bad">Locked</span>' : ""}</span>
-    <span class="personal-row-open">Manage ${icon("chev")}</span>
-  </button>`;
 }
 
 /** Install guide for the vehicle files behind a personal. Shown only to people who can add personals (Co-Owner+). */
@@ -1161,16 +1103,6 @@ data_file 'VEHICLE_LAYOUTS_FILE'   'data/vehiclelayouts.meta'`;
 function personalsView() {
   const d = state.data.personals;
   if (!d || (!(d.mine || []).length && !d.manage)) return go("dashboard");
-  const visible = d.manage ? (d.all || []) : d.mine;
-  const selected = visible.find((p) => Number(p.id) === Number(state.personalId));
-  if (state.personalId && !selected) state.personalId = null;
-  if (selected) {
-    setTitle("Personal vehicles", selected.label);
-    $("#portal-content").innerHTML = `
-      <div class="personal-detail-nav"><button class="btn btn-ghost btn-sm" type="button" data-personal-back>← All personal vehicles</button><span>Personal #${selected.id}</span></div>
-      ${personalDetailHtml(selected, d)}`;
-    return;
-  }
   setTitle("Community", "Personal vehicles");
   const scope = d.manage ? filter("personal-scope", "all") : "mine";
   const query = filter("personal-q");
@@ -1181,7 +1113,7 @@ function personalsView() {
     <div class="toolbar">${searchBox("personal-q", "Search vehicles, owners or plates")}${d.manage ? seg("personal-scope", [["all", "Every vehicle", (d.all || []).length], ["mine", "Mine", d.mine.length]], scope) : ""}<span style="flex:1"></span>${d.manage ? `<button class="btn btn-sun" type="button" data-personal-new>${icon("plus")} Add personal vehicle</button>` : ""}</div>
     <div class="callout">${icon("car")}<div>Spawn personals from the <kbd>F7</kbd> garage under <b>Personal</b>. A personal can use one tag lock and trust up to ${d.limit} people, reduced to ${d.taggedLimit} while tag-locked. Changes apply in game within seconds.</div></div>
     ${d.manage ? personalInstallGuide() : ""}
-    ${rows.length ? `<div class="personal-list">${rows.map((p) => personalRowHtml(p, d)).join("")}</div>` : `<section class="card">${empty(query ? "No vehicles match" : "No personal vehicles", d.manage ? "Add one to get started." : "Ask management to make a vehicle your personal.", "car")}</section>`}`;
+    ${rows.length ? `<div class="personal-grid">${rows.map((p) => personalCardHtml(p, d)).join("")}</div>` : `<section class="card">${empty(query ? "No vehicles match" : "No personal vehicles", d.manage ? "Add one to get started." : "Ask management to make a vehicle your personal.", "car")}</section>`}`;
 }
 
 const HANDLING_LEVELS = [["", "Stock"], ["lower", "Lower"], ["higher", "Higher"], ["much_higher", "Much higher"]];
@@ -1198,7 +1130,7 @@ function personalCreateDialog() {
   personalConverted = null;
   openDialog({ kicker: "Management", title: "Add a personal vehicle", submit: "Add vehicle", action: "personal-create",
     body: `<details class="personal-import">
-        <summary>${icon("sparkle")}<span><b>Import a vehicle with AI</b><small>Optional · upload a vehicle .zip, automatically repair security-check failures, apply your handling, and install it live</small></span></summary>
+        <summary>${icon("sparkle")}<span><b>Import a vehicle with AI</b><small>Optional · upload a vehicle .zip, run a backdoor/security check, apply your handling, and install it live</small></span></summary>
         <div class="personal-import-body">
           <div class="field">Vehicle pack
             <label class="personal-drop">${icon("plus")}<span id="personal-drop-text">Choose a .zip or drop it here<small>Up to 600 MB · the whole vehicle pack</small></span><input name="importFile" type="file" accept=".zip,application/zip,application/x-zip-compressed"></label>
@@ -1328,7 +1260,7 @@ async function personalReplacePack(button) {
       const id = await uploadPersonalZip(file, (done) => { button.innerHTML = `<span class="spinner"></span> Uploading ${Math.round(done * 100)}%`; });
       personalUpload = { file, id };
     }
-    button.innerHTML = `<span class="spinner"></span> AI security scan, repair & install… this can take a minute`;
+    button.innerHTML = `<span class="spinner"></span> AI security scan & install… this can take a minute`;
     const { result } = await api("portal/personal/replace-pack", { method: "POST", body: JSON.stringify({
       id: Number(button.dataset.personalReplacePack),
       uploadId: personalUpload.id,
@@ -1369,7 +1301,7 @@ async function personalConvert(button) {
       const id = await uploadPersonalZip(file, (done) => { button.innerHTML = `<span class="spinner"></span> Uploading ${Math.round(done * 100)}%`; });
       personalUpload = { file, id };
     }
-    button.innerHTML = `<span class="spinner"></span> AI security scan, repair & conversion… this can take a minute`;
+    button.innerHTML = `<span class="spinner"></span> AI security scan & conversion… this can take a minute`;
     const { result } = await api("portal/personal/import", { method: "POST", body: JSON.stringify({
       uploadId: personalUpload.id,
       uploadName: file.name,
@@ -1680,11 +1612,6 @@ function investigationView() {
     <td class="mono">${hours(org.weekSeconds)}</td><td class="mono">${hours(org.monthSeconds)}</td><td class="mono">${hours(org.totalSeconds)}</td>
     <td>${fmt(org.shifts)}</td><td>${org.lastShift ? esc(ago(org.lastShift)) : "Never"}</td>
   </tr>`).join("");
-  const inv = record.invites || { invitedBy: [], invited: [], totals: { total: 0, active: 0, left: 0 }, failed: [] };
-  const personName = (pid) => record.people?.[pid]?.name || pid;
-  const invitedByRows = inv.invitedBy.map((row) => `<tr><td class="strong">${esc(row.guildName)}</td><td>${row.inviterId ? esc(personName(row.inviterId)) : esc(row.method === "vanity" ? "Vanity URL" : "Unknown")}${row.inviterId ? ` <small class="mono">${esc(row.inviterId)}</small>` : ""}</td><td class="mono">${esc(row.code || "-")}</td><td>${esc(day(row.joinedAt))}${row.leftAt ? ' <span class="pill plain">Left</span>' : ""}</td></tr>`).join("");
-  const invitedRows = inv.invited.map((row) => `<tr><td class="strong">${esc(personName(row.memberId))} <small class="mono">${esc(row.memberId)}</small></td><td>${esc(row.guildName)}</td><td>${esc(day(row.joinedAt))}</td><td>${row.leftAt ? `<span class="pill plain">Left ${esc(day(row.leftAt))}</span>` : '<span class="pill pill-good">In server</span>'}</td></tr>`).join("");
-  const inviteFailed = inv.failed?.length ? `<div class="callout">${icon("alert")}<div>Could not read: ${esc(inv.failed.join(", "))}</div></div>` : "";
   const assets = record.assets || { personals: [], trusted: [], liveries: [], installedLiveries: [], eup: [], tags: [], failed: [] };
   const assetRow = (type, name, detail) => `<tr><td><span class="pill plain">${esc(type)}</span></td><td class="strong"><b>${esc(name)}</b></td><td class="wrap">${esc(detail)}</td></tr>`;
   const assetRows = [
@@ -1718,7 +1645,6 @@ function investigationView() {
       <div class="stat-tile ${flagged.length ? "tone-bad" : "tone-good"}"><div class="ico">${icon(flagged.length ? "alert" : "check")}</div><span>Server risk matches</span><strong>${fmt(flagged.length)}</strong><small>${fmt(record.servers.live.length)} live shared · ${fmt(record.servers.other.length)} OAuth-reported</small></div>
     </div>
     <section class="card"><div class="card-head"><div><h2>Organizations & duty hours</h2><p>Current and former memberships with recorded in-game organization shifts.</p></div></div>${orgRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Organization</th><th>Position</th><th>7 days</th><th>30 days</th><th>All time</th><th>Shifts</th><th>Last shift</th></tr></thead><tbody>${orgRows}</tbody></table></div>` : empty("No organization activity", "No memberships or organization shifts are linked to this Discord account.", "building")}</section>
-    <section class="card"><div class="card-head"><div><h2>Invites</h2><p>Who invited this account, and the ${fmt(inv.totals.total)} member${inv.totals.total === 1 ? "" : "s"} they brought in (${fmt(inv.totals.active)} still in the server, ${fmt(inv.totals.left)} left).</p></div></div>${invitedByRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Server</th><th>Invited by</th><th>Invite</th><th>Joined</th></tr></thead><tbody>${invitedByRows}</tbody></table></div>` : empty("Not tracked", "This account was not seen joining a server since invite tracking started.", "users")}${invitedRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Invited member</th><th>Server</th><th>Joined</th><th>Status</th></tr></thead><tbody>${invitedRows}</tbody></table></div>` : ""}${inviteFailed}</section>
     <section class="card"><div class="card-head"><div><h2>Owned assets</h2><p>Personal vehicles, liveries, custom EUP packs and tags tied to this account.</p></div></div>${assetRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Type</th><th>Item</th><th>Detail</th></tr></thead><tbody>${assetRows}</tbody></table></div>` : empty("No owned assets", "No personal vehicles, liveries, EUP packs or tags are linked to this Discord account.", "car")}${assetsFailed}</section>
     <div class="grid-2 even">
       <section class="card"><div class="card-head"><div><h2>Identity & access</h2><p>Website verification, ACE groups, and game accounts.</p></div></div><div class="card-body"><div class="kv"><div><small>Last verified</small><b>${verified ? esc(date(verified.last_verified_at)) : "Never"}</b></div><div><small>Verification method</small><b>${verified ? esc(titleCase(verified.method)) : "-"}</b></div><div><small>ACE groups</small><b>${record.groups.length ? record.groups.map((row) => esc(row.label || row.name)).join(", ") : "None"}</b></div><div><small>Highest ACE rank</small><b>${record.groups.length ? fmt(record.groups[0].rank_order) : "None"}</b></div></div></div>${record.players.length ? `<div class="feed">${record.players.map((player) => `<div class="feed-row"><div class="feed-ico">${icon("car")}</div><div class="txt"><b>#${fmt(player.id)} · ${esc(player.name)}</b><small>First linked ${esc(day(player.created_at))} · last seen ${esc(ago(player.last_seen))}</small></div></div>`).join("")}</div>` : ""}</section>
@@ -1737,7 +1663,6 @@ function render() {
 function go(view) {
   state.view = view;
   state.profile = null;
-  state.personalId = null;
   state.examTaking = null;
   state.appealing = null;
   state.appealStep = 1;
@@ -1797,16 +1722,6 @@ function openDialog({ kicker = "Florida Bay", title, body, submit = "Submit", to
   button.className = `btn ${tone}`;
   $("#portal-dialog").showModal();
   ($("#dialog-body").querySelector("textarea, input:not([type=radio]):not([disabled]), select") || button).focus({ preventScroll: true });
-}
-
-function staffManageDialog({ staffManage: kind, member, id }) {
-  const p = state.profile;
-  const base = { kicker: "Staff management", action: "staff-manage", data: { kind, member, id } };
-  if (kind === "note") return openDialog({ ...base, title: "Activity note", submit: "Save note", body: `<label class="field">Private roster note (leave empty to clear)<textarea name="note" maxlength="500">${esc(p?.activity_note || "")}</textarea></label>` });
-  if (kind === "status") return openDialog({ ...base, title: "Roster status", submit: "Save status", body: `<label class="field">Status<select name="status">${["active", "inactive", "loa"].map((v) => `<option value="${v}"${p?.status === v ? " selected" : ""}>${v === "loa" ? "On leave (LOA)" : titleCase(v)}</option>`).join("")}</select></label>` });
-  if (kind === "forceout") return openDialog({ ...base, title: "Force off duty", submit: "End shift", tone: "btn-danger", body: `<div class="callout warn">${icon("alert")}<div>Closes their active shift and clocks them out in game.</div></div><label class="field">Reason<textarea name="reason" maxlength="300" required></textarea></label>` });
-  if (kind === "discipline") return openDialog({ ...base, title: "Issue discipline", submit: "Issue", tone: "btn-danger", body: `<label class="field">Type<select name="kind"><option value="warning">Warning</option><option value="strike">Strike</option></select></label><label class="field">Reason (the member is notified by DM)<textarea name="reason" maxlength="500" required></textarea></label>` });
-  if (kind === "discipline_revoke") return openDialog({ ...base, title: `Revoke record #${Number(id)}`, submit: "Revoke", body: `<label class="field">Reason<textarea name="reason" maxlength="300" required></textarea></label>` });
 }
 
 function ticketDialog() {
@@ -1886,13 +1801,6 @@ $("#portal-content").addEventListener("click", async (event) => {
   }
   const filterBtn = target.closest("[data-filter]");
   if (filterBtn) { state.filters[filterBtn.dataset.filter] = filterBtn.dataset.value; return render(); }
-  const rosterPage = target.closest("[data-roster-page]");
-  if (rosterPage && !rosterPage.disabled) {
-    state.filters["roster-page"] = Number(rosterPage.dataset.rosterPage);
-    render();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    return;
-  }
   const view = target.closest("[data-view]");
   if (view) return go(view.dataset.view);
   if (target.closest("[data-open-ticket]")) return ticketDialog();
@@ -1977,8 +1885,6 @@ $("#portal-content").addEventListener("click", async (event) => {
     } catch (error) { toast(error.message, true); }
     return;
   }
-  const staffManage = target.closest("[data-staff-manage]");
-  if (staffManage) { staffManageDialog(staffManage.dataset); return; }
   const card = target.closest("[data-profile]");
   if (card) {
     try {
@@ -2021,9 +1927,6 @@ $("#portal-content").addEventListener("click", async (event) => {
     return;
   }
   if (target.closest("[data-personal-new]")) return personalCreateDialog();
-  const personalOpen = target.closest("[data-personal-open]");
-  if (personalOpen) { state.personalId = Number(personalOpen.dataset.personalOpen); render(); window.scrollTo({ top: 0 }); return; }
-  if (target.closest("[data-personal-back]")) { state.personalId = null; render(); window.scrollTo({ top: 0 }); return; }
   if (target.closest("[data-eup-new]")) return eupInstallDialog();
   const eupPieces = target.closest("[data-eup-pieces]");
   if (eupPieces) return eupPiecesDialog(eupPieces.dataset.eupPieces);
@@ -2170,7 +2073,6 @@ $("#portal-content").addEventListener("input", (event) => {
   const box = event.target.closest("[data-search]");
   if (!box) return;
   state.filters[box.dataset.search] = box.value;
-  if (box.dataset.search === "roster-q") state.filters["roster-page"] = 1;
   const caret = box.selectionStart;
   render();
   const again = $(`[data-search="${box.dataset.search}"]`);
@@ -2271,16 +2173,6 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       result = await api("portal/appeal/review", { method: "POST", body: JSON.stringify(body) });
       const r = result.result || {};
       toast(data.kind === "info" ? `Question sent${r.dmSent === false ? " (DM failed - they will see it on the portal)" : ""}.` : data.kind === "note" ? "Note added." : data.kind === "vote" ? "Vote recorded." : r.decision === "approved" ? `Appeal approved - ${data.banId} has been lifted.` : r.decision === "reduced" ? `Ban reduced - now ends ${date(r.reducedUntil)}.` : "Appeal denied.");
-    } else if (action === "staff-manage") {
-      const body = { action: data.kind, discordId: data.member, id: data.id };
-      if (data.kind === "note") body.note = form.get("note");
-      if (data.kind === "status") body.status = form.get("status");
-      if (data.kind === "discipline") { body.kind = form.get("kind"); body.reason = form.get("reason"); }
-      if (data.kind === "forceout" || data.kind === "discipline_revoke") body.reason = form.get("reason");
-      result = await api("portal/staff/manage", { method: "POST", body: JSON.stringify(body) });
-      const r = result.result || {};
-      toast(data.kind === "note" ? "Activity note saved." : data.kind === "status" ? "Roster status updated." : data.kind === "forceout" ? `Shift closed (${r.closed || 0} active).` : data.kind === "discipline" ? `Discipline #${r.id} issued${r.dmSent === false ? " (DM failed)" : ""}.` : "Record revoked.");
-      state.profile = await api(`portal/staff-profile?id=${encodeURIComponent(data.member)}`);
     } else if (action === "game-unban") {
       result = await api("portal/game-ban/undo", { method: "POST", body: JSON.stringify({ banId: data.banId, reason: form.get("reason") }) });
       toast(`${data.banId} was lifted in EasyAdmin.`);
@@ -2369,7 +2261,7 @@ async function start() {
   $("#auth-view").hidden = true;
   $("#portal-app").hidden = false;
   await load();
-  if (new URLSearchParams(location.search).get("next") === "control" && (state.data.access.owner || state.data.access.orgAdmin || state.data.access.headtagAdmin || state.data.access.orgSetup)) location.replace("control.html");
+  if (new URLSearchParams(location.search).get("next") === "control" && (state.data.access.owner || state.data.access.orgAdmin || state.data.access.headtagAdmin)) location.replace("control.html");
 }
 
 start().catch((error) => {

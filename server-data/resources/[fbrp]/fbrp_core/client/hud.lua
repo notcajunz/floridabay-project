@@ -214,7 +214,7 @@ end)
 
 CreateThread(function()
     while true do
-        if Hud.visible or FBRP.SpawnSelecting then pushSlow(false) end
+        if Hud.visible then pushSlow(false) end
         Wait(1000)
     end
 end)
@@ -232,11 +232,7 @@ CreateThread(function()
             send('update', { visible = show, minimap = mapUp, onFoot = onFoot, mapOnFoot = Hud.settings.minimapOnFoot == true, status = statusData(), vehicle = vdata })
             send('compass', compassData())
         else
-            -- spawn selector: hide everything except the AOP & priority panel (top right)
-            -- (fbrp_multichar draws the panel inside its own spawn screen, so only do this without it)
-            local prioOnly = FBRP.SpawnSelecting == true and GetResourceState('fbrp_multichar') ~= 'started'
-                and not IsScreenFadedOut() and not IsPauseMenuActive()
-            send('update', { visible = false, prioOnly = prioOnly, minimap = false, status = {}, vehicle = false })
+            send('update', { visible = false, minimap = false, status = {}, vehicle = false })
         end
         Wait(show and (vdata and 80 or 200) or 500)
     end
@@ -287,33 +283,9 @@ end)
 
 ---------------------------------------------------------------- exports
 
--- fbrp_multichar draws the AOP & priority panel on its spawn screen with exactly this data and these settings
-exports('GetPriorityPanel', function()
-    local p = HudConfig.Priority or {}
-    local mine = Hud.settings or {}
-    local size = tonumber(mine.prioSize) or 0
-    local colour = type(mine.prioColor) == 'string' and mine.prioColor ~= '' and mine.prioColor or nil
-    return {
-        server = p.ServerName, lobby = p.Lobby, font = p.Font,
-        size = size > 0 and size or p.FontSize,
-        colour = colour or p.PrimaryColour,
-        colours = p.Colours, text = p.Text,
-        data = priorityData(),
-    }
-end)
-
 exports('IsCharacterSelecting', function() return FBRP.CharacterSelecting == true end)
 exports('VehicleStatus', function() return FBRP.VehicleStatus() end)
 exports('PriorityZoneAt', function(x, y, z) return FBRP.PriorityZoneAt(x, y, z) end)
 exports('IsHudVisible', function() return Hud.visible end)
 exports('SetHudHidden', function(hidden) Hud.userHidden = hidden == true end)
 exports('PlayHudSound', function(name) send('sfx', { name = name }) end)
-
--- Server watermark (config_hud.lua -> HudConfig.Watermark). The NUI shows it by
--- default, so this only needs to push the config when it differs from defaults.
-CreateThread(function()
-    local wm = HudConfig.Watermark
-    if not wm then return end
-    Wait(2000)
-    SendNUIMessage({ type = 'watermark', enabled = wm.enabled ~= false, opacity = wm.opacity, width = wm.width })
-end)

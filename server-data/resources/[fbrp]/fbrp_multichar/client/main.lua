@@ -15,7 +15,6 @@ local awaitingCreate = false
 local spawnCam = nil
 local spawnTarget = nil
 local orbit = 0.0
-local spawnScreen = false -- true while the spawn selection screen is up
 
 local function nui(payload)
     SendNUIMessage(payload)
@@ -80,7 +79,6 @@ local function locales()
         spawnPickHint = 'Select a location to preview it from above',
         spawnConfirmHint = 'Ready when you are. Confirm to spawn here!',
         spawnButton = 'SPAWN',
-        spawnAopBlocked = 'The place you selected you can not spawn to due to AOP location.',
     }
 end
 
@@ -210,7 +208,6 @@ CreateThread(function()
 end)
 
 local function show(payload)
-    spawnScreen = false
     lastPayload = payload
     awaitingCreate = false
     visible = true
@@ -300,7 +297,6 @@ end)
 -- release the mouse. The cursor is released a few times because other resources
 -- have raced a SetNuiFocus(true) in right after spawning.
 local function release()
-    spawnScreen = false
     stopPreview()
     leaveLobby()
     hide()
@@ -320,37 +316,12 @@ RegisterNetEvent('fbrp:characters:data', function(payload)
     if type(payload) == 'table' then show(payload) end
 end)
 
----------------------------------------------------------------- AOP & priority panel (top right of the spawn screen)
-
--- same data + settings as the HUD's AOP & priority panel in fbrp_core
-local function sendPrio()
-    if GetResourceState('fbrp_core') ~= 'started' then return end
-    local ok, panel = pcall(function() return exports.fbrp_core:GetPriorityPanel() end)
-    if ok and type(panel) == 'table' then nui({ message = 'SetPrio', data = panel }) end
-end
-
-CreateThread(function()
-    while true do
-        if spawnScreen and visible then sendPrio() end
-        Wait(1000)
-    end
-end)
-
 -- Picking a character moves to the spawn page.
 RegisterNetEvent('fbrp:characters:spawns', function(payload)
     if type(payload) ~= 'table' then return end
     visible = true
-    spawnScreen = true
     SetNuiFocus(true, true)
     nui({ message = 'SetSpawns', data = payload })
-    sendPrio()
-end)
-
--- fbrp_core rechecks the spawns when the AOP changes mid-pick; keep the current pick, just refresh the AOP marks
-AddEventHandler('fbrp:characters:spawnsUpdated', function(payload)
-    if not spawnScreen or type(payload) ~= 'table' then return end
-    nui({ message = 'UpdateSpawns', data = payload })
-    sendPrio()
 end)
 
 -- A refused create/edit: put the reason on the form (notifications can sit behind this screen).

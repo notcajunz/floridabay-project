@@ -66,7 +66,7 @@ export function orgsStaticPath(pathname) {
   if (pathname === "/" || pathname === "/index.html") return "orgs/index.html";
   if (/^\/orgs\/[a-z0-9._-]+$/i.test(pathname)) return pathname.slice(1);
   if (/^\/fonts\/[a-z0-9._-]+\.(?:woff2|ttf)$/i.test(pathname)) return pathname.slice(1);
-  if (["/logo-128.webp", "/logo-720.webp", "/ui.js", "/ui.css", "/florida.css", "/florida.js"].includes(pathname)) return pathname.slice(1);
+  if (["/logo-128.webp", "/logo-720.webp", "/ui.js", "/ui.css"].includes(pathname)) return pathname.slice(1);
   return null;
 }
 

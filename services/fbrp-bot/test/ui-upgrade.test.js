@@ -62,8 +62,8 @@ test("new loading screen retains manual shutdown, local media, live state, and h
 test("Claude Cowork handoff covers every generated Tebex package image", () => {
   const csv = read("docs/tebex/package-settings.csv").trim().split(/\r?\n/);
   const prompt = read("docs/tebex/CLAUDE-COWORK-PROMPT.md");
-  assert.equal(csv.length - 1, 26);
-  assert.match(prompt, /exactly 25 packages/);
+  assert.equal(csv.length - 1, 23);
+  assert.match(prompt, /exactly 23 packages/);
   assert.match(prompt, /package-images/);
 
   for (const line of csv.slice(1)) {

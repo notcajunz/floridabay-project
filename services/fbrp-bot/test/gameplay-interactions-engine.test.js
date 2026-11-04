@@ -136,7 +136,7 @@ test('bulletproof glass stays processed so bullets stop at it, and every pane is
 test('Wraith ARS radar is installed and limited to LEO vehicles through fbrp_core', () => {
   const player = read('server-data/resources/[fbrp]/wk_wars2x/cl_player.lua');
   const emergency = read('server-data/resources/[fbrp]/fbrp_core/client/emergency_vehicles.lua');
-  const cfg = read('server-data/config/resources.cfg');
+  const cfg = read('server-data/config/phone.cfg');
   const config = read('server-data/resources/[fbrp]/wk_wars2x/config.lua');
   assert.match(cfg, /^ensure wk_wars2x$/m);
   assert.match(player, /exports\.fbrp_core:IsLeoVehicle/);

@@ -33,24 +33,7 @@ test('organization duty accepts an organization-bound rank when its network acce
   assert.match(dutyQuery, /c\.guild_id=rr\.guild_id AND c\.discord_id=\?/);
   assert.match(dutyQuery, /JSON_CONTAINS\(c\.roles, JSON_QUOTE\(rr\.role_id\)\)/);
   assert.match(dutyQuery, /WHERE rr\.org_id=o\.id/);
-  assert.match(dutyQuery, /\{ slug, slug, execBypass and 1 or 0, discord, discord, discord \}/);
-});
-
-test('Executive Management and above wear any tag and clock into any organization without roles', () => {
-  const config = read('config.lua');
-  const server = read('server/main.lua');
-  const dutyQuery = server.slice(server.indexOf('local function dutyOrganizations'), server.indexOf('local dutyLastChoice'));
-  const wardrobe = server.slice(server.indexOf('local function wardrobe'), server.indexOf('local function tagWardrobePayload'));
-  const canWear = server.slice(server.indexOf('local function canWear'), server.indexOf('-- anyoneIf lets any player'));
-
-  assert.match(config, /executiveBypassMinGroup = 'executive_management'/);
-  assert.match(server, /s\.execBypass = hasStaffGroupAtLeast\(source, FBRP\.Config\.executiveBypassMinGroup\)/);
-  assert.match(server, /sessions\[source\]\.execBypass = hasStaffGroupAtLeast\(source, FBRP\.Config\.executiveBypassMinGroup\)/);
-  assert.match(dutyQuery, /AND \(\n\s+\?=1\n\s+OR EXISTS\(SELECT 1 FROM organization_duty_global_access/);
-  assert.match(wardrobe, /execBypass and '' or 'JOIN headtag_grants g ON g\.tag_id=t\.id'/);
-  assert.match(canWear, /if not execBypass and row\.org_id and/);
-  assert.match(server, /canWear\(s\.discord,tagId,kind,s\.org and s\.org\.id or nil,s\.execBypass\)/);
-  assert.match(server, /not tag\.orgId or s\.execBypass or selectedTagOnDuty\(s, tag\)/);
+  assert.match(dutyQuery, /\{ slug, slug, discord, discord, discord \}/);
 });
 
 test('duty blips are loaded and filtered by exact organization except for shared LEO visibility', () => {

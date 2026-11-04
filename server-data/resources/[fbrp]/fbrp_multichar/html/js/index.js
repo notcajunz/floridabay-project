@@ -6,12 +6,6 @@ const store = Vuex.createStore({
 
 let audioPlayer = null;
 
-// "#RRGGBB" or "#RGB" only, so nothing else ends up in a style attribute
-function okColour(value) {
-  const v = String(value || "").trim();
-  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v) ? v : "";
-}
-
 const app = Vue.createApp({
   data: () => ({
     show: false,
@@ -68,35 +62,9 @@ const app = Vue.createApp({
     selectedSpawn: null,
     spawning: false,
     submitting: false,
-    prio: null,
-    prioClock: "",
   }),
 
   methods: {
-    // ---- AOP & priority panel (same text and colours as the HUD panel in fbrp_core) ----
-    prioText(key, fallback) {
-      const t = (this.prio && this.prio.text) || {};
-      return t[key] || fallback;
-    },
-    prioStatus(z) {
-      if (z.status === "active") return { text: this.prioText("InProgress", "In Progress"), cls: "in-progress" };
-      if (z.status === "hold") return { text: this.prioText("OnHold", "On Hold"), cls: "on-hold" };
-      if (z.status === "cooldown" && Number(z.remaining) > 0) return { text: `${Math.ceil(Number(z.remaining))}${this.prioText("MinutesSuffix", "m")}`, cls: "cooldown" };
-      return { text: this.prioText("Available", "Available"), cls: "available" };
-    },
-    tagLabel(tag) {
-      if (!tag) return "";
-      return typeof tag === "object" ? tag.label || "" : String(tag);
-    },
-    tagStyle(tag) {
-      const c = tag && typeof tag === "object" && okColour(tag.color);
-      return c ? { color: c } : {};
-    },
-    tickPrioClock() {
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, "0");
-      this.prioClock = `${pad(now.getMonth() + 1)}/${pad(now.getDate())}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    },
     playClickSound() {
       clicksound("click.mp3");
     },
@@ -349,35 +317,6 @@ const app = Vue.createApp({
     },
   },
   computed: {
-    prioServerName() {
-      if (!this.prio) return "";
-      return (this.prio.server || "") + (this.prio.lobby ? ` (${this.prio.lobby})` : "");
-    },
-    prioStyle() {
-      const p = this.prio || {};
-      const c = p.colours || {};
-      const primary = okColour(p.colour) || "#D6DA1E";
-      return {
-        "--p-primary": primary,
-        "--p-size": `${Math.min(30, Math.max(10, Number(p.size) || 16))}px`,
-        "--p-server": okColour(c.ServerName) || primary,
-        "--p-time": okColour(c.Time) || primary,
-        "--p-aop": okColour(c.AOPValue) || "#FFFFFF",
-        "--p-tag": okColour(c.TagValue) || "#FFFFFF",
-        "--p-available": okColour(c.Available) || "#90EE90",
-        "--p-cooldown": okColour(c.Cooldown) || "#FFFFFF",
-        "--p-progress": okColour(c.InProgress) || "#FFA500",
-        "--p-hold": okColour(c.OnHold) || "#FF3B3B",
-        "--p-pt": okColour(c.Peacetime) || "#32CD32",
-        "--p-na": okColour(c.NotAvailable) || "#FF3B3B",
-      };
-    },
-    allowedCount() {
-      return (this.spawnData.spawns || []).filter((s) => s.allowed !== false).length;
-    },
-    selectedBlocked() {
-      return !!(this.selectedSpawn && this.selectedSpawn.allowed === false);
-    },
     formattedAge() {
       const separators = ["-", "/", " "];
       let separator = null;
@@ -433,8 +372,6 @@ const app = Vue.createApp({
 
   beforeDestroy() {},
   mounted() {
-    this.tickPrioClock();
-    setInterval(() => this.tickPrioClock(), 5000);
     window.addEventListener("load", (event) => {
       this.checkData();
     });
@@ -483,16 +420,6 @@ const app = Vue.createApp({
           this.registerPage = true;
           this.displayMessage = event.data.text || this.Locales["registerError"];
           this.isError = false;
-        break;
-        case "SetPrio":
-          this.prio = event.data.data || null;
-        break;
-        case "UpdateSpawns": {
-          // AOP changed while picking: new allowed marks, keep what they had selected
-          const keep = this.selectedSpawn && this.selectedSpawn.id;
-          this.spawnData = event.data.data;
-          this.selectedSpawn = (this.spawnData.spawns || []).find((s) => String(s.id) === String(keep)) || null;
-        }
         break;
         case "SpawnFailed":
           this.spawning = false;

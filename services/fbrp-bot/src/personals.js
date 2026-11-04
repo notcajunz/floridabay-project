@@ -119,23 +119,26 @@ export function createPersonals({ db, audit, hasPermission = async () => false }
   async function portalData(discordId) {
     const id = String(discordId);
     const manage = await canManage(id);
-    // Owners receive only rows they own. Trusted drivers and tag holders keep their
-    // in-game access, but other people's personals are never sent to their browser.
-    const [visible, tags] = await Promise.all([
-      manage
-        ? db.query("SELECT * FROM personal_vehicles ORDER BY label,id")
-        : db.query("SELECT * FROM personal_vehicles WHERE owner_id=? ORDER BY label,id", [id]),
+    const [all, tags] = await Promise.all([
+      db.query("SELECT * FROM personal_vehicles ORDER BY label,id"),
       lockableTags(id, manage),
     ]);
-    const hydrated = await hydrate(visible);
-    const mine = hydrated.filter((personal) => personal.owner_id === id).map((personal) => ({ ...personal, viewer: "owner" }));
+    const hydrated = await hydrate(all);
+    const held = await heldTagIds(id);
+    const mine = [];
+    for (const personal of hydrated) {
+      const via = personal.owner_id === id ? "owner"
+        : personal.trusted.some((item) => item.discord_id === id) ? "trusted"
+        : personal.tags.some((tag) => tag.enabled && held.has(tag.id)) ? "tag" : null;
+      if (via) mine.push({ ...personal, viewer: via });
+    }
     return {
       manage,
       owner: manage,
       limit: MAX_TRUSTED,
       taggedLimit: MAX_TRUSTED_WITH_TAG,
       mine,
-      all: manage ? hydrated.map((personal) => ({ ...personal, viewer: personal.owner_id === id ? "owner" : "manage" })) : undefined,
+      all: manage ? hydrated.map((personal) => ({ ...personal, viewer: mine.find((row) => row.id === personal.id)?.viewer || "manage" })) : undefined,
       tags,
     };
   }
@@ -192,10 +195,7 @@ export function createPersonals({ db, audit, hasPermission = async () => false }
     const bulletproof = input.bulletproof !== undefined ? flag(input.bulletproof) : current.bulletproof;
     const emergencyClass = input.emergencyClass !== undefined ? emergencyClassOf(input.emergencyClass) : current.emergencyClass;
     await db.query("UPDATE personal_vehicles SET model=?,label=?,plate=?,enabled=?,bulletproof=?,emergency_class=? WHERE id=?", [model, label, plate, enabled, bulletproof, emergencyClass, current.id]);
-    await audit(actorId, "personal.update", current.id, {
-      before: { model: current.model, label: current.label, plate: current.customPlate ? current.plate : null, enabled: current.enabled, bulletproof: current.bulletproof, emergencyClass: current.emergencyClass },
-      after: { model, label, plate, enabled, bulletproof, emergencyClass },
-    });
+    await audit(actorId, "personal.update", current.id, { model, label, plate, enabled, bulletproof, emergencyClass });
     await notifyGame();
     return find(current.id);
   }

@@ -293,8 +293,9 @@ RegisterNetEvent('fbrp:proximityChat', function(sourceId, channel, text, color)
     })
 end)
 
+RegisterCommand('tags', function() TriggerServerEvent('fbrp:tags:request') end, false)
 RegisterCommand('tagmenu', function() TriggerServerEvent('fbrp:tags:request') end, false)
-RegisterKeyMapping('tagmenu', 'Open Florida Bay headtag wardrobe', 'keyboard', 'F6')
+RegisterKeyMapping('tags', 'Open Florida Bay headtag wardrobe', 'keyboard', 'F6')
 
 CreateThread(function()
     while not NetworkIsSessionStarted() do Wait(500) end

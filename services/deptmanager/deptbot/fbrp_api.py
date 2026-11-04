@@ -73,12 +73,6 @@ class FbrpApi:
         quoted = urllib.parse.quote(str(org_ref), safe="")
         return (await asyncio.to_thread(self._get, f"/api/gangs/org/{quoted}"))["org"]
 
-    async def link_access_role(self, org_ref: str, guild_id: int, role_id: int) -> dict[str, Any]:
-        return await asyncio.to_thread(
-            self._request, "POST", "/api/gangs/org/access-role",
-            payload={"org": str(org_ref), "family": "department", "guildId": str(guild_id), "roleId": str(role_id)},
-        )
-
     async def hours(
         self,
         org_ref: str,

@@ -1,3 +1,4 @@
+-- LEO / fire identification cards (ported from the Jaxtti tag resource's idcard module).
 local cfg = TagsConfig
 
 RegisterNetEvent('fbrp_tags:showBadge', function(card)

@@ -37,8 +37,7 @@ files {
     'ui/index.html',
     'ui/styles.css',
     'ui/script.js',
-    'ui/img/*.jpeg',
-    'ui/img/banner.png'
+    'ui/img/*.jpeg'
 }
 
 dependency 'fbrp_core'

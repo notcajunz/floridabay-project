@@ -5,7 +5,7 @@ This is the source of truth for configuring project `1913588`. Package names mus
 ## Files
 
 - `package-settings.csv` — exact names, categories, prices, billing modes, slugs, images, and fulfillment modes.
-- `package-images/` — 25 upload-ready transparent PNG package images, each exactly 165 × 165 pixels.
+- `package-images/` — 23 upload-ready transparent PNG package images, each exactly 165 × 165 pixels.
 - `package-images/package-logo-contact-sheet.png` — visual index of the complete logo set; do not upload this as a package image.
 
 ## 1. Global project and checkout settings
@@ -43,7 +43,7 @@ For every category set **Order Packages By** to **Manual**, keep it visible and 
 
 ## 3. Universal package settings
 
-These values apply to all 25 packages unless the package table says otherwise:
+These values apply to all 23 packages unless the package table says otherwise:
 
 | Setting | Exact value |
 |---|---|
@@ -91,9 +91,6 @@ Create each package using the exact spelling below, including apostrophes, space
 | 21 | Security | Business Slots | $25.00 | One-time | None | `security` | `security.png` | Manual DevOps ticket |
 | 22 | Transport | Business Slots | $45.00 | One-time | None | `transport` | `transport.png` | Manual DevOps ticket |
 | 23 | Miscellaneous Businesses | Business Slots | $25.00 | One-time | None | `miscellaneous-businesses` | `miscellaneous-businesses.png` | Manual DevOps ticket |
-| 24 | German Car Pack | Vehicle Packs | $35.00 | One-time | 1 lifetime | `german-car-pack` | `german-car-pack.png` | Automatic Discord role |
-| 25 | Mk2 Weapons | Custom Content | $15.00 | One-time | 1 lifetime | `mk2-weapons` | `mk2-weapons.png` | Automatic Discord role |
-| 26 | DevOps+ | Exclusive Perks | $20.00 | Recurring every 1 month | 1 per month | `devops-plus` | `devops-plus.png` | Automatic Discord role |
 
 ### Automatic Discord role map
 
@@ -101,7 +98,7 @@ Do not configure these inside Tebex; this table is only for verifying what the F
 
 | Package | Discord role behavior |
 |---|---|
-| Founder's Edition | Grants role `1558777557799801004` plus every paid role (all packs, Mk2 Weapons, DevOps+, Custom Weapons, Car Radio, etc.); only Any Organization `1558772560085262356` is excluded |
+| Founder's Edition | Grants role `1558777557799801004` plus the complete configured Founder bundle; role `1558772560085262356` is excluded |
 | VIP Membership | Grants `1557689749198868520` |
 | Australian Vehicle Pack | Grants `1558237674412974221` |
 | UK Car Pack | Grants `1558237679353593927` |
@@ -112,9 +109,6 @@ Do not configure these inside Tebex; this table is only for verifying what the F
 | Streamer Package | Grants `1558778405724626964` |
 | Custom Weapons | Grants `1558772553789743214` |
 | Any Organization | Grants `1558772560085262356` |
-| German Car Pack | Grants `1564110361961959505` |
-| Mk2 Weapons | Grants `1564110293846724710` |
-| DevOps+ | Grants `1564380267617984552` while the subscription is active |
 | Every DevOps Package and Business Slot | No role; fulfilled manually after the buyer supplies the transaction ID in a DevOps ticket |
 
 ## 5. Copy-ready package descriptions
@@ -189,24 +183,6 @@ This is a one-time purchase with automatic Discord role delivery. Creator activi
 Unlock the Custom Weapons entitlement role and access the custom weapon content currently available on Florida Bay.
 
 This is a one-time digital entitlement with automatic Discord role delivery; no real-world item is included. Content access, balancing, and availability remain subject to server rules and may change as the server evolves.
-
-
-### German Car Pack
-
-Unlock the German Car Pack entitlement role and access the BMW and Mercedes-Benz vehicle collection in the Florida Bay donator menu.
-
-This is a one-time purchase with automatic Discord role delivery. Vehicle availability, balancing, and individual models may change as the server evolves. All vehicles remain subject to server rules and roleplay restrictions.
-
-### Mk2 Weapons
-
-Unlock the Mk2 Weapons entitlement role and access the Mk2 weapon content currently available on Florida Bay.
-
-This is a one-time purchase with automatic Discord role delivery. Weapon availability and balancing may change, and all weapons remain subject to server rules and roleplay restrictions.
-### DevOps+
-
-Receive the DevOps+ role while this membership remains active.
-
-This is a recurring monthly subscription with automatic Discord role delivery. The role is removed when the subscription ends or the payment is refunded or disputed.
 
 ### Any Organization
 
@@ -355,4 +331,4 @@ Do not use Manual Payments to test this custom fulfillment flow because Tebex do
 
 ## 9. Verify the live catalog
 
-From `services/fbrp-bot`, run `npm run verify:tebex` with the production `.env` present. The verifier checks the project, category order, all 25 stable package IDs, names, categories, slugs, USD prices, billing modes, quantity and gifting locks, purchase limits, subscription intervals, descriptions, and images against this setup kit. Treat any mismatch as a launch blocker.
+From `services/fbrp-bot`, run `npm run verify:tebex` with the production `.env` present. The verifier checks the project, category order, all 23 stable package IDs, names, categories, slugs, USD prices, billing modes, quantity and gifting locks, purchase limits, subscription intervals, descriptions, and images against this setup kit. Treat any mismatch as a launch blocker.

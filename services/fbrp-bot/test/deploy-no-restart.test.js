@@ -49,7 +49,6 @@ function runGameInstall(defer) {
       'ensure HK-UMP',
       'ensure M6IC',
       'ensure vMenu',
-      'exec config/phone.cfg',
       '',
     ].join('\n'));
     fs.writeFileSync(path.join(repo, 'docker-compose.yml'), 'a');
@@ -109,12 +108,4 @@ test('AI agents and the dev runner deploy without restarting FiveM', () => {
   assert.match(read('scripts/dev-submission-implement.sh'), /"\$DEPLOY" "\$target" main --no-restart/);
   assert.match(script, /FiveM restart PENDING/);
   assert.match(script, /Stopping the control plane only \(FiveM keeps running\)/);
-});
-
-test('control deploy installs an automatic recovery policy for Caddy', () => {
-  const override = read('deploy/systemd/caddy.service.d/10-fbrp-recovery.conf');
-  assert.match(override, /^Restart=on-failure$/m);
-  assert.match(override, /^RestartSec=2s$/m);
-  assert.match(script, /sudo install -o root -g root -m 0644 "\$service_override" "\$live_service_dir\/10-fbrp-recovery\.conf"/);
-  assert.match(script, /sudo systemctl daemon-reload/);
 });

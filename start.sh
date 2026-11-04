@@ -5,26 +5,6 @@ server_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 artifact_run="$server_root/artifacts/run.sh"
 server_cfg="$server_root/server-data/server.cfg"
 
-# FXServer leaves a newly generated resource cache directory at mode 0600 if
-# packing is interrupted. Directories need the execute bit to be traversable;
-# an empty, non-traversable cache makes clients receive an invalid resource URI.
-# Remove only that known-bad cache so FXServer can build qx-waterdata cleanly.
-qx_water_cache="$server_root/server-data/cache/files/qx-waterdata"
-if [[ -d "$qx_water_cache" && ! -x "$qx_water_cache" ]]; then
-    chmod 0755 "$qx_water_cache"
-    if [[ -z "$(find "$qx_water_cache" -mindepth 1 -print -quit)" ]]; then
-        rmdir "$qx_water_cache"
-    fi
-fi
-
-# The seasonal loading screen is an externally managed resource, but it uses
-# the same staff configuration as the canonical FBRP loading screen.
-canonical_loading_config="$server_root/server-data/resources/[fbrp]/fbrp_loading/web/assets/scripts/config.js"
-active_loading_config="$server_root/server-data/resources/[loadingscreen]/fbrp-LChalloween/assets/scripts/config.js"
-if [[ -d "$(dirname "$active_loading_config")" ]]; then
-    "$server_root/scripts/sync-loading-config.sh" "$canonical_loading_config" "$active_loading_config" "$server_root/server-data/config/loading-tracks.js"
-fi
-
 if [[ ! -x "$artifact_run" ]]; then
     echo "FXServer is not installed at: $artifact_run" >&2
     exit 1

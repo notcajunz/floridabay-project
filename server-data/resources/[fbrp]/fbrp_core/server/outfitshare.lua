@@ -49,18 +49,19 @@ local function normalizeCode(value)
     return raw:sub(1, 4) .. '-' .. raw:sub(5, 8)
 end
 
--- A saved vMenu character is a Newtonsoft dump of MultiplayerPedData. The vMenu client parses it again
--- before saving, so this only keeps junk and oversized rows out of the table: it must be a JSON object
--- for one of the two freemode models. Nested sections are not required by name because vMenu builds
--- differ in which ones they write. Returns the decoded character, or nil and the reason.
+-- A saved vMenu character is a Newtonsoft dump of MultiplayerPedData. The client validates it again
+-- before saving, so this only keeps junk and oversized rows out of the table.
 local function validCharacter(payload)
-    if type(payload) ~= 'string' then return nil, 'payload is not text' end
-    if #payload < 20 or #payload > MAX_PAYLOAD then return nil, ('payload is %d bytes'):format(#payload) end
+    if type(payload) ~= 'string' or #payload < 20 or #payload > MAX_PAYLOAD then return nil end
     local ok, decoded = pcall(json.decode, payload)
-    if not ok or type(decoded) ~= 'table' then return nil, 'payload is not JSON' end
+    if not ok or type(decoded) ~= 'table' then return nil end
     local model = tonumber(decoded.ModelHash)
-    if model ~= MALE_MODEL and model ~= FEMALE_MODEL then return nil, ('unexpected ModelHash %s'):format(tostring(decoded.ModelHash)) end
-    if decoded.IsMale ~= nil and decoded.IsMale ~= (model == MALE_MODEL) then return nil, 'IsMale does not match ModelHash' end
+    if model ~= MALE_MODEL and model ~= FEMALE_MODEL then return nil end
+    if type(decoded.IsMale) ~= 'boolean' or decoded.IsMale ~= (model == MALE_MODEL) then return nil end
+    if (tonumber(decoded.Version) or 0) < 1 then return nil end
+    for _, key in ipairs({ 'PedHeadBlendData', 'DrawableVariations', 'PropVariations', 'FaceShapeFeatures', 'PedAppearance' }) do
+        if type(decoded[key]) ~= 'table' then return nil end
+    end
     return decoded
 end
 
@@ -93,12 +94,9 @@ RegisterNetEvent('fbrp:outfitshare:create', function(name, payload)
     if (lastCreate[src] or -CREATE_COOLDOWN_MS) + CREATE_COOLDOWN_MS > now then
         return notify(src, 'Wait a few seconds before creating another share code.', 'error')
     end
-    local decoded, reason = validCharacter(payload)
-    if not decoded then
-        print(('[fbrp_core] outfit share from %s (%s) rejected: %s'):format(src, license, tostring(reason)))
-        return notify(src, 'That character could not be shared because its data is not valid.', 'error')
-    end
     lastCreate[src] = now
+    local decoded = validCharacter(payload)
+    if not decoded then return notify(src, 'That character could not be shared because its data is not valid.', 'error') end
     local owned = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM outfit_shares WHERE owner_license=?', { license })) or 0
     if owned >= MAX_CODES_PER_PLAYER then
         return notify(src, ('You already have %d share codes. Delete some with /outfitcodes first.'):format(MAX_CODES_PER_PLAYER), 'error')

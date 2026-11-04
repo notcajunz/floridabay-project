@@ -34,9 +34,6 @@ export const TEBEX_PRODUCTS = Object.freeze([
   manualProduct(7761907, "Security", 25),
   manualProduct(7761908, "Transport", 45),
   manualProduct(7761910, "Miscellaneous Businesses", 25),
-  roleProduct(7767181, "German Car Pack", 35, "single", "1564110361961959505"),
-  roleProduct(7767259, "Mk2 Weapons", 15, "single", "1564110293846724710"),
-  roleProduct(7768904, "DevOps+", 20, "subscription", "1564380267617984552"),
 ]);
 
 const compact = (value) => String(value || "")
@@ -308,45 +305,5 @@ export function createTebexFulfillment({ client, db, audit, logger, guildId = TE
     [String(discordId), String(roleId)],
   ));
 
-  /** Every store purchase on record for a member, newest first, with whether each Discord role is currently held. */
-  async function purchasesOf(discordId) {
-    const rows = await db.query(
-      `SELECT source_key,transaction_id,product_id,product_name,role_id,active,granted_at,revoked_at
-         FROM tebex_store_entitlements WHERE discord_id=? ORDER BY granted_at DESC LIMIT 100`,
-      [String(discordId)],
-    );
-    const guild = client.guilds.cache.get(String(guildId));
-    const member = guild ? await guild.members.fetch(String(discordId)).catch(() => null) : null;
-    const byKey = new Map();
-    for (const row of rows) {
-      const entry = byKey.get(row.source_key) || {
-        transaction: String(row.transaction_id || ""), productId: String(row.product_id || ""), name: String(row.product_name || "Store item"),
-        active: false, grantedAt: Number(row.granted_at) || 0, roles: [],
-      };
-      entry.active = entry.active || Boolean(row.active);
-      entry.roles.push({ roleId: String(row.role_id), held: Boolean(member?.roles.cache.has(String(row.role_id))) });
-      byKey.set(row.source_key, entry);
-    }
-    return { purchases: [...byKey.values()], inServer: Boolean(member) };
-  }
-
-  /** Re-applies every active purchase to the member and reports which Discord roles were missing and are now delivered. */
-  async function redeem(discordId) {
-    const roles = await db.query("SELECT DISTINCT role_id FROM tebex_store_entitlements WHERE discord_id=? AND active=TRUE", [String(discordId)]);
-    if (!roles.length) return { active: 0, granted: [], pending: [], inServer: true };
-    const guild = client.guilds.cache.get(String(guildId));
-    const member = guild ? await guild.members.fetch(String(discordId)).catch(() => null) : null;
-    if (!member) return { active: roles.length, granted: [], pending: roles.map((row) => String(row.role_id)), inServer: false };
-    const missing = roles.map((row) => String(row.role_id)).filter((roleId) => !member.roles.cache.has(roleId));
-    await reconcileMember(discordId);
-    const fresh = await guild.members.fetch({ user: String(discordId), force: true }).catch(() => member);
-    return {
-      active: roles.length,
-      granted: missing.filter((roleId) => fresh.roles.cache.has(roleId)),
-      pending: missing.filter((roleId) => !fresh.roles.cache.has(roleId)),
-      inServer: true,
-    };
-  }
-
-  return { configured, handle, reconcileMember, reconcileAll, hasActiveRole, purchasesOf, redeem };
+  return { configured, handle, reconcileMember, reconcileAll, hasActiveRole };
 }

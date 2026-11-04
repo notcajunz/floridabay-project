@@ -16,9 +16,8 @@ import {
 import { randomInt } from "node:crypto";
 import { commands } from "./commands.js";
 import { findLinkedAccounts } from "./alts.js";
-import { inviteHistory, organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
-import { createAuditMirror, destinationPurpose, keyForAction } from "./audit-mirror.js";
-import { createAssetChangeNotifier } from "./asset-change-notifier.js";
+import { organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
+import { createAuditMirror, keyForAction } from "./audit-mirror.js";
 import { recordInteraction } from "./audit-trail.js";
 import { lookupAnyCase, moderationCaseState } from "./case-lookup.js";
 import { publicBase, connectUrl, refreshSiteUrls } from "./site-url.js";
@@ -77,7 +76,6 @@ import {
   syncUserAcrossNetwork,
   syncNetworkGuildName,
   touchesCoordinationSource,
-  clearRoleSourcedMemberships,
   invalidateBlacklistCache,
   invalidateRoleStripCache,
   blacklistInFlight,
@@ -160,9 +158,6 @@ import { createTebexLogger } from "./tebex-log.js";
 import { createChainOfCommand } from "./chain-of-command.js";
 import { createRoleMembershipCommands } from "./role-membership.js";
 import { createStaffQueue } from "./staff-queue.js";
-import { createAltScanQueue } from "./altscan-queue.js";
-import { createTemporaryRoles } from "./temporary-roles.js";
-import { createInviteTracker } from "./invite-tracker.js";
 import {
   destinationAccountConflicts,
   transferAccountData,
@@ -215,7 +210,6 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildModeration,
-    GatewayIntentBits.GuildInvites,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildWebhooks,
@@ -239,10 +233,9 @@ const group = (value) => safeName(value, "group name");
  * `components` adds buttons. Every embed is labelled with the server it came from.
  */
 async function log(guild, entry, purpose = "staff_audit") {
-  const destination = destinationPurpose(purpose);
   const binding = await db.one(
     "SELECT guild_id,channel_id FROM discord_channel_bindings WHERE purpose=?",
-    [destination],
+    [purpose],
   ).catch(() => null);
   let channel = binding
     ? await client.channels.fetch(String(binding.channel_id)).catch(() => null)
@@ -290,7 +283,6 @@ async function logForReview(guild, entry, purpose, caseId, actorId) {
 }
 
 const auditMirror = createAuditMirror({ client, db });
-const assetChangeNotifier = createAssetChangeNotifier({ client });
 
 const staffExams = createStaffExams({ client, db, audit, log });
 const orgAuthority = createOrgAuthority({ client, db });
@@ -327,9 +319,6 @@ const staffQueue = createStaffQueue({
   embed,
   COLORS,
 });
-
-// /intel alt-scan jobs from the IAA bot, which is only in two network servers.
-const altScanQueue = createAltScanQueue({ client, db });
 
 /** /orgbank: organization wallets on Discord. Balances and ledgers for members, adjustments for managers. */
 async function orgbankCommand(i, sub) {
@@ -826,7 +815,7 @@ async function headtagCommand(i, sub) {
       kindLabel = kind === "both" ? "Headtag + gang tag" : kind === "head" ? "Headtag" : "Gang tag",
       label = clean(i.options.getString("label", true), 40),
       color = hexColor(i.options.getString("color", true)),
-      owner = i.options.getUser("owner", true),
+      owner = i.options.getUser("owner"),
       chatTag = i.options.getBoolean("chat_tag") === true,
       outline = i.options.getBoolean("outline") !== false,
       orgSlug = clean(i.options.getString("organization") || "", 40).toLowerCase(),
@@ -860,14 +849,17 @@ async function headtagCommand(i, sub) {
           i.user.id,
         ],
       );
-      await query(
-        "INSERT INTO headtag_grants(discord_id,tag_id,origin,added_by,added_at) VALUES(?,?,'manual',?,?)",
-        [owner.id, inserted.insertId, i.user.id, Date.now()],
-      );
+      if (owner)
+        await query(
+          "INSERT INTO headtag_grants(discord_id,tag_id,origin,added_by,added_at) VALUES(?,?,'manual',?,?)",
+          [owner.id, inserted.insertId, i.user.id, Date.now()],
+        );
       return inserted;
     });
-    const member = await i.guild.members.fetch(owner.id).catch(() => null);
-    if (member) await member.roles.add(role, "Headtag owner assigned at creation").catch(() => null);
+    if (owner) {
+      const member = await i.guild.members.fetch(owner.id).catch(() => null);
+      if (member) await member.roles.add(role, "Headtag owner assigned at creation").catch(() => null);
+    }
     await audit(i.user.id, "headtag.create", result.insertId, {
       kind,
       label,
@@ -877,7 +869,7 @@ async function headtagCommand(i, sub) {
       chatTag,
       outline,
       created,
-      ownerId: owner.id,
+      ownerId: owner?.id || null,
     });
     await syncGuild(client, i.guild);
     await refreshGame();
@@ -886,7 +878,7 @@ async function headtagCommand(i, sub) {
       description: organization
         ? `Players with the role can select it in F6 only while on duty as **${clean(organization.name)}**. It replaces that organization's normal duty tag.`
         : `Players with the role can select it in F6 in ${kind === "both" ? "both the top headtag and bottom gang-tag slots" : kind === "head" ? "the top headtag slot" : "the bottom gang-tag slot"}.`,
-      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Owner", who(owner.id)], ["Chat tag", chatTag ? "Available" : "No"], ["Outline", outline ? "On" : "Off"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
+      rows: [["Label", clean(label)], ["ID", `\`${result.insertId}\``], ["Type", kindLabel], ["Owner", owner ? who(owner.id) : "None"], ["Chat tag", chatTag ? "Available" : "No"], ["Outline", outline ? "On" : "Off"], ["Role", roleRef(role.id)], ["Organization lock", organization ? clean(organization.name) : "None"], ["Color", `\`${color}\``]],
     });
   }
   if (sub === "delete") {
@@ -899,7 +891,7 @@ async function headtagCommand(i, sub) {
         .get(String(tag.role_id))
         ?.delete(`Tag deleted by ${i.user.tag}`)
         .catch(() => {});
-    await audit(i.user.id, "headtag.delete", id, { deleted: tag });
+    await audit(i.user.id, "headtag.delete", id, { label: tag.label });
     await refreshGame();
     return card("Tag deleted", { color: COLORS.warning, rows: [["Label", clean(tag.label)], ["ID", `\`${id}\``]] });
   }
@@ -928,7 +920,7 @@ async function headtagCommand(i, sub) {
           ? member.roles.add(role, "Headtag grant")
           : member.roles.remove(role, "Headtag revoke")
       ).catch(() => {});
-    await audit(i.user.id, `headtag.${sub}`, user.id, { tagId: id, label: tag.label, memberId: user.id });
+    await audit(i.user.id, `headtag.${sub}`, user.id, { tagId: id });
     await refreshGame();
     return card("Tag access updated", {
       color: COLORS.success,
@@ -1032,9 +1024,6 @@ async function organizationCommand(i, sub) {
       tagLabel,
       accessGuild: accessGuildId,
       accessRole: accessRoleId,
-    });
-    await audit(i.user.id, "headtag.create", ids.tag, {
-      kind: "gang", label: tagLabel, color, guildId: i.guildId, orgId: ids.org, source: "organization.create",
     });
     if (logo) await orgLogos.save(ids.org, logo, i.user.id);
     await syncGuild(client, accessGuild);
@@ -1495,37 +1484,20 @@ async function moderationCommand(i, sub) {
   if (!member) throw new Error("That member is not in this server.");
   await requireOutranks(i, user.id, "moderate");
   let action = sub,
-    expires = null,
-    moderationCase = null;
+    expires = null;
   if (sub === "ban") {
     if (!member.bannable)
       throw new Error("The bot role is not high enough to ban that member.");
     await enforceCommandCooldown(i, "mod.ban");
-  }
-  if (sub === "kick") {
-    if (!member.kickable)
-      throw new Error("The bot role is not high enough to kick that member.");
-    await enforceCommandCooldown(i, "mod.kick");
-  }
-  // Discord can no longer share a guild DM route after a removal. Allocate the case and
-  // send the notice first for bans/kicks so the member reliably receives it.
-  if (["ban", "kick"].includes(sub)) {
-    moderationCase = await caseRow(i, user.id, action, reason, expires);
-    await dm(user, `Florida Bay ${action}`, [
-      ["Punishment", humanize(action)],
-      ["Case ID", `\`${moderationCase.banId}\``],
-      ["Server", clean(i.guild.name, 100)],
-      ["Reason", clean(reason, 300), false],
-      ["Appeal", `Submit an appeal through the member portal: ${publicBase()}/portal#punishments`, false],
-    ]);
-  }
-  if (sub === "ban") {
     await member.ban({
       reason,
       deleteMessageSeconds: (i.options.getInteger("delete_days") || 0) * 86400,
     });
   }
   if (sub === "kick") {
+    if (!member.kickable)
+      throw new Error("The bot role is not high enough to kick that member.");
+    await enforceCommandCooldown(i, "mod.kick");
     await member.kick(reason);
   }
   if (sub === "timeout") {
@@ -1534,16 +1506,14 @@ async function moderationCommand(i, sub) {
     await member.timeout(minutes * 60000, reason);
     action = minutes ? "timeout" : "untimeout";
   }
-  moderationCase ||= await caseRow(i, user.id, action, reason, expires);
-  const { id: caseId, banId } = moderationCase;
-  if (["timeout", "warn"].includes(action))
+  const { id: caseId, banId } = await caseRow(i, user.id, action, reason, expires);
+  if (["ban", "kick", "timeout", "warn"].includes(action))
     await dm(user, `Florida Bay ${action}`, [
-      ["Punishment", humanize(action)],
       ["Case ID", `\`${banId}\``],
       ["Server", clean(i.guild.name, 100)],
       ...(expires ? [["Expires", when(expires)]] : []),
       ["Reason", clean(reason, 300), false],
-      ["Appeal", `Submit an appeal through the member portal: ${publicBase()}/portal#punishments`, false],
+      ...(["ban"].includes(action) ? [["Appeal", `${publicBase()}/portal.html#punishments`, false]] : []),
     ]);
   const verdict = {
     ban: "Member banned",
@@ -1982,33 +1952,6 @@ async function playtimeOf(discordId) {
 
 const playtimeHours = (seconds) => `${(Number(seconds || 0) / 3600).toFixed(1)} hours`;
 
-async function purchasesCommand(i) {
-  const { purchases, inServer } = await tebexFulfillment.purchasesOf(i.user.id);
-  if (!purchases.length) return card("Your store purchases", { description: "No store purchases are linked to your Discord account yet. Buy at the Florida Bay store and enter your Discord ID at checkout, then run `/redeem`." });
-  const date = (ms) => (ms ? `<t:${Math.floor(ms / 1000)}:d>` : "");
-  const lines = purchases.slice(0, 25).map((purchase) => {
-    const roles = purchase.roles.map((role) => `<@&${role.roleId}> ${role.held ? "✅" : "⚠️ not on your account, run `/redeem`"}`).join(", ");
-    return `**${clean(purchase.name, 80)}** · ${purchase.active ? "Active" : "Ended or refunded"} ${date(purchase.grantedAt)}\n${purchase.active ? roles : "No role"}`;
-  });
-  return card("Your store purchases", {
-    description: `${lines.join("\n\n")}${inServer ? "" : "\n\nJoin the main Florida Bay Discord to receive your roles."}`,
-    footer: "Florida Bay Roleplay · /redeem re-applies anything missing",
-  });
-}
-
-async function redeemCommand(i) {
-  const result = await tebexFulfillment.redeem(i.user.id);
-  if (!result.active) return card("Redeem purchases", { description: "No active store purchases are linked to your Discord account. If you just bought something, wait a minute for the payment to arrive and try again. Make sure you entered your Discord ID at checkout." });
-  if (!result.inServer) return card("Redeem purchases", { description: "Join the main Florida Bay Discord first, then run `/redeem` again." });
-  const roles = (list) => list.map((id) => `<@&${id}>`).join(", ");
-  const parts = [
-    result.granted.length ? `Delivered: ${roles(result.granted)}` : "",
-    result.pending.length ? `Could not deliver yet: ${roles(result.pending)}. Open a ticket if this keeps happening.` : "",
-    !result.granted.length && !result.pending.length ? "Everything you bought is already on your account." : "",
-  ].filter(Boolean);
-  return card("Redeem purchases", { description: parts.join("\n\n") });
-}
-
 async function playtimeCommand(i) {
   if (i.options.getBoolean("top")) {
     const rows = await db.query(
@@ -2046,7 +1989,7 @@ async function userinfoCommand(i) {
   await requirePermission(i, "fbrp.investigate");
   const user = i.options.getUser("member", true),
     cutoff = Date.now() - 30 * 86400000;
-  const [players, groups, orgs, punishments, hours, played, assets, invitesInfo] = await Promise.all([
+  const [players, groups, orgs, punishments, hours, played, assets] = await Promise.all([
     db.query(
       "SELECT id,name,license,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 5",
       [user.id],
@@ -2063,13 +2006,7 @@ async function userinfoCommand(i) {
     ),
     playtimeOf(user.id),
     ownedAssets(db, user.id),
-    inviteHistory(db, user.id),
   ]);
-  const guildLabel = (guildId) => clean(client.guilds.cache.get(guildId)?.name || guildId, 60);
-  const invitedByLines = invitesInfo.invitedBy.map((row) => {
-    const by = row.inviterId ? mention(row.inviterId) : row.method === "vanity" ? "vanity URL" : "unknown";
-    return `**${guildLabel(row.guildId)}** · ${by}${row.code ? ` (\`${clean(row.code, 32)}\`)` : ""} · joined <t:${Math.floor(row.joinedAt / 1000)}:d>${row.leftAt ? " · since left" : ""}`;
-  });
   const overview = card(`User information: ${clean(user.username)}`, {
     description: `${mention(user.id)}\n\`${user.id}\``,
     rows: [
@@ -2081,10 +2018,6 @@ async function userinfoCommand(i) {
         const role = row.member ? (row.manager ? "Leader" : row.rank || "Member") : "Former member";
         return `**${clean(row.name, 60)}** · ${clean(role, 40)} · 7d ${(row.weekSeconds / 3600).toFixed(1)}h · 30d ${(row.monthSeconds / 3600).toFixed(1)}h · total ${(row.totalSeconds / 3600).toFixed(1)}h`;
       }))[0] || "None", false],
-      ["Invited by", invitedByLines.join("\n") || "Not tracked (joined before invite tracking, or never seen joining)", false],
-      ["Invited members", invitesInfo.totals.total
-        ? `${invitesInfo.totals.total} total · ${invitesInfo.totals.active} still in server · ${invitesInfo.totals.left} left\n${invitesInfo.invited.slice(0, 5).map((row) => `${mention(row.memberId)}${row.leftAt ? " (left)" : ""}`).join(", ")}${invitesInfo.totals.total > 5 ? ` … and ${invitesInfo.totals.total - 5} more` : ""}`
-        : `None tracked${invitesInfo.failed.length ? ` (could not read: ${invitesInfo.failed.join(", ")})` : ""}`, false],
       ["Punishments", `${punishments.total} on record${punishments.failed.length ? ` (could not read: ${punishments.failed.join(", ")})` : ""} · full list below`, false],
     ],
     footer: "Florida Bay Roleplay · Staff time covers 30 days · organization hours show 7d, 30d and all time",
@@ -2726,23 +2659,16 @@ async function applyPendingRoleRestore(member) {
   return { restored: missing.length, skipped: wanted.length - roles.length, expired: false };
 }
 
-/** Creates the network-wide case before enforcement so a removal notice can include its public ID. */
-async function createGlobalCase(target, actor, action, reason, durationMs) {
+/** One network-wide case (guild_id 'global'), audited and posted to the matching log channel. */
+async function globalCase(target, actor, action, reason, durationMs, results, gameBanId = null, review = false) {
   const stamp = Date.now();
   const text = clean(reason || "No reason provided.", 300);
   const inserted = await db.query(
     "INSERT INTO moderation_cases(guild_id,target_id,actor_id,action,reason,expires_at,created_at,active,duration_ms,game_ban_id) VALUES('global',?,?,?,?,?,?,?,?,?)",
-    [String(target), String(actor), action, text, durationMs ? stamp + durationMs : null, stamp, !["unban", "untimeout", "kick", "unblacklist"].includes(action), durationMs || null, null],
+    [String(target), String(actor), action, text, durationMs ? stamp + durationMs : null, stamp, !["unban", "untimeout", "kick", "unblacklist"].includes(action), durationMs || null, gameBanId],
   );
   const id = Number(inserted.insertId);
   const banId = await assignPublicCaseId(id);
-  return { id, banId, target: String(target), actor: String(actor), action, text, durationMs, stamp };
-}
-
-/** Audits and publishes a previously created network-wide case after enforcement finishes. */
-async function publishGlobalCase(c, results, gameBanId = null, review = false) {
-  const { id, banId, target, actor, action, text, durationMs, stamp } = c;
-  if (gameBanId) await db.query("UPDATE moderation_cases SET game_ban_id=? WHERE id=?", [gameBanId, id]);
   await audit(actor, `global.${action}`, target, { caseId: id, banId, reason: text, durationMs, gameBanId, results });
   const lifting = action.startsWith("un");
   const entry = {
@@ -2763,13 +2689,7 @@ async function publishGlobalCase(c, results, gameBanId = null, review = false) {
   const guild = (await mainGuild()) || client.guilds.cache.first();
   if (review && ["ban", "blacklist"].includes(action)) await logForReview(guild, entry, GLOBAL_LOG[action], id, actor);
   else await log(guild, entry, GLOBAL_LOG[action] || "moderation");
-  return c;
-}
-
-/** One network-wide case (guild_id 'global'), audited and posted to the matching log channel. */
-async function globalCase(target, actor, action, reason, durationMs, results, gameBanId = null, review = false) {
-  const c = await createGlobalCase(target, actor, action, reason, durationMs);
-  return publishGlobalCase(c, results, gameBanId, review);
+  return { id, banId };
 }
 
 async function notifyGlobal(userId, action, reason, until = null, banId = null) {
@@ -2779,11 +2699,10 @@ async function notifyGlobal(userId, action, reason, until = null, banId = null) 
     user,
     `Florida Bay network ${action}`,
     [
-      ["Punishment", humanize(action)],
       ...(banId ? [["Case ID", `\`${banId}\``]] : []),
       ["Reason", clean(reason, 300) || "No reason provided.", false],
       ...(until ? [["Ends", when(until)]] : []),
-      ["Appeal", `Submit an appeal through the member portal: ${publicBase()}/portal#punishments`, false],
+      ...(["ban", "blacklist"].includes(action) ? [["Appeal", "Open a **Ban Appeal** ticket from the Florida Bay support panel.", false]] : []),
     ],
     COLORS.warning,
     "A moderation action was applied across **every Florida Bay Discord server**.",
@@ -2970,9 +2889,6 @@ async function banLinkedAlts(alts, { rootCaseId, rootBanId, actorId, reason, dur
     const label = alt.strength === "strong" ? "linked account" : "shared IP";
     try {
       const why = clean(`Alt of ${rootBan} (${alt.evidence.join(", ")}) · ${reason || "no reason"}`, 300);
-      const altCase = await createGlobalCase(alt.discordId, actorId, "ban", why, durationMs);
-      await db.query("UPDATE moderation_cases SET source_case_id=? WHERE id=?", [rootCaseId, altCase.id]);
-      await notifyGlobal(alt.discordId, "ban", `This account is linked to a globally banned account (${rootBan}). ${reason || ""}`, durationMs ? Date.now() + durationMs : null, altCase.banId);
       const { results, ok } = await banAcrossNetwork(alt.discordId, why);
       let gameBanId = null;
       if (game) {
@@ -2987,7 +2903,9 @@ async function banLinkedAlts(alts, { rootCaseId, rootBanId, actorId, reason, dur
         gameBanId = banned?.ok && banned.banid ? Number(banned.banid) : null;
         results.push(gameBanId ? `✓ **FiveM** · EasyAdmin ban #${gameBanId}` : "✗ **FiveM** · game ban failed");
       }
-      await publishGlobalCase(altCase, results, gameBanId);
+      const altCase = await globalCase(alt.discordId, actorId, "ban", why, durationMs, results, gameBanId);
+      await db.query("UPDATE moderation_cases SET source_case_id=? WHERE id=?", [rootCaseId, altCase.id]);
+      await notifyGlobal(alt.discordId, "ban", `This account is linked to a globally banned account (${rootBan}). ${reason || ""}`, durationMs ? Date.now() + durationMs : null, altCase.banId);
       lines.push(`${ok ? "✓" : "✗"} ${mention(alt.discordId)} · ${label} · \`${altCase.banId}\``);
     } catch (error) {
       console.error(`[FBRP global] alt ban ${alt.discordId} (${rootBan}):`, error);
@@ -3063,10 +2981,6 @@ async function liftGlobalBan(id, actorId, reason, { game = false } = {}) {
       : null,
   );
   await db.query("UPDATE moderation_cases SET active=FALSE WHERE guild_id='global' AND target_id=? AND action='ban' AND active=TRUE", [id]);
-  const staleRoleSources = await clearRoleSourcedMemberships(id);
-  await syncUserAcrossNetwork(client, id);
-  if (staleRoleSources)
-    results.push(`✓ ${staleRoleSources} stale role-sourced membership${staleRoleSources === 1 ? "" : "s"} cleared`);
   if (game === true || (game === "linked" && linked.length))
     results.push(`${liftedGame ? "✓" : "•"} **FiveM** · ${liftedGame ? `${liftedGame} game ban(s) lifted` : "no linked game ban found (or FiveM core unreachable)"}`);
   // Alt accounts that were banned because of this ban follow it (unless they are blacklisted).
@@ -3137,54 +3051,32 @@ async function liftAppealedCase(caseId, actorId, response = "") {
     if (!(await hasPermission(actorId, object)))
       throw new Error(`Approving this appeal lifts the punishment, which needs the \`${object}\` permission. Nothing was changed.`);
   };
-  // IAA cases live in iaa_cases and are intentionally never selected here. Approval pardons every
-  // active moderation ban/blacklist for the member, not just the case the appeal was filed against.
-  const cases = await db.query(
-    "SELECT * FROM moderation_cases WHERE target_id=? AND active=TRUE AND action IN ('ban','blacklist') AND guild_id<>? ORDER BY created_at,id",
-    [String(c.target_id), String(process.env.IAA_GUILD_ID || "")],
-  );
-  const permissions = new Set();
-  for (const item of cases) {
-    if (item.guild_id === "global") permissions.add(item.action === "blacklist" ? GLOBAL_ACE.unblacklist : GLOBAL_ACE.unban);
-    else if (item.guild_id === "game") permissions.add("easyadmin.player.ban.remove");
-    else permissions.add("fbrp.discord.mod.ban");
+  let results = [];
+  if (!c.active) results = ["• Punishment was already inactive"];
+  else if (c.guild_id === "global" && c.action === "blacklist") {
+    await need(GLOBAL_ACE.unblacklist);
+    ({ results } = await liftGlobalBlacklist(String(c.target_id), actorId, `Appeal ${banId} approved`, reason));
+  } else if (c.guild_id === "global") {
+    await need(GLOBAL_ACE.unban);
+    if (await activeGlobal(c.target_id, "blacklist")) throw new Error("This member is also globally blacklisted. Appeal or lift the blacklist first.");
+    ({ results } = await liftGlobalBan(String(c.target_id), actorId, reason, { game: "linked" }));
+  } else if (c.guild_id === "game") {
+    await need("easyadmin.player.ban.remove");
+    const lifted = await callGame("/unban", { banid: Number(c.game_ban_id) }).catch(() => null);
+    if (!lifted?.ok) throw new Error("FiveM could not lift the EasyAdmin ban (is the server online?). Nothing was changed.");
+    await db.query("UPDATE moderation_cases SET active=FALSE WHERE id=?", [c.id]);
+    results = [`✓ **FiveM** · EasyAdmin ban #${c.game_ban_id} lifted`];
+  } else {
+    await need("fbrp.discord.mod.ban");
+    const guild = client.guilds.cache.get(String(c.guild_id));
+    if (!guild) throw new Error("The bot is no longer in the server this ban was issued in.");
+    if (await guild.bans.fetch(String(c.target_id)).catch(() => null))
+      await guild.members.unban(String(c.target_id), reason);
+    await db.query("UPDATE moderation_cases SET active=FALSE WHERE id=?", [c.id]);
+    results = [`✓ **${clean(guild.name, 80)}** · unbanned`];
+    await log(guild, { title: `Appeal approved · ${banId}`, color: COLORS.success, actor: actorId, target: c.target_id, fields: [["Reason", reason, false]], footer: banId }, "unbans");
   }
-  for (const object of permissions) await need(object);
-
-  const results = [];
-  const liftedCaseIds = [];
-  let globalBlacklistDone = false;
-  let globalBanDone = false;
-  for (const item of cases) {
-    if (item.guild_id === "global" && item.action === "blacklist") {
-      if (!globalBlacklistDone) {
-        const lifted = await liftGlobalBlacklist(String(c.target_id), actorId, `Appeal ${banId} approved`, reason);
-        results.push(...lifted.results);
-        globalBlacklistDone = true;
-      }
-    } else if (item.guild_id === "global") {
-      if (!globalBanDone) {
-        const lifted = await liftGlobalBan(String(c.target_id), actorId, reason, { game: "linked" });
-        results.push(...lifted.results);
-        globalBanDone = true;
-      }
-    } else if (item.guild_id === "game") {
-      const lifted = await callGame("/unban", { banid: Number(item.game_ban_id) }).catch(() => null);
-      if (!lifted?.ok) throw new Error(`FiveM could not lift EasyAdmin case ${item.ban_id || item.id}. Remaining cases were left active.`);
-      await db.query("UPDATE moderation_cases SET active=FALSE WHERE id=?", [item.id]);
-      results.push(`✓ **FiveM** · ${item.ban_id || `case #${item.id}`} lifted`);
-    } else {
-      const guild = client.guilds.cache.get(String(item.guild_id));
-      if (!guild) throw new Error(`The bot cannot reach the server for ${item.ban_id || `case #${item.id}`}. Remaining cases were left active.`);
-      if (await guild.bans.fetch(String(c.target_id)).catch(() => null)) await guild.members.unban(String(c.target_id), reason);
-      await db.query("UPDATE moderation_cases SET active=FALSE WHERE id=?", [item.id]);
-      results.push(`✓ **${clean(guild.name, 80)}** · ${item.ban_id || `case #${item.id}`} lifted`);
-      await log(guild, { title: `Appeal approved · ${item.ban_id || banId}`, color: COLORS.success, actor: actorId, target: c.target_id, fields: [["Reason", reason, false]], footer: item.ban_id || banId }, "unbans");
-    }
-    liftedCaseIds.push(Number(item.id));
-  }
-  if (!cases.length) results.push("• All moderation cases were already inactive");
-  await audit(actorId, "appeal.lift", c.target_id, { caseId: c.id, banId, liftedCaseIds, iaaExcluded: true, results });
+  await audit(actorId, "appeal.lift", c.target_id, { caseId: c.id, banId, results });
   const user = await client.users.fetch(String(c.target_id)).catch(() => null);
   if (user)
     await dm(user, "Your Florida Bay appeal was approved", [
@@ -3857,8 +3749,6 @@ async function globalCommand(i, sub) {
     });
   }
   if (sub === "kick") {
-    const c = await createGlobalCase(user.id, i.user.id, "kick", reason, null);
-    await notifyGlobal(user.id, "kick", reason, null, c.banId);
     const { results, ok } = await acrossNetwork(async (g) => {
       const m = await g.members.fetch(user.id).catch(() => null);
       if (!m) return null;
@@ -3866,7 +3756,8 @@ async function globalCommand(i, sub) {
       await m.kick(reason || undefined);
       return "✓";
     });
-    await publishGlobalCase(c, results);
+    const c = await globalCase(user.id, i.user.id, "kick", reason, null, results);
+    await notifyGlobal(user.id, "kick", reason, null, c.banId);
     return card(`${c.banId} · kicked`, {
       color: COLORS.danger,
       description: `Kicked ${mention(user.id)} from ${ok} server${ok === 1 ? "" : "s"}.`,
@@ -3879,7 +3770,6 @@ async function globalCommand(i, sub) {
     if (raw && !ms) throw new Error("Use a duration like 7d, or leave it empty for permanent.");
     let gameBanId = null;
     let gameLine = null;
-    let gameTarget = null;
     const huntAlts = i.options.getBoolean("alts") !== false;
     let linked = null;
     if (huntAlts)
@@ -3892,16 +3782,9 @@ async function globalCommand(i, sub) {
       const needed = ms ? "easyadmin.player.ban.temporary" : "easyadmin.player.ban.permanent";
       if (!(await hasPermission(i.user.id, needed))) throw new Error(`The game ban needs \`${needed}\`. Nothing was changed.`);
       const { ids: own, linked: hasGameAccount } = await gameIdentifiers(user.id);
-      gameTarget = {
-        hasGameAccount,
-        ids: [...new Set([...own, ...(linked?.banIdentifiers || []), ...bannable.map((alt) => `discord:${alt.discordId}`)])],
-      };
-    }
-    const c = await createGlobalCase(user.id, i.user.id, "ban", reason, ms);
-    await notifyGlobal(user.id, "ban", reason, ms ? c.stamp + ms : null, c.banId);
-    if (gameTarget) {
+      const ids = [...new Set([...own, ...(linked?.banIdentifiers || []), ...bannable.map((alt) => `discord:${alt.discordId}`)])];
       const result = await callGame("/ban", {
-        identifiers: gameTarget.ids,
+        identifiers: ids,
         reason: `${clean(reason, 200)} (Florida Bay global ban)`,
         seconds: ms ? Math.round(ms / 1000) : null,
         banner: i.user.username,
@@ -3909,19 +3792,20 @@ async function globalCommand(i, sub) {
       }).catch((error) => ({ ok: false, error: error.message }));
       gameBanId = result?.ok && result.banid ? Number(result.banid) : null;
       gameLine = gameBanId
-        ? `✓ **FiveM** · EasyAdmin ban #${gameBanId}${gameTarget.hasGameAccount ? "" : " (Discord identifier only; no linked game account yet)"}`
+        ? `✓ **FiveM** · EasyAdmin ban #${gameBanId}${hasGameAccount ? "" : " (Discord identifier only; no linked game account yet)"}`
         : `✗ **FiveM** · game ban failed (${clean(result?.error || "FiveM core unreachable or not updated", 80)})`;
     }
     const deleteMessageSeconds = (i.options.getInteger("delete_days") || 0) * 86400;
     const { results, ok } = await banAcrossNetwork(user.id, reason, deleteMessageSeconds);
     if (gameLine) results.push(gameLine);
-    await publishGlobalCase(c, results, gameBanId, true);
+    const c = await globalCase(user.id, i.user.id, "ban", reason, ms, results, gameBanId, true);
     if (huntAlts) await db.query("UPDATE moderation_cases SET alt_scan=TRUE WHERE id=?", [c.id]);
     const altLines = await banLinkedAlts(bannable, { rootCaseId: c.id, rootBanId: c.banId, actorId: i.user.id, reason, durationMs: ms, game: gameBanId !== null });
     for (const alt of skipped) altLines.push(`• ${mention(alt.discordId)} · linked but not banned (${alt.why})`);
     if (linked?.unlinkedAccounts)
       altLines.push(`• ${linked.unlinkedAccounts} linked game account${linked.unlinkedAccounts === 1 ? "" : "s"} with no Discord attached${gameBanId ? " (covered by the game ban)" : ""}`);
     if (huntAlts && !altLines.length) altLines.push("No linked accounts found.");
+    await notifyGlobal(user.id, "ban", reason, ms ? Date.now() + ms : null, c.banId);
     return card(`${c.banId} · banned`, {
       color: COLORS.danger,
       description: `Banned ${mention(user.id)} from ${ok} server${ok === 1 ? "" : "s"}${ms ? ` until ${when(Date.now() + ms)}` : ""}. Servers added to the network later inherit the ban.${
@@ -3941,8 +3825,6 @@ async function globalCommand(i, sub) {
   const member = await main.members.fetch(user.id).catch(() => null);
   if (member && !member.manageable) throw new Error("The member is above the bot, so their main-server roles cannot be removed.");
   await captureRoleRestoreSnapshots(user.id, i.user.id);
-  const c = await createGlobalCase(user.id, i.user.id, "blacklist", reason, null);
-  await notifyGlobal(user.id, "blacklist", reason, null, c.banId);
   blacklistPending.add(user.id);
   blacklistInFlight.add(user.id);
   try {
@@ -3960,7 +3842,8 @@ async function globalCommand(i, sub) {
       return present ? "✓ banned" : "✓ pre-emptively banned";
     }, { skipMain: true });
     results.push(...others.results);
-    await publishGlobalCase(c, results, null, true);
+    const c = await globalCase(user.id, i.user.id, "blacklist", reason, null, results, null, true);
+    await notifyGlobal(user.id, "blacklist", reason, null, c.banId);
     invalidateBlacklistCache();
     return card(`${c.banId} · blacklisted`, {
       color: COLORS.danger,
@@ -4221,7 +4104,6 @@ const COMMAND_PERMISSIONS = {
   server: "`/server status`: Everyone; other actions: `fbrp.ops`",
   staff: "`add`/`move`/`remove`: `fbrp.staff.assign` (ranks below yours only); others: `fbrp.staff.manage`",
   callsign: "Executive Management rank or higher",
-  invites: "`stats` (yourself) and `leaderboard`: Everyone; `stats member:` and `who`: Assistant Community Manager rank or higher",
   role: "Assistant Community Manager rank or higher in the main server; protected roles keep their stricter policy",
   protectrole: `List: Co-Owner rank or higher and an authorized account (<@${PROTECTED_ROLE_MANAGER_IDS[0]}> or <@${PROTECTED_ROLE_MANAGER_IDS[1]}>). Add/remove: bot owner only (Discord ID 1090083387638812755)`,
   botguard: "View: Co-Owner rank or higher and `fbrp.security.manage`. Changes: bot owner only (Discord ID 1090083387638812755)",
@@ -4229,8 +4111,6 @@ const COMMAND_PERMISSIONS = {
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
   userinfo: "`fbrp.investigate`; linked alt accounts also need `fbrp.global.alts`",
   playtime: "Everyone for yourself and the top 10; other members need `fbrp.investigate`",
-  purchases: "Everyone (your own purchases only)",
-  redeem: "Everyone (your own purchases only)",
   case: "`fbrp.investigate`",
   office: "Co-Owner rank or higher and `fbrp.office.manage`",
   orgbank: "`balance`/`ledger`/`roster`: organization members; `transfer`: members whose rank can spend; `adjust`/`leader`: Co-Owner rank or higher",
@@ -4425,8 +4305,6 @@ const roleMembership = createRoleMembershipCommands({
   who,
   log,
 });
-const temporaryRoles = createTemporaryRoles({ client, db, audit, log });
-const inviteTracker = createInviteTracker({ client, db, log });
 let webPanelServer = null;
 
 /** ACE group autocomplete for /ace unbind-role and /roster rank-upsert ace_group. */
@@ -4842,47 +4720,6 @@ async function verificationCommand(i, sub) {
   return card("Verification revoked", { color: COLORS.warning, description: `${mention(user.id)} is restricted to the verification lobby until they verify again.` });
 }
 
-/** /reverify: ACM+ sends an audited IAA request for a fresh website verification. */
-async function reverifyCommand(i) {
-  await requireMinimumStaffRank(i, "Assistant Community Manager", "request an IAA re-verification");
-  const user = i.options.getUser("user", true);
-  const reason = clean(i.options.getString("reason", true), 500);
-  if (user.bot) throw new Error("Bots cannot complete website verification.");
-  if (user.id === i.user.id) throw new Error("You cannot send an IAA re-verification request to yourself.");
-
-  const url = verifyPageUrl();
-  const message = await user.send({
-    embeds: [card("Internal Affairs re-verification required", {
-      color: COLORS.warning,
-      description: "Florida Bay Internal Affairs has requested a fresh website verification for an investigation. Please complete it as soon as possible.",
-      rows: [
-        ["Reason", reason, false],
-        ["What to do", `Open **${url}**, select **Verify with Discord**, and approve the requested access.`, false],
-        ["Requested by", `${i.user} (Florida Bay Management)`],
-      ],
-      footer: "This request does not remove your current access or verification status.",
-    })],
-    components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setLabel("Reverify on Florida Bay").setStyle(ButtonStyle.Link).setURL(url),
-    )],
-    allowedMentions: { parse: [] },
-  }).catch(() => null);
-  if (!message) throw new Error("The member's DMs are closed, so the re-verification request was not delivered.");
-
-  await audit(i.user.id, "iaa.reverify.request", user.id, { reason, guild: i.guildId });
-  await log((await mainGuild()) || i.guild, {
-    title: "IAA re-verification requested",
-    color: COLORS.warning,
-    actor: i.user.id,
-    target: user.id,
-    fields: [["Reason", reason, false], ["Delivery", "DM delivered"]],
-  }, "verification");
-  return card("Re-verification request delivered", {
-    color: COLORS.success,
-    description: `${mention(user.id)} was DMed the website link and investigation reason. Their existing verification and access were not revoked.`,
-  });
-}
-
 const WELCOME_CATEGORY_ID = "1558252351624585246";
 
 /** The welcome channel message: how to fully verify, plus what Florida Bay is. */
@@ -5042,7 +4879,6 @@ const handlers = {
   welcome: welcomeCommand,
   github: (i) => githubCommand(i, i.options.getSubcommand()),
   verification: (i) => verificationCommand(i, i.options.getSubcommand()),
-  reverify: reverifyCommand,
   backup: backupCommand,
   invite: inviteCommand,
   join: joinCommand,
@@ -5063,15 +4899,6 @@ const handlers = {
   mod: moderationCommand,
   server: serverCommand,
   role: roleMembership.command,
-  temp: async (i, sub) => {
-    if (sub !== "role") throw new Error("Unknown temporary-access action.");
-    await requireMinimumStaffRank(i, "Assistant Community Manager", "grant temporary roles");
-    return temporaryRoles.command(i);
-  },
-  invites: (i, sub) =>
-    inviteTracker.command(i, sub, {
-      requireStaff: (interaction, action) => requireMinimumStaffRank(interaction, "Assistant Community Manager", action),
-    }),
   protectrole: protectRoleCommand,
   botguard: botguardCommand,
   security: securityCommand,
@@ -5084,8 +4911,6 @@ const handlers = {
   acelist: aceListCommand,
   userinfo: userinfoCommand,
   playtime: playtimeCommand,
-  purchases: purchasesCommand,
-  redeem: redeemCommand,
   case: caseLookupCommand,
   office: officeCommand,
   orgbank: orgbankCommand,
@@ -5141,8 +4966,6 @@ async function forwardGameAuditRows() {
     {
       let payload = row.payload || {};
       if (typeof payload === "string") try { payload = JSON.parse(payload); } catch { payload = {}; }
-      await assetChangeNotifier.notify(row, payload).catch((error) =>
-        console.error(`[FBRP asset change DM] audit #${row.id}:`, error.message || error));
       const isId = (value) => /^\d{15,24}$/.test(String(value));
       const details = Object.entries(payload)
         .slice(0, 20)
@@ -5189,17 +5012,6 @@ client.on("guildCreate", (guild) => {
 
 client.once("clientReady", async () => {
   console.log(`[FBRP bot] Logged in as ${client.user.tag}`);
-  temporaryRoles.start();
-  void inviteTracker.start().catch((error) => console.error("[FBRP bot] invite tracker start:", error.message));
-  // Members who left while the bot was offline would otherwise still pass the game join gate.
-  void (async () => {
-    const guild = client.guilds.cache.get(TEBEX_MAIN_GUILD_ID);
-    if (!guild || !(await guild.members.fetch().catch(() => null))) return;
-    const rows = await db.query("SELECT discord_id FROM discord_member_cache WHERE guild_id=?", [guild.id]);
-    const gone = rows.map((row) => String(row.discord_id)).filter((id) => !guild.members.cache.has(id));
-    if (gone.length) await db.query("DELETE FROM discord_member_cache WHERE guild_id=? AND discord_id IN (?)", [guild.id, gone]);
-    console.log(`[FBRP bot] Dropped ${gone.length} departed member(s) from the main server cache.`);
-  })().catch((error) => console.error("[FBRP bot] member cache prune:", error.message));
   const superusers = String(process.env.FBRP_SUPERUSER_IDS || process.env.FBRP_OWNER_DISCORD_ID || "")
     .split(",").map((id) => id.trim()).filter(Boolean);
   // Keep every configured superuser in the in-game owner group as well. Checking
@@ -5357,7 +5169,6 @@ client.once("clientReady", async () => {
   void liveNotifications.start().catch((error) => console.error("[FBRP live] startup:", error.message || error));
   propertySetup.start();
   staffQueue.start();
-  altScanQueue.start();
 });
 
 /** Subcommands that only read data; everything else is written to the staff audit channel. */
@@ -5517,28 +5328,14 @@ async function recordNativeDiscordBan(ban) {
   if (/^\d{15,24}$/.test(actor)) await logForReview(ban.guild, nativeEntry, "bans", Number(inserted.insertId), actor);
   else await log(ban.guild, nativeEntry, "bans");
   await dm(ban.user, "Florida Bay ban", [
-    ["Punishment", "Ban"],
     ["Case ID", `\`${banId}\``],
     ["Server", clean(ban.guild.name, 100)],
     ["Reason", clean(entry?.reason || "Banned directly in Discord", 300), false],
-    ["Appeal", `Submit an appeal through the member portal: ${publicBase()}/portal#punishments`, false],
+    ["Appeal", `${publicBase()}/portal.html#punishments`, false],
   ]);
 }
 
-/** The game join gate treats a discord_member_cache row in the main server as "is in the Discord", so drop it when they leave. */
-client.on("guildMemberRemove", (member) => {
-  void inviteTracker.memberRemoved(member).catch((error) => console.error("[FBRP bot] invite tracker leave:", error.message));
-  if (member.guild.id !== TEBEX_MAIN_GUILD_ID) return;
-  void db.query("DELETE FROM discord_member_cache WHERE guild_id=? AND discord_id=?", [member.guild.id, member.id])
-    .catch((error) => console.error("[FBRP bot] member remove cache:", error.message));
-});
-
-client.on("inviteCreate", (invite) => void inviteTracker.inviteCreated(invite)?.catch((error) => console.error("[FBRP bot] invite create:", error.message)));
-client.on("inviteDelete", (invite) => void inviteTracker.inviteDeleted(invite)?.catch((error) => console.error("[FBRP bot] invite delete:", error.message)));
-client.on("guildCreate", (guild) => void inviteTracker.prime(guild).catch(() => {}));
-
 client.on("guildMemberAdd", (member) => {
-  void inviteTracker.memberAdded(member)?.catch((error) => console.error("[FBRP bot] invite tracker join:", error.message));
   if (accountTransferInFlight.has(member.id)) return;
   void guardBot(member, securityLog)
     .then(async () => {

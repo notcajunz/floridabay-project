@@ -1456,8 +1456,7 @@
         const d = msg.data;
         lastStatus = d.status;
         lastVehicle = d.vehicle;
-        $('hud').classList.toggle('is-hidden', !d.visible && !d.prioOnly && !editing);
-        $('hud').classList.toggle('prio-only', !!d.prioOnly && !d.visible && !editing);
+        $('hud').classList.toggle('is-hidden', !d.visible && !editing);
         const mapShown = d.minimap && !(d.onFoot && d.mapOnFoot === false && !settingsOpen());
         statusEl.classList.toggle('no-minimap', !mapShown);
         if (editing) return;

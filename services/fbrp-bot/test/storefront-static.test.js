@@ -11,8 +11,6 @@ test("storefront exposes a complete Tebex shopping flow", async () => {
     readFile(new URL("../../../scripts/split-deploy.sh", import.meta.url), "utf8"),
   ]);
   assert.match(html, /Secure Tebex checkout/);
-  assert.match(html, /Fuel the stories/);
-  assert.match(html, /results-label/);
   assert.match(html, /Have a code or gift card/);
   assert.match(script, /basket\/auth/);
   assert.match(script, /needsAccountLink\(basket\)\) \{ await linkAccount/);
@@ -28,7 +26,6 @@ test("storefront exposes a complete Tebex shopping flow", async () => {
   assert.match(html, /discord\.gg\/4gCvKJRGxk/);
   assert.match(script, /fbrp_tebex_basket_v2/);
   assert.match(script, /Sign in with Discord/);
-  assert.match(script, /matching “/);
   assert.match(panel, /store\.floridabay\.net/);
   assert.match(caddy, /reverse_proxy 127\.0\.0\.1:8080/);
   assert.match(deploy, /install_control_caddy/);

@@ -58,30 +58,6 @@ Config.Kinds = {
     muted      = { label = 'MUTED',     color = '#F97316' },
 }
 
----------------------------------------------------------------- ox_lib notifications
-
-Config.Notify = {
-    position = 'center-right',   -- where every ox_lib notification from this resource appears
-    duration = 5000,             -- default ms a notification stays on screen
-    ads = true,                  -- popup when an /ad /news /twt /insta /youtube /tiktok /twitch /vpn /darkweb post goes out
-    adDuration = 7000,           -- ms for ad / social popups
-    toggle = true,               -- popup when chat visibility is toggled (L key)
-    toggleDuration = 5000,       -- ms for the toggle popup
-}
-
--- Look of the ad / social popups, per message kind.
-Config.NotifyKinds = {
-    twitter   = { title = 'Twitter',       icon = 'fa-brands fa-twitter',   iconColor = '#38BDF8' },
-    instagram = { title = 'Instagram',     icon = 'fa-brands fa-instagram', iconColor = '#F06EAA' },
-    youtube   = { title = 'YouTube',       icon = 'fa-brands fa-youtube',   iconColor = '#EF4444' },
-    tiktok    = { title = 'TikTok',        icon = 'fa-brands fa-tiktok',    iconColor = '#FE2C55' },
-    twitch    = { title = 'Twitch',        icon = 'fa-brands fa-twitch',    iconColor = '#A78BFA' },
-    ad        = { title = 'Advertisement', icon = 'bullhorn',               iconColor = '#FBBF24' },
-    news      = { title = 'Breaking News', icon = 'newspaper',              iconColor = '#69C9FF' },
-    anonymous = { title = 'Advertisement', icon = 'bullhorn',               iconColor = '#FBBF24' },
-    darkweb   = { title = 'Dark Web',      icon = 'skull',                  iconColor = '#FF596D' },
-}
-
 ---------------------------------------------------------------- behaviour (server)
 
 Config.MaxLength = 250

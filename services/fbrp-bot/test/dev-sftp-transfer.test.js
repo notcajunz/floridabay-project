@@ -79,40 +79,39 @@ test("listing skips caches, secrets, docs and mount snapshots", async () => {
 
 test("a transfer stages only what differs from the baseline and updates it after success", async () => {
   const { write, config, baselinePath, connect } = setup();
-  write("resources/[MOVE_IN_Next_TRANSFER]/a/same.lua", "same");
-  write("resources/[MOVE_IN_Next_TRANSFER]/a/edited.lua", "edit1");
-  write("resources/[MOVE_IN_Next_TRANSFER]/a/grown.lua", "longer text");
-  write("resources/[MOVE_IN_Next_TRANSFER]/a/new.lua", "brand new");
-  write("resources/[MOVE_IN_Next_TRANSFER]/a/model.ytd", "binary");
+  write("resources/a/same.lua", "same");
+  write("resources/a/edited.lua", "edit1");
+  write("resources/a/grown.lua", "longer text");
+  write("resources/a/new.lua", "brand new");
+  write("resources/a/model.ytd", "binary");
   write("server.cfg", "ignored");
-  write("resources/b/outside.lua", "not in the move-in folder");
   fs.writeFileSync(baselinePath, JSON.stringify({ generatedAt: 1, files: {
-    "resources/[MOVE_IN_Next_TRANSFER]/a/same.lua": { size: 4, sha256: sha("same") },
-    "resources/[MOVE_IN_Next_TRANSFER]/a/edited.lua": { size: 5, sha256: sha("edit0") },
-    "resources/[MOVE_IN_Next_TRANSFER]/a/grown.lua": { size: 3, sha256: sha("old") },
-    "resources/[MOVE_IN_Next_TRANSFER]/a/model.ytd": { size: 6 },
-    "resources/[MOVE_IN_Next_TRANSFER]/a/removed.lua": { size: 1, sha256: sha("x") },
+    "resources/a/same.lua": { size: 4, sha256: sha("same") },
+    "resources/a/edited.lua": { size: 5, sha256: sha("edit0") },
+    "resources/a/grown.lua": { size: 3, sha256: sha("old") },
+    "resources/a/model.ytd": { size: 6 },
+    "resources/a/removed.lua": { size: 1, sha256: sha("x") },
   } }));
 
   const result = await runTransfer({ id: 7, config, connect });
   assert.deepEqual(result.files.map((f) => `${f.status} ${f.name}`), [
-    "modified server-data/resources/[MOVE_IN_Next_TRANSFER]/a/edited.lua",
-    "modified server-data/resources/[MOVE_IN_Next_TRANSFER]/a/grown.lua",
-    "added server-data/resources/[MOVE_IN_Next_TRANSFER]/a/new.lua",
+    "modified server-data/resources/a/edited.lua",
+    "modified server-data/resources/a/grown.lua",
+    "added server-data/resources/a/new.lua",
+    "removed server-data/resources/a/removed.lua",
   ]);
   const staged = path.join(process.env.DEV_SUBMISSION_ROOT, "7");
-  assert.equal(fs.readFileSync(path.join(staged, "repo/server-data/resources/[MOVE_IN_Next_TRANSFER]/a/new.lua"), "utf8"), "brand new");
-  assert.equal(fs.existsSync(path.join(staged, "repo/server-data/resources/[MOVE_IN_Next_TRANSFER]/a/same.lua")), false);
+  assert.equal(fs.readFileSync(path.join(staged, "repo/server-data/resources/a/new.lua"), "utf8"), "brand new");
+  assert.equal(fs.existsSync(path.join(staged, "repo/server-data/resources/a/same.lua")), false);
   assert.equal(fs.existsSync(path.join(staged, "repo/server-data/server.cfg")), false);
-  assert.equal(fs.existsSync(path.join(staged, "repo/server-data/resources/b/outside.lua")), false);
-  assert.equal(fs.readFileSync(path.join(staged, "deleted.txt"), "utf8"), "", "files missing from the move-in folder are never deleted");
+  assert.equal(fs.readFileSync(path.join(staged, "deleted.txt"), "utf8"), "server-data/resources/a/removed.lua\n");
 
-  assert.equal(JSON.parse(fs.readFileSync(baselinePath, "utf8")).files["resources/[MOVE_IN_Next_TRANSFER]/a/edited.lua"].sha256, sha("edit0"));
+  assert.equal(JSON.parse(fs.readFileSync(baselinePath, "utf8")).files["resources/a/edited.lua"].sha256, sha("edit0"));
   assert.equal(await commitBaseline(7, config), true);
   const next = JSON.parse(fs.readFileSync(baselinePath, "utf8")).files;
-  assert.equal(next["resources/[MOVE_IN_Next_TRANSFER]/a/edited.lua"].sha256, sha("edit1"));
-  assert.equal(next["resources/[MOVE_IN_Next_TRANSFER]/a/new.lua"].size, 9);
-  assert.equal(next["resources/[MOVE_IN_Next_TRANSFER]/a/removed.lua"].size, 1);
+  assert.equal(next["resources/a/edited.lua"].sha256, sha("edit1"));
+  assert.equal(next["resources/a/new.lua"].size, 9);
+  assert.equal(next["resources/a/removed.lua"], undefined);
   assert.equal(await commitBaseline(7, config), false);
 
   const again = await runTransfer({ id: 8, config, connect });
@@ -122,7 +121,7 @@ test("a transfer stages only what differs from the baseline and updates it after
 test("a transfer refuses more files than the limit", async () => {
   const { write, config, baselinePath, connect } = setup();
   fs.writeFileSync(baselinePath, JSON.stringify({ generatedAt: 1, files: {} }));
-  for (let i = 0; i < 601; i += 1) write(`resources/[MOVE_IN_Next_TRANSFER]/a/f${i}.lua`, "x");
+  for (let i = 0; i < 601; i += 1) write(`resources/a/f${i}.lua`, "x");
   await assert.rejects(() => runTransfer({ id: 9, config, connect }), /more than the 600/);
 });
 

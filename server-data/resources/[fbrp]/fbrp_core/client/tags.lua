@@ -107,11 +107,8 @@ end)
 if FBRP.Config.hideVmenuGamerTags then
     CreateThread(function()
         while true do
-            -- Senior Moderator and above keep vMenu's names while clocked in.
-            if not (LocalPlayer.state['fbrp:staffDuty'] == true and LocalPlayer.state['fbrp:staffSenior'] == true) then
-                for id = 0, 31 do
-                    if IsMpGamerTagActive(id) then RemoveMpGamerTag(id) end
-                end
+            for id = 0, 31 do
+                if IsMpGamerTagActive(id) then RemoveMpGamerTag(id) end
             end
             Wait(250)
         end

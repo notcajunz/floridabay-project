@@ -20,8 +20,8 @@ const payment = (name, id = productId(name), custom = { discord_id: DISCORD_ID }
   products: [{ id, name, custom: null, variables: [] }],
 });
 
-test("catalog defines all 26 products and Founder excludes Any Organization", () => {
-  assert.equal(TEBEX_PRODUCTS.length, 26);
+test("catalog defines all 23 products and Founder excludes Any Organization", () => {
+  assert.equal(TEBEX_PRODUCTS.length, 23);
   const founder = productSpec({ name: "Founder’s Edition" });
   assert.deepEqual(founder.roles, [BUNDLE_SOURCE_ROLE_ID, ...BUNDLE_ROLE_IDS]);
   assert.ok(!founder.roles.includes("1558772560085262356"));
@@ -100,47 +100,4 @@ test("the fulfillment ledger migration is registered with the game schema", asyn
   assert.match(migration, /CREATE TABLE IF NOT EXISTS tebex_store_entitlements/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS tebex_store_role_states/);
   assert.match(database, /migrations\/084_tebex_fulfillment\.sql/);
-});
-
-test("German Car Pack, Mk2 Weapons and DevOps+ purchases give exactly their Discord roles", () => {
-  for (const [id, name, role] of [[7767181, "German Car Pack", "1564110361961959505"], [7767259, "Mk2 Weapons", "1564110293846724710"], [7768904, "DevOps+", "1564380267617984552"]]) {
-    assert.deepEqual(productSpec({ id, name }).roles, [role]);
-    const plan = webhookPlan({ id: `w-${id}`, type: "payment.completed", subject: payment(name, id) });
-    assert.equal(plan.kind, "activate");
-    assert.deepEqual(plan.entries.map((entry) => [entry.roleId, entry.discordId]), [[role, DISCORD_ID]]);
-    const refund = webhookPlan({ id: `r-${id}`, type: "payment.refunded", subject: payment(name, id) });
-    assert.equal(refund.kind, "deactivate");
-    assert.equal(refund.entries[0].roleId, role);
-  }
-});
-
-function memberStore(initialRoles) {
-  const held = new Set(initialRoles);
-  const member = { roles: { cache: { has: (id) => held.has(id) }, }, };
-  const guild = { members: { fetch: async () => member }, roles: { cache: new Map() } };
-  return { held, member, client: { guilds: { cache: new Map([["g1", guild]]) } } };
-}
-
-test("purchases lists a member's store items with whether each role is held", async () => {
-  const { client } = memberStore(["role-a"]);
-  const rows = [
-    { source_key: "t1:1", transaction_id: "t1", product_id: 1, product_name: "German Car Pack", role_id: "role-a", active: 1, granted_at: 2000, revoked_at: null },
-    { source_key: "t2:2", transaction_id: "t2", product_id: 2, product_name: "Mk2 Weapons", role_id: "role-b", active: 1, granted_at: 1000, revoked_at: null },
-  ];
-  const db = { query: async () => rows, one: async () => null };
-  const { purchasesOf } = createTebexFulfillment({ client, db, guildId: "g1", secret: "x" });
-  const result = await purchasesOf("42");
-  assert.equal(result.inServer, true);
-  assert.deepEqual(result.purchases.map((p) => [p.name, p.roles[0].held]), [["German Car Pack", true], ["Mk2 Weapons", false]]);
-});
-
-test("redeem reports nothing to redeem, a member outside the server, and roles it delivers", async () => {
-  const none = createTebexFulfillment({ client: { guilds: { cache: new Map() } }, db: { query: async () => [], one: async () => null }, guildId: "g1", secret: "x" });
-  assert.deepEqual(await none.redeem("42"), { active: 0, granted: [], pending: [], inServer: true });
-
-  const away = createTebexFulfillment({
-    client: { guilds: { cache: new Map([["g1", { members: { fetch: async () => { throw new Error("Unknown Member"); } } }]]) } },
-    db: { query: async () => [{ role_id: "role-b" }], one: async () => null }, guildId: "g1", secret: "x",
-  });
-  assert.equal((await away.redeem("42")).inServer, false);
 });

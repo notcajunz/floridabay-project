@@ -1405,7 +1405,6 @@ MDT_ACTIONS.callsign = function(src, data)
         MySQL.prepare.await('INSERT INTO mdt_units(discord_id,callsign,updated_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE callsign=VALUES(callsign),updated_at=VALUES(updated_at)', { s.discord, callsign, now() })
     end
     notify(src, ('Callsign set to %s.'):format(callsign), 'success')
-    TriggerEvent('fbrp:callsignUpdated', src, callsign) -- refresh the overhead tag line (main.lua)
     sendMdt(src, 'dashboard', dashboard(src))
 end
 

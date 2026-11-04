@@ -227,16 +227,8 @@ install_control_revision() {
 install_control_caddy() {
   local snippet="$ROOT/deploy/caddy/store.floridabay.net.caddy"
   local live=/etc/caddy/Caddyfile
-  local service_override="$ROOT/deploy/systemd/caddy.service.d/10-fbrp-recovery.conf"
-  local live_service_dir=/etc/systemd/system/caddy.service.d
   [[ -f "$snippet" ]] || die "Missing tracked store Caddy configuration: $snippet"
   [[ -f "$live" ]] || die "Missing live Caddy configuration: $live"
-  [[ -f "$service_override" ]] || die "Missing tracked Caddy service recovery policy: $service_override"
-
-  sudo install -d -o root -g root -m 0755 "$live_service_dir"
-  sudo install -o root -g root -m 0644 "$service_override" "$live_service_dir/10-fbrp-recovery.conf"
-  sudo systemctl daemon-reload
-
   if sudo grep -q '^store\.floridabay\.net {' "$live"; then
     sudo caddy validate --config "$live"
     return
@@ -286,14 +278,6 @@ git -C "$root" merge --ff-only "$commit"
 # server.cfg is deployment-specific and intentionally untracked. Migrate only the
 # exact resource line so secrets and every other local setting stay untouched.
 server_cfg="$root/server-data/server.cfg"
-
-# Keep the externally managed seasonal loading screen on the canonical staff
-# configuration during no-restart deployments as well as normal starts.
-canonical_loading_config="$root/server-data/resources/[fbrp]/fbrp_loading/web/assets/scripts/config.js"
-active_loading_config="$root/server-data/resources/[loadingscreen]/fbrp-LChalloween/assets/scripts/config.js"
-if [[ -d "$(dirname "$active_loading_config")" ]]; then
-  "$root/scripts/sync-loading-config.sh" "$canonical_loading_config" "$active_loading_config" "$root/server-data/config/loading-tracks.js"
-fi
 [[ -f "$server_cfg" ]]
 if grep -Fxq 'ensure vMenu.Enhanced' "$server_cfg"; then
   candidate="$(mktemp "${server_cfg}.tmp.XXXXXX")"
@@ -324,15 +308,6 @@ awk '
 ' "$server_cfg" >"$candidate"
 chmod --reference="$server_cfg" "$candidate"
 mv "$candidate" "$server_cfg"
-# config/resources.cfg (every resource started after fbrp_core) must be exec'd right after phone.cfg.
-grep -Fxq 'exec config/phone.cfg' "$server_cfg"
-if ! grep -Fxq 'exec config/resources.cfg' "$server_cfg"; then
-  candidate="$(mktemp "${server_cfg}.exec.XXXXXX")"
-  awk '{ print } $0 == "exec config/phone.cfg" { print "exec config/resources.cfg" }' "$server_cfg" >"$candidate"
-  chmod --reference="$server_cfg" "$candidate"
-  mv "$candidate" "$server_cfg"
-fi
-grep -Fxq 'exec config/resources.cfg' "$server_cfg"
 grep -Fxq 'ensure RageUI' "$server_cfg"
 grep -Fxq 'ensure lvc' "$server_cfg"
 grep -Fxq 'ensure NotWanted' "$server_cfg"

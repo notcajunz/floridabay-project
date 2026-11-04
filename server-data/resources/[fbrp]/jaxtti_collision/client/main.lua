@@ -58,49 +58,9 @@ local function eject(ped, veh, vel)
     return true
 end
 
-local guardUntil, guardActive = 0, false
-
-local function lowSpeedCrash(veh)
-    local ped = cache.ped
-    if seatOf(ped, veh) ~= -1 then return end
-    if NetworkGetEntityOwner(veh) ~= cache.playerId then return end
-
-    local floor = Config.LowSpeedEngineFloor
-    SetVehicleEngineHealth(veh, math.max(floor, GetVehicleEngineHealth(veh) - Config.LowSpeedEngineDamage))
-
-    guardUntil = GetGameTimer() + Config.LowSpeedGuardTime
-    if guardActive then return end
-    guardActive = true
-
-    CreateThread(function()
-        while GetGameTimer() < guardUntil and DoesEntityExist(veh) do
-            if GetVehicleEngineHealth(veh) < floor then
-                SetVehicleEngineHealth(veh, floor)
-                if not GetIsVehicleEngineRunning(veh) then
-                    SetVehicleEngineOn(veh, true, true, false)
-                end
-            end
-            if GetVehiclePetrolTankHealth(veh) < 500.0 then
-                SetVehiclePetrolTankHealth(veh, 500.0)
-            end
-            if IsEntityOnFire(veh) then
-                StopEntityFire(veh)
-            end
-            Wait(100)
-        end
-        guardActive = false
-    end)
-end
-
-local function onCrash(veh, delta, preVel, speedMph)
+local function onCrash(veh, delta, preVel)
     local tier = tierFor(delta)
     if not tier then return end
-
-    if speedMph < Config.EffectsMinSpeed then
-        debug(('soft crash at %.1f mph, skipping effects'):format(speedMph))
-        lowSpeedCrash(veh)
-        return
-    end
 
     local ped = cache.ped
     local belted = LocalPlayer.state.seatbelt == true
@@ -173,7 +133,7 @@ CreateThread(function()
             if delta >= minDelta and now - lastCrash > Config.Cooldown and HasEntityCollidedWithAnything(veh) then
                 lastCrash = now
                 hist = {}
-                onCrash(veh, delta, peak.v, peak.s * 2.236936)
+                onCrash(veh, delta, peak.v)
             end
             Wait(0)
         else
@@ -192,10 +152,9 @@ RegisterNetEvent('jaxtti_core:client:revived', Effects.clear)
 if Config.Debug then
     RegisterCommand('crashtest', function(_, args)
         local delta = tonumber(args[1]) or 50
-        local speed = tonumber(args[2]) or delta
         local veh = GetVehiclePedIsIn(cache.ped, false)
         if veh == 0 then return print('[jaxtti_collision] get in a vehicle first') end
-        onCrash(veh, delta, GetEntityVelocity(veh), speed)
+        onCrash(veh, delta, GetEntityVelocity(veh))
     end, false)
 end
 

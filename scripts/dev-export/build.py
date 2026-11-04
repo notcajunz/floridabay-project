@@ -213,7 +213,7 @@ def snapshot_cfg():
     s = s.replace('sv_hostname "Florida Bay Roleplay"', 'sv_hostname "Florida Bay Roleplay DEV"')
     s = s.replace('sets sv_projectName "Florida Bay Roleplay"', 'sets sv_projectName "Florida Bay Roleplay DEV"')
     s = re.sub(r'(ensure fbrp_core\n)', r'\1ensure fbrp_multichar\nensure fbrp_dpclothing\n', s, 1)
-    s = re.sub(r'(ensure \[eup\]\n)', r'\1ensure paradise_vehmenu\nexec config/phone.cfg\nexec config/resources.cfg\n', s, 1)
+    s = re.sub(r'(ensure \[eup\]\n)', r'\1ensure paradise_vehmenu\nexec config/phone.cfg\n', s, 1)
     s = s.rstrip('\n') + '\n'
     s = s.replace('ensure corevia_ac', 'set corevia_api_url ""\nset corevia_token ""\nensure corevia_ac')
     return s

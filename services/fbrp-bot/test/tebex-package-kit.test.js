@@ -11,8 +11,8 @@ test("Tebex setup kit covers every fulfillment product with upload-ready art", a
     const [order, name, category, price, payment, userLimit, slug, image, fulfillment] = line.split(",");
     return { order: Number(order), name, category, price: Number(price), payment, userLimit, slug, image, fulfillment };
   });
-  assert.equal(rows.length, 26);
-  assert.deepEqual(rows.map((row) => row.order), Array.from({ length: 26 }, (_, index) => index + 1));
+  assert.equal(rows.length, 23);
+  assert.deepEqual(rows.map((row) => row.order), Array.from({ length: 23 }, (_, index) => index + 1));
   assert.deepEqual(rows.map((row) => row.name), TEBEX_PRODUCTS.map((product) => product.name));
   assert.deepEqual(rows.map((row) => row.price), TEBEX_PRODUCTS.map((product) => product.price));
   assert.deepEqual(rows.map((row) => row.payment), TEBEX_PRODUCTS.map((product) => product.type === "subscription" ? "monthly" : "one-time"));

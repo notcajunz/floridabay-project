@@ -256,7 +256,7 @@ local function refreshCommands()
     local list = {}
     for _, command in ipairs(GetRegisteredCommands()) do
         local name = command.name
-        if IsAceAllowed(('command.%s'):format(name)) and name ~= 'fbrp_chat_toggle' and not name:find('^[%+%-]') then
+        if IsAceAllowed(('command.%s'):format(name)) and name ~= 'toggleChat' and not name:find('^[%+%-]') then
             list[#list + 1] = { name = '/' .. name, help = '' }
         end
     end
@@ -279,36 +279,26 @@ RegisterNUICallback('loaded', function(_, cb)
     sendConfig()
     refreshCommands()
     chatLoaded = true
+    addSuggestion('/toggleChat', 'Chat visibility', { { name = 'state', help = 'whenactive | visible | hidden' } })
     cb('ok')
 end)
 
----------------------------------------------------------------- visibility (L key only)
+---------------------------------------------------------------- visibility (/toggleChat, L)
 
--- 1 = chat text always on screen (no fading), 2 = hidden. L flips between the two.
--- Always starts visible: the choice is not saved, so a hidden chat never carries over to the next session.
-local HIDE = { ALWAYS_SHOW = 1, ALWAYS_HIDE = 2 }
-local chatHideState = HIDE.ALWAYS_SHOW
-DeleteResourceKvp('hideState')  -- wipe the saved state from older versions that could leave chat hidden
+local HIDE = { SHOW_WHEN_ACTIVE = 0, ALWAYS_SHOW = 1, ALWAYS_HIDE = 2 }
+local kvpEntry = GetResourceKvpString('hideState')
+local chatHideState = kvpEntry and tonumber(kvpEntry) or HIDE.SHOW_WHEN_ACTIVE
 
--- ox_lib popup telling the player what the chat is doing now (and how to get it back when hidden)
-local function visibilityNotify()
-    if not Config.Notify or Config.Notify.toggle == false then return end
-    local hidden = chatHideState == HIDE.ALWAYS_HIDE
-    lib.notify({
-        title = hidden and 'Chat Hidden' or 'Chat',
-        description = hidden and 'Chat is now hidden. Press L to bring it back.' or 'Chat is visible again.',
-        type = hidden and 'inform' or 'success',
-        icon = hidden and 'comment-slash' or 'comment',
-        position = Config.Notify.position or 'center-right',
-        duration = Config.Notify.toggleDuration or 5000,
-    })
-end
-
--- keybind only (FiveM keybinds need a backing command; this one is hidden from chat suggestions)
-RegisterKeyMapping('fbrp_chat_toggle', 'Show / hide chat', 'keyboard', 'l')
-RegisterCommand('fbrp_chat_toggle', function()
-    chatHideState = chatHideState == HIDE.ALWAYS_HIDE and HIDE.ALWAYS_SHOW or HIDE.ALWAYS_HIDE
-    visibilityNotify()
+RegisterKeyMapping('toggleChat', 'Toggle chat visibility', 'keyboard', 'l')
+RegisterCommand('toggleChat', function(_, args)
+    if not args[1] then
+        if chatHideState == HIDE.SHOW_WHEN_ACTIVE then chatHideState = HIDE.ALWAYS_SHOW
+        elseif chatHideState == HIDE.ALWAYS_SHOW then chatHideState = HIDE.ALWAYS_HIDE
+        else chatHideState = HIDE.SHOW_WHEN_ACTIVE end
+    elseif args[1] == 'visible' then chatHideState = HIDE.ALWAYS_SHOW
+    elseif args[1] == 'hidden' then chatHideState = HIDE.ALWAYS_HIDE
+    elseif args[1] == 'whenactive' then chatHideState = HIDE.SHOW_WHEN_ACTIVE end
+    SetResourceKvp('hideState', tostring(chatHideState))
 end, false)
 
 CreateThread(function()

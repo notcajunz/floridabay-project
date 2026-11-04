@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
-const phone = read("server-data/config/resources.cfg");
+const phone = read("server-data/config/phone.cfg");
 const resources = "server-data/resources";
 
 test("every resource ensured from the dev transfer ships a manifest in the repository or is a known external pack", () => {
@@ -24,12 +24,8 @@ test("the Halloween loading screen replaces fbrp_loading explicitly and Roxwood 
   assert.match(phone, /^ensure \[roxwood\]$/m);
 });
 
-test("Roxwood's freemode clothing stays stopped after the Roxwood ensure (it crashed clients in SetPlayerModel at spawn)", () => {
-  assert.ok(phone.indexOf("stop amb-roxwood-clothing") > phone.indexOf("ensure [roxwood]"));
-});
-
-test("the unusable lb-payphone (escrowed, needs loaf_lib) and the unused menu libraries are not started (NativeUI is, for the grief menu)", () => {
-  assert.doesNotMatch(phone, /^ensure (lb-payphone|MenuAPI|SEM_InteractionMenu)$/m);
+test("the unusable lb-payphone (escrowed, needs loaf_lib) and the unused menu libraries are not started", () => {
+  assert.doesNotMatch(phone, /^ensure (lb-payphone|MenuAPI|NativeUI|SEM_InteractionMenu)$/m);
 });
 
 test("only fbrp_core owns /staff and /ondutystaff, and fbrp_core steps aside for fbrp_jail", () => {

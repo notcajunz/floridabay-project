@@ -1,4 +1,0 @@
-Patched by Saif for CarPlay (muffled-window sound)
-Changed files: html/scripts/FxAudio.js (new), html/scripts/SoundPlayer.js, html/scripts/listener.js,
-html/index.html, fxmanifest.lua, client/exports/manipulation.lua (new export: setMuffle(name, 0.0-1.0)).
-Direct audio links now play through Web Audio so they can be filtered. YouTube links are unchanged.

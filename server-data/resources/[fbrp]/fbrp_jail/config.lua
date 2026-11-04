@@ -6,11 +6,16 @@ JailConfig.JailSpot = vector4(1638.4463, 2524.6267, 45.5648, 326.0710)
 -- How far an inmate can wander from the jail spot before being put back (metres).
 JailConfig.LeashRadius = 130.0
 
--- Optional per-AOP release spots (GlobalState 'fbrp:aop' from fbrp_core): the first entry whose `match` words
--- appear in the AOP name is used, otherwise DefaultRelease. Currently empty, so everyone is released at DefaultRelease.
+-- Release spot follows the AOP (GlobalState 'fbrp:aop' from fbrp_core).
+-- The first entry whose `match` words appear in the AOP name is used, otherwise DefaultRelease.
 -- Heights are snapped to the ground on release, so a slightly-off Z is fine.
-JailConfig.ReleaseSpots = {} -- every release uses DefaultRelease below, whatever the AOP
-JailConfig.DefaultRelease = { label = 'the prison gate', coords = vector4(1857.0015, 2600.5117, 45.6720, 288.8060) }
+JailConfig.ReleaseSpots = {
+    { match = { 'paleto' },                            label = 'Paleto Bay Sheriff',   coords = vector4(-448.60, 6012.00, 31.72, 45.0) },
+    { match = { 'grapeseed' },                         label = 'Grapeseed',            coords = vector4(1695.10, 4925.20, 42.08, 55.0) },
+    { match = { 'sandy', 'blaine', 'county' },         label = 'Sandy Shores Sheriff', coords = vector4(1853.40, 3686.00, 34.27, 210.0) },
+    { match = { 'los santos', 'city', 'ls', 'south' }, label = 'Mission Row',          coords = vector4(432.50, -981.50, 30.71, 90.0) },
+}
+JailConfig.DefaultRelease = { label = 'Bolingbroke gate', coords = vector4(1848.13, 2586.05, 45.67, 269.5) } -- Statewide / anything else
 
 -- Permissions (checked through fbrp_core, so police only count while on /duty with a law enforcement department)
 JailConfig.JailAces = { 'fbrp.police.jail', 'fbrp.staff.jail' }

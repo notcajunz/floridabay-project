@@ -37,11 +37,6 @@ test("role bundle uses the requested source and target IDs", () => {
     "1558778405724626964",
     "1558778406403964958",
     "1558778407280447588",
-    "1563444048277274694",
-    "1564056853585854485",
-    "1564110361961959505",
-    "1564110293846724710",
-    "1564380267617984552",
   ]);
 });
 
@@ -51,7 +46,7 @@ test("granting the source role grants every missing bundle role", async () => {
   const newMember = member([BUNDLE_SOURCE_ROLE_ID], calls);
   assert.equal(roleBundleTransition(oldMember, newMember), "add");
   const result = await enforceRoleBundle(oldMember, newMember);
-  assert.equal(result.changed, 16);
+  assert.equal(result.changed, 11);
   assert.deepEqual(calls, [{ action: "add", ids: [...BUNDLE_ROLE_IDS] }]);
 });
 
@@ -61,7 +56,7 @@ test("removing the source role removes every held bundle role", async () => {
   const newMember = member(BUNDLE_ROLE_IDS, calls);
   assert.equal(roleBundleTransition(oldMember, newMember), "remove");
   const result = await enforceRoleBundle(oldMember, newMember);
-  assert.equal(result.changed, 16);
+  assert.equal(result.changed, 11);
   assert.deepEqual(calls, [{ action: "remove", ids: [...BUNDLE_ROLE_IDS] }]);
 });
 

@@ -600,7 +600,7 @@ Ranks, high to low: Staff Director, Assistant Staff Director, Staff Manager, Ass
 
 ### Manager+ roles in the main server
 
-The bot keeps Dev Manager+ (`1559120256788861008`) in the main server aligned with the active DevOps roster. The deleted Gang Manager+, Department Manager+, Staff Manager+, and Business Manager+ main-server roles are not synchronized. The bot only removes a role it granted itself.
+The bot keeps four roles in the main server in line with each sector's leadership (computed from the main bot's member cache): Gang Manager+ (`1558270290822299778`), Department Manager+ (`1558270406484557944`), Staff Manager+ (`1558270212267184178`) and Business Manager+ (`1560450541509677186`). Staff Manager+ is exactly Staff Manager, Assistant Staff Director and Staff Director; staff-server Owner and Co-Owner also qualify for the other three. The bot only removes a role it granted itself.
 
 ## Message command
 

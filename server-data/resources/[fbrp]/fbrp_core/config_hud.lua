@@ -48,7 +48,7 @@ HudConfig.Postals = {
 -- AOP & priority panel (top right). Colours take #RRGGBB.
 HudConfig.Priority = {
     ServerName = 'Florida Bay Roleplay',
-    Lobby = 'Main Server',             -- shown as "(Server 1)" after the name; '' to hide
+    Lobby = 'Dev Server',             -- shown as "(Server 1)" after the name; '' to hide
     Font = 'Proxima Nova Bold',     -- 'Proxima Nova Bold' or 'Poppins'
     FontSize = 16,                  -- default; players can change it in /hud
     PrimaryColour = '#D6DA1E',      -- default label colour; players can change it in /hud
@@ -96,11 +96,4 @@ HudConfig.Priority = {
         NotAvailable  = 'Hidden',  -- shown when no headtag / gangtag is set
         OffDuty       = 'Off Duty',
     },
-}
-
--- Server watermark (bottom centre of the screen). Shown at all times, including while the HUD is hidden.
-HudConfig.Watermark = {
-    enabled = true,
-    opacity = 0.40,   -- 0.0 - 1.0
-    width   = 300,    -- px (height scales with the image)
 }

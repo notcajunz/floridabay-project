@@ -1,12 +1,12 @@
+-- Runs AFTER config.lua. If config.lua failed to load (syntax error, stray ``` from a paste, etc.)
+-- or is missing a key, fall back to these values instead of crashing with "index a nil value (cfg)".
 local defaults = {
     distance = 10.0,
     losInterval = 750,
     headScale = 0.55,
     gangScale = 0.55,
-    nameScale = 0.30,
-    headHeight = 1.50,
-    nameHeight = 1.35,
-    gangHeight = 1.25,
+    headHeight = 1.5,    -- metres above the ped's centre (CaliRP: 1.5)
+    gangHeight = 1.25,   -- gang tag under the headtag (CaliRP: 1.25)
     menuTop = 110,
     notifyPosition = 'center-right',
     showOwnTag = false,

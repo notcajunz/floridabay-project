@@ -55,7 +55,6 @@ async function load() {
     render(); handleReturn();
   } catch (error) {
     $("#loading-grid").hidden = true;
-    $("#results-label").textContent = "Catalog unavailable";
     if (error.status === 503 && error.payload?.configured === false) $("#setup-state").hidden = false;
     else { $("#empty-state").hidden = false; $("#empty-state h3").textContent = "The store is taking a breather."; $("#empty-state p").textContent = error.message; }
   }
@@ -87,13 +86,11 @@ function renderProducts() {
   const query = state.search.toLowerCase();
   const products = allPackages().filter((item) => (state.category === "all" || String(item._category.id) === state.category) && (!query || `${item.name} ${text(item.description)} ${item._category.name}`.toLowerCase().includes(query)));
   const grid = $("#product-grid"); grid.replaceChildren(); $("#empty-state").hidden = products.length > 0;
-  const category = state.category === "all" ? "All packages" : (state.catalog?.categories || []).find((item) => String(item.id) === state.category)?.name || "Packages";
-  $("#results-label").textContent = `${category} · ${products.length} ${products.length === 1 ? "package" : "packages"}${query ? ` matching “${state.search}”` : ""}`;
   for (const item of products) {
     const card = document.createElement("article"); card.className = "product"; card.dataset.product = packageId(item);
     const media = document.createElement("button"); media.type = "button"; media.className = "product-media"; media.setAttribute("aria-label", `View ${item.name}`);
     const image = packageImage(item);
-    media.innerHTML = `${image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy">` : `<span class="monogram">${escapeHtml(initials(item.name))}</span>`}<span class="product-type">${item.type === "subscription" || item.is_recurring ? "Membership" : "One time"}</span><span class="product-view">View details <span aria-hidden="true">↗</span></span>`;
+    media.innerHTML = `${image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy">` : `<span class="monogram">${escapeHtml(initials(item.name))}</span>`}<span class="product-type">${item.type === "subscription" || item.is_recurring ? "Membership" : "One time"}</span>`;
     const body = document.createElement("div"); body.className = "product-body";
     const original = Number(item.base_price || 0) + Number(item.discount || 0);
     body.innerHTML = `<span class="product-category"></span><h3></h3><p class="product-description"></p><div class="product-buy"><span class="price">${Number(item.discount) > 0 ? `<del>${money(original, item.currency)}</del>` : ""}<strong>${money(item.total_price ?? item.base_price, item.currency)}</strong><small>${item.type === "subscription" || item.is_recurring ? "recurring" : "one-time"}</small></span><button class="add" type="button">Add to basket</button></div>`;

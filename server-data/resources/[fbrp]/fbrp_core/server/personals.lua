@@ -108,7 +108,7 @@ local function load()
         local model = tostring(row.model):lower()
         nextPersonals[id] = {
             id = id, model = model, hash = hash(model), label = row.label, plate = row.plate and row.plate ~= '' and row.plate or defaultPlate(id),
-            owner = tostring(row.owner_id), ownerName = nil, trust = {}, tags = {}, tagOrg = {}, tagLabels = {},
+            owner = tostring(row.owner_id), ownerName = nil, trust = {}, tags = {}, tagLabels = {},
             bulletproof = row.bulletproof == true or tonumber(row.bulletproof) == 1,
             emergencyClass = ({ leo=true, fire=true, ems=true })[tostring(row.emergency_class)] and tostring(row.emergency_class) or 'civilian',
             locked = row.locked == true or tonumber(row.locked) == 1,
@@ -122,14 +122,12 @@ local function load()
         end
         local tagIds = {}
         for _, row in ipairs(MySQL.query.await([[
-            SELECT v.personal_id,v.tag_id,t.label,t.org_id,o.name org_name FROM personal_vehicle_tags v
+            SELECT v.personal_id,v.tag_id,t.label FROM personal_vehicle_tags v
             JOIN headtags t ON t.id=v.tag_id AND t.enabled=TRUE
-            LEFT JOIN organizations o ON o.id=t.org_id
         ]]) or {}) do
             local p = nextPersonals[tonumber(row.personal_id)]
             if p then
                 p.tags[tonumber(row.tag_id)] = true
-                if row.org_id then p.tagOrg[tonumber(row.tag_id)] = { id = tonumber(row.org_id), name = row.org_name or 'the organization' } end
                 p.tagLabels[#p.tagLabels + 1] = row.label
                 tagIds[tonumber(row.tag_id)] = true
             end
@@ -183,25 +181,6 @@ local function accessOf(discord, p)
         if holders[tagId] and holders[tagId][discord] then return 'tag' end
     end
     return nil
-end
-
--- A tag bound to an organization only lets its holders spawn the personal while clocked in as that
--- organization. Owners, trusted drivers and holders of an unbound tag are not affected. Returns true,
--- or false plus the organization name(s) the player has to clock in as.
-local function tagSpawnAllowed(source, discord, p)
-    if p.owner == discord or p.trust[discord] then return true end
-    local orgs, names = {}, {}
-    for tagId in pairs(p.tags) do
-        if holders[tagId] and holders[tagId][discord] then
-            local bound = p.tagOrg[tagId]
-            if not bound then return true end
-            orgs[bound.id] = true
-            names[#names + 1] = bound.name
-        end
-    end
-    local s = sessions[tonumber(source)]
-    if s and s.org and orgs[tonumber(s.org.id)] then return true end
-    return false, table.concat(names, ' or ')
 end
 
 local function discordOf(source)
@@ -361,17 +340,8 @@ function FBRP.Personals.category(source)
             local note = level == 'owner' and ('Yours · ' .. p.plate)
                 or level == 'trusted' and ('Trusted by ' .. (p.ownerName or 'the owner'))
                 or ('Tag access · ' .. table.concat(p.tagLabels, ', '))
-            -- status drives the right-hand label in the fbrp_tags garage menu
-            local status = level
-            if level == 'tag' and FBRP.RequireDutyForTagVehicles then
-                local allowed, orgName = tagSpawnAllowed(source, discord, p)
-                if not allowed then note = 'Clock in as ' .. orgName .. ' to spawn'; status = 'offduty' end
-            end
-            if p.locked then note = 'Locked by the DevOps team'; status = 'locked' end
-            list[#list + 1] = {
-                model = p.model, label = p.label, key = 'p' .. p.id, note = note, sort = level == 'owner' and 0 or 1,
-                access = level, status = status, plate = p.plate, tagLabel = p.tagLabels[1],
-            }
+            if p.locked then note = 'Locked by the DevOps team' end
+            list[#list + 1] = { model = p.model, label = p.label, key = 'p' .. p.id, note = note, sort = level == 'owner' and 0 or 1 }
         end
     end
     if #list == 0 then return nil end
@@ -388,10 +358,6 @@ function FBRP.Personals.spawn(source, key)
     local discord = discordOf(source)
     local level = accessOf(discord, p)
     if not p or not level then return notify(source, 'That personal vehicle is not available to you.', 'error') end
-    if level == 'tag' and FBRP.RequireDutyForTagVehicles then
-        local allowed, orgName = tagSpawnAllowed(source, discord, p)
-        if not allowed then return notify(source, ('Clock in as %s to spawn this vehicle.'):format(orgName), 'error') end
-    end
     if p.locked then
         -- Anything of theirs that is still out is removed too.
         local netId = active[id]
@@ -421,7 +387,6 @@ function FBRP.Personals.spawn(source, key)
         active[id] = nil
     end
 
-    if FBRP.MarkGarageApproval then FBRP.MarkGarageApproval(source) end
     TriggerClientEvent('fbrp:vehicles:approved', source, p.model, p.label, {
         plate = p.plate, personal = p.id, register = level == 'owner', emergencyClass = p.emergencyClass,
     })

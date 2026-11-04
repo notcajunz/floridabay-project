@@ -1,3 +1,6 @@
+-- Overhead identity, ported from the Jaxtti tag system: a headtag followed by the server ID
+-- (blue while talking) with the gangtag underneath. Tag content comes from fbrp_core's state
+-- bags, so every existing tag source (website, API, bots, /tags menu, duty) keeps working.
 local cfg = TagsConfig
 local format = string.format
 
@@ -12,6 +15,7 @@ RegisterCommand('selftag', function()
     TagNotify(showOwn and 'You can now see your own tags.' or 'Your own tags are hidden.')
 end, false)
 
+-- your own tag would float in front of the camera in first person
 local function firstPerson(ped)
     if IsPedInAnyVehicle(ped, false) then return GetFollowVehicleCamViewMode() == 4 end
     return GetFollowPedCamViewMode() == 4
@@ -38,6 +42,7 @@ local function tagFrom(bag)
     return { label = label, r = r, g = g, b = b, outline = bag.outline ~= false }
 end
 
+-- Level of detail: nearby players, line of sight, trunk and noclip privacy.
 CreateThread(function()
     local mine = PlayerId()
     while true do
@@ -75,29 +80,20 @@ CreateThread(function()
                 if canSee[serverId] and DoesEntityExist(row.ped) then
                     local state = Player(serverId).state
                     local head, gang = tagFrom(state['fbrp:headtag']), tagFrom(state['fbrp:gangtag'])
-
-                    local inVehicle = GetVehiclePedIsIn(row.ped, false) ~= 0
+                    -- headtag + [ID] at cfg.headHeight above the ped, gang tag at cfg.gangHeight (under it)
                     local coords = GetEntityCoords(row.ped)
-                    if inVehicle then coords = GetWorldPositionOfEntityBone(row.ped, 0) end
+                    if GetVehiclePedIsIn(row.ped, false) ~= 0 then coords = GetWorldPositionOfEntityBone(row.ped, 0) end
                     local own = row.player == PlayerId()
 
                     local id = format('%s[%d]', NetworkIsPlayerTalking(row.player) and '~b~' or '~w~', serverId)
-                    local lines = {}
                     if head then
-                        lines[1] = { text = head.label .. ' ' .. id, size = cfg.headScale, r = head.r, g = head.g, b = head.b, outline = head.outline, height = cfg.headHeight }
+                        DrawTag(coords.x, coords.y, coords.z + cfg.headHeight, head.label .. ' ' .. id, cfg.headScale, head.r, head.g, head.b, head.outline, own)
                     else
-                        lines[1] = { text = id, size = cfg.headScale, r = 255, g = 255, b = 255, height = cfg.headHeight }
-                    end
-
-                    local callsign = not inVehicle and CleanTagLabel(state['fbrp:callsign'])
-                    if callsign then
-                        local name = CleanTagLabel(state['fbrp:name'])
-                        lines[#lines + 1] = { text = name and (callsign .. ' | ' .. name) or callsign, size = cfg.nameScale, r = 255, g = 255, b = 255, height = cfg.nameHeight }
+                        DrawTag(coords.x, coords.y, coords.z + cfg.headHeight, id, cfg.headScale, 255, 255, 255, true, own)
                     end
                     if gang then
-                        lines[#lines + 1] = { text = gang.label, size = cfg.gangScale, r = gang.r, g = gang.g, b = gang.b, outline = gang.outline, height = cfg.gangHeight }
+                        DrawTag(coords.x, coords.y, coords.z + cfg.gangHeight, gang.label, cfg.gangScale, gang.r, gang.g, gang.b, gang.outline, own)
                     end
-                    DrawTagLines(coords.x, coords.y, coords.z, lines, own)
                 end
             end
             Wait(0)
@@ -105,6 +101,7 @@ CreateThread(function()
     end
 end)
 
+-- /tagdebug: explains why tags are or aren't drawn (prints to F8 and shows a notification)
 RegisterCommand('tagdebug', function()
     local lines = {}
     local function add(s) lines[#lines + 1] = s print('[fbrp_tags] ' .. s) end

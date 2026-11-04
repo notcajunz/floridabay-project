@@ -157,7 +157,7 @@ body[data-season].theme-minimal .sug b { color: var(--s-pop); }
 .theme-minimal .badges { display: inline; margin-right: 4px; }
 .theme-minimal .badge + .badge, .theme-imessage .badge + .badge { margin-left: 4px; }
 .theme-imessage .who .badge { font-weight: 800; }
-/* L key: show / hide chat */
+/* /toggleChat (L): always show / always hide */
 body.chat-always #chat { opacity: 1; }
 body.chat-hidden #messages { display: none; }
 /* message icons (gear on the chat-clear line) and fully tinted lines */

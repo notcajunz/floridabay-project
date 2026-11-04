@@ -149,84 +149,6 @@ local function aimedVehicle(maxDistance)
     return nil
 end
 
----------------------------------------------------------------- external targets
--- Other resources register third eye options here via exports (see bottom of file).
--- Each entry is one option: a zone (fixed coords) or a set of prop models.
-local externalTargets = {}
-local externalNextId = 0
-local EXTERNAL_MODEL_SEARCH = 4.0
-
-local function externalAllowed(entry, entity, distance, coords)
-    if not entry.canInteract then return true end
-    local ok, result = pcall(entry.canInteract, entity, distance, coords, entry.name)
-    return ok and result ~= false and result ~= nil
-end
-
-local function externalTarget(here)
-    local groups, closestObject = {}, {}
-    for id, entry in pairs(externalTargets) do
-        local coords, entity
-        if entry.kind == 'zone' then
-            coords = entry.coords
-        else
-            for _, hash in ipairs(entry.models) do
-                local found = closestObject[hash]
-                if found == nil then
-                    found = GetClosestObjectOfType(here.x, here.y, here.z, EXTERNAL_MODEL_SEARCH, hash, false, false, false)
-                    closestObject[hash] = found
-                end
-                if found ~= 0 and DoesEntityExist(found) then
-                    local at = GetEntityCoords(found)
-                    if not coords or #(here - at) < #(here - coords) then coords, entity = at, found end
-                end
-            end
-        end
-        if coords then
-            -- props: measure flat distance (their origin sits on the floor, the player's sits at the hips)
-            local distance = entity and (math.abs(here.z - coords.z) <= 2.5 and #(here.xy - coords.xy) or math.huge) or #(here - coords)
-            if distance <= entry.distance and externalAllowed(entry, entity, distance, coords) then
-                local key = entity and ('ent:' .. entity) or ('zone:' .. id)
-                local group = groups[key]
-                if not group then
-                    group = { key = key, entity = entity, coords = coords, distance = distance, entries = {} }
-                    groups[key] = group
-                end
-                group.entries[#group.entries + 1] = entry
-            end
-        end
-    end
-
-    local best
-    for _, group in pairs(groups) do
-        if not best or group.distance < best.distance then best = group end
-    end
-    if not best then return nil end
-
-    table.sort(best.entries, function(a, b) return a.id < b.id end)
-    local actions, ids = {}, {}
-    for _, entry in ipairs(best.entries) do
-        actions[#actions + 1] = { id = 'w_x' .. entry.id, label = entry.label, icon = entry.icon }
-        ids[#ids + 1] = entry.id
-    end
-    return {
-        id = 'ext:' .. best.key .. ':' .. table.concat(ids, ','),
-        name = best.entries[1].title,
-        actions = actions,
-        run = function(action)
-            local entry = externalTargets[tonumber(action:sub(4))]
-            if not entry or not entry.onSelect then return end
-            local data = { entity = best.entity, coords = best.coords, distance = best.distance, name = entry.name }
-            CreateThread(function()
-                local ok, err = pcall(entry.onSelect, data)
-                if not ok then
-                    print(('[fbrp_core] third eye option "%s" from %s errored%s (see that resource\'s error above)'):format(
-                        entry.name or entry.label, entry.resource, err and (': ' .. tostring(err)) or ''))
-                end
-            end)
-        end,
-    }
-end
-
 local function worldTarget()
     local ped = PlayerPedId()
     if IsPedInAnyVehicle(ped, false) then return nil end
@@ -279,9 +201,6 @@ local function worldTarget()
             }
         end
     end
-
-    local external = externalTarget(here)
-    if external then return external end
 
     -- A vehicle in front of the crosshair.
     local vehicle = aimedVehicle(6.0)
@@ -344,7 +263,7 @@ local thirdEyeIcons = {
     w_plate='search', w_impound='car', w_work='building', w_facilities='building',
     w_serve='sparkles', w_door='door', w_breach='flame',
     w_door_side='door', w_hood='hood', w_trunk='trunk',
-    helpup='users', w_more='chevron', w_back='chevron',
+    helpup='users',
 }
 
 -- ox_target style: hold the key, look at something, its options show next to the eye.
@@ -358,7 +277,7 @@ local function sendEye(open)
         options = {}
         for _, action in ipairs(thirdEyeOptions.actions) do
             local id = tostring(action.id or '')
-            options[#options + 1] = { id = id, label = tostring(action.label or id), icon = action.icon or thirdEyeIcons[id] or 'chevron' }
+            options[#options + 1] = { id = id, label = tostring(action.label or id), icon = thirdEyeIcons[id] or 'chevron' }
         end
     end
     local name = thirdEyeOptions and thirdEyeOptions.name or nil
@@ -444,13 +363,6 @@ RegisterNUICallback('thirdEyeSelect', function(data, cb)
     local current = thirdEyeOptions
     local id = tostring(data and data.id or '')
     if not current or id == '' then return resetThirdEye() end
-    -- "More..." swaps the short list for the rarely used actions (and back) without closing the eye
-    if (id == 'w_more' or id == 'w_back') and current.primary then
-        local shown = id == 'w_more' and current.secondary or current.primary
-        thirdEyeOptions = { name = current.name, target = current.target, actions = shown, world = current.world,
-            primary = current.primary, secondary = current.secondary }
-        return sendEye(true)
-    end
     for _, action in ipairs(current.actions) do
         if tostring(action.id) == id then
             return runThirdEyeAction(id, current.target, current.world)
@@ -636,23 +548,7 @@ RegisterNetEvent('fbrp:interactions:data', function(data)
     if not thirdEyeHeld or thirdEyeFocused or tonumber(data and data.target) ~= thirdEyeTarget then return end
     data.actions = data.actions or {}
     if FBRP.CanServe and FBRP.CanServe() then data.actions[#data.actions + 1] = { id = 'w_serve', label = 'Serve a drink or meal' } end
-    -- A long list is trimmed to the actions used most; the rest sit under "More...".
-    local SECONDARY = { blindfold=true, unblindfold=true, gsr=true, cite=true, commserv=true, diagnose=true, checkid=true, showid=true, cutziptie=true, heal=true }
-    local actions = data.actions
-    if #actions > 6 then
-        local primary, secondary = {}, {}
-        for _, action in ipairs(actions) do
-            if SECONDARY[action.id] then secondary[#secondary + 1] = action else primary[#primary + 1] = action end
-        end
-        if #secondary > 0 and #primary > 0 then
-            primary[#primary + 1] = { id = 'w_more', label = 'More...' }
-            secondary[#secondary + 1] = { id = 'w_back', label = 'Back' }
-            setEyeOptions(data.name, tonumber(data.target), primary, nil)
-            if thirdEyeOptions then thirdEyeOptions.primary, thirdEyeOptions.secondary = primary, secondary end
-            return
-        end
-    end
-    setEyeOptions(data.name, tonumber(data.target), actions, nil)
+    setEyeOptions(data.name, tonumber(data.target), data.actions, nil)
 end)
 
 -- A real firearm shot aimed at the physical cuff prop/wrist removes cuffs.
@@ -757,21 +653,7 @@ RegisterNetEvent('fbrp:interaction:apply', function(action, actorServerId)
             end
         end
     elseif action == 'unseat' then
-        local vehicle = GetVehiclePedIsIn(ped,false)
-        if vehicle ~= 0 then
-            TaskLeaveVehicle(ped,vehicle,16)
-            -- leaving a vehicle resets the ped's handcuff flag and animation; put the restraint back
-            local held = restrained and restraintType or nil
-            if held then
-                CreateThread(function()
-                    local deadline = GetGameTimer() + 3000
-                    while IsPedInAnyVehicle(PlayerPedId(),false) and GetGameTimer() < deadline do Wait(50) end
-                    Wait(300)
-                    if LocalPlayer.state['fbrp:restrained'] == nil then LocalPlayer.state:set('fbrp:restrained', held, true) end
-                    setRestrained(held)
-                end)
-            end
-        end
+        if IsPedInAnyVehicle(ped,false) then TaskLeaveVehicle(ped,GetVehiclePedIsIn(ped,false),16) end
     end
 end)
 
@@ -799,50 +681,19 @@ RegisterNetEvent('fbrp:interaction:actor', function(action, targetServerId)
 end)
 
 local visibleWeapons = {
-    joaat('WEAPON_PISTOL'),joaat('WEAPON_COMBATPISTOL'),joaat('WEAPON_HEAVYPISTOL'),joaat('WEAPON_STUNGUN'),
-    joaat('WEAPON_SMG'),joaat('WEAPON_CARBINERIFLE'),joaat('WEAPON_PUMPSHOTGUN'),joaat('WEAPON_KNIFE'),
-    joaat('WEAPON_NIGHTSTICK'),joaat('WEAPON_BAT'),joaat('WEAPON_CROWBAR'),joaat('WEAPON_FLASHLIGHT')
+    {'Pistol',joaat('WEAPON_PISTOL')},{'Combat pistol',joaat('WEAPON_COMBATPISTOL')},{'Heavy pistol',joaat('WEAPON_HEAVYPISTOL')},
+    {'Stun gun',joaat('WEAPON_STUNGUN')},{'SMG',joaat('WEAPON_SMG')},{'Carbine rifle',joaat('WEAPON_CARBINERIFLE')},
+    {'Pump shotgun',joaat('WEAPON_PUMPSHOTGUN')},{'Knife',joaat('WEAPON_KNIFE')},{'Nightstick',joaat('WEAPON_NIGHTSTICK')},
+    {'Baseball bat',joaat('WEAPON_BAT')},{'Crowbar',joaat('WEAPON_CROWBAR')},{'Flashlight',joaat('WEAPON_FLASHLIGHT')}
 }
 
 RegisterNetEvent('fbrp:interaction:search', function()
     local found = {}
     local ped = PlayerPedId()
-    for _, hash in ipairs(visibleWeapons) do
-        if HasPedGotWeapon(ped,hash,false) then found[#found+1]=hash end
+    for _, weapon in ipairs(visibleWeapons) do
+        if HasPedGotWeapon(ped,weapon[2],false) then found[#found+1]=weapon[1] end
     end
     TriggerServerEvent('fbrp:interaction:searchResult',found)
-end)
-
--- The officer's search results: what the person is carrying, with an option to take each item.
-RegisterNetEvent('fbrp:search:menu', function(data)
-    local options = {}
-    for _, weapon in ipairs(data.weapons or {}) do
-        options[#options + 1] = {
-            title = weapon.label, description = 'Weapon - click to remove', icon = 'gun',
-            onSelect = function() TriggerServerEvent('fbrp:search:take', 'weapon', weapon.hash) end,
-        }
-    end
-    if data.contraband then
-        options[#options + 1] = {
-            title = data.contraband, description = 'Contraband - click to seize', icon = 'cannabis',
-            onSelect = function() TriggerServerEvent('fbrp:search:take', 'contraband') end,
-        }
-    end
-    if #(data.weapons or {}) > 1 then
-        options[#options + 1] = {
-            title = 'Remove all weapons', icon = 'hand',
-            onSelect = function() TriggerServerEvent('fbrp:search:take', 'weapons') end,
-        }
-    end
-    if #options == 0 then
-        options[1] = { title = 'Nothing found', description = 'No visible weapons or contraband.', icon = 'magnifying-glass', readOnly = true }
-    end
-    lib.registerContext({ id = 'fbrp_search', title = ('Search - %s'):format(data.name or 'Person'), options = options })
-    lib.showContext('fbrp_search')
-end)
-
-RegisterNetEvent('fbrp:search:removeWeapon', function(hash)
-    RemoveWeaponFromPed(PlayerPedId(), tonumber(hash))
 end)
 
 AddEventHandler('onClientResourceStart', function(resource)
@@ -861,59 +712,6 @@ end)
 AddEventHandler('onClientResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     for serverId in pairs(restraintProps) do clearRestraintProp(serverId) end
-end)
-
----------------------------------------------------------------- third eye target API
--- Usage from another resource (client side):
---   local id = exports.fbrp_core:AddTargetZone({ coords = vec3(...), distance = 2.0, label = 'Do thing',
---       title = 'Thing', icon = 'ticket', canInteract = function(entity, distance, coords) return true end,
---       onSelect = function(data) --[[ data.entity, data.coords, data.distance ]] end })
---   local id = exports.fbrp_core:AddTargetModel({ 'prop_a', 'prop_b' }, { ...same fields, no coords... })
---   exports.fbrp_core:RemoveTarget(id)
--- Options are removed automatically when the resource that added them stops.
--- icon is a name from ICONS in web/app.js (e.g. ticket, train, wallet, door, building).
-
-local function addExternal(kind, def, models)
-    if type(def) ~= 'table' or type(def.onSelect) ~= 'function' and type(def.onSelect) ~= 'table' then
-        error('third eye target needs an onSelect function', 3)
-    end
-    externalNextId = externalNextId + 1
-    local entry = {
-        id = externalNextId,
-        kind = kind,
-        resource = GetInvokingResource() or GetCurrentResourceName(),
-        name = def.name,
-        label = tostring(def.label or 'Interact'),
-        title = def.title and tostring(def.title) or nil,
-        icon = def.icon,
-        distance = math.min(tonumber(def.distance) or 2.0, EXTERNAL_MODEL_SEARCH),
-        canInteract = def.canInteract,
-        onSelect = def.onSelect,
-    }
-    if kind == 'zone' then
-        local c = def.coords
-        if not c then error('AddTargetZone needs coords', 3) end
-        entry.coords = vector3(c.x, c.y, c.z)
-    else
-        entry.models = {}
-        for _, model in ipairs(type(models) == 'table' and models or { models }) do
-            entry.models[#entry.models + 1] = type(model) == 'number' and model or joaat(model)
-        end
-    end
-    externalTargets[entry.id] = entry
-    return entry.id
-end
-
-exports('AddTargetZone', function(def) return addExternal('zone', def) end)
-exports('AddTargetModel', function(models, def) return addExternal('model', def, models) end)
-exports('RemoveTarget', function(id)
-    externalTargets[tonumber(id) or -1] = nil
-end)
-
-AddEventHandler('onClientResourceStop', function(resource)
-    for id, entry in pairs(externalTargets) do
-        if entry.resource == resource then externalTargets[id] = nil end
-    end
 end)
 
 -- Replicated restraint state makes the physical cuffs/tie visible to everyone,
@@ -955,7 +753,6 @@ CreateThread(function()
             DisableControlAction(0,75,true)
             DisablePlayerFiring(PlayerId(),true)
             local down=FBRP.IsDowned and FBRP.IsDowned()
-            SetEnableHandcuffs(ped,true)
             if not down and not escortedBy and not IsEntityPlayingAnim(ped,'mp_arresting','idle',3) and not IsPedInAnyVehicle(ped,false) then
                 if loadAnim('mp_arresting') then TaskPlayAnim(ped,'mp_arresting','idle',8.0,-8.0,-1,49,0,false,false,false) end
             end

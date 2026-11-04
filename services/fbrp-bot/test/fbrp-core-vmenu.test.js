@@ -21,15 +21,15 @@ test('upstream legacy vMenu 3.8.68 is restored with its official runtime files',
   }
 });
 
-test('legacy vMenu keeps the production keys and gameplay settings and leaves weather and time to gg_weathersystem', () => {
+test('legacy vMenu keeps the production keys, gameplay, weather and time settings', () => {
   const config = read('config/vmenu.cfg');
   const value = (name) => config.match(new RegExp(`^setr ${name} (.+)$`, 'm'))?.[1];
   assert.equal(value('vmenu_menu_toggle_key'), '"F1"');
   assert.equal(value('vmenu_noclip_toggle_key'), '"F2"');
   assert.equal(value('vmenu_keymapping_id'), '"FloridaBayRPF1"');
   assert.equal(value('vmenu_pvp_mode'), '1');
-  assert.equal(value('vmenu_enable_weather_sync'), 'false');
-  assert.equal(value('vmenu_enable_time_sync'), 'false');
+  assert.equal(value('vmenu_enable_weather_sync'), 'true');
+  assert.equal(value('vmenu_enable_time_sync'), 'true');
   assert.equal(value('vmenu_keep_spawned_vehicles_persistent'), 'false');
   assert.equal(value('vmenu_delete_vehicle_distance'), '5.0');
   assert.match(value('vmenu_server_info_message'), /discord\.gg\/floridabay\b/);
@@ -84,8 +84,7 @@ test('public vMenu grants preserve the current restricted power tiers', () => {
   ]) assert.equal(granted.has(restricted), false, restricted);
   assert.equal(granted.has('vMenu.VehicleOptions.Menu'), true);
   assert.equal(granted.has('vMenu.VehicleOptions.Engine'), true);
-  for (const object of ['vMenu.VehicleOptions.BypassExtraDamage', 'vMenu.VehicleOptions.BikeSeatbelt']) assert.equal(granted.has(object), false, object);
-  for (const object of ['vMenu.PlayerAppearance.SpawnSaved', 'vMenu.PlayerAppearance.SpawnNew', 'vMenu.PlayerAppearance.Customize']) assert.equal(granted.has(object), true, object);
+  assert.equal(granted.has('vMenu.VehicleOptions.BypassExtraDamage'), true);
   assert.equal(granted.has('vMenu.VehicleOptions.Colors'), true);
   assert.equal(granted.has('vMenu.WeaponOptions.Pistol'), true);
   assert.equal(granted.has('vMenu.WeaponOptions.TacticalRifle'), true);
@@ -131,15 +130,4 @@ test('the VIP vehicle tuning group still follows the Discord role only', () => {
   assert.match(migration, /INSERT IGNORE INTO discord_role_sources[\s\S]*'1557689749198868520','vip_vehicle_tuning'/);
   const sync = read('../services/fbrp-bot/src/sync.js');
   assert.match(sync, /ROLE_SOURCED_GROUPS = new Set\(\[[\s\S]*"vip_vehicle_tuning"/);
-});
-
-test('the Ban and Blacklist Moderator group follows the Discord role only', () => {
-  const migration = read('resources/[fbrp]/fbrp_core/migrations/116_ban_blacklist_role_one_way.sql');
-  assert.match(migration, /INSERT IGNORE INTO discord_role_sources[\s\S]*FROM discord_role_bindings\s+WHERE group_name='ban_blacklist_moderator'/);
-  assert.match(migration, /'1558329130817421423','ban_blacklist_moderator'/);
-  assert.match(migration, /DELETE FROM discord_role_bindings WHERE group_name='ban_blacklist_moderator'/);
-  assert.doesNotMatch(migration, /^--.*['"`;]/m);
-  const sync = read('../services/fbrp-bot/src/sync.js');
-  assert.match(sync, /ROLE_SOURCED_GROUPS = new Set\(\[[\s\S]*"ban_blacklist_moderator"/);
-  assert.doesNotMatch(sync.slice(sync.indexOf('ROLE_AUTHORITATIVE_GROUPS = new Set'), sync.indexOf('ROLE_AUTHORITATIVE_GROUP_SQL')), /ban_blacklist_moderator/);
 });

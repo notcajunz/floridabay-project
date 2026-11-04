@@ -4,7 +4,6 @@ import { publicBase } from "../site-url.js";
 import { allMembers, config, db, demand, post, rankOf } from "./store.js";
 import { C, EPHEMERAL, UserError, card, clip, mention, meter, respond, ts } from "./util.js";
 import { refreshPanels } from "./panels.js";
-import * as altscan from "./altscan.js";
 
 /**
  * Intel comes from what the FBRP network already records:
@@ -361,7 +360,6 @@ export async function command(i, actor, group, sub) {
     const hits = await sweep(i.guild);
     return respond(i, `Sweep complete. **${hits}** member(s) produced new alerts.`);
   }
-  if (!group && sub === "alt-scan") return altscan.command(i, actor);
   if (!group && sub === "auth-sweep") {
     await demand(actor, "intel.manage");
     await i.deferReply(EPHEMERAL);

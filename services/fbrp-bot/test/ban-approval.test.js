@@ -138,8 +138,8 @@ test('bans and blacklists are logged for review and the buttons are routed', asy
   assert.match(main, /logForReview\(i\.guild, modEntry, "bans"/);
   assert.match(main, /logForReview\(ban\.guild, nativeEntry, "bans"/);
   assert.match(main, /if \(review && \["ban", "blacklist"\]\.includes\(action\)\) await logForReview/);
-  assert.match(main, /publishGlobalCase\(c, results, gameBanId, true\)/);
-  assert.match(main, /publishGlobalCase\(c, results, null, true\)/);
+  assert.match(main, /globalCase\(user\.id, i\.user\.id, "ban", reason, ms, results, gameBanId, true\)/);
+  assert.match(main, /globalCase\(user\.id, i\.user\.id, "blacklist", reason, null, results, null, true\)/);
   // Alt bans derived from a ban follow it and carry no buttons of their own.
   assert.doesNotMatch(main, /globalCase\(alt\.discordId, actorId, "ban", why, durationMs, results, gameBanId, true\)/);
   for (const column of ['approval_status', 'approval_by', 'approval_at', 'log_channel_id', 'log_message_id']) assert.match(sql, new RegExp(column));

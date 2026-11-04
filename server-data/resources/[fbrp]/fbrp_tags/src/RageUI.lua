@@ -191,7 +191,7 @@ RageUI.Settings = {
     },
     Items = {
         Title = {
-            Background = { Width = 431, Height = 107 },
+            Background = { Width = 431, Height = 55 },  -- text header instead of the old 107px image banner
             Text = { X = 215, Y = 7, Scale = 0.9 },
         },
         Subtitle = {

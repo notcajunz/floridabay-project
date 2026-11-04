@@ -227,7 +227,7 @@ Everyone can use vMenu's Vehicle Spawner for every base-game vehicle class (`vMe
 - `services/fbrp-bot/src/role-manager-bot.js`: dedicated delegated-role bot.
 - `server-data/resources/[discord]`: Badger compatibility adapters.
 - `server-data/resources/[standalone]/fbrp_chat`: Florida Bay's custom proximity roleplay chat resource.
-- `server-data/resources/[standalone]/sky_phone`: the character phone; `server-data/config/phone.cfg` starts it. Every other resource started after `fbrp_core` is listed in `server-data/config/resources.cfg`, which `server.cfg` execs right after `phone.cfg`.
+- `server-data/resources/[standalone]/sky_phone`: the character phone; `server-data/config/phone.cfg` starts it.
 - `services/fbrp-bot/src/org-logos.js`: organization logos (set with `/organization create logo:`, `/organization logo`, or on the orgs website).
 - `services/fbrp-bot/web/orgs`, `src/orgs-site.js`, `src/org-authority.js`: the organization website.
 - `server-data/resources/[fbrp]/fbrp_loading`: loading screen and primary logo.

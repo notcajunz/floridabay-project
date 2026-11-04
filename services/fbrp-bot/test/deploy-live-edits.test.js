@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -44,21 +43,6 @@ test("game startup enables RageUI before Luxart and also enables Not Wanted", ()
     assert.match(source, /grep -Fxq 'ensure lvc' "\$server_cfg"/);
     assert.match(source, /grep -Fxq 'ensure NotWanted' "\$server_cfg"/);
   }
-});
-
-test("the active seasonal loading screen receives the canonical staff config", () => {
-  const startup = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../start.sh"), "utf8");
-  for (const source of [script, startup]) {
-    assert.match(source, /canonical_loading_config=.*fbrp_loading\/web\/assets\/scripts\/config\.js/);
-    assert.match(source, /active_loading_config=.*fbrp-LChalloween\/assets\/scripts\/config\.js/);
-    assert.match(source, /scripts\/sync-loading-config\.sh" "\$canonical_loading_config" "\$active_loading_config"/);
-  }
-  const config = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../server-data/resources/[fbrp]/fbrp_loading/web/assets/scripts/config.js"), "utf8");
-  assert.doesNotMatch(config, /! 103 Mercer/);
-  assert.doesNotMatch(config, /chronic/i);
-  assert.match(config, /name: "! 103 Scarface"/);
-  assert.match(config, /name: "! 104 Saif"[\s\S]{0,80}description: \["Co-Owner"\]/);
-  assert.match(config, /name: "! 106 Revan"[\s\S]{0,80}description: \["Executive Management"\]/);
 });
 
 test("any other tracked change still blocks, even beside vehicle edits", () => {
@@ -128,32 +112,4 @@ test("github sync leaves the EUP packs out of the backup", () => {
   const sync = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts/github-sync.sh"), "utf8");
   assert.match(sync, /git rm -r -q --cached --ignore-unmatch -- ":\(literal\)\$eup_path"/);
   assert.match(sync, /server-data\/resources\/\[eup\]/);
-});
-
-test("the loading config sync keeps the active screen's own songs", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "loading-sync-"));
-  const tool = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts/sync-loading-config.sh");
-  const canonical = path.join(dir, "canonical.js");
-  const active = path.join(dir, "active.js");
-  fs.writeFileSync(canonical, 'Config.Eyebrow = "new";\nConfig.Tracks = [\n  { file: "old.webm" },\n];\nConfig.Team = ["new staff"];\n');
-  fs.writeFileSync(active, 'Config.Eyebrow = "old";\nConfig.Tracks = [\n{ file: "mine1.webm" },\n{ file: "mine2.webm" },\n];\nConfig.Team = ["old staff"];\n');
-  execFileSync("bash", [tool, canonical, active]);
-  assert.equal(fs.readFileSync(active, "utf8"), 'Config.Eyebrow = "new";\nConfig.Tracks = [\n{ file: "mine1.webm" },\n{ file: "mine2.webm" },\n];\nConfig.Team = ["new staff"];\n');
-  const tracks = path.join(dir, "tracks.js");
-  fs.writeFileSync(tracks, 'Config.Tracks = [\n{ file: "tracked.webm" },\n];\n');
-  execFileSync("bash", [tool, canonical, active, tracks]);
-  assert.match(fs.readFileSync(active, "utf8"), /tracked\.webm/);
-  assert.doesNotMatch(fs.readFileSync(active, "utf8"), /mine1|old\.webm/);
-  fs.rmSync(active);
-  execFileSync("bash", [tool, canonical, active]);
-  assert.equal(fs.readFileSync(active, "utf8"), fs.readFileSync(canonical, "utf8"));
-  assert.deepEqual(fs.readdirSync(dir).sort(), ["active.js", "canonical.js", "tracks.js"]);
-  fs.rmSync(dir, { recursive: true });
-});
-
-test("the tracked loading tracks only reference media that ships in the seasonal screen", () => {
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-  const tracks = fs.readFileSync(path.join(root, "server-data/config/loading-tracks.js"), "utf8");
-  assert.match(tracks, /^Config\.Tracks = \[/m);
-  assert.equal((tracks.match(/file: "assets\/media\/music\/[a-z0-9-]+\.webm"/g) || []).length, 5);
 });

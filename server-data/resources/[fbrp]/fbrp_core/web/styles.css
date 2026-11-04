@@ -2078,27 +2078,3 @@ body.menu-locked .menu-shell { animation: none; }
   background: #151c22; border: 1px solid #4a5965; color: #dce8ed;
 }
 .third-eye.focused { cursor: default; }
-
-.spawn-aop-banner { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; padding: 10px 14px; border-left: 3px solid #e0a84a; background: rgba(224,168,74,.10); }
-.spawn-aop-banner small { color: #c9a35d; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
-.spawn-aop-banner strong { color: #fff; font: 700 18px/1 var(--body); }
-.spawn-aop-banner span { margin-left: auto; color: #a8a08c; font-size: 12px; }
-.spawn-aop-tag { padding: 3px 8px; border-radius: 999px; color: #9fe0b0; background: rgba(80,190,120,.14); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
-.spawn-aop-tag.off { color: #f2a3a0; background: rgba(220,80,70,.16); }
-.spawn-card.aop-blocked strong, .spawn-card.aop-blocked small { opacity: .55; }
-.spawn-confirm.aop-blocked { cursor: not-allowed; color: #f5d6d4; background: #5a2b29; border-left-color: #873c38; }
-.spawn-confirm.aop-blocked span { color: #f2a3a0; }
-
-/* Server watermark (bottom centre) */
-.watermark {
-  position: fixed;
-  left: 50%;
-  bottom: 20px;
-  transform: translateX(-50%);
-  width: 300px;
-  height: auto;
-  opacity: 0.4;
-  pointer-events: none;
-  user-select: none;
-  z-index: 1;
-}

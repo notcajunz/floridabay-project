@@ -4,6 +4,8 @@ local function notify(src, description, kind)
     TriggerClientEvent('ox_lib:notify', src, { title = 'FBRP Tags', description = description, type = kind or 'inform', position = cfg.notifyPosition })
 end
 
+-- Staff /tag-toggle: hide your own headtag and gangtag from other players. Only staff clocked
+-- in through fbrp_core may use it.
 RegisterNetEvent('fbrp_tags:toggle', function()
     local src = source
     local state = Player(src).state

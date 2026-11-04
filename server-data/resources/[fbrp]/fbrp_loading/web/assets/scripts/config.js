@@ -70,25 +70,25 @@ Config.Team = [
     image: "https://cdn.discordapp.com/avatars/1090083387638812755/18a188b05c43be268a528ef1e3ae44de.webp?size=1024",
   },
   {
-    name: "! 103 Scarface",
+    name: "! 103 chronic",
+    description: ["Co-Owner"],
+    quote: "Staff oversight",
+    color: "#24f336",
+    image: "https://cdn.discordapp.com/avatars/589339360915095556/1260664b7631c53801833faba225f5b8.webp?size=1024",
+  },
+  {
+    name: "! 104 Scarface",
     description: ["Co-Owner"],
     quote: "Gang and organization direction",
     color: "#2ecfe4",
     image: "https://cdn.discordapp.com/avatars/618108970086694928/0e7e257856add2521dd9be96d551b855.webp?size=1024",
   },
   {
-    name: "! 104 Saif",
+    name: "! 105 Saif",
     description: ["Co-Owner"],
     quote: "Staff, development and management oversight",
     color: "#ca3813",
     image: "https://cdn.discordapp.com/avatars/1219625872449867776/f55ae3c6cc7a2a123a62e95fc2825f50.png?size=4096",
-  },
-  {
-    name: "! 106 Revan",
-    description: ["Executive Management"],
-    quote: "Department Director & Sales",
-    color: "#9ca3af",
-    image: "https://cdn.discordapp.com/avatars/792013141290516490/a_46a35cb6d0998952a7e0178e20fec389.png?size=1024",
   },
 ];
 
