@@ -45,15 +45,6 @@ export function channelName(key) {
   return `${group.emoji}│${group.name}`.slice(0, 95);
 }
 
-export function isAuditMirrorChannel(channel, key, parentId) {
-  const group = groupOf(key);
-  return Boolean(
-    channel?.isTextBased?.()
-    && channel.parentId === parentId
-    && (channel.name === channelName(group) || channel.topic === `Automatic audit mirror: ${group}`)
-  );
-}
-
 // Mirror keys that mean the same thing as a purpose that already has its own log channel.
 const PURPOSE_ALIAS = {
   "audit-verify": "verification", "audit-verification": "verification",
@@ -126,24 +117,6 @@ export function createAuditMirror({ client, db }) {
     return found?.isTextBased() && found.parentId === parent.id ? found : null;
   }
 
-  // The database is a routing cache, not the source of truth. Adopt a channel that Discord already
-  // has before creating one, so a lost/stale row or a prior failed INSERT cannot duplicate channels
-  // every time the bot starts.
-  async function discoverExisting(key) {
-    const parent = await categoryChannel();
-    if (!parent) return null;
-    const channels = await parent.guild.channels.fetch().catch(() => parent.guild.channels.cache);
-    return channels?.find((channel) => isAuditMirrorChannel(channel, key, parent.id)) || null;
-  }
-
-  async function remember(key, channel) {
-    ids.set(key, channel.id);
-    await db.query(
-      "INSERT INTO audit_mirror_channels(channel_key,guild_id,channel_id,created_at) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE guild_id=VALUES(guild_id),channel_id=VALUES(channel_id)",
-      [key, channel.guildId, channel.id, Date.now()],
-    ).catch((error) => warn(`could not save #${channel.name}: ${error.message || error}`));
-  }
-
   async function resolve(rawKey) {
     await load();
     const twin = await existingFor(rawKey);
@@ -166,11 +139,6 @@ export function createAuditMirror({ client, db }) {
     const made = (async () => {
       const parent = await categoryChannel();
       if (!parent) return null;
-      const discovered = await discoverExisting(key);
-      if (discovered) {
-        await remember(key, discovered);
-        return discovered;
-      }
       const created = await parent.guild.channels.create({
         name: channelName(key),
         type: ChannelType.GuildText,
@@ -182,7 +150,11 @@ export function createAuditMirror({ client, db }) {
         return null;
       });
       if (!created) return null;
-      await remember(key, created);
+      ids.set(key, created.id);
+      await db.query(
+        "INSERT INTO audit_mirror_channels(channel_key,guild_id,channel_id,created_at) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE guild_id=VALUES(guild_id),channel_id=VALUES(channel_id)",
+        [key, created.guildId, created.id, Date.now()],
+      ).catch(() => {});
       return created;
     })().finally(() => creating.delete(key));
     creating.set(key, made);

@@ -3,7 +3,7 @@ game 'gta5'
 
 name 'FBRP-Sirens'
 author 'Florida Bay Roleplay (sounds by Respawn Modifications, made with SirenSharp)'
-description 'Florida Bay Roleplay - server sided siren audio (7 standard packs; department presets reuse their tested audio)'
+description 'Florida Bay Roleplay - server sided siren audio (7 packs in one resource)'
 version '1.0.0'
 
 files {
@@ -35,7 +35,6 @@ files {
 	'dlc_smartsiren/smartsiren.awc',
 	'data/smartsiren.dat54.rel',
 	'data/smartsiren.dat54.nametable',
-	-- Department menu presets use the standard audio packs above.
 }
 
 data_file 'AUDIO_WAVEPACK' 'dlc_code3pack'
@@ -58,4 +57,3 @@ data_file 'AUDIO_SOUNDDATA' 'data/censapphire.dat'
 
 data_file 'AUDIO_WAVEPACK' 'dlc_smartsiren'
 data_file 'AUDIO_SOUNDDATA' 'data/smartsiren.dat'
-

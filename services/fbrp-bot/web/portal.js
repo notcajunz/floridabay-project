@@ -298,16 +298,6 @@ function profileView() {
   const meetsDays = !requiredDays || activeDays >= requiredDays;
   const evaluation = p.status !== "active" ? titleCase(p.status) : meetsHours && meetsDays ? "On target" : "Needs attention";
   const evaluationTone = p.status === "active" && meetsHours && meetsDays ? "good" : "warn";
-  const canManage = Boolean(state.data.access.rosterManage);
-  const canDiscipline = Boolean(state.data.access.rosterDiscipline);
-  const manageBtn = (kind, text, ico, tone = "btn-glass") => `<button class="btn ${tone} btn-sm" type="button" data-staff-manage="${kind}" data-member="${esc(p.discord_id)}">${icon(ico)} ${text}</button>`;
-  const manageCard = (canManage || canDiscipline) ? `<section class="card">
-      <div class="card-head"><div><h2>Manage staff member</h2><p>Same actions as <span class="mono">/roster</span> and <span class="mono">/staff forceout</span> in Discord. Everything is logged.</p></div></div>
-      <div class="card-body" style="display:flex;flex-wrap:wrap;gap:10px">
-        ${canManage ? manageBtn("note", "Edit activity note", "info") + manageBtn("status", "Change status", "badge") + manageBtn("forceout", "Force off duty", "clock") : ""}
-        ${canDiscipline && !mine ? manageBtn("discipline", "Issue warning or strike", "alert", "btn-danger") : ""}
-      </div>
-    </section>` : "";
   $("#portal-content").innerHTML = `
     ${!mine ? `<div><button class="btn btn-ghost btn-sm" type="button" data-view="roster">← Back to roster</button></div>` : ""}
     <section class="profile-hero">
@@ -352,10 +342,9 @@ function profileView() {
         ${p.history?.length ? `<div class="timeline">${p.history.map((h) => `<div class="tl">${avatar(h.actor?.avatar, h.actor?.name || "System", "av-sm", h.actor_id)}<div><b>${esc(titleCase(h.action))}${h.details?.rank ? ` · ${esc(h.details.rank)}` : ""}</b><small>${esc(h.actor?.name ? `by ${h.actor.name}` : "System")} · ${esc(date(h.created_at))}</small></div></div>`).join("")}</div>` : empty("No visible history", "Roster changes will appear here.", "history")}
       </section>
     </div>
-    ${manageCard}
     ${p.discipline?.length ? `<section class="card">
       <div class="card-head"><div><h2>Discipline</h2><p>Visible only to this member and staff.</p></div></div>
-      <div class="feed">${p.discipline.map((x) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3;background:rgba(255,95,109,.1)">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(x.kind))} #${Number(x.id)}${x.revoked_at ? " · revoked" : ""}</b><small>${esc(x.reason)}${x.actor?.name ? ` - ${esc(x.actor.name)}` : ""}${x.revoked_at && x.revoke_reason ? ` · Revoked: ${esc(x.revoke_reason)}` : ""}</small></div>${canDiscipline && !x.revoked_at ? `<button class="btn btn-ghost btn-sm" type="button" data-staff-manage="discipline_revoke" data-id="${Number(x.id)}" data-member="${esc(p.discord_id)}">Revoke</button>` : ""}<time>${esc(date(x.created_at))}</time></div>`).join("")}</div>
+      <div class="feed">${p.discipline.map((x) => `<div class="feed-row"><div class="feed-ico" style="color:#ff9aa3;background:rgba(255,95,109,.1)">${icon("alert")}</div><div class="txt"><b>${esc(titleCase(x.kind))}${x.revoked_at ? " · revoked" : ""}</b><small>${esc(x.reason)}${x.actor?.name ? ` - ${esc(x.actor.name)}` : ""}</small></div><time>${esc(date(x.created_at))}</time></div>`).join("")}</div>
     </section>` : ""}`;
 }
 
@@ -1680,11 +1669,6 @@ function investigationView() {
     <td class="mono">${hours(org.weekSeconds)}</td><td class="mono">${hours(org.monthSeconds)}</td><td class="mono">${hours(org.totalSeconds)}</td>
     <td>${fmt(org.shifts)}</td><td>${org.lastShift ? esc(ago(org.lastShift)) : "Never"}</td>
   </tr>`).join("");
-  const inv = record.invites || { invitedBy: [], invited: [], totals: { total: 0, active: 0, left: 0 }, failed: [] };
-  const personName = (pid) => record.people?.[pid]?.name || pid;
-  const invitedByRows = inv.invitedBy.map((row) => `<tr><td class="strong">${esc(row.guildName)}</td><td>${row.inviterId ? esc(personName(row.inviterId)) : esc(row.method === "vanity" ? "Vanity URL" : "Unknown")}${row.inviterId ? ` <small class="mono">${esc(row.inviterId)}</small>` : ""}</td><td class="mono">${esc(row.code || "-")}</td><td>${esc(day(row.joinedAt))}${row.leftAt ? ' <span class="pill plain">Left</span>' : ""}</td></tr>`).join("");
-  const invitedRows = inv.invited.map((row) => `<tr><td class="strong">${esc(personName(row.memberId))} <small class="mono">${esc(row.memberId)}</small></td><td>${esc(row.guildName)}</td><td>${esc(day(row.joinedAt))}</td><td>${row.leftAt ? `<span class="pill plain">Left ${esc(day(row.leftAt))}</span>` : '<span class="pill pill-good">In server</span>'}</td></tr>`).join("");
-  const inviteFailed = inv.failed?.length ? `<div class="callout">${icon("alert")}<div>Could not read: ${esc(inv.failed.join(", "))}</div></div>` : "";
   const assets = record.assets || { personals: [], trusted: [], liveries: [], installedLiveries: [], eup: [], tags: [], failed: [] };
   const assetRow = (type, name, detail) => `<tr><td><span class="pill plain">${esc(type)}</span></td><td class="strong"><b>${esc(name)}</b></td><td class="wrap">${esc(detail)}</td></tr>`;
   const assetRows = [
@@ -1718,7 +1702,6 @@ function investigationView() {
       <div class="stat-tile ${flagged.length ? "tone-bad" : "tone-good"}"><div class="ico">${icon(flagged.length ? "alert" : "check")}</div><span>Server risk matches</span><strong>${fmt(flagged.length)}</strong><small>${fmt(record.servers.live.length)} live shared · ${fmt(record.servers.other.length)} OAuth-reported</small></div>
     </div>
     <section class="card"><div class="card-head"><div><h2>Organizations & duty hours</h2><p>Current and former memberships with recorded in-game organization shifts.</p></div></div>${orgRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Organization</th><th>Position</th><th>7 days</th><th>30 days</th><th>All time</th><th>Shifts</th><th>Last shift</th></tr></thead><tbody>${orgRows}</tbody></table></div>` : empty("No organization activity", "No memberships or organization shifts are linked to this Discord account.", "building")}</section>
-    <section class="card"><div class="card-head"><div><h2>Invites</h2><p>Who invited this account, and the ${fmt(inv.totals.total)} member${inv.totals.total === 1 ? "" : "s"} they brought in (${fmt(inv.totals.active)} still in the server, ${fmt(inv.totals.left)} left).</p></div></div>${invitedByRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Server</th><th>Invited by</th><th>Invite</th><th>Joined</th></tr></thead><tbody>${invitedByRows}</tbody></table></div>` : empty("Not tracked", "This account was not seen joining a server since invite tracking started.", "users")}${invitedRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Invited member</th><th>Server</th><th>Joined</th><th>Status</th></tr></thead><tbody>${invitedRows}</tbody></table></div>` : ""}${inviteFailed}</section>
     <section class="card"><div class="card-head"><div><h2>Owned assets</h2><p>Personal vehicles, liveries, custom EUP packs and tags tied to this account.</p></div></div>${assetRows ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Type</th><th>Item</th><th>Detail</th></tr></thead><tbody>${assetRows}</tbody></table></div>` : empty("No owned assets", "No personal vehicles, liveries, EUP packs or tags are linked to this Discord account.", "car")}${assetsFailed}</section>
     <div class="grid-2 even">
       <section class="card"><div class="card-head"><div><h2>Identity & access</h2><p>Website verification, ACE groups, and game accounts.</p></div></div><div class="card-body"><div class="kv"><div><small>Last verified</small><b>${verified ? esc(date(verified.last_verified_at)) : "Never"}</b></div><div><small>Verification method</small><b>${verified ? esc(titleCase(verified.method)) : "-"}</b></div><div><small>ACE groups</small><b>${record.groups.length ? record.groups.map((row) => esc(row.label || row.name)).join(", ") : "None"}</b></div><div><small>Highest ACE rank</small><b>${record.groups.length ? fmt(record.groups[0].rank_order) : "None"}</b></div></div></div>${record.players.length ? `<div class="feed">${record.players.map((player) => `<div class="feed-row"><div class="feed-ico">${icon("car")}</div><div class="txt"><b>#${fmt(player.id)} · ${esc(player.name)}</b><small>First linked ${esc(day(player.created_at))} · last seen ${esc(ago(player.last_seen))}</small></div></div>`).join("")}</div>` : ""}</section>
@@ -1797,16 +1780,6 @@ function openDialog({ kicker = "Florida Bay", title, body, submit = "Submit", to
   button.className = `btn ${tone}`;
   $("#portal-dialog").showModal();
   ($("#dialog-body").querySelector("textarea, input:not([type=radio]):not([disabled]), select") || button).focus({ preventScroll: true });
-}
-
-function staffManageDialog({ staffManage: kind, member, id }) {
-  const p = state.profile;
-  const base = { kicker: "Staff management", action: "staff-manage", data: { kind, member, id } };
-  if (kind === "note") return openDialog({ ...base, title: "Activity note", submit: "Save note", body: `<label class="field">Private roster note (leave empty to clear)<textarea name="note" maxlength="500">${esc(p?.activity_note || "")}</textarea></label>` });
-  if (kind === "status") return openDialog({ ...base, title: "Roster status", submit: "Save status", body: `<label class="field">Status<select name="status">${["active", "inactive", "loa"].map((v) => `<option value="${v}"${p?.status === v ? " selected" : ""}>${v === "loa" ? "On leave (LOA)" : titleCase(v)}</option>`).join("")}</select></label>` });
-  if (kind === "forceout") return openDialog({ ...base, title: "Force off duty", submit: "End shift", tone: "btn-danger", body: `<div class="callout warn">${icon("alert")}<div>Closes their active shift and clocks them out in game.</div></div><label class="field">Reason<textarea name="reason" maxlength="300" required></textarea></label>` });
-  if (kind === "discipline") return openDialog({ ...base, title: "Issue discipline", submit: "Issue", tone: "btn-danger", body: `<label class="field">Type<select name="kind"><option value="warning">Warning</option><option value="strike">Strike</option></select></label><label class="field">Reason (the member is notified by DM)<textarea name="reason" maxlength="500" required></textarea></label>` });
-  if (kind === "discipline_revoke") return openDialog({ ...base, title: `Revoke record #${Number(id)}`, submit: "Revoke", body: `<label class="field">Reason<textarea name="reason" maxlength="300" required></textarea></label>` });
 }
 
 function ticketDialog() {
@@ -1977,8 +1950,6 @@ $("#portal-content").addEventListener("click", async (event) => {
     } catch (error) { toast(error.message, true); }
     return;
   }
-  const staffManage = target.closest("[data-staff-manage]");
-  if (staffManage) { staffManageDialog(staffManage.dataset); return; }
   const card = target.closest("[data-profile]");
   if (card) {
     try {
@@ -2271,16 +2242,6 @@ $("#dialog-form").addEventListener("submit", async (event) => {
       result = await api("portal/appeal/review", { method: "POST", body: JSON.stringify(body) });
       const r = result.result || {};
       toast(data.kind === "info" ? `Question sent${r.dmSent === false ? " (DM failed - they will see it on the portal)" : ""}.` : data.kind === "note" ? "Note added." : data.kind === "vote" ? "Vote recorded." : r.decision === "approved" ? `Appeal approved - ${data.banId} has been lifted.` : r.decision === "reduced" ? `Ban reduced - now ends ${date(r.reducedUntil)}.` : "Appeal denied.");
-    } else if (action === "staff-manage") {
-      const body = { action: data.kind, discordId: data.member, id: data.id };
-      if (data.kind === "note") body.note = form.get("note");
-      if (data.kind === "status") body.status = form.get("status");
-      if (data.kind === "discipline") { body.kind = form.get("kind"); body.reason = form.get("reason"); }
-      if (data.kind === "forceout" || data.kind === "discipline_revoke") body.reason = form.get("reason");
-      result = await api("portal/staff/manage", { method: "POST", body: JSON.stringify(body) });
-      const r = result.result || {};
-      toast(data.kind === "note" ? "Activity note saved." : data.kind === "status" ? "Roster status updated." : data.kind === "forceout" ? `Shift closed (${r.closed || 0} active).` : data.kind === "discipline" ? `Discipline #${r.id} issued${r.dmSent === false ? " (DM failed)" : ""}.` : "Record revoked.");
-      state.profile = await api(`portal/staff-profile?id=${encodeURIComponent(data.member)}`);
     } else if (action === "game-unban") {
       result = await api("portal/game-ban/undo", { method: "POST", body: JSON.stringify({ banId: data.banId, reason: form.get("reason") }) });
       toast(`${data.banId} was lifted in EasyAdmin.`);

@@ -30,7 +30,7 @@ test("the German Vehicles Pack is a gated pack of BMW and Mercedes models", () =
   for (const file of ["package_config.lua", "packs.lua"])
     assert.match(read(`${dir}/data/${file}`), new RegExp(`id = 'germanpack',\\s+label = 'German Vehicles Pack',\\s+role = '${GERMAN_ROLE}'`));
   const vehicles = read(`${dir}/data/vehicles.lua`);
-  const pack = vehicles.slice(vehicles.indexOf("germanpack = {"), vehicles.indexOf("aviationpack = {"));
+  const pack = vehicles.slice(vehicles.indexOf("germanpack = {"), vehicles.indexOf("-- aviationpack"));
   assert.match(pack, /name = 'BMW M4 G82', spawnCode = 'm4g82'/);
   assert.match(pack, /name = 'Mercedes-AMG GT 63', spawnCode = 'gt63'/);
   const names = [...pack.matchAll(/name = '([^']+)'/g)].map((match) => match[1]);
@@ -83,13 +83,7 @@ test("the Owner Vehicles category is hidden unless the player holds one of its t
 
 test("the owner fleet lists the owner LEO chargers and the owner personals", () => {
   const vehicles = read(`${dir}/data/vehicles.lua`);
-  const fleet = vehicles.slice(vehicles.indexOf("ownerfleet = {"), vehicles.indexOf("aviationpack = {"));
+  const fleet = vehicles.slice(vehicles.indexOf("ownerfleet = {"), vehicles.indexOf("-- aviationpack"));
   for (const code of ["saif_leo_charger1", "saif_leo_charger3", "saif_chargerpd", "owner_stc1", "owner_stc2", "owner_stc3", "owner_stc4", "sp_txr"])
     assert.match(fleet, new RegExp(`spawnCode = '${code}'`), code);
-});
-
-test("the aviation pack lists the G650, Phenom 300, PC-12 and EC130 add-ons", () => {
-  const vehicles = read(`${dir}/data/vehicles.lua`);
-  const aviation = vehicles.slice(vehicles.indexOf("aviationpack = {"));
-  for (const code of ['g650', 'phenom300', 'pc12', 'ec130']) assert.match(aviation, new RegExp(`spawnCode = '${code}'`), code);
 });

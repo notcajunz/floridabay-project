@@ -56,7 +56,7 @@ Config.Lines = {
         -- is disabled rather than seeded with bad coordinates. Only Regional is
         -- implemented. To enable the metro, first add the metro_* station
         -- definitions, then flip this to true.
-        enabled = true,  -- FBRP: LSIA Terminal 4 - LSIA Parking - Puerto Del Sol - Strawberry - Burton - Portola Drive - Del Perro - Little Seoul - Pillbox South - Davis on the vanilla metro
+        enabled = false,
         color = 3,  -- Blue blip
 
         schedule = {
@@ -65,11 +65,11 @@ Config.Lines = {
         },
 
         -- Metro stations (to be defined)
-        stations = { 'metro_airport', 'metro_parking', 'metro_puerto_del_sol', 'metro_strawberry', 'metro_burton', 'metro_portola_drive', 'metro_del_perro', 'metro_little_seoul', 'metro_pillbox_south', 'metro_davis' },
+        stations = { 'metro_airport', 'metro_davis', 'metro_downtown', 'metro_del_perro' },
 
         terminus = {
             south = 'metro_airport',
-            north = 'metro_davis'
+            north = 'metro_del_perro'
         }
     }
 }
@@ -233,27 +233,16 @@ Config.Consists = {
 Config.ScheduleSlots = {
     regional = {
         -- Each slot: { minute, trainType, consistKey }
-        -- FBRP: a train every 3 minutes (was every 6), ~30% freight.
-        { minute = 0, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 3, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 6, type = 'freight',   consist = 'freight_mixed' },
-        { minute = 9, type = 'passenger', consist = 'regional_commuter' },
+        { minute = 0,  type = 'passenger', consist = 'regional_commuter' },
+        { minute = 6,  type = 'passenger', consist = 'regional_express' },
         { minute = 12, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 15, type = 'freight',   consist = 'freight_tanker' },
-        { minute = 18, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 21, type = 'passenger', consist = 'regional_express' },
-        { minute = 24, type = 'freight',   consist = 'freight_bulk' },
-        { minute = 27, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 30, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 33, type = 'freight',   consist = 'freight_mixed' },
-        { minute = 36, type = 'passenger', consist = 'regional_express' },
-        { minute = 39, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 42, type = 'freight',   consist = 'freight_tanker' },
-        { minute = 45, type = 'passenger', consist = 'regional_commuter' },
+        { minute = 18, type = 'freight',   consist = 'freight_mixed' },
+        { minute = 24, type = 'passenger', consist = 'regional_commuter' },
+        { minute = 30, type = 'passenger', consist = 'regional_express' },
+        { minute = 36, type = 'freight',   consist = 'freight_tanker' },
+        { minute = 42, type = 'passenger', consist = 'regional_commuter' },
         { minute = 48, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 51, type = 'freight',   consist = 'freight_bulk' },
-        { minute = 54, type = 'passenger', consist = 'regional_commuter' },
-        { minute = 57, type = 'passenger', consist = 'regional_commuter' }
+        { minute = 54, type = 'freight',   consist = 'freight_bulk' }
     },
 
     metro = {
@@ -279,19 +268,19 @@ Config.TimePeriods = {
     peak = {
         hours = { 7, 8, 9, 17, 18, 19 },  -- 7-9 AM, 5-7 PM
         multiplier = 1.0,  -- Full schedule
-        minTrains = 5
+        minTrains = 3
     },
 
     offPeak = {
         hours = { 6, 10, 11, 12, 13, 14, 15, 16, 20, 21 },
-        multiplier = 1.0,  -- FBRP: full schedule at all hours (was 75%)
-        minTrains = 4
+        multiplier = 0.75,  -- 75% of slots
+        minTrains = 2
     },
 
     night = {
         hours = { 22, 23, 0, 1, 2, 3, 4, 5 },
-        multiplier = 1.0,  -- FBRP: full schedule at all hours (was 50%)
-        minTrains = 3
+        multiplier = 0.5,  -- 50% of slots
+        minTrains = 1
     }
 }
 

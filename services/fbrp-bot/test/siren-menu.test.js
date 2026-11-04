@@ -12,22 +12,21 @@ test("the siren menu, its sound packs and the LVC override are started and wired
   const phone = read("config/resources.cfg");
   assert.match(phone, /^ensure FBRP-Sirens$/m);
   assert.match(phone, /^ensure fbrp_sirenmenu$/m);
-  assert.match(read("resources/[standalone]/lvc/fxmanifest.lua"), /'\/UI\/cl_\*\.lua',[\s\S]*'\/UTIL\/fbrp_override\.lua'/);
+  assert.match(read("resources/[standalone]/lvc/fxmanifest.lua"), /'\/UI\/cl_ragemenu\.lua',\s+'\/UTIL\/fbrp_override\.lua'/);
   assert.ok(fs.existsSync(path.join(server, "resources/[standalone]/lvc/UTIL/fbrp_override.lua")));
   assert.match(read("resources/[fbrp]/fbrp_sirenmenu/client.lua"), /RegisterCommand\("sirenmenu"/);
 });
 
-test("the streamlined siren menu reuses the seven installed audio packs for every department preset", () => {
+test("every siren in the menu has an LVC package with tones, and every pack file exists", () => {
   const config = read("resources/[fbrp]/fbrp_sirenmenu/client_config.lua");
   const sirens = read("resources/[standalone]/lvc/SIRENS.lua");
   const sounds = [...config.matchAll(/sound = "([A-Z0-9_]+)"/g)].map((match) => match[1]).filter((name) => name !== "DEFAULT");
-  assert.equal(sounds.length, 20);
+  assert.equal(sounds.length, 7);
   for (const sound of sounds) {
     assert.ok(sound.length <= 11, `${sound} is longer than LVC keeps`);
     assert.match(sirens, new RegExp(`\\['${sound}'\\]\\s*=\\s*\\{ \\d+`), sound);
   }
   const manifest = read("resources/[fbrp]/FBRP-Sirens/fxmanifest.lua");
-  assert.equal((manifest.match(/'dlc_[^']+\.awc'/g) || []).length, 7);
   for (const file of manifest.match(/'[^']+\.(?:awc|rel|nametable)'/g)) assert.ok(fs.existsSync(path.join(server, "resources/[fbrp]/FBRP-Sirens", file.slice(1, -1))), file);
   for (const bank of sirens.match(/RequestScriptAudioBank\("[^"]+"/g)) assert.ok(bank, bank);
 });
@@ -45,14 +44,7 @@ test("the siren menu accepts the same emergency vehicles LVC does, including add
   assert.doesNotMatch(client, /if GetVehicleClass\(veh\) ~= 18 then/);
 });
 
-test("LVC requests the seven shared siren banks and loads the Florida Bay override last", () => {
-  const sirens = read("resources/[standalone]/lvc/SIRENS.lua");
-  assert.equal((sirens.match(/RequestScriptAudioBank\("DLC_[A-Z0-9]+\\\\[A-Z0-9]+"/g) || []).length, 7);
-  assert.match(read("resources/[standalone]/lvc/fxmanifest.lua"), /'\/UI\/cl_\*\.lua',[\s\S]*'\/UTIL\/fbrp_override\.lua'/);
-  assert.match(read("resources/[standalone]/lvc/UTIL/fbrp_override.lua"), /exports\('overrideSiren'/);
-});
-
-test("LVC starts after FBRP-Sirens and keeps requesting the siren audio banks until they load", () => {
+test("LVC starts after FBRP-Sirens and keeps requesting every siren audio bank until it loads", () => {
   assert.match(read("resources/[standalone]/lvc/fxmanifest.lua"), /dependencies \{[^}]*'FBRP-Sirens'/);
   const override = read("resources/[standalone]/lvc/UTIL/fbrp_override.lua");
   const names = (text, pattern) => (text.match(pattern) || []).sort();

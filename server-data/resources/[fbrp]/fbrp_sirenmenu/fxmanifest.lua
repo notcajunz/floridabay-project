@@ -20,7 +20,6 @@ ui_page 'ui/index.html'
 
 files {
     'ui/index.html',
-    'ui/logo.png',
 }
 
 dependencies {

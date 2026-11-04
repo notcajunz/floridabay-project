@@ -90,10 +90,6 @@ Config.EmergencyServices = {
 -- have real coordinates and the scripted timetable should run instead.
 Config.AmbientTrains = false
 
--- Delete stopped train-model vehicles near the player that dps-transit did not spawn. Keep false on FBRP: the
--- Roxwood train line (amb-roxwood-trains) shares these models and would be deleted at its stations.
-Config.OrphanCleanup = false
-
 -- Ambient spawn interval in ms. 60000 = 1 min (testing), 300000 = 5 min.
 Config.AmbientSpawnMs = 60000
 
@@ -299,7 +295,7 @@ Config.Schedule = {
 
     -- Peak hours (more frequent trains)
     peak = {
-        frequency = 3,      -- Minutes between trains (unused: Config.ScheduleSlots in trains.lua drives spawning)
+        frequency = 10,     -- Minutes between trains
         trainCount = 3,     -- Active trains
         hours = {
             morning = { start = 7, stop = 9 },
@@ -309,13 +305,13 @@ Config.Schedule = {
 
     -- Off-peak
     offPeak = {
-        frequency = 3,
+        frequency = 20,
         trainCount = 2
     },
 
     -- Night service (10 PM - 6 AM)
     night = {
-        frequency = 3,
+        frequency = 30,
         trainCount = 1,
         hours = { start = 22, stop = 6 }
     }

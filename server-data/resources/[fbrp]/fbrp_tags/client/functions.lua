@@ -48,30 +48,27 @@ function DrawTag(x, y, z, text, size, r, g, b, outline, own)
 end
 
 function DrawTagLines(x, y, z, lines, own)
-    -- Each line is drawn at its own fixed world height above the ped (like calirp-discord_tags)
-    local camCoords = GetFinalRenderedCamCoord()
-    local fovScale = (1 / GetGameplayCamFov()) * 100
+    local onScreen, sx, sy = GetScreenCoordFromWorldCoord(x, y, z)
+    if not onScreen then return end
+    local dist = #(GetFinalRenderedCamCoord() - vector3(x, y, z))
+    if own then dist = math.max(dist, TagsConfig.ownMinDistance or 6.0) end
+    local scale = (1 / math.max(dist, 0.1)) * 2 * ((1 / GetGameplayCamFov()) * 100)
     for _, line in ipairs(lines) do
-        local lz = z + (line.height or 1.50)
-        local onScreen, sx, sy = GetScreenCoordFromWorldCoord(x, y, lz)
-        if onScreen then
-            local dist = #(camCoords - vector3(x, y, lz))
-            if own then dist = math.max(dist, TagsConfig.ownMinDistance or 6.0) end
-            local scale = (1 / math.max(dist, 0.1)) * 2 * fovScale
-            local size = line.size * scale
-            SetTextScale(0.0, size)
-            SetTextFont(0)
-            SetTextProportional(true)
-            SetTextColour(line.r, line.g, line.b, 255)
-            SetTextDropshadow(0, 0, 0, 0, 255)
-            SetTextEdge(2, 0, 0, 0, 150)
-            SetTextDropShadow()
-            if line.outline ~= false then SetTextOutline() end
-            BeginTextCommandDisplayText('STRING')
-            SetTextCentre(true)
-            AddTextComponentSubstringPlayerName(line.text)
-            EndTextCommandDisplayText(sx, sy)
-        end
+        local size = line.size * scale
+        SetTextScale(0.0, size)
+        SetTextFont(0)
+        SetTextProportional(true)
+        SetTextColour(line.r, line.g, line.b, 255)
+        SetTextDropshadow(0, 0, 0, 0, 255)
+        SetTextEdge(2, 0, 0, 0, 150)
+        SetTextDropShadow()
+        if line.outline ~= false then SetTextOutline() end
+        BeginTextCommandDisplayText('STRING')
+        SetTextCentre(true)
+        AddTextComponentSubstringPlayerName(line.text)
+        EndTextCommandDisplayText(sx, sy)
+
+        sy = sy + GetRenderedCharacterHeight(size, 0) * (line.spacing or 1.02)
     end
 end
 

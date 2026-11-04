@@ -410,11 +410,6 @@ end)
 
 -- Check if player has valid ticket
 lib.callback.register('dps-transit:server:hasValidTicket', function(source, fromStation, toStation)
-    -- FBRP: rides are free, so nobody needs a ticket to board
-    if Config.Fares.sameZone == 0 and Config.Fares.oneZone == 0 and Config.Fares.twoZones == 0 then
-        return true, { type = 'free' }
-    end
-
     local citizenid = Bridge.GetIdentifier(source)
     if not citizenid then return false end
 

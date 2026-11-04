@@ -430,7 +430,7 @@ function BoardTrain(stationId)
 
             lib.notify({
                 title = 'Boarded',
-                description = 'You boarded the train to ' .. BoardedDestinationName(train),
+                description = 'You boarded the train to ' .. Config.Stations[Transit.GetFinalDestination(train.data.direction)].shortName,
                 type = 'success'
             })
 
@@ -443,14 +443,6 @@ function BoardTrain(stationId)
         description = 'No available seats',
         type = 'error'
     })
-end
-
--- Name of the last stop on the boarded train's own line (the metro is not on the Regional station order)
-function BoardedDestinationName(train)
-    local line = Config.Lines[train.data.lineId]
-    local finalId = line and line.terminus and (train.data.direction and line.terminus.north or line.terminus.south)
-    local station = finalId and Config.Stations[finalId]
-    return station and station.shortName or 'the end of the line'
 end
 
 -- Exit train at station

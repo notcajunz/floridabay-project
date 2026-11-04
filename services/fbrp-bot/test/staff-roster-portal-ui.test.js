@@ -22,7 +22,7 @@ test("the portal roster is one rank-ordered row list with 30 members per page", 
 test("only staff coordinators and management can open another member evaluation", async () => {
   const [portal, , server] = await files();
   assert.match(server, /group_name='staff_coordination_team'/);
-  assert.match(server, /rosterAnalysis: Boolean\(rosterLead \|\| sceneModerate \|\| rosterManagePerm \|\| rosterDisciplinePerm\)/);
+  assert.match(server, /rosterAnalysis: Boolean\(owner \|\| sceneModerate \|\| staffCoordinator\)/);
   assert.match(server, /id !== String\(session\.id\) && !access\.rosterAnalysis/);
   assert.match(portal, /const canInspect = Boolean\(state\.data\.access\.rosterAnalysis\)/);
   assert.match(portal, /Staff evaluation & analysis/);

@@ -3,6 +3,7 @@ local appliedPrincipals = {}
 local connectPrincipals = {} -- discord id -> { [principal]=true } granted at connect time (see playerConnecting)
 local appliedAces = {}
 local permissionRows = {}
+local groupTierCache = {}   -- ACE group name -> vMenu staff tier, refreshed with the permission model
 local pendingSearches = {}
 local cuffShotCooldowns = {}
 local ready = false
@@ -316,26 +317,52 @@ end
 
 local wildcardCleared = {}
 
-local permissionModelLoaded = false
-
--- vMenu hands a player their permissions once, when they join, and builds its menus from that snapshot.
--- A grant changed while someone is connected reaches the server's ACEs but not their open vMenu, so say so.
-local function notifyVmenuChange(changedGroups)
-    for source, s in pairs(sessions) do
-        local affected = s.org and s.org.ace_group and changedGroups[s.org.ace_group]
-        for _, group in ipairs(s.groups or {}) do
-            if changedGroups[group.name] then affected = true end
-        end
-        if affected then
-            notify(source, 'Your vMenu permissions were changed. Rejoin the server to get the new menu options.', 'inform')
+-- Staff tier of every ACE group: Co-Owner and above, Community Director up to Co-Owner, Senior Moderator up to Community Director, or standard.
+-- Tiers follow rank_order, so a rank added between two existing ones lands in the right tier. When the
+-- Co-Owner or Community Director group cannot be found the tier stays unreachable and fails closed.
+local function loadGroupTiers()
+    local rows = MySQL.query.await('SELECT name,rank_order,staff_only FROM ace_groups') or {}
+    local floors = {}
+    for _, row in ipairs(rows) do
+        local staff = row.staff_only == 1 or row.staff_only == true
+        for tier, groupName in pairs(FBRP.VmenuTierGroups) do
+            if staff and row.name == groupName then floors[tier] = tonumber(row.rank_order) end
         end
     end
+    local tiers = {}
+    for _, row in ipairs(rows) do
+        local order = tonumber(row.rank_order) or 0
+        local tier = 'standard'
+        if row.staff_only == 1 or row.staff_only == true then
+            if floors.coowner and order >= floors.coowner then tier = 'coowner'
+            elseif floors.director and order >= floors.director then tier = 'director'
+            elseif floors.senior and order >= floors.senior then tier = 'senior' end
+        end
+        tiers[row.name] = tier
+    end
+    return tiers
+end
+
+-- A stored row after vMenu.Everything expansion and the vMenu staff tiers: admin features and the
+-- unlimited power/torque multipliers only survive for groups of the tier that owns them.
+local function tieredAceRows(row, tier)
+    local out = {}
+    for _, expanded in ipairs(effectiveAceRows(row)) do
+        if expanded.mode ~= 'allow' then
+            out[#out + 1] = expanded
+        else
+            for _, object in ipairs(FBRP.VmenuObjectsForTier(tier, expanded.object)) do
+                out[#out + 1] = { group_name = expanded.group_name, object = object, mode = 'allow' }
+            end
+        end
+    end
+    return out
 end
 
 local function loadPermissionModel()
-    local changedVmenuGroups = nil
     local nextRows = {}      -- rows exactly as stored, used for permission lookups
     local effective = {}     -- rows actually applied as ACEs, after vMenu.Everything expansion
+    local groupTiers = loadGroupTiers()
     for _, row in ipairs(MySQL.query.await('SELECT group_name,object,mode FROM ace_entries')) do
         nextRows[row.group_name] = nextRows[row.group_name] or {}
         nextRows[row.group_name][#nextRows[row.group_name] + 1] = row
@@ -346,8 +373,7 @@ local function loadPermissionModel()
             ExecuteCommand(('remove_ace %s vMenu.Everything allow'):format(groupPrincipal(row.group_name)))
             ExecuteCommand(('remove_ace %s vMenu.Everything allow'):format(vmenuPrincipal(row.group_name)))
         end
-        local appliedRows = effectiveAceRows(row)
-        for _, applied in ipairs(appliedRows) do
+        for _, applied in ipairs(tieredAceRows(row, groupTiers[row.group_name] or 'standard')) do
             effective[row.group_name][#effective[row.group_name] + 1] = applied
             local key = applied.group_name .. '|' .. applied.object
             if not appliedAces[key] or appliedAces[key] ~= applied.mode then
@@ -356,10 +382,6 @@ local function loadPermissionModel()
                 end
                 ExecuteCommand(('add_ace %s %s %s'):format(groupPrincipal(applied.group_name), applied.object, applied.mode))
                 appliedAces[key] = applied.mode
-                if permissionModelLoaded and applied.object:sub(1, 6) == 'vMenu.' then
-                    changedVmenuGroups = changedVmenuGroups or {}
-                    changedVmenuGroups[applied.group_name] = true
-                end
             end
             if offDutyVmenuObject(applied.object) then
                 local vmenuKey = applied.group_name .. '|vmenu|' .. applied.object
@@ -385,16 +407,11 @@ local function loadPermissionModel()
             local principal = scopedObject and vmenuPrincipal(group) or groupPrincipal(group)
             ExecuteCommand(('remove_ace %s %s %s'):format(principal, object, mode))
             appliedAces[key] = nil
-            if permissionModelLoaded and not scopedObject and object:sub(1, 6) == 'vMenu.' then
-                changedVmenuGroups = changedVmenuGroups or {}
-                changedVmenuGroups[group] = true
-            end
         end
     end
     permissionRows = nextRows
+    groupTierCache = groupTiers
     for source in pairs(sessions) do reconcilePrincipals(source) end
-    permissionModelLoaded = true
-    if changedVmenuGroups then notifyVmenuChange(changedVmenuGroups) end
 end
 
 local function tagRow(row)
@@ -435,16 +452,6 @@ local function selectedTagVisible(s, tag)
     return tag and (not tag.orgId or s.execBypass or selectedTagOnDuty(s, tag)) and tag or nil
 end
 
-local function vehicleSpeedLimitFor(discord)
-    if discordHasRole(discord, FBRP.Config.vehicleSpeedTopRoleId) then
-        return FBRP.Config.vehicleSpeedTopLimitMph or 330
-    end
-    if discordHasRole(discord, FBRP.Config.vehicleSpeedPrivilegedRoleId) then
-        return FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250
-    end
-    return FBRP.Config.vehicleSpeedLimitMph or 180
-end
-
 local function publishPlayer(source)
     local s = sessions[source]
     if not s then return end
@@ -453,13 +460,20 @@ local function publishPlayer(source)
     player.state:set('fbrp:id', source, true)
     player.state:set('fbrp:name', player.state['fbrp:characterName'] or GetPlayerName(source) or s.name, true)
     player.state:set('fbrp:staffDuty', s.staffDuty == true, true)
-    -- NoClip, player names and player blips come only from the stored ACE rows, and only while clocked in.
-    player.state:set('fbrp:staffNoclip', s.staffDuty == true and (
+    -- NoClip is a vMenu staff feature: Senior Moderator and above only, and then only while clocked in.
+    local noclipTier = false
+    for _, group in ipairs(s.groups or {}) do
+        if FBRP.VmenuTierAllows(groupTierCache[group.name] or 'standard', 'vMenu.NoClip') then noclipTier = true break end
+    end
+    player.state:set('fbrp:staffNoclip', s.staffDuty == true and noclipTier and (
         databasePermission(source, 'vMenu.NoClip') or databasePermission(source, 'vMenu.Everything')
     ), true)
-    player.state:set('fbrp:staffSenior', s.staffDuty == true and (
-        databasePermission(source, 'vMenu.MiscSettings.OverheadNames') or databasePermission(source, 'vMenu.MiscSettings.PlayerBlips')
-    ), true)
+    -- Player names and player blips are Senior Moderator and above only, and only while clocked in.
+    local seniorTier = false
+    for _, group in ipairs(s.groups or {}) do
+        if FBRP.VmenuTierAllows(groupTierCache[group.name] or 'standard', 'vMenu.MiscSettings.OverheadNames') then seniorTier = true break end
+    end
+    player.state:set('fbrp:staffSenior', s.staffDuty == true and seniorTier, true)
     player.state:set('fbrp:maxVehicleSpeedMph', s.maxVehicleSpeedMph or FBRP.Config.vehicleSpeedLimitMph or 180, true)
     player.state:set('fbrp:carRadioAccess', s.carRadioAccess == true, true)
     local headtag = selectedTagVisible(s, s.headtag)
@@ -553,11 +567,12 @@ local function initializePlayer(source)
         MySQL.prepare.await('INSERT IGNORE INTO player_identifiers(player_id,identifier) VALUES(?,?)', { playerId, value })
     end
 
+    local privilegedSpeed = discordHasRole(discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
     local carRadioAccess = discordHasRole(discord, FBRP.Config.carRadioRoleId)
     sessions[source] = {
         source=source, playerId=tonumber(playerId), license=license, discord=discord, name=name,
         groups=membershipRows(discord), staffDuty=false, staffShift=nil, org=nil, orgShift=nil,
-        maxVehicleSpeedMph=vehicleSpeedLimitFor(discord),
+        maxVehicleSpeedMph=privilegedSpeed and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250) or (FBRP.Config.vehicleSpeedLimitMph or 180),
         carRadioAccess=carRadioAccess
     }
     sessions[source].execBypass = hasStaffGroupAtLeast(source, FBRP.Config.executiveBypassMinGroup)
@@ -582,7 +597,9 @@ local function refreshPlayer(source)
     local s = sessions[source]
     if not s then return initializePlayer(source) end
     s.groups = membershipRows(s.discord)
-    s.maxVehicleSpeedMph = vehicleSpeedLimitFor(s.discord)
+    s.maxVehicleSpeedMph = discordHasRole(s.discord, FBRP.Config.vehicleSpeedPrivilegedRoleId)
+        and (FBRP.Config.vehicleSpeedPrivilegedLimitMph or 250)
+        or (FBRP.Config.vehicleSpeedLimitMph or 180)
     s.carRadioAccess = discordHasRole(s.discord, FBRP.Config.carRadioRoleId)
     s.execBypass = hasStaffGroupAtLeast(source, FBRP.Config.executiveBypassMinGroup)
     if s.staffDuty and s.staffShift then

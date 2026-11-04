@@ -134,15 +134,6 @@ function SpawnShuttle(routeId)
         return nil
     end
 
-    -- FBRP: exactly one client spawns and drives each bus. Broadcasting the spawn to everyone (upstream) made every
-    -- connected player create their own networked bus, so two players meant two buses stacked at the first stop.
-    local players = Bridge.GetPlayers()
-    if #players == 0 then
-        Transit.Debug('No players online, not spawning shuttle on route:', routeId)
-        return nil
-    end
-    local owner = players[math.random(#players)]
-
     -- Generate ID
     local shuttleId = GenerateShuttleId()
 
@@ -154,15 +145,14 @@ function SpawnShuttle(routeId)
         currentStop = startStop.id,
         status = 'spawning',
         spawnTime = os.time(),
-        passengers = 0,
-        owner = owner
+        passengers = 0
     }
 
     -- Register shuttle
     ActiveShuttles[shuttleId] = shuttleData
 
-    -- Only the owner spawns the bus
-    TriggerClientEvent('dps-transit:client:spawnShuttle', owner, shuttleId, shuttleData)
+    -- Notify clients to spawn
+    TriggerClientEvent('dps-transit:client:spawnShuttle', -1, shuttleId, shuttleData)
 
     Transit.Debug('Spawned shuttle:', shuttleId, 'on route', routeId)
 
@@ -208,27 +198,6 @@ RegisterNetEvent('dps-transit:server:shuttleDeparting', function(shuttleId, stop
     Transit.Debug('Shuttle', shuttleId, 'departing:', stopId)
 
     TriggerEvent('dps-transit:shuttleDeparted', shuttleId, stopId)
-end)
-
--- The owner reports the bus's network id so the server can delete it if the owner leaves
-RegisterNetEvent('dps-transit:server:shuttleSpawned', function(shuttleId, netId)
-    local shuttle = ActiveShuttles[shuttleId]
-    if not shuttle or shuttle.owner ~= source or type(netId) ~= 'number' then return end
-    shuttle.netId = netId
-end)
-
--- A bus is driven by its owner's client, so it cannot outlive that player
-AddEventHandler('playerDropped', function()
-    local dropped = source
-    for shuttleId, shuttle in pairs(ActiveShuttles) do
-        if shuttle.owner == dropped then
-            if shuttle.netId then
-                local entity = NetworkGetEntityFromNetworkId(shuttle.netId)
-                if entity and entity ~= 0 and DoesEntityExist(entity) then DeleteEntity(entity) end
-            end
-            RemoveShuttle(shuttleId)
-        end
-    end
 end)
 
 -- Update shuttle position

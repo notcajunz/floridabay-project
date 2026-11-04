@@ -5,19 +5,18 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { ChannelType } from "discord.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MANAGEMENT_MEMBERSHIP_GROUP, NETWORK_KINDS, callGame, enrollNewGuild, syncGuild } from "./sync.js";
+import { NETWORK_KINDS, callGame, enrollNewGuild, syncGuild } from "./sync.js";
 import { PERMISSION_BUNDLES, PERMISSION_CATALOG, VMENU_BUNDLES } from "./permission-catalog.js";
 import { connectUrl, requestUrl } from "./site-url.js";
 import { queueServiceRoles, serviceRoleHolders } from "./service-roles.js";
 import { createAppeals } from "./appeals.js";
-import { createPortalStaff } from "./portal-staff.js";
 import { OWNER_DISCORD_ID } from "./access-control.js";
 import { createDevReviewRoutes } from "./dev-review/routes.js";
 import { isApprover } from "./dev-review/config.js";
 import { OFFICE_OWNER_PERMISSIONS } from "./office-permissions.js";
 import { staffLevel } from "./database.js";
 import { findLinkedAccounts } from "./alts.js";
-import { inviteHistory, organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
+import { organizationActivity, ownedAssets, punishmentHistory } from "./investigation.js";
 import { lookupAnyCase } from "./case-lookup.js";
 import { MAX_TRUSTED, MAX_TRUSTED_WITH_TAG } from "./personals.js";
 import { createOrgsSite, orgsApiAllowed, orgsStaticPath, safeNext } from "./orgs-site.js";
@@ -1057,7 +1056,6 @@ export function startWebPanel(context) {
     return path.resolve(webRoot, "store", name);
   };
   const ownerDiscordId = String(context.ownerDiscordId || OWNER_DISCORD_ID);
-  const portalStaff = createPortalStaff({ client: context.client, db: context.db, audit: context.audit });
   const oauthStates = new Map();
   const storeAuthTickets = new Map();
   const {
@@ -1227,7 +1225,7 @@ export function startWebPanel(context) {
     const owner = String(discordId) === ownerDiscordId;
     const roster = await db.one("SELECT status FROM staff_roster_members WHERE discord_id=?", [String(discordId)]);
     const staff = owner || Boolean(roster && roster.status !== "removed");
-    const [opsControl, sceneModerate, gameUnban, staffRank, communityManager, staffCoordinator, managementTeam, rosterManagePerm, rosterDisciplinePerm] = await Promise.all([
+    const [opsControl, sceneModerate, gameUnban, staffRank, communityManager, staffCoordinator] = await Promise.all([
       owner ? true : hasPermission?.(discordId, "fbrp.announce"),
       owner ? true : hasPermission?.(discordId, "fbrp.staff.manage"),
       owner ? true : hasPermission?.(discordId, "easyadmin.player.ban.remove"),
@@ -1240,12 +1238,7 @@ export function startWebPanel(context) {
       ),
       db.one("SELECT rank_order FROM ace_groups WHERE name='community_manager'"),
       db.one("SELECT 1 present FROM ace_memberships WHERE discord_id=? AND group_name='staff_coordination_team' LIMIT 1", [String(discordId)]),
-      db.one("SELECT 1 present FROM ace_memberships WHERE discord_id=? AND group_name=? LIMIT 1", [String(discordId), MANAGEMENT_MEMBERSHIP_GROUP]),
-      owner ? true : hasPermission?.(discordId, "fbrp.roster.manage"),
-      owner ? true : hasPermission?.(discordId, "fbrp.roster.discipline"),
     ]);
-    // Management and the Staff Coordination Team run the roster from the portal as they do with /roster.
-    const rosterLead = Boolean(owner || staffCoordinator || managementTeam);
     const commandReference = owner || Number(staffRank?.level ?? -1) >= Number(communityManager?.rank_order ?? 850);
     const [managementScope, investigationRole, organizationSetup] = await Promise.all([
       panelScope(discordId),
@@ -1263,9 +1256,7 @@ export function startWebPanel(context) {
       support: owner || staff || Boolean(await hasPermission?.(discordId, "fbrp.tickets.support")),
       opsControl: Boolean(opsControl),
       sceneModerate: Boolean(sceneModerate),
-      rosterAnalysis: Boolean(rosterLead || sceneModerate || rosterManagePerm || rosterDisciplinePerm),
-      rosterManage: Boolean(rosterLead || rosterManagePerm),
-      rosterDiscipline: Boolean(rosterLead || rosterDisciplinePerm),
+      rosterAnalysis: Boolean(owner || sceneModerate || staffCoordinator),
       gameUnban: Boolean(gameUnban),
       commandReference,
     };
@@ -1535,7 +1526,7 @@ export function startWebPanel(context) {
       group: name, ...change, gameRefreshed,
       lines: [
         `${creating ? "Created" : "Saved"} ${name}: ${objects.length} allowed objects (+${change.added.length} / -${change.removed.length}).`,
-        gameRefreshed ? "The game server has the new permissions; Discord roles are updating in the background. vMenu only reads permissions when a player joins, so anyone already in the server must rejoin to see vMenu changes." : "Saved, but the game server did not answer. It re-reads permissions on its next refresh.",
+        gameRefreshed ? "The game server has the new permissions; Discord roles are updating in the background." : "Saved, but the game server did not answer. It re-reads permissions on its next refresh.",
       ],
     };
   }
@@ -1683,7 +1674,7 @@ export function startWebPanel(context) {
     if (!user) throw new Error("That Discord account could not be found.");
     const stamp = Date.now();
     const shiftDuration = "CASE WHEN ended_at IS NULL THEN GREATEST(0,FLOOR((heartbeat_at-started_at)/1000)) ELSE seconds END";
-    const [players, groups, organizations, cases, discipline, staffHours, verification, storedGuilds, blacklist, network, linked, punishments, assets, invites] = await Promise.all([
+    const [players, groups, organizations, cases, discipline, staffHours, verification, storedGuilds, blacklist, network, linked, punishments, assets] = await Promise.all([
       db.query("SELECT id,name,created_at,last_seen FROM players WHERE discord_id=? ORDER BY last_seen DESC LIMIT 20", [id]),
       db.query(`SELECT g.name,g.label,g.rank_order,m.origin FROM ace_memberships m JOIN ace_groups g ON g.name=m.group_name WHERE m.discord_id=? ORDER BY g.rank_order DESC,g.label`, [id]),
       organizationActivity(db, id, stamp),
@@ -1705,7 +1696,6 @@ export function startWebPanel(context) {
       findLinkedAccounts(db, id),
       punishmentHistory(db, id),
       ownedAssets(db, id),
-      inviteHistory(db, id),
     ]);
 
     const networkById = new Map(network.map((row) => [String(row.guild_id), row]));
@@ -1759,8 +1749,6 @@ export function startWebPanel(context) {
       ...discipline.map((row) => row.actor_id),
       ...punishments.entries.map((row) => row.actorId),
       ...altAccounts.map((row) => row.id),
-      ...invites.invitedBy.map((row) => row.inviterId).filter(Boolean),
-      ...invites.invited.slice(0, 50).map((row) => row.memberId),
     ], { fetchLimit: 100 });
 
     const normalizeDate = (value) => value ? new Date(value).getTime() : null;
@@ -1778,11 +1766,6 @@ export function startWebPanel(context) {
       groups,
       organizations,
       assets,
-      invites: {
-        ...invites,
-        invitedBy: invites.invitedBy.map((row) => ({ ...row, guildName: client.guilds.cache.get(row.guildId)?.name || row.guildId })),
-        invited: invites.invited.map((row) => ({ ...row, guildName: client.guilds.cache.get(row.guildId)?.name || row.guildId })),
-      },
       cases: cases.map((row) => ({ ...row, id: Number(row.id), active: Boolean(Number(row.active)), expires_at: row.expires_at ? Number(row.expires_at) : null, created_at: Number(row.created_at) })),
       discipline: discipline.map((row) => ({ ...row, id: Number(row.id), created_at: Number(row.created_at), revoked_at: row.revoked_at ? Number(row.revoked_at) : null })),
       punishments,
@@ -2548,8 +2531,6 @@ export function startWebPanel(context) {
         } else if (url.pathname === "/api/portal/appeal/review") {
           if (!access.staff) return sendJson(response, 403, { error: "Staff access is required." });
           result = await appeals.staffAction(session, input);
-        } else if (url.pathname === "/api/portal/staff/manage") {
-          result = await portalStaff.act(session, access, input);
         } else if (url.pathname === "/api/portal/game-ban/undo") {
           if (!access.gameUnban) return sendJson(response, 403, { error: "The easyadmin.player.ban.remove permission is required." });
           result = await liftEasyAdminCase(input.banId, session.id, textValue(input.reason, 300));

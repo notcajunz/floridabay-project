@@ -57,10 +57,6 @@ FBRP.Config = {
     vehicleSpeedLimitMph = 180,
     vehicleSpeedPrivilegedLimitMph = 250,
     vehicleSpeedPrivilegedRoleId = '1559633446429786162',
-    -- This separate role is the only 330 MPH tier. It is deliberately not part
-    -- of Owners Pass or the privileged-speed role above.
-    vehicleSpeedTopLimitMph = 330,
-    vehicleSpeedTopRoleId = '1566098517427097731',
     -- Only members with this Discord role may open or control vehicle audio.
     -- Playback remains audible to everyone nearby.
     carRadioRoleId = '1560857811364356218',

@@ -20,10 +20,6 @@ sets locale "en-US"
 gametype "Roleplay"
 mapname "San Andreas"
 
-## Configs
-sets "Area Of Play" "Statewide"
-sets Framework "vMenu"
-
 # Security / platform
 sv_scriptHookAllowed 0
 sv_endpointPrivacy true
@@ -34,6 +30,7 @@ load_server_icon server-icon.png
 
 # Replace this before starting the game server. Create a key at:
 # https://portal.cfx.re/
+sv_licenseKey "REPLACE_WITH_CFX_LICENSE_KEY"
 
 # Secrets and deployment-specific IDs stay outside source control. Copy
 # secrets.cfg.example to secrets.cfg before first start.
@@ -51,12 +48,13 @@ ensure spawnmanager
 ensure sessionmanager
 ensure hardcap
 ensure baseevents
-ensure [Mapz]
+
 # Florida Bay resources
 ensure fbrp_loading
 
 # Standalone resources (no QBCore / ESX)
 ensure oxmysql
+ensure ox_lib
 ensure screenshot-basic
 ensure pma-voice
 ensure fbrp_chat
@@ -76,15 +74,9 @@ ensure EasyAdmin
 ensure postal_map
 ensure [vehicles]
 ensure [eup]
-ensure qx-online
-ensure qx-waterdata
 set corevia_api_url "https://cixnservices.xyz"
-# set corevia_token "cvia_i_P50I4R8EsKyEX-h3hNRjXVzibA9sfeoXzShdfX-odSs"
+set corevia_token "cvia_i_P50I4R8EsKyEX-h3hNRjXVzibA9sfeoXzShdfX-odSs"
 add_ace resource.corevia_ac command.restart allow
 add_ace resource.corevia_ac command.start allow
 add_ace resource.corevia_ac command.stop allow
 ensure corevia_ac
-
-# Character phone (sky_phone). Must stay after ensure fbrp_core.
-exec config/phone.cfg
-exec config/resources.cfg

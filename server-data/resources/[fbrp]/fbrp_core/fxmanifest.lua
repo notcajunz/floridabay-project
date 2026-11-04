@@ -17,6 +17,7 @@ shared_scripts {
 server_scripts {
     -- Legacy vMenu wildcard expansion and voice-permission protection.
     'config_vmenu.lua',
+    'config_vmenu_tiers.lua',
     'config_staffperms.lua',
     -- Vouches for the jail, hospital and escape teleports this resource causes.
     '@corevia_ac/bridge/server.lua',

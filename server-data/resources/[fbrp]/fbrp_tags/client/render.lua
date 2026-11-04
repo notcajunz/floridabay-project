@@ -84,20 +84,22 @@ CreateThread(function()
                     local id = format('%s[%d]', NetworkIsPlayerTalking(row.player) and '~b~' or '~w~', serverId)
                     local lines = {}
                     if head then
-                        lines[1] = { text = head.label .. ' ' .. id, size = cfg.headScale, r = head.r, g = head.g, b = head.b, outline = head.outline, height = cfg.headHeight }
+                        lines[1] = { text = head.label .. ' ' .. id, size = cfg.headScale, r = head.r, g = head.g, b = head.b, outline = head.outline, spacing = cfg.headSpacing }
                     else
-                        lines[1] = { text = id, size = cfg.headScale, r = 255, g = 255, b = 255, height = cfg.headHeight }
+                        lines[1] = { text = id, size = cfg.headScale, r = 255, g = 255, b = 255, spacing = cfg.headSpacing }
                     end
 
                     local callsign = not inVehicle and CleanTagLabel(state['fbrp:callsign'])
                     if callsign then
                         local name = CleanTagLabel(state['fbrp:name'])
-                        lines[#lines + 1] = { text = name and (callsign .. ' | ' .. name) or callsign, size = cfg.nameScale, r = 255, g = 255, b = 255, height = cfg.nameHeight }
+                        lines[#lines + 1] = { text = name and (callsign .. ' | ' .. name) or callsign, size = cfg.nameScale, r = 255, g = 255, b = 255, spacing = cfg.nameSpacing }
                     end
                     if gang then
-                        lines[#lines + 1] = { text = gang.label, size = cfg.gangScale, r = gang.r, g = gang.g, b = gang.b, outline = gang.outline, height = cfg.gangHeight }
+
+                        if #lines == 1 then lines[1].spacing = cfg.gangSpacing or lines[1].spacing end
+                        lines[#lines + 1] = { text = gang.label, size = cfg.gangScale, r = gang.r, g = gang.g, b = gang.b, outline = gang.outline }
                     end
-                    DrawTagLines(coords.x, coords.y, coords.z, lines, own)
+                    DrawTagLines(coords.x, coords.y, coords.z + cfg.headHeight, lines, own)
                 end
             end
             Wait(0)

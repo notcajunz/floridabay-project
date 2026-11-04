@@ -1037,9 +1037,6 @@ end
 
 -- Clean up orphan carriages (carriages without a locomotive)
 function CleanupOrphanCarriages()
-    -- FBRP: this deletes any stopped train-model vehicle within 500 m that dps-transit did not spawn, which
-    -- includes the Roxwood passenger/freight trains waiting at a station. Off unless Config.OrphanCleanup is set.
-    if not Config.OrphanCleanup then return end
     local playerCoords = GetEntityCoords(PlayerPedId())
 
     -- Search for nearby vehicles that are train models

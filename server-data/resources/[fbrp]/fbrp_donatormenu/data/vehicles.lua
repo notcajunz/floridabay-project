@@ -131,10 +131,5 @@ return {
         { name = 'Owner STC 4', spawnCode = 'owner_stc4' },
         { name = 'Owner STC 5', spawnCode = 'sp_txr' },
     },
-    aviationpack = {
-        { name = 'Gulfstream G650', spawnCode = 'g650' },
-        { name = 'Embraer Phenom 300', spawnCode = 'phenom300' },
-        { name = 'Pilatus PC-12', spawnCode = 'pc12' },
-        { name = 'Airbus EC130 Helicopter', spawnCode = 'ec130' },
-    },
+    -- aviationpack = {}, -- finish this pack plz
 }

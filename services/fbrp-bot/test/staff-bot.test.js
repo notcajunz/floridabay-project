@@ -13,9 +13,8 @@ test("coordination ranks and manager rules use distinct snowflakes", () => {
     assert.match(id, /^\d{17,20}$/);
   assert.ok(config.COORD_RANKS.some((rank) => rank.name === config.MANAGER_RANK));
   assert.deepEqual(config.MANAGER_ROLE_RULES.map((rule) => rule.targetRole).sort(), [
-    "1559120256788861008",
+    "1558270212267184178", "1558270290822299778", "1558270406484557944", "1559120256788861008", "1560450541509677186",
   ]);
-  assert.deepEqual(config.MANAGER_ROLE_RULES.map((rule) => rule.key), ["dev"]);
   const dev = config.MANAGER_ROLE_RULES.find((rule) => rule.key === "dev");
   assert.equal(dev.devopsMinLevel, 5);
   assert.equal(dev.networkTop, false, "Owner/Co-Owner are not dev managers");

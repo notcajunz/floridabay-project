@@ -3,40 +3,27 @@ Config = {
     Keybind = "",
 
     -- Show the Florida Bay RP logo on screen while the menu is open.
-    ShowLogo = true,
+    ShowLogo = false, -- no logo image ships with this menu
 
     -- Prints progress messages in the F8 console. Turn off once everything works.
     Debug = false,
 
-    -- Ordered list of siren presets shown in the menu.
+    -- Ordered list of sirens shown in the menu.
     -- label = what players see | sound = the siren package key in lvc/SIRENS.lua
     -- (SIREN_ASSIGNMENTS). "DEFAULT" = go back to the vehicle's normal tones.
     Sirens = {
         { label = "Default (vehicle's normal)", sound = "DEFAULT" },
-        { label = "Code 3 RLS", sound = "FB_RLS" },
-        { label = "Whelen Gamma 2", sound = "FB_GAMMA" },
-        { label = "Fire / EMS", sound = "FB_FIREEMS" },
-        { label = "Federal Signal PA4000", sound = "FB_PA4000" },
-        { label = "DX5 Powercall", sound = "FB_DX5" },
-        { label = "Whelen Cencom Sapphire", sound = "FB_SAPPHIRE" },
+        { label = "Code 3 RLS",                 sound = "FB_RLS" },
+        { label = "Whelen Gamma 2",             sound = "FB_GAMMA" },
+        { label = "Fire / EMS",                 sound = "FB_FIREEMS" },
+        { label = "Federal Signal PA4000",      sound = "FB_PA4000" },
+        { label = "DX5 Powercall",              sound = "FB_DX5" },
+        { label = "Whelen Cencom Sapphire",     sound = "FB_SAPPHIRE" },
         { label = "Federal Signal Smart Siren", sound = "FB_SMART" },
-        { label = "LSPD - Code 3 RLS", sound = "FB_LSPD_N" },
-        { label = "LSSD - Whelen Gamma 2", sound = "FB_LSSD_N" },
-        { label = "BCSO - Fire / EMS", sound = "FB_BCSO_N" },
-        { label = "SAHP - PA4000", sound = "FB_SAHP_N" },
-        { label = "NOOSE - DX5", sound = "FB_NOOSE_N" },
-        { label = "FIB - Cencom Sapphire", sound = "FB_FIB_N" },
-        { label = "RHPD - Smart Siren", sound = "FB_RHPD_N" },
-        { label = "DPPD - Mixed tested tones", sound = "FB_DPPD_N" },
-        { label = "LSIA - Mixed tested tones", sound = "FB_LSIA_N" },
-        { label = "LSPP - Mixed tested tones", sound = "FB_LSPP_N" },
-        { label = "LSFD - Mixed tested tones", sound = "FB_LSFD_N" },
-        { label = "LSCoFD - Mixed tested tones", sound = "FB_LSCOFD_N" },
-        { label = "BCFD - Mixed tested tones", sound = "FB_BCFD_N" },
     },
 
     -- Keys used while the menu is open (you can keep driving; the menu is display-only).
-    -- Default: Left/Right arrows browse, Enter applies, Backspace closes. After applying, use LVC keys 1/2/3 to activate a tone.
+    -- Default: Left/Right arrows browse, Enter applies, Backspace closes.
     -- Control IDs: 172 Up, 173 Down, 174 Left, 175 Right, 191 Enter, 194 Backspace.
     -- Full list: docs.fivem.net/docs/game-references/controls
     -- If one of these also triggers something in LVC (e.g. turn signals), change it here.
@@ -44,6 +31,6 @@ Config = {
 
     Menu = {
         hint = "← → browse  •  Enter apply  •  Backspace close",
-        title = "Florida Bay | Siren Menu v2.5",
+        title = "Florida Bay Siren Menu",
     },
 }

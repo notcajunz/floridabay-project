@@ -144,8 +144,6 @@ RegisterNetEvent('dps-transit:client:spawnShuttle', function(shuttleId, shuttleD
         status = 'departing'
     }
 
-    TriggerServerEvent('dps-transit:server:shuttleSpawned', shuttleId, NetworkGetNetworkIdFromEntity(bus))
-
     -- Create blip
     CreateShuttleBlip(shuttleId, bus, shuttleData.routeId)
 

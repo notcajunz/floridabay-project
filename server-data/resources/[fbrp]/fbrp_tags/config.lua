@@ -7,10 +7,11 @@ TagsConfig = {
     headScale = 0.55,
     gangScale = 0.55,
     nameScale = 0.30,
-    -- World-space heights above the ped for each line (matches calirp-discord_tags)
-    headHeight = 1.50, -- headtag + [ID]
-    nameHeight = 1.35, -- callsign | name
-    gangHeight = 1.25, -- gangtag
+    headHeight = 1.50,
+
+    headSpacing = 1.5,
+    nameSpacing = 1.35,
+    gangSpacing = 1.25,
 
     menuTop = 110,
     menuX = 1150,

@@ -720,23 +720,6 @@ const temp = new SlashCommandBuilder()
       ),
   );
 
-const invites = new SlashCommandBuilder()
-  .setName("invites")
-  .setDescription("Invite tracker: who brought members into the server")
-  .addSubcommand((s) =>
-    s
-      .setName("stats")
-      .setDescription("Show how many members joined through your invites")
-      .addUserOption((o) => o.setName("member").setDescription("Another member (Assistant Community Manager and above)")),
-  )
-  .addSubcommand((s) => s.setName("leaderboard").setDescription("Top inviters in this server"))
-  .addSubcommand((s) =>
-    s
-      .setName("who")
-      .setDescription("Show who invited a member (Assistant Community Manager and above)")
-      .addUserOption((o) => o.setName("member").setDescription("Member to look up").setRequired(true)),
-  );
-
 const botguard = new SlashCommandBuilder()
   .setName("botguard")
   .setDescription("Network bot admission and anti-nuke controls")
@@ -1228,17 +1211,6 @@ const verification = new SlashCommandBuilder()
       .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true)),
   );
 
-const reverify = new SlashCommandBuilder()
-  .setName("reverify")
-  .setDescription("ACM+: ask a member to reverify for an Internal Affairs investigation")
-  .setDMPermission(false)
-  .addUserOption((o) =>
-    o.setName("user").setDescription("Member who must reverify").setRequired(true),
-  )
-  .addStringOption((o) =>
-    o.setName("reason").setDescription("Investigation reason shown to the member and audit log").setRequired(true).setMaxLength(500),
-  );
-
 const orgbank = new SlashCommandBuilder()
   .setName("orgbank")
   .setDescription("Organization wallets: balances, ledger and management")
@@ -1368,7 +1340,6 @@ export const commands = [
   welcome,
   github,
   verification,
-  reverify,
   backup,
   ace,
   headtag,
@@ -1383,7 +1354,6 @@ export const commands = [
   server,
   role,
   temp,
-  invites,
   protectrole,
   botguard,
   security,

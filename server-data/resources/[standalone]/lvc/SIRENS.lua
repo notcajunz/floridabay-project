@@ -39,23 +39,20 @@ Be sure to remove one of these if you remove their respective sound pack.
 	Sirenpack5 = Powercall DX5
 	Sirenpack6 = Whelen Cencom Sapphire
 	Sirenpack7 = Federal Signal Smart Siren
-	SSAS       = Server Sided Sounds and Sirens (inside the FBRP-Sirens resource)
 ]]
-RequestScriptAudioBank("DLC_CODE3PACK\\CODE3RLS", false)
+RequestScriptAudioBank("DLC_CODE3PACK\\CODE3RLS", true)
 
-RequestScriptAudioBank("DLC_WHELENPACK\\WHELENGAMMA2", false)
+RequestScriptAudioBank("DLC_WHELENPACK\\WHELENGAMMA2", true)
 
-RequestScriptAudioBank("DLC_FIREEMSPACK\\FIREEMS", false)
+RequestScriptAudioBank("DLC_FIREEMSPACK\\FIREEMS", true)
 
-RequestScriptAudioBank("DLC_FEDSIGPACK\\FEDSIGPA4000", false)
+RequestScriptAudioBank("DLC_FEDSIGPACK\\FEDSIGPA4000", true)
 
-RequestScriptAudioBank("DLC_DX5PACK\\DX5", false)
+RequestScriptAudioBank("DLC_DX5PACK\\DX5", true)
 
-RequestScriptAudioBank("DLC_CENSAPPHIRE\\CENCOMSAPPHIRE", false)
+RequestScriptAudioBank("DLC_CENSAPPHIRE\\CENCOMSAPPHIRE", true)
 
-RequestScriptAudioBank("DLC_SMARTSIREN\\SMARTSIREN", false)
-
--- Department menu presets below reuse the standard packs that are confirmed working.
+RequestScriptAudioBank("DLC_SMARTSIREN\\SMARTSIREN", true)
 
 --If you remmove sirens make sure to correct your numbers as the sirens go 1- whatever. So if you remove sirens 28-31, then you will have to go through and fix the numbers resuming after 27.
 --If 28-31 were removed, the DX5 Horn would become the new 28 and so on.
@@ -109,7 +106,6 @@ SIRENS = {
 	--[[44]]  { Name = "Smart Siren Yelp", 	String = "SSYELP", 								Ref = "SMARTSIREN_SOUNDSET" }, --44
 	--[[45]]  { Name = "Smart Siren Prty", 	String = "SSPRTY", 								Ref = "SMARTSIREN_SOUNDSET" }, --45
 	--[[46]]  { Name = "Smart Siren HiLo", 	String = "SSHILO", 								Ref = "SMARTSIREN_SOUNDSET" }, --46
-
 }
 
 --[[
@@ -142,20 +138,4 @@ SIREN_ASSIGNMENTS = {
 	['FB_DX5']      = { 32, 33, 34, 35, 36, 37 },  -- DX5 Powercall
 	['FB_SAPPHIRE'] = { 38, 39, 40, 41 },          -- Whelen Cencom Sapphire
 	['FB_SMART']    = { 42, 43, 44, 45, 46 },      -- Federal Signal Smart Siren
-
-	---------------- DEPARTMENT PRESETS USING TESTED STANDARD PACK TONES ----------------
-	-- These point only to audio strings 15-46, from the seven standard packs above.
-	['FB_LSPD_N']   = { 15, 16, 17, 18 },              -- Code 3 RLS
-	['FB_LSSD_N']   = { 19, 20, 21, 22, 23 },          -- Whelen Gamma 2
-	['FB_BCSO_N']   = { 24, 25, 26, 27 },              -- Fire / EMS
-	['FB_SAHP_N']   = { 28, 29, 30, 31 },              -- Federal Signal PA4000
-	['FB_NOOSE_N']  = { 32, 33, 34, 35, 36, 37 },      -- DX5 Powercall
-	['FB_FIB_N']    = { 38, 39, 40, 41 },              -- Cencom Sapphire
-	['FB_RHPD_N']   = { 42, 43, 44, 45, 46 },          -- Smart Siren
-	['FB_DPPD_N']   = { 15, 20, 21, 22, 23 },
-	['FB_LSIA_N']   = { 19, 25, 26, 30, 31 },
-	['FB_LSPP_N']   = { 24, 29, 30, 33, 34, 35 },
-	['FB_LSFD_N']   = { 28, 17, 18, 21, 22, 23 },
-	['FB_LSCOFD_N'] = { 32, 16, 17, 20, 21, 22 },
-	['FB_BCFD_N']   = { 38, 25, 26, 27, 29, 30 },
 }

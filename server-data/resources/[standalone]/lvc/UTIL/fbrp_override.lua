@@ -1,137 +1,92 @@
--- Florida Bay RP - LVC siren override
--- Used by fbrp_sirenmenu
+-- Florida Bay RP - LVC siren override (used by fbrp_sirenmenu)
+-- Adds exports: overrideSiren(package, label) and overrideSirenManual(package, label)
+-- Loaded from lvc/fxmanifest.lua AFTER the cl_*.lua files (needs cl_utils.lua first).
 
 if UTIL == nil or UTIL.GetProfileFromTable == nil then
-    print('^1[FBRP] ERROR: Override loaded before cl_utils.lua. Check fxmanifest.lua order.^0')
-    return
+	print('^1[FBRP] cl_override.lua loaded BEFORE cl_utils.lua - it must be listed after the cl_*.lua files in lvc/fxmanifest.lua^0')
+	return
 end
-
-print('^2[FBRP] Siren override loaded successfully.^0')
+print('^2[FBRP] cl_override.lua loaded - overrideSiren export registered^0')
 
 local override_profile = nil
 
+-- Wrap LVC's profile lookup so a chosen package is used for SIREN_ASSIGNMENTS
+-- (on vehicle entry as well as when the menu changes it).
 local original_GetProfileFromTable = UTIL.GetProfileFromTable
-
 function UTIL:GetProfileFromTable(print_name, tbl, veh, ignore_missing_default)
-    if override_profile ~= nil
-        and tbl ~= nil
-        and tbl == SIREN_ASSIGNMENTS
-        and tbl[override_profile] ~= nil then
-
-        UTIL:Print(
-            ('[FBRP] Using siren package %s'):format(override_profile),
-            false
-        )
-
-        return tbl[override_profile], override_profile
-    end
-
-    return original_GetProfileFromTable(
-        self,
-        print_name,
-        tbl,
-        veh,
-        ignore_missing_default
-    )
+	if override_profile ~= nil and tbl ~= nil and tbl == SIREN_ASSIGNMENTS and tbl[override_profile] ~= nil then
+		UTIL:Print(('[FBRP] Using siren package %s'):format(override_profile), false)
+		return tbl[override_profile], override_profile
+	end
+	return original_GetProfileFromTable(self, print_name, tbl, veh, ignore_missing_default)
 end
 
 local function applyToCurrentVehicle()
-    local veh = GetVehiclePedIsIn(PlayerPedId(), false)
-
-    if veh == 0 then
-        return false
-    end
-
-    UTIL:UpdateApprovedTones(veh)
-    UTIL:BuildToneOptions()
-
-    return true
+	local veh = GetVehiclePedIsIn(PlayerPedId(), false)
+	if veh == 0 then return false end
+	UTIL:UpdateApprovedTones(veh)
+	UTIL:BuildToneOptions()
+	return true
 end
 
 local function setPackage(package)
-    if package == nil or package == 'DEFAULT' then
-        override_profile = nil
-        applyToCurrentVehicle()
-        return true
-    end
-
-    if SIREN_ASSIGNMENTS[package] == nil then
-        print((
-            '[FBRP] ERROR: Siren package "%s" was not found in SIREN_ASSIGNMENTS.'
-        ):format(tostring(package)))
-
-        return false
-    end
-
-    override_profile = package
-    return true
+	if package == nil or package == 'DEFAULT' then
+		override_profile = nil          -- back to the vehicle's normal profile
+		return true
+	end
+	if SIREN_ASSIGNMENTS[package] == nil then
+		print(('[FBRP] overrideSiren: "%s" not found in SIREN_ASSIGNMENTS (SIRENS.lua)'):format(tostring(package)))
+		return false
+	end
+	override_profile = package
+	return true
 end
 
--- Apply a siren package from the menu.
+-- Menu: change siren now (must be in a vehicle)
 exports('overrideSiren', function(package, label)
-    if not setPackage(package) then
-        return false
-    end
-
-    return applyToCurrentVehicle()
+	if not setPackage(package) then return false end
+	return applyToCurrentVehicle()
 end)
 
--- Save the selected package when called by the menu.
+-- On join: remember the saved package; applied automatically when a vehicle is entered
 exports('overrideSirenManual', function(package, label)
-    if not setPackage(package) then
-        return false
-    end
-
-    applyToCurrentVehicle()
-    return true
+	if not setPackage(package) then return false end
+	applyToCurrentVehicle()
+	return true
 end)
 
--- Audio banks can be unloaded by the game. Retry them at startup and whenever LVC changes vehicle.
+-- The FBRP siren sound banks come from the FBRP-Sirens resource. SIRENS.lua requests them once when LVC loads;
+-- if that happened before FBRP-Sirens registered its audio data the request failed and every tone stays silent.
+-- Keep requesting until each bank loads, and again when a vehicle is entered (banks can be unloaded by the game).
 local SIREN_BANKS = {
-    'DLC_CODE3PACK\\CODE3RLS',
-    'DLC_WHELENPACK\\WHELENGAMMA2',
-    'DLC_FIREEMSPACK\\FIREEMS',
-    'DLC_FEDSIGPACK\\FEDSIGPA4000',
-    'DLC_DX5PACK\\DX5',
-    'DLC_CENSAPPHIRE\\CENCOMSAPPHIRE',
-    'DLC_SMARTSIREN\\SMARTSIREN',
+	'DLC_CODE3PACK\\CODE3RLS',
+	'DLC_WHELENPACK\\WHELENGAMMA2',
+	'DLC_FIREEMSPACK\\FIREEMS',
+	'DLC_FEDSIGPACK\\FEDSIGPA4000',
+	'DLC_DX5PACK\\DX5',
+	'DLC_CENSAPPHIRE\\CENCOMSAPPHIRE',
+	'DLC_SMARTSIREN\\SMARTSIREN',
 }
 
-local loadedBanks = {}
-
--- Requests only the banks that are not loaded yet, a few per frame, so the game's audio engine is not
--- handed every request at once. Returns the names that still have not loaded.
 local function requestSirenBanks()
-    local missing = {}
-    local requested = 0
-    for _, bank in ipairs(SIREN_BANKS) do
-        if not loadedBanks[bank] then
-            if RequestScriptAudioBank(bank, true) then
-                loadedBanks[bank] = true
-            else
-                missing[#missing + 1] = bank
-            end
-            requested = requested + 1
-            if requested % 4 == 0 then Wait(0) end
-        end
-    end
-    return missing
+	local missing = 0
+	for _, bank in ipairs(SIREN_BANKS) do
+		if not RequestScriptAudioBank(bank, true) then missing = missing + 1 end
+	end
+	return missing
 end
 
 CreateThread(function()
-    local missing = {}
-    for _ = 1, 60 do
-        missing = requestSirenBanks()
-        if #missing == 0 then
-            print(('^2[FBRP] All %d siren audio banks loaded.^0'):format(#SIREN_BANKS))
-            return
-        end
-        Wait(1000)
-    end
-    print(('^1[FBRP] %d of %d siren audio banks failed to load:^0'):format(#missing, #SIREN_BANKS))
-    for _, bank in ipairs(missing) do print('^1[FBRP]   ' .. bank .. '^0') end
+	for _ = 1, 60 do
+		if requestSirenBanks() == 0 then
+			print('^2[FBRP] siren audio banks loaded^0')
+			return
+		end
+		Wait(1000)
+	end
+	print('^1[FBRP] siren audio banks failed to load - is FBRP-Sirens started?^0')
 end)
 
 AddEventHandler('lvc:onVehicleChange', function()
-    CreateThread(requestSirenBanks)
+	requestSirenBanks()
 end)

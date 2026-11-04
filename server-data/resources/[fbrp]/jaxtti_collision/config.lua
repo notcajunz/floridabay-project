@@ -10,11 +10,6 @@ Config.Classes = {
 Config.SeatbeltInjuryMultiplier = 0.35
 Config.MotorcycleInjuryMultiplier = 1.4
 
-Config.EffectsMinSpeed = 100
-Config.LowSpeedEngineDamage = 60
-Config.LowSpeedEngineFloor = 150.0
-Config.LowSpeedGuardTime = 5000
-
 Config.Tiers = {
     {
         name = 'minor', minDelta = 12,

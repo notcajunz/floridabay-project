@@ -7,8 +7,7 @@
 ]]
 
 Config.Shuttles = {
-    -- FBRP: off until the bus stops have real coordinates (the stock ones are placeholders and buses got stuck on the LSIA tarmac)
-    enabled = false,
+    enabled = true,
 
     -- Default shuttle settings
     defaults = {

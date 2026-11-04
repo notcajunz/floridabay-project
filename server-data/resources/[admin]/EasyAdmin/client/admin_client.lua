@@ -436,7 +436,7 @@ end
 ---@param text string @The message text to display in the notification
 function ShowNotification(text)
 	if not RedM then
-		TriggerEvent("ox_lib:notify", { title = "EasyAdmin", description = (tostring(text):gsub("~[%w_]*~", "")), type = "info", position = "center-right" })
+		TriggerEvent("ox_lib:notify", { title = "EasyAdmin", description = (tostring(text):gsub("~[%w_]*~", "")), type = "info" })
 	else
 		-- someone who has RedM installed please write some code for this
 		

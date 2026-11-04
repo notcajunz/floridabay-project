@@ -16,7 +16,7 @@ local function labels()
     return t
 end
 
--- Match LVC's rule: Florida Bay can classify addon personals as emergency vehicles.
+-- Same rule LVC uses: Florida Bay can classify addon personals as emergency vehicles, otherwise GTA class 18.
 local function isEmergencyVehicle(veh)
     if GetResourceState('fbrp_core') == 'started' then
         local ok, result = pcall(function() return exports.fbrp_core:IsEmergencyVehicle(veh) end)

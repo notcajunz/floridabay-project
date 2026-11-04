@@ -1,0 +1,21 @@
+{
+  "source": "fbrp_pv_caj_rubicon.zip",
+  "model": "caj_rubicon",
+  "by": "1090083387638812755",
+  "at": 1792262523337,
+  "request": {},
+  "changes": [],
+  "liveries": [],
+  "security": {
+    "verdict": "safe",
+    "summary": "This is a normal data-only FiveM vehicle pack: model and texture assets plus vehicle metadata and a simple manifest with file/data_file declarations only. No executable behavior, downloads, callbacks, or obfuscation were found.",
+    "findings": [],
+    "repairs": [
+      {
+        "file": "fbrp_pv_caj_rubicon/fxmanifest.lua",
+        "issue": "Manifest includes only declarative entries, but any stale or missing optional paths are ignored by the importer.",
+        "action": "Regenerate the manifest from the files actually present and omit any missing or duplicate entries during import."
+      }
+    ]
+  }
+}
