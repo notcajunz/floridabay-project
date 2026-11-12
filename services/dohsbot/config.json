@@ -2,8 +2,7 @@
   "_help": "Paste Discord IDs as text. Leave a value as \"\" to skip it. Turn on Developer Mode in Discord, then right-click a role/channel -> Copy ID.",
   "guild_id": "1558238773958017024",
   "owner_ids": [
-    "1090083387638812755",
-    "1099651002208104488"
+    "1090083387638812755"
   ],
   "bypass_role_ids": [],
   "fbrp_org_id": "3",
@@ -33,9 +32,9 @@
   "nickname_format": "{callsign} | {name}",
   "member_role_id": "1558239521353629826",
   "main_server_roles": {
-    "base": "1557692420269936660",
-    "supervisor": "1557692388737028196",
-    "high_command": "1560396125125742684"
+    "base": "1570227952308719697",
+    "supervisor": "1570227938589155368",
+    "high_command": "1570227937548967969"
   },
   "supervisor_min_rank": "Assistant Special Agent in Charge",
   "high_command_min_rank": "Chief of Staff",

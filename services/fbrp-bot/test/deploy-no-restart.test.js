@@ -7,11 +7,12 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const script = fs.readFileSync(path.join(root, 'scripts/split-deploy.sh'), 'utf8');
+const script = fs.readFileSync(path.join(root, 'scripts/deploy.sh'), 'utf8');
+const applyScript = fs.readFileSync(path.join(root, 'scripts/apply-game-files.sh'), 'utf8');
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 
 test('only known options are accepted and the environment switch is validated', () => {
-  const run = (args, env = {}) => spawnSync('bash', [path.join(root, 'scripts/split-deploy.sh'), ...args], { env: { ...process.env, ...env }, encoding: 'utf8' });
+  const run = (args, env = {}) => spawnSync('bash', [path.join(root, 'scripts/deploy.sh'), ...args], { env: { ...process.env, ...env }, encoding: 'utf8' });
   const bogus = run(['help', 'main', '--bogus']);
   assert.notEqual(bogus.status, 0);
   assert.match(bogus.stderr, /Unknown option: --bogus/);
@@ -21,11 +22,17 @@ test('only known options are accepted and the environment switch is validated', 
   const ok = run(['help', 'main', '--no-restart']);
   assert.equal(ok.status, 0);
   assert.match(ok.stdout, /--no-restart/);
+  const staged = run(['help', 'main', '--no-start']);
+  assert.equal(staged.status, 0);
+  assert.match(staged.stdout, /--no-start/);
+  const badStartEnv = run(['help', 'main'], { FBRP_DEPLOY_NO_START: '2' });
+  assert.notEqual(badStartEnv.status, 0);
+  assert.match(badStartEnv.stderr, /FBRP_DEPLOY_NO_START must be 0 or 1/);
 });
 
-/** Runs the game-host part of install_game_revision against a throwaway repo with every system command stubbed. */
+/** Runs scripts/apply-game-files.sh against a throwaway repo with every system command stubbed. */
 function runGameInstall(defer) {
-  const body = script.match(/game_script "\$TARGET_COMMIT" "\$NO_RESTART" <<'REMOTE'\n([\s\S]*?)\nREMOTE/)[1];
+  const body = applyScript;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-sim-'));
   try {
     const repo = path.join(dir, 'fbrp');
@@ -101,20 +108,38 @@ test('a normal game install still stops, updates and restarts the server and cle
 
 test('AI agents and the dev runner deploy without restarting FiveM', () => {
   const agents = read('AGENTS.md');
-  assert.match(agents, /split-deploy\.sh game main --no-restart/);
-  assert.match(agents, /split-deploy\.sh all main --no-restart/);
+  assert.match(agents, /scripts\/deploy\.sh deploy main --no-restart/);
   assert.match(agents, /Never stop or restart `fbrp-server\.service` or FXServer on your own/);
-  assert.doesNotMatch(agents, /^\/home\/ubuntu\/fbrp\/scripts\/split-deploy\.sh (game|all) main$/m);
+  assert.doesNotMatch(agents, /^\/home\/ubuntu\/fbrp\/scripts\/deploy\.sh deploy main$/m);
+  assert.doesNotMatch(agents, /split-deploy|fbrp-split\.env|control VPS/);
   assert.match(read('CLAUDE.md'), /--no-restart/);
-  assert.match(read('scripts/dev-submission-implement.sh'), /"\$DEPLOY" "\$target" main --no-restart/);
+  assert.match(read('scripts/dev-submission-implement.sh'), /"\$DEPLOY" deploy main --no-restart/);
   assert.match(script, /FiveM restart PENDING/);
-  assert.match(script, /Stopping the control plane only \(FiveM keeps running\)/);
+  assert.match(script, /Stopping the website, API and bots \(FiveM keeps running unless game files changed\)/);
 });
 
-test('control deploy installs an automatic recovery policy for Caddy', () => {
+test('maintenance-window deploys install code while leaving every application plane stopped', () => {
+  assert.match(script, /--no-start\) NO_START=1; NO_RESTART=1/);
+  assert.match(script, /\[\[ "\$NO_START" != 1 \]\] && \(\( CHANGED_SERVICES \)\); then start_bots/);
+  assert.match(script, /Stopping every application service and leaving them stopped/);
+  assert.match(script, /verify_staged_deployment/);
+});
+
+test('deploys install an automatic recovery policy for Caddy', () => {
   const override = read('deploy/systemd/caddy.service.d/10-fbrp-recovery.conf');
   assert.match(override, /^Restart=on-failure$/m);
   assert.match(override, /^RestartSec=2s$/m);
   assert.match(script, /sudo install -o root -g root -m 0644 "\$service_override" "\$live_service_dir\/10-fbrp-recovery\.conf"/);
   assert.match(script, /sudo systemctl daemon-reload/);
+});
+
+test('verify reads the pending-restart marker with a space separator even though the script sets IFS to newline and tab', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'marker-'));
+  const marker = path.join(dir, 'marker');
+  const snippet = script.match(/IFS=" " read -r since commit <"\$MARKER"/);
+  assert.ok(snippet, 'the marker must be split on a space');
+  fs.writeFileSync(marker, '1000 abcdef0123456789\n');
+  const out = execFileSync('bash', ['-c', `IFS=$'\\n\\t'; MARKER=${marker}; IFS=" " read -r since commit <"$MARKER"; echo "$since|$commit"`], { encoding: 'utf8' });
+  assert.equal(out.trim(), '1000|abcdef0123456789');
+  fs.rmSync(dir, { recursive: true, force: true });
 });

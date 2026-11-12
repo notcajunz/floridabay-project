@@ -38,98 +38,98 @@ Config.DefaultRank = {
 
 Config.PriorityRoles = {
     {
-        roleId = "1557596860208652338",
+        roleId = "1570227893056049194",
         name = "Owner",
         rank = 1,
         bypassQueue = true,
         badgeColor = "Attention"
     },
     {
-        roleId = "1557689734774390874",
+        roleId = "1570227894330855565",
         name = "Co-Owner",
         rank = 2,
         bypassQueue = true,
         badgeColor = "Attention"
     },
     {
-        roleId = "1557960561097183282",
+        roleId = "1570227907593248910",
         name = "Executive Management",
         rank = 3,
         bypassQueue = true,
         badgeColor = "Warning"
     },
     {
-        roleId = "1557689738893197332",
+        roleId = "1570227908277047298",
         name = "Community Director",
         rank = 4,
         bypassQueue = true,
         badgeColor = "Accent"
     },
     {
-        roleId = "1557689739627462716",
+        roleId = "1570227911309402112",
         name = "Community Manager",
         rank = 5,
         bypassQueue = true,
         badgeColor = "Good"
     },
     {
-        roleId = "1557689741280018455",
+        roleId = "1570227912039465050",
         name = "Assistant Community Manager",
         rank = 6,
         bypassQueue = true,
         badgeColor = "Light"
     },
     {
-        roleId = "1561889647918063738",
+        roleId = "1570227912664293438",
         name = "Trial Management",
         rank = 7,
         bypassQueue = true,
         badgeColor = "Good"
     },
     {
-        roleId = "1557689741493669958",
+        roleId = "1570227913096167549",
         name = "Head Administrator",
         rank = 8,
         bypassQueue = true,
         badgeColor = "Good"
     },
     {
-        roleId = "1559120256788861008",
+        roleId = "1570227917504385096",
         name = "Development Manager",
         rank = 9,
         bypassQueue = true,
         badgeColor = "Good"
     },
     {
-        roleId = "1558777557799801004",
+        roleId = "1570227921061150810",
         name = "Owners Pass",
         rank = 10,
         bypassQueue = true,
         badgeColor = "Attention"
     },
     {
-        roleId = "1557689749509120091",
+        roleId = "1570227972646903853",
         name = "Queue Bypass",
         rank = 11,
         bypassQueue = true,
         badgeColor = "Attention"
     },
     {
-        roleId = "1557689749198868520",
+        roleId = "1570227967572054146",
         name = "VIP Package",
         rank = 12,
         bypassQueue = true,
         badgeColor = "Attention"
     },
     {
-        roleId = "1557689750184398999",
+        roleId = "1570227973292822558",
         name = "Whitelist Package",
         rank = 13,
         bypassQueue = true,
         badgeColor = "Attention"
     },
     {
-        roleId = "1557690864526954616",
+        roleId = "1570228067501211648",
         name = "Community Member",
         rank = 14,
         bypassQueue = false,

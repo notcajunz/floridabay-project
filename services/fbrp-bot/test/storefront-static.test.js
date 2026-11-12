@@ -8,7 +8,7 @@ test("storefront exposes a complete Tebex shopping flow", async () => {
     readFile(new URL("../web/store/store.js", import.meta.url), "utf8"),
     readFile(new URL("../src/web-panel.js", import.meta.url), "utf8"),
     readFile(new URL("../../../deploy/caddy/store.floridabay.net.caddy", import.meta.url), "utf8"),
-    readFile(new URL("../../../scripts/split-deploy.sh", import.meta.url), "utf8"),
+    readFile(new URL("../../../scripts/deploy.sh", import.meta.url), "utf8"),
   ]);
   assert.match(html, /Secure Tebex checkout/);
   assert.match(html, /Fuel the stories/);
@@ -31,6 +31,6 @@ test("storefront exposes a complete Tebex shopping flow", async () => {
   assert.match(script, /matching “/);
   assert.match(panel, /store\.floridabay\.net/);
   assert.match(caddy, /reverse_proxy 127\.0\.0\.1:8080/);
-  assert.match(deploy, /install_control_caddy/);
+  assert.match(deploy, /install_caddy/);
   assert.match(deploy, /caddy reload/);
 });

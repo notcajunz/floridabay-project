@@ -51,3 +51,24 @@ test("each coordination group owns its fixed main-server role", async () => {
     assert.equal((migration.match(/;/g) || []).length, 1, `${migrationFiles[index]} must contain exactly one SQL statement`);
   }
 });
+
+test("the restored main guild and current staff department role replace stale IDs", async () => {
+  const sql = await readFile(new URL("../../../server-data/resources/[fbrp]/fbrp_core/migrations/117_new_main_and_staff_guilds.sql", import.meta.url), "utf8");
+  assert.match(sql, /'1563860837444227152','Florida Bay Roleplay','main'/);
+  assert.match(sql, /'1557600357163474946','1565745687105114154','department_coordinator'/);
+  for (const role of ["1569585352132526131", "1569585352748957817", "1569585352908218451", "1569585354070167653"])
+    assert.ok(sql.includes(role), role);
+});
+
+test("migrations 118 and 119 move restored guild, role and channel IDs forward without editing history", async () => {
+  const dir = "../../../server-data/resources/[fbrp]/fbrp_core/migrations/";
+  const satellites = await readFile(new URL(`${dir}118_restored_network_guild_ids.sql`, import.meta.url), "utf8");
+  const main = await readFile(new URL(`${dir}119_restored_main_guild_ids.sql`, import.meta.url), "utf8");
+  for (const guild of ["1570213212320833627", "1570217077669757069", "1570217330124923040", "1570218405171036250", "1570219683137716254"])
+    assert.ok(satellites.includes(`'${guild}'`), guild);
+  assert.match(satellites, /UPDATE iaa_ranks t JOIN discord_restore_id_map/);
+  assert.match(satellites, /UPDATE iaa_config SET config_value=REPLACE/);
+  assert.match(main, /'1563860837444227152','1557594282976747550','guild'/);
+  assert.match(main, /UPDATE network_guilds t JOIN discord_restore_id_map/);
+  for (const migration of [satellites, main]) assert.doesNotMatch(migration, /\bDROP\s+(TABLE|DATABASE)\b|\bTRUNCATE\b/i);
+});

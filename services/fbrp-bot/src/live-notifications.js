@@ -7,7 +7,7 @@ import { COLORS, card, embed } from "./ui.js";
  * channel's public /live page.
  */
 
-export const LIVE_CHANNEL_ID = "1561928386249629716";
+export const LIVE_CHANNEL_ID = "1570228151429107783";
 const CONFIG_KEY = "live_notifications";
 const ROLE_NAME = "Live Notifications";
 const REACTION = "🔴";

@@ -2,6 +2,5 @@
 fxserver_artifact: bin
 node: v22.23.3
 mariadb_image: mariadb:11.4
-private-files.tar.gz.enc: control host secrets (extract in /home/ubuntu/fbrp)
-game-private-files.tar.gz.enc: game host secrets, txAdmin state, non-database backups (paths fbrp/... and backups/..., extract in /home/ubuntu of the game host)
+private-files.tar.gz.enc: secrets, service databases, txAdmin state and non-database backups (extract in /home/ubuntu/fbrp)
 EUP packs and pre-deploy database dumps are intentionally not in the backup; the database is in fbrp-db.sql.gz.enc.

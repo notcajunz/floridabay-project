@@ -8,7 +8,7 @@ import { C, UserError, card, clip, ts } from "./util.js";
  * to confirm, then logs the finished submission to the development log channel.
  */
 
-export const INTAKE_LOG_CHANNEL_ID = "1561220286555099236";
+export const INTAKE_LOG_CHANNEL_ID = "1570224138851979264";
 export const REMINDER_USER_ID = "1090083387638812755";
 const REMINDER_EVERY_MS = 12 * 3600_000;
 const ANSWER_TIMEOUT_MS = 10 * 60_000;

@@ -21,12 +21,12 @@ test("business management roles grant only business organization management", ()
 test("department management roles grant every department organization type", () => {
   for (const roleId of ORG_TYPE_MANAGER_ROLE_IDS.department)
     assert.deepEqual([...managedOrgTypesForRoleIds([roleId])].sort(), ["fire", "government", "leo"]);
-  assert.deepEqual([...managedOrgTypesForRoleIds(["1560393390938529862"])], [], "Assistant Department Manager is below Manager+");
+  assert.deepEqual([...managedOrgTypesForRoleIds(["1570223495437230131"])], [], "Assistant Department Manager is below Manager+");
 });
 
 test("the Manager+ role lists match the manager bots' configured ladders", () => {
-  assert.deepEqual([...ORG_TYPE_MANAGER_ROLE_IDS.gang].sort(), ["1559682494364647524", "1559682496549879808", "1559682499251146772"]);
-  assert.deepEqual([...ORG_TYPE_MANAGER_ROLE_IDS.business].sort(), ["1559701131905728532", "1559701134686556190", "1559701141053513798", "1559701149475536947"]);
+  assert.deepEqual([...ORG_TYPE_MANAGER_ROLE_IDS.gang].sort(), ["1570223688689778728", "1570223689096495206", "1570223690203926562"]);
+  assert.deepEqual([...ORG_TYPE_MANAGER_ROLE_IDS.business].sort(), ["1570224206354972865", "1570224207260942336", "1570224208494076035", "1570224209676996699"]);
   assert.deepEqual(ORG_MANAGER_GRANT_TYPES.department, ["leo", "fire", "government"]);
 });
 

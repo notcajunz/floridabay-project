@@ -63,9 +63,9 @@ def test_config_toml_loads_every_rank_and_category():
     cooldown_categories = set(DEPARTMENT_CATEGORIES) - {"Other", "Handpicked"}
     assert set(config.transfer_cooldown_role_ids) == cooldown_categories
     assert set(config.resignation_cooldown_role_ids) == cooldown_categories
-    assert config.chain_of_command_channel_id == 1560394235180490793
-    assert config.movement_channel_id == 1560394297067442338
-    assert config.hours_channel_id == 1560394222799163392
+    assert config.chain_of_command_channel_id == 1570223582271905802
+    assert config.movement_channel_id == 1570223595848867840
+    assert config.hours_channel_id == 1570223580346589204
     # Main LEO and Main FED share the Main Department divider.
     assert config.category_member_role_ids["Main LEO"] == config.category_member_role_ids["Main FED"]
 

@@ -19,7 +19,7 @@ test('only the owner account can open dev review and only one account can transf
   assert.equal(TRANSFER_USER_ID, '1090083387638812755');
   assert.equal(isApprover('1090083387638812755'), true);
   assert.equal(canTransfer('1090083387638812755'), true);
-  for (const other of ['1099651002208104488', '', null, undefined, '1090083387638812756']) {
+  for (const other of ['1090083387638812754', '', null, undefined, '1090083387638812756']) {
     assert.equal(isApprover(other), false);
     assert.equal(canTransfer(other), false);
   }
@@ -36,7 +36,7 @@ test('the runner script gives the agent a scoped allowlist and sandbox, never a 
   assert.match(script, /approval_policy="never"/);
   assert.match(script, /network_access=false/);
   const allowed = script.match(/CLAUDE_ALLOWED='([^']+)'/)[1];
-  for (const forbidden of ['git push', 'git commit', 'git checkout', 'curl', 'ssh', 'sudo', 'rm', 'split-deploy', 'flock', 'bash']) assert.ok(!allowed.includes(forbidden), forbidden);
+  for (const forbidden of ['git push', 'git commit', 'git checkout', 'curl', 'ssh', 'sudo', 'rm', 'deploy.sh', 'flock', 'bash']) assert.ok(!allowed.includes(forbidden), forbidden);
   // The agent phase never releases: committing, pushing, merging and deploying happen in the script afterwards.
   assert.match(script, /git push -q -u origin "\$branch"/);
   assert.match(script, /flock -w 3600 8/);
@@ -49,15 +49,19 @@ test('the runner script gives the agent a scoped allowlist and sandbox, never a 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-run-'));
   fs.mkdirSync(path.join(dir, 'repo'));
   for (const name of ['PROMPT.md', 'SUBMISSION.md']) fs.writeFileSync(path.join(dir, name), 'x');
-  const split = path.join(dir, 'split.env');
-  fs.writeFileSync(split, 'FBRP_ROLE=control\n');
+  const stubs = path.join(dir, 'stub-bin');
+  fs.mkdirSync(stubs);
+  // The runner only checks that its CLIs exist in dry-run mode; stub them so the test passes on any host.
+  for (const tool of ['claude', 'codex', 'bwrap']) fs.writeFileSync(path.join(stubs, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const live = path.join(dir, 'live');
+  fs.mkdirSync(path.join(live, '.git'), { recursive: true });
   const workspace = path.join(dir, 'ws');
   execFileSync('git', ['init', '-q', workspace]);
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
   for (const name of ['codex']) { fs.writeFileSync(path.join(bin, name), '#!/bin/sh\nexit 99\n'); fs.chmodSync(path.join(bin, name), 0o755); }
   const result = spawnSync('bash', [path.join(root, 'scripts/dev-submission-implement.sh'), '--id', '5', '--agent', 'codex', '--dir', dir], {
-    env: { ...process.env, FBRP_SPLIT_ENV: split, DEV_SUBMISSION_DRY_RUN: '1', DEV_SUBMISSION_WORKSPACE_CODEX: workspace, PATH: `${bin}:${process.env.PATH}` },
+    env: { ...process.env, FBRP_LIVE_ROOT: live, DEV_SUBMISSION_PATH_PREFIX: stubs, DEV_SUBMISSION_DRY_RUN: '1', DEV_SUBMISSION_WORKSPACE_CODEX: workspace, PATH: `${bin}:${process.env.PATH}` },
     encoding: 'utf8',
   });
   assert.equal(result.status, 0, result.stderr);
@@ -87,7 +91,7 @@ test('dev review routes: strangers and staff are refused, the owner can list, th
   assert.equal(await routes.handle(call.args), true);
   assert.equal(call.out.status, 401);
 
-  for (const id of ['1099651002208104488', '123']) {
+  for (const id of ['1090083387638812754', '123']) {
     call = exchange('GET', '/api/dev-review/list', { session: { id } });
     await routes.handle(call.args);
     assert.equal(call.out.status, 403);

@@ -10,8 +10,8 @@ const roleBundle = readFileSync(new URL("../src/role-bundle.js", import.meta.url
 
 test("the dedicated role is the exclusive global 330 MPH tier", () => {
   assert.match(config, /vehicleSpeedTopLimitMph\s*=\s*330/);
-  assert.match(config, /vehicleSpeedTopRoleId\s*=\s*'1566098517427097731'/);
-  assert.doesNotMatch(roleBundle, /1566098517427097731/);
+  assert.match(config, /vehicleSpeedTopRoleId\s*=\s*'1570228685636767760'/);
+  assert.doesNotMatch(roleBundle, /1570228685636767760/);
 
   const resolver = server.match(/local function vehicleSpeedLimitFor\(discord\)([\s\S]*?)\nend/)[1];
   assert.ok(resolver.indexOf("vehicleSpeedTopRoleId") < resolver.indexOf("vehicleSpeedPrivilegedRoleId"));

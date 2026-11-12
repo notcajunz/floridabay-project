@@ -17,7 +17,7 @@ const sale = {
 };
 
 test("Tebex logs go to the configured Discord channel", () => {
-  assert.equal(TEBEX_LOG_CHANNEL_ID, "1558258545672327188");
+  assert.equal(TEBEX_LOG_CHANNEL_ID, "1570228210426183773");
 });
 
 test("a sale embed lists transaction, buyer, products and amount but never email or IP", () => {

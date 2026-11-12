@@ -10,7 +10,7 @@ const phone = read("server-data/config/resources.cfg");
 const resources = "server-data/resources";
 
 test("every resource ensured from the dev transfer ships a manifest in the repository or is a known external pack", () => {
-  const external = new Set(["[roxwood]", "fbrp-LChalloween"]);
+  const external = new Set(["[roxwood]"]);
   for (const name of ["DeathScript", "fbrp_deleteveh", "fbrp_fuel", "fbrp_jail", "fbrp_staffjail", "fbrp-misc", "ox_doorlock", "qx-online", "jaxtti_lib", "jaxtti_core", "jaxtti_collision"]) {
     assert.match(phone, new RegExp(`^ensure ${name}$`, "m"), name);
     assert.ok(fs.existsSync(path.join(root, resources, "[fbrp]", name, "fxmanifest.lua")), `${name} has no manifest`);
@@ -18,9 +18,9 @@ test("every resource ensured from the dev transfer ships a manifest in the repos
   for (const name of external) assert.match(phone, new RegExp(`^ensure ${name.replace(/[[\]]/g, "\\$&")}$`, "m"), name);
 });
 
-test("the Halloween loading screen replaces fbrp_loading explicitly and Roxwood loads", () => {
-  assert.ok(phone.indexOf("stop fbrp_loading") !== -1);
-  assert.ok(phone.indexOf("stop fbrp_loading") < phone.indexOf("ensure fbrp-LChalloween"));
+test("the normal loading screen stays running now the Halloween one is gone, and Roxwood loads", () => {
+  assert.doesNotMatch(phone, /^stop fbrp_loading\b/m);
+  assert.doesNotMatch(phone, /fbrp-LChalloween/);
   assert.match(phone, /^ensure \[roxwood\]$/m);
 });
 

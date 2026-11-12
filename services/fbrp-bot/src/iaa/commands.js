@@ -2,6 +2,7 @@ import { ChannelType, SlashCommandBuilder } from "discord.js";
 import { PERMISSIONS } from "./store.js";
 import { TYPES } from "./intel.js";
 import { AWARDS } from "./awards.js";
+import { docsDefinition } from "./docs-command.js";
 
 const TIERS = [
   { name: "Agents", value: "agent" },
@@ -403,4 +404,4 @@ const admin = new SlashCommandBuilder()
       .addIntegerOption((o) => o.setName("stale_hours").setDescription("Remind case leads after this many idle hours").setMinValue(12).setMaxValue(720)),
   );
 
-export const definitions = [iaa, investigation, discipline, activity, loa, commend, intel, admin].map((c) => c.toJSON());
+export const definitions = [iaa, investigation, discipline, activity, loa, commend, intel, admin, docsDefinition].map((c) => c.toJSON());

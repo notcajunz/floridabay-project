@@ -75,7 +75,7 @@ test("organization setup is gated by the exact Discord role and is visible in bo
     readFile(new URL("../web/app.js", import.meta.url), "utf8"),
     readFile(new URL("../web/portal.js", import.meta.url), "utf8"),
   ]);
-  assert.match(server, /ORGANIZATION_SETUP_ROLE_ID = "1564093317187371109"/);
+  assert.match(server, /ORGANIZATION_SETUP_ROLE_ID = "1570224060967682200"/);
   assert.match(server, /if \(!organizationSetup\) return sendJson\(response, 403/);
   assert.match(control, /view: "orgsetup"/);
   assert.match(control, /post\("organization\/setup"/);

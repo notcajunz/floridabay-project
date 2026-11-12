@@ -34,6 +34,7 @@ import {
   oauthJoinToken,
   clearOAuthAuthorization,
 } from "./verification.js";
+import { currentDiscordId, MAIN_GUILD_ID } from "./discord-ids.js";
 import { saveAll, listBackups, restoreAll, backupBusy } from "./backup.js";
 import {
   OWNER_DISCORD_ID,
@@ -171,22 +172,22 @@ import {
 
 const token = String(process.env.DISCORD_BOT_TOKEN || "");
 if (!token) throw new Error("DISCORD_BOT_TOKEN is required.");
-const COMMUNITY_JOIN_CHANNEL_ID = "1558253012793958431";
+const COMMUNITY_JOIN_CHANNEL_ID = "1570228129195106346";
 const COMMUNITY_JOIN_SERVERS = Object.freeze([
   {
-    id: "1558235113295315004",
+    id: "1570217077669757069",
     label: "Departments Hub",
     description: "Join the central hub for Florida Bay departments",
     emoji: "🏛️",
   },
   {
-    id: "1558950044042797169",
+    id: "1570217330124923040",
     label: "Gangs Hub",
     description: "Join the community hub for Florida Bay gangs",
     emoji: "🔫",
   },
   {
-    id: "1559682840411635813",
+    id: "1570219683137716254",
     label: "Businesses Hub",
     description: "Join the community hub for Florida Bay businesses",
     emoji: "🏢",
@@ -204,7 +205,7 @@ const COMMUNITY_JOIN_SERVERS = Object.freeze([
     emoji: "⭐",
   },
   {
-    id: "1559599608479354992",
+    id: "1570218405171036250",
     label: "DevOps",
     description: "Join the Florida Bay DevOps server",
     emoji: "🛠️",
@@ -4092,9 +4093,15 @@ async function grandfatherVerifiedMembers() {
  * Unverified accounts are kept in a private verification lobby. Verified accounts get the
  * community-member role. Returns true when normal join syncing should stop for this member.
  */
+/** The main server always enforces verification; other servers only while they are on the network list. */
+async function verificationApplies(guildId, rows = networkRows) {
+  if (String(guildId) === MAIN_GUILD_ID) return true;
+  return (await rows()).some((row) => String(row.guild_id) === String(guildId));
+}
+
 async function enforceVerificationOnJoin(member) {
   if (!verificationRequired() || member.user.bot) return false;
-  if (!(await networkRows()).some((row) => String(row.guild_id) === member.guild.id)) return false;
+  if (!(await verificationApplies(member.guild.id))) return false;
   const id = member.id;
   const role = member.guild.roles.cache.get(VERIFIED_ROLE_ID);
   if (await isVerified(db, id)) {
@@ -4223,7 +4230,7 @@ const COMMAND_PERMISSIONS = {
   callsign: "Executive Management rank or higher",
   invites: "`stats` (yourself) and `leaderboard`: Everyone; `stats member:` and `who`: Assistant Community Manager rank or higher",
   role: "Assistant Community Manager rank or higher in the main server; protected roles keep their stricter policy",
-  protectrole: `List: Co-Owner rank or higher and an authorized account (<@${PROTECTED_ROLE_MANAGER_IDS[0]}> or <@${PROTECTED_ROLE_MANAGER_IDS[1]}>). Add/remove: bot owner only (Discord ID 1090083387638812755)`,
+  protectrole: `List: Co-Owner rank or higher and an authorized account (${PROTECTED_ROLE_MANAGER_IDS.map((id) => `<@${id}>`).join(" or ")}). Add/remove: bot owner only (Discord ID 1090083387638812755)`,
   botguard: "View: Co-Owner rank or higher and `fbrp.security.manage`. Changes: bot owner only (Discord ID 1090083387638812755)",
   security: "View and lockdown: Co-Owner rank or higher and `fbrp.security.manage`. Other changes: bot owner only (Discord ID 1090083387638812755)",
   roster: "`fbrp.roster.view`, `fbrp.roster.manage`, `fbrp.roster.discipline`, or `fbrp.roster.config` by action",
@@ -4883,13 +4890,13 @@ async function reverifyCommand(i) {
   });
 }
 
-const WELCOME_CATEGORY_ID = "1558252351624585246";
+const WELCOME_CATEGORY_ID = "1570228076296798378";
 
 /** The welcome channel message: how to fully verify, plus what Florida Bay is. */
 function welcomePayload(guild) {
   const site = publicBase();
   const connect = `connect ${connectUrl().replace(/^fivem:\/\/connect\//, "") || "join.floridabay.net"}`;
-  const ticketChannel = String(process.env.FBRP_TICKET_PANEL_CHANNEL_ID || "");
+  const ticketChannel = currentDiscordId(process.env.FBRP_TICKET_PANEL_CHANNEL_ID || "");
   const help = ticketChannel && guild.channels.cache.has(ticketChannel) ? `open a ticket in <#${ticketChannel}>` : "open a support ticket";
   const embed = card("Welcome to Florida Bay Roleplay", {
     color: COLORS.primary,
@@ -5273,7 +5280,7 @@ client.once("clientReady", async () => {
   // Commands are registered per guild (instant updates) in every server the bot is in, plus any
   // listed in DISCORD_GUILD_IDS. guildCreate below covers servers it joins later.
   const guildIds = new Set([
-    ...String(process.env.DISCORD_GUILD_IDS || process.env.DISCORD_GUILD_ID || "").split(",").map((id) => id.trim()).filter(Boolean),
+    ...String(process.env.DISCORD_GUILD_IDS || process.env.DISCORD_GUILD_ID || "").split(",").map(currentDiscordId).filter(Boolean),
     ...client.guilds.cache.keys(),
   ]);
   for (const guildId of guildIds) {

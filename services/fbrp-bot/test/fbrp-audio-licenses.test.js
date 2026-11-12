@@ -31,7 +31,7 @@ test('vehicle YouTube audio controls require the configured Discord role', () =>
   const clientMain = read(`${base}client/main.lua`);
   const web = read(`${base}web/app.js`);
 
-  assert.match(config, /carRadioRoleId = '1560857811364356218'/);
+  assert.match(config, /carRadioRoleId = '1570227971908833381'/);
   assert.match(main, /discordHasRole\(discord, FBRP\.Config\.carRadioRoleId\)/);
   assert.match(main, /player\.state:set\('fbrp:carRadioAccess'/);
   assert.match(server, /FBRP\.HasCarRadioAccess\(source\)/);

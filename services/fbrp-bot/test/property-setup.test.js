@@ -13,7 +13,7 @@ test('purchases of a property wait for DevOps and announce themselves', () => {
   assert.match(economy, /INSERT INTO org_properties\(item_key,org_id,purchased_by,purchased_at,setup_status\) VALUES\(\?,\?,\?,\?,'pending'\)/);
   assert.match(economy, /propertySetup\?\.announce\(row\.item_key\)/);
   assert.match(economy, /propertySetup\?\.retire\(/);
-  assert.equal(SETUP_CHANNEL_ID, '1559610554430005398');
+  assert.equal(SETUP_CHANNEL_ID, '1570224115569270964');
   const index = source('src/index.js');
   assert.match(index, /propsetup:/);
   assert.match(index, /propertySetup\.start\(\)/);

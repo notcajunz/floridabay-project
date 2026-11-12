@@ -3,6 +3,7 @@ import { quotaSeconds, totals, weekSeconds } from "./quota.js";
 import { C, EPHEMERAL, UserError, card, clip, hours, mention, meter, rel, respond, roleMention, shortRole, ts, pages } from "./util.js";
 import { refreshPanels } from "./panels.js";
 import { demandSlot, describe, resequence, syncNickname } from "./callsigns.js";
+import { offboardDocuments, scheduleRosterSheet } from "./documents-runtime.js";
 
 export { syncNickname };
 
@@ -117,6 +118,7 @@ export async function add(i, actor) {
     ],
   });
   refreshPanels(i.guild, "chain", "directory");
+  scheduleRosterSheet();
   return respond(i, `${member} is now **${rank.name}**${callsign ? ` (\`${callsign}\`)` : ""}.${others ? ` ${others} other callsign(s) shifted.` : ""}`);
 }
 
@@ -161,6 +163,7 @@ export async function move(i, actor, direction) {
     ],
   });
   refreshPanels(i.guild, "chain", "directory");
+  scheduleRosterSheet();
   return respond(i, `${member}: **${from.name}** ➜ **${to.name}**${callsign ? ` · \`${callsign}\`` : ""}${record?.rank_changed_at ? ` (previous rank held since ${ts(record.rank_changed_at, "D")})` : ""}.${others ? ` ${others} other callsign(s) shifted.` : ""}`);
 }
 
@@ -186,7 +189,29 @@ export async function separate(guild, member, { actorId, reason, retire = false,
   await movement(guild, retire ? "retirement" : "separation", { member, from, to: null, actorId, reason, callsign: record?.callsign });
   await resequence(guild, { actorId, reason: `${member.user.username} left the roster` });
   refreshPanels(guild, "chain", "directory");
+  await offboardDocuments(member.id, { by: actorId, reason: `${retire ? "retired" : "removed"}: ${reason}` });
   return { from, retiredRole: add[0] || null };
+}
+
+/**
+ * Automatic offboarding for someone who leaves the IAA server while still on the roster. Their roles
+ * are already gone with them, so only the record, callsign, discipline flags and document access need closing.
+ */
+export async function autoSeparate(guild, user) {
+  const record = await memberRecord(user.id);
+  if (!record || record.status === "removed") return null;
+  const from = record.rank_role_id ? await rankById(record.rank_role_id) : null;
+  const now = Date.now();
+  await db.query("UPDATE iaa_members SET status='removed',callsign=NULL,rank_role_id=NULL,removed_at=?,updated_at=? WHERE discord_id=?", [now, now, user.id]);
+  await db.query("UPDATE iaa_discipline SET active=0 WHERE discord_id=? AND kind IN ('suspension','strike','inactivity') AND active=1", [user.id]);
+  const actorId = guild.client.user.id;
+  const reason = "Left the IAA server";
+  await history(user.id, "remove", actorId, { from: from?.role_id || null, reason });
+  await movement(guild, "separation", { member: { id: user.id }, from, to: null, actorId, reason, callsign: record.callsign });
+  await resequence(guild, { actorId, reason: `${user.username} left the server` });
+  refreshPanels(guild, "chain", "directory");
+  await offboardDocuments(user.id, { by: actorId, reason });
+  return { from };
 }
 
 export async function remove(i, actor) {

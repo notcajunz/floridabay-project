@@ -20,6 +20,9 @@ export const PERMISSIONS = {
   "activity.manage": { tier: "low_command", label: "Activity reports and inactivity warnings" },
   "award.give": { tier: "low_command", label: "Commendations" },
   "award.medal": { tier: "high_command", label: "Medals and Agent of the Month" },
+  "docs.grant": { tier: "low_command", label: "Give agents access to the roster and SOP documents" },
+  "docs.locked": { tier: "high_command", label: "Give agents access to the locked alt database" },
+  "docs.alts": { tier: "low_command", label: "Add and remove alt-account records" },
   admin: { tier: "high_command", label: "Bot setup and configuration" },
 };
 
@@ -45,7 +48,7 @@ export const DEFAULT_SETTINGS = {
   // Every other rank is numbered in rank order from here.
   callsignStart: 30,
   // Given to everyone appointed through /iaa add.
-  addRoles: ["1558227271754457122", "1558227271754457121", "1558227271662309573", "1558227271662309572"],
+  addRoles: ["1570223214473388116", "1570223215626952714", "1570223235327336538", "1570223236405530624"],
 };
 
 /* ------------------------------------------------------------------ config */

@@ -6,7 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const script = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts/split-deploy.sh"), "utf8");
+const scriptsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../scripts");
+// The release script and the game-file step it runs together make up the deployment.
+const script = ["deploy.sh", "apply-game-files.sh"].map((name) => fs.readFileSync(path.join(scriptsDir, name), "utf8")).join("\n");
 
 /** Run the script's two pure helpers on sample input in a real bash. */
 const bash = (body) => {
@@ -25,7 +27,7 @@ test("inactive Enhanced config and active legacy vMenu addon edits never block a
   assert.equal(out, "server-data/resources/[standalone]/vMenu.Enhanced/fxmanifest.lua\n");
 });
 
-test("game deploys atomically switch the untracked server config to legacy vMenu", () => {
+test("deploys atomically switch the untracked server config to legacy vMenu", () => {
   assert.match(script, /grep -Fxq 'ensure vMenu\.Enhanced' "\$server_cfg"/);
   assert.match(script, /\$0 == "ensure vMenu\.Enhanced"\) print "ensure vMenu"/);
   assert.match(script, /grep -Fxq 'ensure vMenu' "\$server_cfg"/);
@@ -54,11 +56,25 @@ test("the active seasonal loading screen receives the canonical staff config", (
     assert.match(source, /scripts\/sync-loading-config\.sh" "\$canonical_loading_config" "\$active_loading_config"/);
   }
   const config = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../server-data/resources/[fbrp]/fbrp_loading/web/assets/scripts/config.js"), "utf8");
-  assert.doesNotMatch(config, /! 103 Mercer/);
-  assert.doesNotMatch(config, /chronic/i);
-  assert.match(config, /name: "! 103 Scarface"/);
-  assert.match(config, /name: "! 104 Saif"[\s\S]{0,80}description: \["Co-Owner"\]/);
-  assert.match(config, /name: "! 106 Revan"[\s\S]{0,80}description: \["Executive Management"\]/);
+  // The Team tab lists the whole owner and co-owner chain, in callsign order, each with a Discord avatar.
+  const team = [
+    ["! 101 cajunz", "Owner", "1090083387638812755"],
+    ["! 102 Jaxtti", "Owner", "1467063344140779601"],
+    ["! 103 Loafy", "Owner", "926270204193964062"],
+    ["! 104 Tucker", "Co-Owner", "1099651002208104488"],
+    ["! 105 Scarface", "Co-Owner", "618108970086694928"],
+  ];
+  let at = -1;
+  for (const [name, rank, id] of team) {
+    const next = config.indexOf(`name: "${name}"`);
+    assert.ok(next > at, `${name} is listed in order`);
+    at = next;
+    const entry = config.slice(next, config.indexOf("},", next));
+    assert.match(entry, new RegExp(`description: \\["${rank}"\\]`));
+    assert.match(entry, new RegExp(`image: "https://cdn\\.discordapp\\.com/avatars/${id}/[a-z0-9_]+\\.(webp|gif)\\?size=1024"`));
+  }
+  assert.equal((config.match(/description: \["Owner"\]/g) || []).length, 3);
+  assert.equal((config.match(/description: \["Co-Owner"\]/g) || []).length, 2);
 });
 
 test("any other tracked change still blocks, even beside vehicle edits", () => {

@@ -1,43 +1,43 @@
 # FBRP | Department Hub. The Discord token stays in .env. IDs must be unquoted integers; 0 disables.
 [bot]
-guild_id = 1558235113295315004
-owner_ids = [1090083387638812755, 1099651002208104488]
+guild_id = 1570217077669757069
+owner_ids = [1090083387638812755]
 database_path = "department_manager.db"
 # Network management passes every rank check: FBRP | Management Team, FBRP | Management.
-bypass_role_ids = [1560418068990267485, 1560393369866211339]
+bypass_role_ids = [1570223488592257065, 1560393369866211339]
 
 # Channels.
-movement_channel_id = 1560394297067442338            # Department Coord / admin-movements: department created, registered, org linked, removed
-member_movement_channel_id = 1560394301429649528     # Department Coord / movements: members joining, leaving, transferring
-coord_movement_channel_id = 1560394346661027931      # Admin Section / admin-movements: coordinator hires, promotions, removals
-status_channel_id = 1560394447521583165              # dept-status-change
-chain_of_command_channel_id = 1560394235180490793    # chain-of-command (the only CoC list)
-hours_channel_id = 1560394222799163392               # dept-leaderboard (hours per department)
+movement_channel_id = 1570223595848867840            # Department Coord / admin-movements: department created, registered, org linked, removed
+member_movement_channel_id = 1570223602702491789     # Department Coord / movements: members joining, leaving, transferring
+coord_movement_channel_id = 1570223595043557406      # Admin Section / admin-movements: coordinator hires, promotions, removals
+status_channel_id = 1570223630242283632              # dept-status-change
+chain_of_command_channel_id = 1570223582271905802    # chain-of-command (the only CoC list)
+hours_channel_id = 1570223580346589204               # dept-leaderboard (hours per department)
 transfer_log_channel_id = 1560394430991831120        # transfer-logs
-transfer_blacklist_log_channel_id = 1560394439027859477
-role_conflict_channel_id = 1560394400662556752       # dc-logs
-email_channel_id = 1560774865164705822               # email-approvals: access requests for SDC+ to approve or deny
-email_log_channel_id = 1560394391816773702           # email-logs: registrations, requests, decisions, wipes, department tabs
-punishment_channel_ids = [1560394377443016844]       # dc-punishment-logs
+transfer_blacklist_log_channel_id = 1570223620066648126
+role_conflict_channel_id = 1570223616149291148       # dc-logs
+email_channel_id = 1570223615365091441               # email-approvals: access requests for SDC+ to approve or deny
+email_log_channel_id = 1570223612554780838           # email-logs: registrations, requests, decisions, wipes, department tabs
+punishment_channel_ids = [1570223611535429652]       # dc-punishment-logs
 custom_message_log_channel_id = 1560394337131565179  # custom-msg-logs (/dm send, /embed)
-member_log_channel_id = 1560394541150896238
-join_leave_log_channel_id = 1560394541150896238
-channel_log_channel_id = 1560394546397839410
-server_log_channel_id = 1560394579499556975
+member_log_channel_id = 1570223645333266492
+join_leave_log_channel_id = 1570223645333266492
+channel_log_channel_id = 1570223646860116080
+server_log_channel_id = 1570223651381448817
 message_log_channel_id = 0                           # no message-log channel in the Hub
 
 # Roles.
-member_role_id = 1560393920364544070                 # Member, given on join
-transfer_blacklist_role_id = 1560393498639736834
+member_role_id = 1570223558116909069                 # Member, given on join
+transfer_blacklist_role_id = 1570223520183615603
 suspension_role_id = 0                               # suspensions are logged without a role
-launch_group_role_id = 1560393409942917210           # Department Launch Group: may run /dept add and /dept remove
+launch_group_role_id = 1570223501447659690           # Department Launch Group: may run /dept add and /dept remove
 roster_spreadsheet_id = "1bRyk4fZTHKFkcXKPtO7jzLls8vQFVwCnOGE131Vc6AI"  # FBRP | Department Coordination: /coord add|remove|job fill its Master Roster
 email_spreadsheet_id = "1bEGs0zukEDQs7a9D8x920umCglZEiUazzUkPVft-V_o"  # FBRP | Department Email Database: resolves same-day archive name collisions
 email_approver_rank = "Senior Department Coordinator"  # SDC and above approve email database access
-coord_team_role_id = 1560393453479657563             # FBRP | Department Coordinator, given with every rank from it up
+coord_team_role_id = 1570223508737228931             # FBRP | Department Coordinator, given with every rank from it up
 multi_department_bypass_role_ids = []
 restricted_role_ids = []
-restricted_role_manager_role_ids = [1560393378485637140, 1560393380939300884]
+restricted_role_manager_role_ids = [1570223491884650549, 1570223492966785045]
 
 transfer_cooldown_days = 7
 resignation_cooldown_days = 3
@@ -52,15 +52,15 @@ manager = "Assistant Department Manager"
 director = "Assistant Department Director"
 
 [bot.coordinator_role_ids]
-"Department Overseer" = 1560393378485637140
-"Department Director" = 1560393380939300884
-"Assistant Department Director" = 1560393383527059477
-"Department Manager" = 1560393388933513226
-"Assistant Department Manager" = 1560393390938529862
-"Lead Department Coordinator" = 1560393399935307866
-"Senior Department Coordinator" = 1560393402477051914
-"Department Coordinator" = 1560393453479657563
-"Probationary Department Coordinator" = 1560393456323534958
+"Department Overseer" = 1570223491884650549
+"Department Director" = 1570223492966785045
+"Assistant Department Director" = 1570223493855969350
+"Department Manager" = 1570223494740840570
+"Assistant Department Manager" = 1570223495437230131
+"Lead Department Coordinator" = 1570223498213720074
+"Senior Department Coordinator" = 1570223498943668274
+"Department Coordinator" = 1570223508737228931
+"Probationary Department Coordinator" = 1570223509282754691
 
 # Rank text in the roster sheet's Rank column when it differs from the ladder name.
 [bot.roster_rank_labels]
@@ -70,38 +70,38 @@ director = "Assistant Department Director"
 
 # DC jobs. Shown under the chain of command and handed out with /coord job.
 [bot.coordinator_job_role_ids]
-"Armed Forces Department Coordinator" = 1560393459162943489
-"CAD Administrator" = 1560393407266955476
-"Department Launch Group" = 1560393409942917210
-"Document Creation Coordinator" = 1560393412606427227
+"Armed Forces Department Coordinator" = 1570223510029344789
+"CAD Administrator" = 1570223500856135841
+"Department Launch Group" = 1570223501447659690
+"Document Creation Coordinator" = 1570223501988864155
 "Any Dept. Coordinator" = 1560393415982583849
-"Recruitment Coordinator" = 1560393419774234717
+"Recruitment Coordinator" = 1570223503255404614
 "Volunteer Officer Coordinator" = 1560393422282432602
-"DOJ Coordinator" = 1560393424803463219
+"DOJ Coordinator" = 1570223503918104717
 "FAA Coordinator" = 1560393428548984995
-"EMS Coordinator" = 1560393431086272512
-"In-Game Coordinator" = 1560393433951240293
-"Transfer Coordinator" = 1560393436081692805
-"Community Engagement" = 1560393445657411694
+"EMS Coordinator" = 1570223504929067008
+"In-Game Coordinator" = 1570223505654554624
+"Transfer Coordinator" = 1570223506166120489
+"Community Engagement" = 1570223506757648496
 
 # Divider roles members get while they hold a department in the category.
 [bot.category_member_role_ids]
-"Main LEO" = 1560393506449522879
-"Main FED" = 1560393506449522879
-"Pre-Main" = 1560393604856422460
-"Armed Forces" = 1560393657163456634
+"Main LEO" = 1570223533248876575
+"Main FED" = 1570223533248876575
+"Pre-Main" = 1570223545584455683
+"Armed Forces" = 1570223547266105456
 
 [bot.transfer_cooldown_role_ids]
-"Main LEO" = 1560393895731265648
-"Main FED" = 1560393898851962981
-"Pre-Main" = 1560393901167218729
-"Armed Forces" = 1560393904296042596
+"Main LEO" = 1570223552026902650
+"Main FED" = 1570223552987140177
+"Pre-Main" = 1570223553708687462
+"Armed Forces" = 1570223554203488376
 
 [bot.resignation_cooldown_role_ids]
-"Main LEO" = 1560393906766610442
-"Main FED" = 1560393910054953011
-"Pre-Main" = 1560393912231657492
-"Armed Forces" = 1560393914337206403
+"Main LEO" = 1570223554736300072
+"Main FED" = 1570223555436613682
+"Pre-Main" = 1570223556128804976
+"Armed Forces" = 1570223556388720773
 
 [access]
 # When true, these two groups bypass command allowlists/denylists.
@@ -115,7 +115,7 @@ owners_bypass = true
 # Exact command rules override category rules, for example:
 # [access.commands."transfer member"]
 # mode = "allowlist"
-# roles = [1560393436081692805]
+# roles = [1570223506166120489]
 
 [access.categories.departments]
 mode = "inherit"
@@ -185,20 +185,20 @@ commands = [
 # are its staff_role_ids plus admin_role_ids; ping_role_ids are mentioned when a ticket opens.
 # Open/close events go to log_channel_id; transcripts go to the type's transcript_channel_id.
 [tickets]
-panel_channel_id = 1560394239253413960        # Important Information / ticket-selection
-log_channel_id = 1560394372892074145          # Admin Section / dc-ticket-logs
+panel_channel_id = 1570223583114956873        # Important Information / ticket-selection
+log_channel_id = 1570223610507956324          # Admin Section / dc-ticket-logs
 max_open = 3
 cooldown_seconds = 60
 delete_closed_after_hours = 24                # closed channels are removed after this long; 0 keeps them
 admin_role_ids = [
-  1560393378485637140,                        # Department Overseer
-  1560393380939300884,                        # Department Director
-  1560393383527059477,                        # Assistant Department Director
-  1560393393866281072,                        # Ticket Admin
-  1560418068990267485,                        # FBRP | Management Team
+  1570223491884650549,                        # Department Overseer
+  1570223492966785045,                        # Department Director
+  1570223493855969350,                        # Assistant Department Director
+  1570223496435601450,                        # Ticket Admin
+  1570223488592257065,                        # FBRP | Management Team
   1560393369866211339,                        # FBRP | Management
 ]
-blacklist_role_ids = [1560393501257109514]    # Blacklisted From Tickets
+blacklist_role_ids = [1570223521098113024]    # Blacklisted From Tickets
 panel_title = "FBRP | Department Hub Support"
 panel_description = "Pick the kind of ticket you need. A private channel opens for you and the right staff."
 
@@ -207,32 +207,32 @@ key = "cad"
 label = "CAD Tickets"
 description = "CAD access, setup and problems."
 category_id = 1560394137746800650
-transcript_channel_id = 1560394566048292884   # cad-transcripts
-staff_role_ids = [1560393407266955476, 1560393388933513226, 1560393390938529862]   # CAD Administrator, Department Manager, Assistant Department Manager
+transcript_channel_id = 1570223649816838305   # cad-transcripts
+staff_role_ids = [1570223500856135841, 1570223494740840570, 1570223495437230131]   # CAD Administrator, Department Manager, Assistant Department Manager
 
 [[tickets.types]]
 key = "hub_request"
 label = "Department Hub Requests"
 description = "Department launches, registrations and other Hub requests."
-category_id = 1560394144462151710
-transcript_channel_id = 1560394561010925598   # general-transcripts
-staff_role_ids = [1560393409942917210, 1560393388933513226, 1560393390938529862]   # Department Launch Group, Department Manager, Assistant Department Manager
+category_id = 1570223570926178374
+transcript_channel_id = 1570223648986374164   # general-transcripts
+staff_role_ids = [1570223501447659690, 1570223494740840570, 1570223495437230131]   # Department Launch Group, Department Manager, Assistant Department Manager
 
 [[tickets.types]]
 key = "support"
 label = "Support Tickets"
 description = "General questions and help with departments."
-category_id = 1560394151546323046
-transcript_channel_id = 1560394556468363465   # ticket-transcripts
+category_id = 1570223571878420600
+transcript_channel_id = 1570223648118411324   # ticket-transcripts
 staff_role_ids = [
-  1560393388933513226, 1560393390938529862, 1560393399935307866,
-  1560393402477051914, 1560393453479657563, 1560393456323534958,
+  1570223494740840570, 1570223495437230131, 1570223498213720074,
+  1570223498943668274, 1570223508737228931, 1570223509282754691,
 ]
 
 [[tickets.types]]
 key = "report"
 label = "Report Tickets"
 description = "Report a department, member or rule violation."
-category_id = 1560394167610249356
-transcript_channel_id = 1560394570951557141   # report-transcripts
-staff_role_ids = [1560393388933513226, 1560393390938529862, 1560393399935307866]
+category_id = 1570223572713082940
+transcript_channel_id = 1570223650567888916   # report-transcripts
+staff_role_ids = [1570223494740840570, 1570223495437230131, 1570223498213720074]

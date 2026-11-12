@@ -28,100 +28,100 @@ class Config:
     administrators_bypass: bool = True
     owners_bypass: bool = True
     tickets: TicketSettings = field(default_factory=TicketSettings)
-    launch_channel_id: int = 1559683475148112043
-    role_action_channel_id: int = 1559683682594455654
-    role_conflict_channel_id: int = 1559683822600061051
-    staff_bypass_channel_id: int = 1559683804963278988
-    staff_bypass_reviewer_role_id: int = 1559682511834189974
-    staff_bypass_grant_role_id: int = 1559683033576247326
+    launch_channel_id: int = 1570223789919174796
+    role_action_channel_id: int = 1570223877018353755
+    role_conflict_channel_id: int = 1570223903454920837
+    staff_bypass_channel_id: int = 1570223895875821588
+    staff_bypass_reviewer_role_id: int = 1570223692502278167
+    staff_bypass_grant_role_id: int = 1570223752002797688
     multi_gang_bypass_role_ids: tuple[int, ...] = (
-        1559682626011402332,
+        1570223721417801819,
         0,
-        1559682511834189974,
+        1570223692502278167,
     )
-    alliance_log_channel_id: int = 1559683835439095908
+    alliance_log_channel_id: int = 1570223906847989952
     punishment_channel_ids: tuple[int, ...] = (
-        1559683791583191151,
-        1559683676328034356,
+        1570223891757015103,
+        1570223876057862164,
     )
-    suspension_role_id: int = 1559682552145379408
-    suspension_log_channel_id: int = 1559683676328034356
+    suspension_role_id: int = 1570223704946905098
+    suspension_log_channel_id: int = 1570223876057862164
     parole_days: int = 3
-    role_management_admin_role_id: int = 1559682499251146772
-    gang_role_blocker_role_id: int = 1559682547099631696
-    gang_command_role_blocker_role_id: int = 1559682550044037120
-    coord_chain_channel_id: int = 1559683447470166157
-    gang_tier_channel_id: int = 1559683469041471508
+    role_management_admin_role_id: int = 1570223690203926562
+    gang_role_blocker_role_id: int = 1570223703537487943
+    gang_command_role_blocker_role_id: int = 1570223704175018056
+    coord_chain_channel_id: int = 1570223782780739665
+    gang_tier_channel_id: int = 1570223787734073354
     voice_management_role_ids: tuple[int, ...] = (
         0,
         0,
         0,
-        1559682511834189974,
-        1559682499251146772,
+        1570223692502278167,
+        1570223690203926562,
     )
-    trade_channel_id: int = 1559683574670692553
-    shop_channel_id: int = 1559683570438635550
-    leaderboard_channel_id: int = 1559683565007020072
-    hours_channel_id: int = 1559683464347918366
-    market_log_channel_id: int = 1559683584246153276
-    location_channel_id: int = 1559683615875407912
-    server_log_channel_id: int = 1559683839851241573
-    voice_log_channel_id: int = 1559683844670750730
-    message_log_channel_id: int = 1559683848982503434
-    join_leave_log_channel_id: int = 1559683853524795423
-    member_log_channel_id: int = 1559683857844936877
-    gang_member_role_id: int = 1559682966467117066
-    gang_coord_team_role_id: int = 1559682517659943033
-    gang_add_remove_role_id: int = 1559682499251146772
+    trade_channel_id: int = 1570223829257818172
+    shop_channel_id: int = 1570223827332632626
+    leaderboard_channel_id: int = 1570223824627175559
+    hours_channel_id: int = 1570223786609877162
+    market_log_channel_id: int = 1570223833905106985
+    location_channel_id: int = 1570223864812802178
+    server_log_channel_id: int = 1570223907703759012
+    voice_log_channel_id: int = 1570223908794404937
+    message_log_channel_id: int = 1570223910199234642
+    join_leave_log_channel_id: int = 1570223911063527445
+    member_log_channel_id: int = 1570223911877087413
+    gang_member_role_id: int = 1570223731496722472
+    gang_coord_team_role_id: int = 1570223694373199944
+    gang_add_remove_role_id: int = 1570223690203926562
     restricted_role_ids: tuple[int, ...] = (
-        1559682626011402332,
+        1570223721417801819,
         0,
     )
     restricted_role_manager_role_ids: tuple[int, ...] = (
-        1559682496549879808,
-        1559682494364647524,
+        1570223689096495206,
+        1570223688689778728,
     )
     gang_manager_plus_role_ids: tuple[int, ...] = (
-        1559682494364647524,
-        1559682496549879808,
-        1559682499251146772,
+        1570223688689778728,
+        1570223689096495206,
+        1570223690203926562,
     )
     coordinator_role_ids: dict[str, int] = field(default_factory=lambda: {
-        "Gang Director": 1559682494364647524,
-        "Assistant Gang Director": 1559682496549879808,
-        "Gang Manager": 1559682499251146772,
-        "Lead Gang Coordinator": 1559682506033209404,
-        "Senior Gang Coordinator": 1559682509233586266,
-        "Gang Coordinator": 1559682511834189974,
-        "Trial Gang Coordinator": 1559682514518544474,
+        "Gang Director": 1570223688689778728,
+        "Assistant Gang Director": 1570223689096495206,
+        "Gang Manager": 1570223690203926562,
+        "Lead Gang Coordinator": 1570223690799644805,
+        "Senior Gang Coordinator": 1570223691751620628,
+        "Gang Coordinator": 1570223692502278167,
+        "Trial Gang Coordinator": 1570223693668552804,
     })
     category_coordinator_role_ids: dict[str, int] = field(default_factory=lambda: {
-        "Cartel": 1559682533405495336,
-        "Militia": 1559682529915834382,
-        "Criminal Org": 1559682522407768246,
-        "Street Gang": 1559682525247439068,
-        "Motorcycle Club": 1559682527638061106,
+        "Cartel": 1570223699427332146,
+        "Militia": 1570223698731081839,
+        "Criminal Org": 1570223695551664193,
+        "Street Gang": 1570223696164032536,
+        "Motorcycle Club": 1570223697166602301,
     })
     category_member_role_ids: dict[str, int] = field(default_factory=lambda: {
-        "Cartel": 1559683006413934733,
-        "Militia": 1559683004010463294,
-        "Criminal Org": 1559683002051723386,
-        "Street Gang": 1559682999149264896,
-        "Motorcycle Club": 1559683010075299880,
+        "Cartel": 1570223748534243371,
+        "Militia": 1570223747275817022,
+        "Criminal Org": 1570223746017529866,
+        "Street Gang": 1570223745090715769,
+        "Motorcycle Club": 1570223750186799204,
     })
     parole_role_ids: dict[str, int] = field(default_factory=lambda: {
-        "Cartel": 1559682576250179725,
-        "Militia": 1559682579064553502,
-        "Criminal Org": 1559682598349840414,
-        "Street Gang": 1559682573247053989,
-        "Motorcycle Club": 1559682594231291905,
+        "Cartel": 1570223713968722091,
+        "Militia": 1570223714572959906,
+        "Criminal Org": 1570223715671605412,
+        "Street Gang": 1570223713087922186,
+        "Motorcycle Club": 1570223715227144243,
     })
     coord_channel_ids: dict[str, int] = field(default_factory=lambda: {
-        "Cartel": 1559684037797355551,
-        "Militia": 1559684005564260454,
-        "Criminal Org": 1559684064708005928,
-        "Street Gang": 1559684130336284692,
-        "Motorcycle Club": 1559684092163915876,
+        "Cartel": 1570223962456334366,
+        "Militia": 1570223953325072569,
+        "Criminal Org": 1570223971876478976,
+        "Street Gang": 1570223990008582154,
+        "Motorcycle Club": 1570223979359248537,
     })
 
     def access_decision(
@@ -206,51 +206,51 @@ class Config:
             ),
             guild_id=int(guild_raw) if guild_raw else None,
             owner_ids=owners,
-            admin_role_id=int(bot_config.get("admin_role_id", 1559682494364647524)),
+            admin_role_id=int(bot_config.get("admin_role_id", 1570223688689778728)),
             command_access=rules,
             administrators_bypass=bool(access_config.get("administrators_bypass", True)),
             owners_bypass=bool(access_config.get("owners_bypass", True)),
             tickets=parse_tickets(raw.get("tickets")),
-            launch_channel_id=int(bot_config.get("launch_channel_id", 1559683475148112043)),
-            role_action_channel_id=int(bot_config.get("role_action_channel_id", 1559683682594455654)),
-            role_conflict_channel_id=int(bot_config.get("role_conflict_channel_id", 1559683822600061051)),
-            staff_bypass_channel_id=int(bot_config.get("staff_bypass_channel_id", 1559683804963278988)),
-            staff_bypass_reviewer_role_id=int(bot_config.get("staff_bypass_reviewer_role_id", 1559682511834189974)),
-            staff_bypass_grant_role_id=int(bot_config.get("staff_bypass_grant_role_id", 1559683033576247326)),
+            launch_channel_id=int(bot_config.get("launch_channel_id", 1570223789919174796)),
+            role_action_channel_id=int(bot_config.get("role_action_channel_id", 1570223877018353755)),
+            role_conflict_channel_id=int(bot_config.get("role_conflict_channel_id", 1570223903454920837)),
+            staff_bypass_channel_id=int(bot_config.get("staff_bypass_channel_id", 1570223895875821588)),
+            staff_bypass_reviewer_role_id=int(bot_config.get("staff_bypass_reviewer_role_id", 1570223692502278167)),
+            staff_bypass_grant_role_id=int(bot_config.get("staff_bypass_grant_role_id", 1570223752002797688)),
             multi_gang_bypass_role_ids=tuple(
                 int(value)
                 for value in bot_config.get(
                     "multi_gang_bypass_role_ids",
                     [
                         bot_config.get(
-                            "multi_gang_bypass_role_id", 1559682626011402332
+                            "multi_gang_bypass_role_id", 1570223721417801819
                         ),
                         0,
-                        1559682511834189974,
+                        1570223692502278167,
                     ],
                 )
             ),
-            alliance_log_channel_id=int(bot_config.get("alliance_log_channel_id", 1559683835439095908)),
-            punishment_channel_ids=tuple(int(value) for value in bot_config.get("punishment_channel_ids", [1559683791583191151, 1559683676328034356])),
-            suspension_role_id=int(bot_config.get("suspension_role_id", 1559682552145379408)),
-            suspension_log_channel_id=int(bot_config.get("suspension_log_channel_id", 1559683676328034356)),
+            alliance_log_channel_id=int(bot_config.get("alliance_log_channel_id", 1570223906847989952)),
+            punishment_channel_ids=tuple(int(value) for value in bot_config.get("punishment_channel_ids", [1570223891757015103, 1570223876057862164])),
+            suspension_role_id=int(bot_config.get("suspension_role_id", 1570223704946905098)),
+            suspension_log_channel_id=int(bot_config.get("suspension_log_channel_id", 1570223876057862164)),
             parole_days=int(bot_config.get("parole_days", 3)),
             role_management_admin_role_id=int(
-                bot_config.get("role_management_admin_role_id", 1559682499251146772)
+                bot_config.get("role_management_admin_role_id", 1570223690203926562)
             ),
             gang_role_blocker_role_id=int(
-                bot_config.get("gang_role_blocker_role_id", 1559682547099631696)
+                bot_config.get("gang_role_blocker_role_id", 1570223703537487943)
             ),
             gang_command_role_blocker_role_id=int(
                 bot_config.get(
-                    "gang_command_role_blocker_role_id", 1559682550044037120
+                    "gang_command_role_blocker_role_id", 1570223704175018056
                 )
             ),
             coord_chain_channel_id=int(
-                bot_config.get("coord_chain_channel_id", 1559683447470166157)
+                bot_config.get("coord_chain_channel_id", 1570223782780739665)
             ),
             gang_tier_channel_id=int(
-                bot_config.get("gang_tier_channel_id", 1559683469041471508)
+                bot_config.get("gang_tier_channel_id", 1570223787734073354)
             ),
             voice_management_role_ids=tuple(
                 int(value)
@@ -259,48 +259,48 @@ class Config:
                     [
                         0,
                         0,
-                        1559682511834189974,
-                        1559682499251146772,
+                        1570223692502278167,
+                        1570223690203926562,
                     ],
                 )
             ),
-            trade_channel_id=int(bot_config.get("trade_channel_id", 1559683574670692553)),
-            shop_channel_id=int(bot_config.get("shop_channel_id", 1559683570438635550)),
+            trade_channel_id=int(bot_config.get("trade_channel_id", 1570223829257818172)),
+            shop_channel_id=int(bot_config.get("shop_channel_id", 1570223827332632626)),
             leaderboard_channel_id=int(
-                bot_config.get("leaderboard_channel_id", 1559683565007020072)
+                bot_config.get("leaderboard_channel_id", 1570223824627175559)
             ),
-            hours_channel_id=int(bot_config.get("hours_channel_id", 1559683464347918366)),
+            hours_channel_id=int(bot_config.get("hours_channel_id", 1570223786609877162)),
             market_log_channel_id=int(
-                bot_config.get("market_log_channel_id", 1559683584246153276)
+                bot_config.get("market_log_channel_id", 1570223833905106985)
             ),
-            location_channel_id=int(bot_config.get("location_channel_id", 1559683615875407912)),
-            server_log_channel_id=int(bot_config.get("server_log_channel_id", 1559683839851241573)),
-            voice_log_channel_id=int(bot_config.get("voice_log_channel_id", 1559683844670750730)),
-            message_log_channel_id=int(bot_config.get("message_log_channel_id", 1559683848982503434)),
-            join_leave_log_channel_id=int(bot_config.get("join_leave_log_channel_id", 1559683853524795423)),
-            member_log_channel_id=int(bot_config.get("member_log_channel_id", 1559683857844936877)),
-            gang_member_role_id=int(bot_config.get("gang_member_role_id", 1559682966467117066)),
+            location_channel_id=int(bot_config.get("location_channel_id", 1570223864812802178)),
+            server_log_channel_id=int(bot_config.get("server_log_channel_id", 1570223907703759012)),
+            voice_log_channel_id=int(bot_config.get("voice_log_channel_id", 1570223908794404937)),
+            message_log_channel_id=int(bot_config.get("message_log_channel_id", 1570223910199234642)),
+            join_leave_log_channel_id=int(bot_config.get("join_leave_log_channel_id", 1570223911063527445)),
+            member_log_channel_id=int(bot_config.get("member_log_channel_id", 1570223911877087413)),
+            gang_member_role_id=int(bot_config.get("gang_member_role_id", 1570223731496722472)),
             gang_coord_team_role_id=int(
-                bot_config.get("gang_coord_team_role_id", 1559682517659943033)
+                bot_config.get("gang_coord_team_role_id", 1570223694373199944)
             ),
             gang_add_remove_role_id=int(
-                bot_config.get("gang_add_remove_role_id", 1559682499251146772)
+                bot_config.get("gang_add_remove_role_id", 1570223690203926562)
             ),
             restricted_role_ids=tuple(
                 int(value) for value in bot_config.get(
-                    "restricted_role_ids", [1559682626011402332, 0]
+                    "restricted_role_ids", [1570223721417801819, 0]
                 )
             ),
             restricted_role_manager_role_ids=tuple(
                 int(value) for value in bot_config.get(
                     "restricted_role_manager_role_ids",
-                    [1559682496549879808, 1559682494364647524],
+                    [1570223689096495206, 1570223688689778728],
                 )
             ),
             gang_manager_plus_role_ids=tuple(
                 int(value) for value in bot_config.get(
                     "gang_manager_plus_role_ids",
-                    [1559682494364647524, 1559682496549879808, 1559682499251146772],
+                    [1570223688689778728, 1570223689096495206, 1570223690203926562],
                 )
             ),
             coordinator_role_ids={

@@ -1,7 +1,7 @@
 import { C, card, mention, ts } from "./util.js";
 
 export const MAIN_GUILD_ID = String(process.env.IAA_MAIN_GUILD_ID || "1557594282976747550");
-export const MAIN_LEAVE_LOG_CHANNEL_ID = String(process.env.IAA_MAIN_LEAVE_LOG_CHANNEL_ID || "1564407236862808154");
+export const MAIN_LEAVE_LOG_CHANNEL_ID = String(process.env.IAA_MAIN_LEAVE_LOG_CHANNEL_ID || "1570228249165037579");
 
 const duration = (ms) => {
   const days = Math.max(0, Math.floor(Number(ms) / 86_400_000));

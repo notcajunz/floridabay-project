@@ -13,7 +13,7 @@ test("coordination ranks and manager rules use distinct snowflakes", () => {
     assert.match(id, /^\d{17,20}$/);
   assert.ok(config.COORD_RANKS.some((rank) => rank.name === config.MANAGER_RANK));
   assert.deepEqual(config.MANAGER_ROLE_RULES.map((rule) => rule.targetRole).sort(), [
-    "1559120256788861008",
+    "1570227917504385096",
   ]);
   assert.deepEqual(config.MANAGER_ROLE_RULES.map((rule) => rule.key), ["dev"]);
   const dev = config.MANAGER_ROLE_RULES.find((rule) => rule.key === "dev");

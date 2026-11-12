@@ -21,7 +21,7 @@ def roster_rows():
     """A trimmed copy of the real Master Roster: header at row 6, ranks in column D."""
     rows = [[] for _ in range(9)]
     rows[5] = ["", "Discord ID", "Name", "Rank", "Notes"]
-    rows.append(["", "1099651002208104488", "Tucker", "Head of Departments", "Oversee Departments"])
+    rows.append(["", "1090083387638812754", "Test Director", "Head of Departments", "Oversee Departments"])
     rows.append(["", "792013141290516490", "Lucas Skywalker", "Department Director"])
     rows += [["", "", "", "Department Management"], ["", "", "", "Department Management"]]
     rows += [["", "504074089342959622", "Frank J.", "Assistant Department Management"]]
@@ -145,7 +145,7 @@ async def test_confirming_the_same_rank_changes_nothing(sheet):
 
 async def test_head_of_departments_uses_the_typed_id_row(sheet):
     roster, client = sheet
-    await roster.vacate(1099651002208104488, "Tucker", "Resigned")
+    await roster.vacate(1090083387638812754, "Test Director", "Resigned")
     rows = client.grids["Master Roster"]
     assert cell(rows[9], 1) == "" and cell(rows[9], 2) == ""
     # A typed-ID row gets no lookup formula back.
@@ -264,7 +264,7 @@ async def test_sync_safety_limit_keeps_rows_and_says_so(sheet):
     roster, client = sheet
     result = await roster.sync(HOLDERS, {}, max_removals=0, job_names=JOB_NAMES)
     assert any("left alone" in note for note in result.notes)
-    assert "1099651002208104488" in [cell(r, 1) for r in client.grids["Master Roster"]]
+    assert "1090083387638812754" in [cell(r, 1) for r in client.grids["Master Roster"]]
 
 
 async def test_sync_can_keep_stale_rows_and_never_touches_unmatched_names(sheet):

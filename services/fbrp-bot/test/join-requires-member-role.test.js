@@ -12,7 +12,7 @@ const config = fs.readFileSync(path.join(core, 'config.lua'), 'utf8');
 const bot = fs.readFileSync(path.join(here, '../src/index.js'), 'utf8');
 
 test('joining needs website verification, main-server membership and the Verified role', () => {
-  assert.equal(config.match(/joinRoleId = '(\d+)'/)?.[1], '1557690864526954616');
+  assert.equal(config.match(/joinRoleId = '(\d+)'/)?.[1], '1570228067501211648');
   assert.equal(config.match(/joinRoleId = '(\d+)'/)?.[1], VERIFIED_ROLE_ID);
   assert.equal(config.match(/joinGuildId = '(\d+)'/)?.[1], '1557594282976747550');
   const handler = main.slice(main.indexOf("AddEventHandler('playerConnecting'"));

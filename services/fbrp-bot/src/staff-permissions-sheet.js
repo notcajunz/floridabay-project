@@ -98,7 +98,8 @@ export function diffGrants(previous, next, stamp) {
 }
 
 export class ServiceAccount {
-  constructor(info) {
+  constructor(info, scope = SHEETS_SCOPE) {
+    this.scope = scope;
     this.email = info.client_email;
     this.tokenUri = info.token_uri || "https://oauth2.googleapis.com/token";
     this.privateKey = info.private_key;
@@ -106,13 +107,13 @@ export class ServiceAccount {
     this.expires = 0;
   }
 
-  static fromFile(path) {
-    return new ServiceAccount(JSON.parse(readFileSync(path, "utf8")));
+  static fromFile(path, scope = SHEETS_SCOPE) {
+    return new ServiceAccount(JSON.parse(readFileSync(path, "utf8")), scope);
   }
 
   assertion(nowSeconds = Math.floor(Date.now() / 1000)) {
     const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-    const claims = b64url(JSON.stringify({ iss: this.email, scope: SHEETS_SCOPE, aud: this.tokenUri, iat: nowSeconds, exp: nowSeconds + 3600 }));
+    const claims = b64url(JSON.stringify({ iss: this.email, scope: this.scope, aud: this.tokenUri, iat: nowSeconds, exp: nowSeconds + 3600 }));
     const signature = createSign("RSA-SHA256").update(`${header}.${claims}`).sign(this.privateKey).toString("base64url");
     return `${header}.${claims}.${signature}`;
   }

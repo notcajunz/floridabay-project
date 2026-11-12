@@ -12,22 +12,16 @@ test("github-sync.sh is valid bash", () => {
   execFileSync("bash", ["-n", file]);
 });
 
-test("the sync backs up the game host over the deploy SSH link as its own encrypted bundle", () => {
-  assert.match(script, /FBRP_GAME_SSH/);
-  assert.match(script, /\.ssh\/fbrp-game/);
-  assert.match(script, /snapshots\/game-private-files\.tar\.gz\.enc|\$snap\/game-private-files\.tar\.gz\.enc/);
-  for (const item of ["fbrp/server-data/secrets.cfg", "fbrp/server-data/server.cfg", "fbrp/txData", "fbrp/server-data/db", "fbrp/.env"]) {
-    assert.ok(script.includes(item), `${item} must be captured from the game host`);
+test("the single production host is backed up as one encrypted private bundle, with no SSH link", () => {
+  assert.doesNotMatch(script, /FBRP_GAME_SSH|\.ssh\/fbrp-game|fbrp-split\.env|game-private-files/);
+  assert.match(script, /private-files\.tar\.gz\.enc/);
+  for (const item of ["server-data/secrets.cfg", "server-data/server.cfg", "txData", "server-data/db", "services/fbrp-bot/.env", "services/gangsmanager/gang_manager.db"]) {
+    assert.ok(script.includes(item), `${item} must be captured`);
   }
 });
 
-test("the game bundle skips the pre-deploy database dumps because the database has its own snapshot", () => {
-  assert.match(script, /--exclude='fbrp\/backups\/deploy'/);
-});
-
-test("an unreadable game host keeps the previous bundle and reports the sync as not fully ok", () => {
-  assert.match(script, /the previous game bundle was kept/);
-  assert.match(script, /result "\$game_ok" "Synced to github\.com/);
+test("the private bundle skips the pre-deploy database dumps because the database has its own snapshot", () => {
+  assert.match(script, /--exclude='backups\/deploy'/);
 });
 
 test("the readable server.cfg copy never carries the license key", () => {

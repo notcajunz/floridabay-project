@@ -16,7 +16,7 @@ import {
 } from "discord.js";
 import { recordForOrg } from "./org-authority.js";
 
-export const DEPT_HUB_GUILD_ID = String(process.env.DEPT_HUB_GUILD_ID || "1558235113295315004");
+export const DEPT_HUB_GUILD_ID = String(process.env.DEPT_HUB_GUILD_ID || "1570217077669757069");
 /** Portal organization types the Department Hub runs (ORG_MANAGER_GRANT_TYPES.department). */
 export const DEPARTMENT_ORG_TYPES = Object.freeze(["leo", "fire", "government"]);
 export const MAIN_LOG_KEY = "dept_application_main_log";

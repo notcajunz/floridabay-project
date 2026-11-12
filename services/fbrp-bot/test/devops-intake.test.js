@@ -4,7 +4,7 @@ import { INTAKE_LOG_CHANNEL_ID, KINDS, REMINDER_USER_ID, STATUS, isSkip, logButt
 import { TICKET_TYPES } from "../src/ticket-system.js";
 
 test("intake logs to the development channel", () => {
-  assert.equal(INTAKE_LOG_CHANNEL_ID, "1561220286555099236");
+  assert.equal(INTAKE_LOG_CHANNEL_ID, "1570224138851979264");
 });
 
 test("bug reports are no longer a main-server ticket type", () => {

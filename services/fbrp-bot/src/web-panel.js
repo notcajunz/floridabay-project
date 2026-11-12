@@ -36,8 +36,8 @@ const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../w
 const logoFile = path.resolve(webRoot, "../../../server-data/resources/[fbrp]/fbrp_loading/web/assets/fbrp-logo.png");
 const commandReferenceFile = path.resolve(webRoot, "../../../BOT_COMMANDS.md");
 const ACTOR = OWNER_DISCORD_ID;
-const INVESTIGATION_ROLE_ID = "1558227272107036755";
-const ORGANIZATION_SETUP_ROLE_ID = "1564093317187371109";
+const INVESTIGATION_ROLE_ID = "1570223171917840441";
+const ORGANIZATION_SETUP_ROLE_ID = "1570224060967682200";
 const PORTAL_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const PORTAL_SESSION_TTL_SECONDS = PORTAL_SESSION_TTL_MS / 1000;
 /** Live configuration sections Co-Owners and above may edit (the rest of the panel stays owner-only). */
