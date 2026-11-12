@@ -11,7 +11,7 @@
 #              It cannot commit, push, switch branches, use the network, or touch the release tooling.
 #   2. RELEASE This script (not the agent) checks the changed paths, runs the full test suite, commits,
 #              pushes the branch, merges it fast-forward only under the shared release lock, deploys with
-#              split-deploy.sh and verifies production, exactly as AGENTS.md describes.
+#              deploy.sh and verifies production, exactly as AGENTS.md describes.
 #
 # The staging directory holds PROMPT.md, SUBMISSION.md and repo/ (the developer's files, reference only).
 # The script writes run.log, final.txt and exit.json into it; the bot picks those up.
@@ -25,17 +25,16 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly SPLIT_ENV="${FBRP_SPLIT_ENV:-/home/ubuntu/.config/fbrp-split.env}"
 readonly RELEASE_WORKSPACE=/home/ubuntu/work/fbrp-release
 readonly LOCK_DIR=/home/ubuntu/.local/state
 readonly LOCK_FILE="$LOCK_DIR/fbrp-release.lock"
-readonly DEPLOY=/home/ubuntu/fbrp/scripts/split-deploy.sh
+readonly DEPLOY=/home/ubuntu/fbrp/scripts/deploy.sh
 readonly CENTRAL_REMOTE=/home/ubuntu/git/fbrp.git
 readonly TIMEOUT="${DEV_SUBMISSION_TIMEOUT:-3h}"
 readonly AUTO_RELEASE="${DEV_SUBMISSION_AUTO_RELEASE:-1}"
 
 # Paths an agent change may never touch. A submission that needs one of these is an owner decision.
-readonly DENY_PATHS='^(\.env|.*/\.env[^/]*|.*\.pem|.*\.key|.*/secrets?[^/]*|\.git/|\.gitignore|\.gitattributes|\.claude/|\.codex/|AGENTS\.md|CLAUDE\.md|deploy/|scripts/split-deploy\.sh|scripts/dev-submission-implement\.sh|scripts/github-sync\.sh|scripts/configure-control-game-link\.sh|services/fbrp-bot/src/dev-review/|server-data/resources/\[standalone\]/vMenu/vMenu(Client|Server)\.net\.dll)'
+readonly DENY_PATHS='^(\.env|.*/\.env[^/]*|.*\.pem|.*\.key|.*/secrets?[^/]*|\.git/|\.gitignore|\.gitattributes|\.claude/|\.codex/|AGENTS\.md|CLAUDE\.md|deploy/|scripts/deploy\.sh|scripts/apply-game-files\.sh|scripts/dev-submission-implement\.sh|scripts/github-sync\.sh|services/fbrp-bot/src/dev-review/|server-data/resources/\[standalone\]/vMenu/vMenu(Client|Server)\.net\.dll)'
 
 # Tools the agent may use. Anything else is refused. There is deliberately no commit, push, checkout,
 # reset, network, ssh, sudo, rm or deploy tool in this list.
@@ -64,7 +63,7 @@ model_args=() effort_claude=() effort_codex=()
 [[ "$agent" == claude || "$agent" == codex ]] || { echo "--agent must be claude or codex" >&2; exit 64; }
 [[ -n "$dir" && -f "$dir/PROMPT.md" && -f "$dir/SUBMISSION.md" && -d "$dir/repo" ]] || { echo "staging directory is incomplete: $dir" >&2; exit 64; }
 
-export PATH="/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="${DEV_SUBMISSION_PATH_PREFIX:+$DEV_SUBMISSION_PATH_PREFIX:}/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin"
 log="$dir/run.log"
 : >"$log"
 exec 2>>"$log"
@@ -84,7 +83,7 @@ stop() { say "ERROR: $*"; report "Stopped: $*"; exit 1; }
 # The CLIs must use their own subscription login, never an API key from this environment.
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL
 
-grep -qx 'FBRP_ROLE=control' "$SPLIT_ENV" 2>/dev/null || stop "This is not the control server (FBRP_ROLE=control is missing from $SPLIT_ENV)."
+[[ -d "${FBRP_LIVE_ROOT:-/home/ubuntu/fbrp}/.git" ]] || stop "This is not the production host (the live checkout is missing)."
 
 case "$agent" in
   claude)
@@ -194,12 +193,9 @@ while IFS= read -r path; do
     *) other=1 ;;
   esac
 done < <(git diff --name-only origin/main...HEAD)
-if [[ $other -eq 1 || ( $control -eq 1 && $game -eq 1 ) ]]; then target=all
-elif [[ $game -eq 1 ]]; then target=game
-elif [[ $control -eq 1 ]]; then target=control
-else report "Documentation only: nothing to deploy."; exit 0
-fi
-say "Deployment class: $target"
+if [[ $other -eq 0 && $control -eq 0 && $game -eq 0 ]]; then report "Documentation only: nothing to deploy."; exit 0; fi
+[[ $other -eq 1 ]] && game=1
+say "Deployment touches: services=$control game=$game"
 
 mkdir -p "$LOCK_DIR"; chmod 0700 "$LOCK_DIR"
 exec 8>"$LOCK_FILE"
@@ -222,12 +218,12 @@ fi
 git -C "$RELEASE_WORKSPACE" push -q origin main || stop "Pushing main failed."
 say "main pushed"
 
-"$DEPLOY" "$target" main --no-restart >>"$log" 2>&1 || stop "split-deploy.sh $target failed. main is already pushed. Check the log, then decide how to proceed."
-"$DEPLOY" verify >>"$log" 2>&1 || stop "split-deploy.sh verify failed after deploying $target. Check the log."
-say "Deployed and verified ($target)"
-if [[ "$target" == control ]]; then
-  report "Released to production: control deployment, verified."
+"$DEPLOY" deploy main --no-restart >>"$log" 2>&1 || stop "deploy.sh failed. main is already pushed. Check the log, then decide how to proceed."
+"$DEPLOY" verify >>"$log" 2>&1 || stop "deploy.sh verify failed after deploying. Check the log."
+say "Deployed and verified"
+if [[ $game -eq 1 ]]; then
+  report "Released to production and verified. The FiveM server was NOT restarted: restart it in txAdmin (or wait for the scheduled restart) to load the new game files."
 else
-  report "Released to production: $target deployment, verified. The FiveM server was NOT restarted: restart it in txAdmin (or wait for the scheduled restart) to load the new game files."
+  report "Released to production and verified."
 fi
 exit 0

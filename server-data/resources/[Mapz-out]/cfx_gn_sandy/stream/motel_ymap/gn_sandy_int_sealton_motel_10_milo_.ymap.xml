@@ -1,0 +1,36 @@
+<CMapData>
+	<name>gn_sandy_int_sealton_motel_10_milo_</name>
+	<parent/>
+	<flags value="0"/>
+	<contentFlags value="9"/>
+	<streamingExtentsMin x="1617.8187255859375" y="3820.83935546875" z="133.50740814208984"/>
+	<streamingExtentsMax x="1623.0294189453125" y="3828.08642578125" z="136.51570510864258"/>
+	<entitiesExtentsMin x="1517.8187255859375" y="3720.83935546875" z="33.507408142089844"/>
+	<entitiesExtentsMax x="1523.0294189453125" y="3728.08642578125" z="36.51570510864258"/>
+	<entities>
+		<Item type="CMloInstanceDef">
+			<archetypeName>int_gn_motel_room_01r</archetypeName>
+			<flags value="1572864"/>
+			<guid value="0"/>
+			<position x="1520.424072265625" y="3724.525634765625" z="35.05645751953125"/>
+			<rotation x="0.00014153376105241477" y="0.00019042889471165836" z="-0.834134578704834" w="-0.5515609383583069"/>
+			<scaleXY value="1"/>
+			<scaleZ value="1"/>
+			<parentIndex value="-1"/>
+			<lodDist value="180"/>
+			<childLodDist value="0"/>
+			<lodLevel>LODTYPES_DEPTH_ORPHANHD</lodLevel>
+			<numChildren value="0"/>
+			<priorityLevel>PRI_REQUIRED</priorityLevel>
+			<extensions/>
+			<ambientOcclusionMultiplier value="255"/>
+			<artificialAmbientOcclusion value="255"/>
+			<tintValue value="0"/>
+			<groupId value="0"/>
+			<floorId value="0"/>
+			<defaultEntitySets/>
+			<numExitPortals value="0"/>
+			<MLOInstflags value="0"/>
+		</Item>
+	</entities>
+</CMapData>

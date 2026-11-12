@@ -1,6 +1,6 @@
 [Unit]
-Description=Florida Bay Roleplay centralized Discord bot
-After=network-online.target mariadb.service docker.service
+Description=Florida Bay RP website, API, and central Discord bot
+After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
@@ -9,10 +9,12 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/fbrp/services/fbrp-bot
 EnvironmentFile=/home/ubuntu/fbrp/services/fbrp-bot/.env
-ExecStartPre=/home/ubuntu/.local/bin/node /home/ubuntu/fbrp/services/fbrp-bot/src/migrate.js
-ExecStart=/home/ubuntu/.local/bin/node /home/ubuntu/fbrp/services/fbrp-bot/src/index.js
+ExecStartPre=/usr/bin/bash -c 'for i in {1..90}; do (exec 3<>/dev/tcp/127.0.0.1/3307) 2>/dev/null && exit 0; sleep 2; done; exit 1'
+ExecStartPre=/usr/bin/node /home/ubuntu/fbrp/services/fbrp-bot/src/migrate.js
+ExecStart=/usr/bin/node /home/ubuntu/fbrp/services/fbrp-bot/src/index.js
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=30
 MemoryHigh=1G
 MemoryMax=1536M
 TasksMax=1024

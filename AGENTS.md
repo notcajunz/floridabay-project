@@ -18,20 +18,12 @@ partial deployment or claim success before production verification passes.
 
 ## Production topology
 
-This is one repository deployed to two production VPSs:
-
-- `control`: `floridabay.net`, the web/API service, every Discord bot, Caddy,
-  the central bare Git remote, and agent workspaces.
-- `game`: FXServer, txAdmin, MariaDB, FiveM resources, and the HTTPS redirect
-  for `join.floridabay.net`.
-
-Read `/home/ubuntu/.config/fbrp-split.env` at the start of every task to confirm
-the current host. Normal development, release, and deployment happen from the
-control VPS. Never put IP addresses or credentials in tracked files.
-
-The hosts communicate through `fbrp-game-tunnel.service`. On control, MariaDB
-is `127.0.0.1:13307`, FiveM HTTP is `127.0.0.1:30121`, and txAdmin is
-`127.0.0.1:40121`. These are private tunnel endpoints, not public listeners.
+This repository is deployed to one production VPS (`fbrp-game`) that runs everything: `floridabay.net`
+(website and API), every Discord bot, Caddy, MariaDB, FXServer, txAdmin, the central bare Git remote and the agent
+workspaces. There is no second host, tunnel or network mount any more. Local endpoints: MariaDB
+`127.0.0.1:3307`, FiveM `127.0.0.1:30120`, txAdmin `127.0.0.1:40120`, website/API `127.0.0.1:8080`
+(Caddy fronts the public domains; Cloudflare sits in front of Caddy). Never put IP addresses or credentials in
+tracked files.
 
 ## Workspaces and isolation
 
@@ -48,7 +40,7 @@ reset, or discard another agent's branch or uncommitted work.
 
 At the beginning of an implementation:
 
-1. Confirm `FBRP_ROLE=control` in the split environment file.
+1. Confirm you are on the production host (`/home/ubuntu/fbrp` and `/home/ubuntu/git/fbrp.git` exist).
 2. Check the assigned workspace for unrelated changes. Preserve them and stop
    if they prevent safe isolation.
 3. Fetch `origin`, switch to `main`, fast-forward it to `origin/main`, and create
@@ -61,33 +53,24 @@ Keep one feature on one branch. Commit and push normally; never force-push.
 
 ## Component ownership
 
-- Control runtime: `services/`, including the website, API, Node bots, and
-  Python manager bots.
-- Game runtime: `server-data/`, FiveM resources, `start.sh`, and
-  `docker-compose.yml`.
-- MariaDB runs on game. Schema migration code belongs to the application that
-  owns it. Changes spanning schema and consumers require an `all` deployment.
-- The control-side `[vehicles]`, `[eup]`, and `[standalone]/vMenu/config` paths
-  are SSHFS views of authoritative game directories. They support personals/liveries,
-  EUP packs, and addon peds. `[standalone]/vMenu.Enhanced/config` remains mounted
-  only as an inactive rollback snapshot.
-  Treat these mounted paths as live production data, not development folders.
+- Services: `services/`, including the website, API, Node bots and Python manager bots.
+- Game runtime: `server-data/`, FiveM resources, `start.sh`, and `docker-compose.yml`.
+- MariaDB runs in the `fbrp-mariadb` container. Schema migration code belongs to the application that owns it
+  (the bot runs `migrate.js` on start; `fbrp_core` applies the early migrations).
+- `[vehicles]`, `[eup]`, and `[standalone]/vMenu/config` are live production data (personal vehicles/liveries, EUP
+  packs, addon peds), written by the website and bots at any time. Treat them as production data, not development
+  folders. `[standalone]/vMenu.Enhanced/config` remains only as an inactive rollback snapshot.
 - Secrets are Git-ignored. Never reveal, copy into tracked files, rotate, or
   replace Cfx, Corevia, Discord, database, OAuth, or API credentials.
 - Corevia and ExeclyAI remain on the original VPS and are outside this project's
   deployment scope unless the user explicitly names them.
 
-## Tests and deployment classification
+## Tests and deployment
 
-Run narrow checks while developing and the complete applicable suites before
-release. Add or update tests for changed behavior. Classify the release as:
-
-- `control`: only website, API, or bot code changed.
-- `game`: only FiveM/game code changed.
-- `all`: both planes changed, database compatibility changed, or coordinated
-  restarts are required.
-
-When uncertain between a narrower deployment and `all`, use `all`.
+Run narrow checks while developing and the complete applicable suites before release. Add or update tests for
+changed behavior. `deploy.sh` works out what a release touches: `services/`, `deploy/` and `scripts/` changes
+restart the website, API and bots; `server-data/`, `docker-compose.yml` and `start.sh` changes update the game
+files and, unless `--no-restart` is given, restart FXServer. A release touching both does both.
 
 ## Automatic release workflow
 
@@ -108,22 +91,17 @@ After implementation and tests succeed:
    merge the latest `origin/main` into the feature branch without force-pushing,
    rerun tests, push, and retry.
 6. Push release `main` to `origin`.
-7. Deploy from the control VPS using exactly one command. AI agents (Claude and
-   Codex) always add `--no-restart` to `game` and `all` deployments:
+7. Deploy with exactly one command. AI agents (Claude and Codex) always add `--no-restart`:
 
 ```bash
-/home/ubuntu/fbrp/scripts/split-deploy.sh control main
-/home/ubuntu/fbrp/scripts/split-deploy.sh game main --no-restart
-/home/ubuntu/fbrp/scripts/split-deploy.sh all main --no-restart
+/home/ubuntu/fbrp/scripts/deploy.sh deploy main --no-restart
 ```
 
-The deploy script tests the exact revision, creates a database backup for game
-deployments, enforces fast-forward-only updates, orders coordinated restarts,
-and verifies both hosts. Do not bypass it with manual copies or service restarts.
+The deploy script tests the exact revision, creates a database backup, enforces fast-forward-only updates,
+orders the restarts, and verifies the host. Do not bypass it with manual copies or service restarts.
 
 **FiveM restarts are the owner's call.** With `--no-restart` every change goes
-live (the control plane restarts as usual, game files and server.cfg edits are
-fast-forwarded on the game host) except the FXServer restart itself. The new
+live (the bots restart as usual, game files and server.cfg edits are fast-forwarded) except the FXServer restart itself. The new
 game files apply the next time FXServer restarts: the owner restarts it in
 txAdmin, a scheduled restart fires, or the owner explicitly asks an agent to
 restart it. Never stop or restart `fbrp-server.service` or FXServer on your own
@@ -132,11 +110,11 @@ owner when a change only works after the restart (client/server version skew
 is possible for clients that join before it). A changed `docker-compose.yml` or
 `start.sh` needs a real `fbrp-server.service` restart, not only a txAdmin one.
 
-8. Run `/home/ubuntu/fbrp/scripts/split-deploy.sh verify` and perform focused
+8. Run `/home/ubuntu/fbrp/scripts/deploy.sh verify` and perform focused
    functional checks for the changed behavior that can be checked without a
    FiveM restart. Confirm affected services remain active without a restart
    loop. `verify` prints whether a FiveM restart is still pending.
-9. Report the branch, commit, deployment class, tests, and live verification.
+9. Report the branch, commit, what the release touched, tests, and live verification.
 
 If merge, deployment, migration, or verification fails, keep the release lock
 while gathering the immediate evidence, then stop and report the exact state.
