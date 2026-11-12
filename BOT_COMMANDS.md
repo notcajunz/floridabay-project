@@ -45,6 +45,8 @@ Assign or unassign Discord roles in the main server.
 |---|---|---|
 | `/role assign <member> <role>` | Assign a role to a main-server member<br><small>Arguments: `member` (required user) — Member receiving the role. `role` (required role) — Role to assign.</small> | Assistant Community Manager rank or higher |
 | `/role unassign <member> <role>` | Remove a role from a main-server member<br><small>Arguments: `member` (required user) — Member losing the role. `role` (required role) — Role to remove.</small> | Assistant Community Manager rank or higher |
+| `/roleall <role>` | Give a role to every human in the main server (bots skipped), after a confirmation. Refused for staff, ACE, synced, managed and dangerous roles<br><small>Arguments: `role` (required role) — Role to give everyone.</small> | Executive Management rank or higher, main server only |
+| `/unroleall <role>` | Remove a role from every human in the main server who holds it, after a confirmation. Same role restrictions as `/roleall`<br><small>Arguments: `role` (required role) — Role to take from everyone.</small> | Executive Management rank or higher, main server only |
 
 These commands only work in the server registered as `main`. Protected roles retain the stricter protected-role policy: the caller must also be Co-Owner rank or higher and one of the authorized protected-role accounts. The bot also refuses `@everyone`, Discord-managed roles, and roles at or above its highest role.
 

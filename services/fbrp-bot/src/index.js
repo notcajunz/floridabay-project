@@ -86,6 +86,8 @@ import {
   ROLE_SOURCED_GROUPS,
   reconcileManagementMembership,
   reconcileAllManagementMemberships,
+  DANGEROUS_ROLE_PERMISSIONS,
+  isBotOwner,
 } from "./sync.js";
 import {
   EVENT_LABEL,
@@ -4431,6 +4433,9 @@ const roleMembership = createRoleMembershipCommands({
   roleRef,
   who,
   log,
+  mainGuildId: MAIN_GUILD_ID,
+  dangerousPermissions: DANGEROUS_ROLE_PERMISSIONS,
+  isBotOwner,
 });
 const temporaryRoles = createTemporaryRoles({ client, db, audit, log });
 const inviteTracker = createInviteTracker({ client, db, log });
@@ -5070,6 +5075,8 @@ const handlers = {
   mod: moderationCommand,
   server: serverCommand,
   role: roleMembership.command,
+  roleall: (i) => roleMembership.bulk(i, "assign"),
+  unroleall: (i) => roleMembership.bulk(i, "unassign"),
   temp: async (i, sub) => {
     if (sub !== "role") throw new Error("Unknown temporary-access action.");
     await requireMinimumStaffRank(i, "Assistant Community Manager", "grant temporary roles");
