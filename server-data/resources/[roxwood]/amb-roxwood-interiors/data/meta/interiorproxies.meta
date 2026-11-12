@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SInteriorOrderData>
+  <startFrom value="2560" />
+  <proxies>
+	<Item>amb_rox_02_int_dikinbaus_marina_block_16_milo_</Item>
+	<Item>amb_rox_02_int_beanmachine_block_16_milo_</Item>
+	<Item>amb_rox_04_gasstation_int_placement_01_milo_</Item>
+  <Item>amb_rox_interior_placement_watertunnel1</Item>
+  <Item>amb_rox_interior_placement_watertunnel2</Item>
+  <Item>amb_rox_interior_placement_watertunnel3</Item>
+  <Item>amb_rox_interior_placement_watertunnel4</Item>
+  <Item>amb_rox_interior_placement_watertunnel5</Item>
+  <Item>amb_rox_interior_placement_watertunnel6</Item>
+  <Item>amb_rox_interior_placement_watertunnel7</Item>
+  <Item>amb_rox_interior_placement_watertunnel8</Item>
+  <Item>amb_rox_interior_placement_watertunnel9</Item>
+  </proxies>
+</SInteriorOrderData>
