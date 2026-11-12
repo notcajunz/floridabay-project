@@ -18,8 +18,3 @@ ON DUPLICATE KEY UPDATE mode=VALUES(mode);
 
 INSERT IGNORE INTO discord_role_bindings(guild_id,role_id,group_name)
 VALUES ('1557594282976747550','1558616304997498960','founder');
-
--- Current holder of FBRP | Founder. Senior staff bindings are ACE-authoritative,
--- so membership is explicit rather than trusting a Discord role grant alone.
-INSERT IGNORE INTO ace_memberships(discord_id,group_name,origin,added_by,added_at)
-VALUES ('1099651002208104488','founder','manual','system',UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000);

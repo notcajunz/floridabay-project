@@ -56,39 +56,39 @@ Config.Updates = [
 // "image" is optional - without it a coloured letter is shown instead.
 Config.Team = [
   {
-    name: "! 101 Tucker",
-    description: ["Owner"],
-    quote: "Community ownership and server direction",
-    color: "#ff7a1a",
-    image: "https://cdn.discordapp.com/avatars/1099651002208104488/3227c6962b202257f2f4ec712f9c485b.webp?size=1024",
-  },
-  {
-    name: "! 102 cajunz",
+    name: "! 101 cajunz",
     description: ["Owner"],
     quote: "Community ownership and operations",
     color: "#9d4dff",
     image: "https://cdn.discordapp.com/avatars/1090083387638812755/18a188b05c43be268a528ef1e3ae44de.webp?size=1024",
   },
   {
-    name: "! 103 Scarface",
+    name: "! 102 Jaxtti",
+    description: ["Owner"],
+    quote: "Community ownership and operations",
+    color: "#9d4dff",
+    image: "https://cdn.discordapp.com/avatars/1467063344140779601/b645a30153872d95b450de97480a3646.webp?size=1024",
+  },
+  {
+    name: "! 103 Loafy",
+    description: ["Owner"],
+    quote: "Community ownership and operations",
+    color: "#9d4dff",
+    image: "https://cdn.discordapp.com/avatars/926270204193964062/296b48ce598d4481b1698249548a1f78.webp?size=1024",
+  },
+  {
+    name: "! 104 Tucker",
     description: ["Co-Owner"],
-    quote: "Gang and organization direction",
-    color: "#2ecfe4",
+    quote: "Community leadership and operations",
+    color: "#ff8a3d",
+    image: "https://cdn.discordapp.com/avatars/1099651002208104488/a_75b903d03d9644eaa91cc96390eb6409.gif?size=1024",
+  },
+  {
+    name: "! 105 Scarface",
+    description: ["Co-Owner"],
+    quote: "Community leadership and operations",
+    color: "#ff8a3d",
     image: "https://cdn.discordapp.com/avatars/618108970086694928/0e7e257856add2521dd9be96d551b855.webp?size=1024",
-  },
-  {
-    name: "! 104 Saif",
-    description: ["Co-Owner"],
-    quote: "Staff, development and management oversight",
-    color: "#ca3813",
-    image: "https://cdn.discordapp.com/avatars/1219625872449867776/f55ae3c6cc7a2a123a62e95fc2825f50.png?size=4096",
-  },
-  {
-    name: "! 106 Revan",
-    description: ["Executive Management"],
-    quote: "Department Director & Sales",
-    color: "#9ca3af",
-    image: "https://cdn.discordapp.com/avatars/792013141290516490/a_46a35cb6d0998952a7e0178e20fec389.png?size=1024",
   },
 ];
 

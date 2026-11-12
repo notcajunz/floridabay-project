@@ -1,12 +1,12 @@
 return {
-    { id = 'vip_package',  label = 'VIP Package',             role = '1557689749198868520' },
-    { id = 'whitelisted',  label = 'Whitelist Package',       role = '1557689750184398999' },
-    { id = 'aussiepack',   label = 'Australian Vehicle Pack', role = '1558237674412974221' },
-    { id = 'ukpack',       label = 'UK Car Pack',             role = '1558237679353593927' },
-    { id = 'jdmpack',      label = 'JDM Car Pack',            role = '1558778406403964958' },
-    { id = 'truckpack1',   label = 'Truck Pack',              role = '1563444048277274694' },
-    { id = 'hemipack',     label = 'Hemi Pack',               role = '1564056853585854485' },
-    { id = 'aviationpack', label = 'Aviation Pack',           role = '1558778407280447588' },
-    { id = 'germanpack',   label = 'German Vehicles Pack',    role = '1564110361961959505' },
+    { id = 'vip_package',  label = 'VIP Package',             role = '1570227967572054146' },
+    { id = 'whitelisted',  label = 'Whitelist Package',       role = '1570227973292822558' },
+    { id = 'aussiepack',   label = 'Australian Vehicle Pack', role = '1570227968293343327' },
+    { id = 'ukpack',       label = 'UK Car Pack',             role = '1570227969924931618' },
+    { id = 'jdmpack',      label = 'JDM Car Pack',            role = '1570227984428834879' },
+    { id = 'truckpack1',   label = 'Truck Pack',              role = '1570227986790096907' },
+    { id = 'hemipack',     label = 'Hemi Pack',               role = '1570227985548582923' },
+    { id = 'aviationpack', label = 'Aviation Pack',           role = '1570227988119949438' },
+    { id = 'germanpack',   label = 'German Vehicles Pack',    role = '1570227969048453171' },
     -- { id = '', label = '', role = 'role_here' }, -- add a new package
 }

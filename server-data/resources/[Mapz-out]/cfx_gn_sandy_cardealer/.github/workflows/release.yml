@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+jobs:
+  create-release:
+    name: Build and Create Tagged Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install archive tools
+        run: sudo apt install zip
+
+      - name: Checkout source code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set env
+        run: |
+          echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+          echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
+      - name: Bump manifest version
+        run: node .github/actions/bump-manifest-version.js
+        env:
+          TGT_RELEASE_VERSION: ${{ github.ref_name }}
+
+      - name: Push manifest change
+        uses: EndBug/add-and-commit@v8
+        with:
+          add: fxmanifest.lua
+          push: true
+          author_name: Manifest Bumper
+          author_email: 41898282+github-actions[bot]@users.noreply.github.com
+          message: "chore: bump manifest version to ${{ github.ref_name }}"
+
+      - name: Update tag ref
+        uses: EndBug/latest-tag@latest
+        with:
+          tag-name: ${{ github.ref_name }}
+
+      - name: Bundle files
+        run: zip -r ${{ env.REPO_NAME }}.zip ./*
+
+      - name: Create Release
+        uses: "marvinpinto/action-automatic-releases@v1.2.1"
+        id: auto_release
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          title: ${{ env.RELEASE_VERSION }}
+          prerelease: false
+          files: ${{ env.REPO_NAME }}.zip
+        env:
+          CI: false
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+           # Étapes pour mettre à jour le repo gn_versions
+
+      - name: Checkout gn_versions Repo
+        uses: actions/checkout@v2
+        with:
+          repository: G-N-s-Studio/gn_versions
+          token: ${{ secrets.ACCESS_TOKEN }}
+          path: gn_versions
+
+      - name: Update Version in gn_versions
+        run: |
+          cd gn_versions
+          jq ".[\"${{ env.REPO_NAME }}\"] = \"${{ env.RELEASE_VERSION }}\"" versions.json > temp.json
+          mv temp.json versions.json
+
+      - name: Commit and Push Version Update
+        run: |
+          cd gn_versions
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add versions.json
+          git commit -m "Update version for ${{ env.REPO_NAME }} to ${{ env.RELEASE_VERSION }}"
+          git push
+        env:
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
