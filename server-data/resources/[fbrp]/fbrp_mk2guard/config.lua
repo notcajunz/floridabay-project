@@ -1,7 +1,7 @@
 Mk2Config = {
     -- Discord role (FBRP | Mk2 Weapons, sold in the store) that unlocks every Mk2 weapon.
     GuildId = '1557594282976747550',
-    RoleId  = '1564110293846724710',
+    RoleId  = '1570227974018572288',
 
     -- Every Mk2 weapon in the base game. Players without the role lose these the moment they hold one,
     -- however they got it (vMenu, armory, loadout, admin give).

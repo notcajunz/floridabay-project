@@ -126,8 +126,8 @@ def test_coordinator_role_changes_acknowledge_discord_before_api_work():
 
 def test_all_coordinator_channels_and_roles_are_id_configurable(tmp_path):
     config = Config("unused", tmp_path / "test.db", None, frozenset(), 1)
-    assert config.gang_coord_team_role_id == 1559682517659943033
-    assert config.gang_add_remove_role_id == 1559682499251146772
+    assert config.gang_coord_team_role_id == 1570223694373199944
+    assert config.gang_add_remove_role_id == 1570223690203926562
     assert set(config.coord_channel_ids) == set(GANG_CATEGORIES)
     assert set(config.category_coordinator_role_ids) == set(GANG_CATEGORIES)
     assert set(config.coordinator_role_ids) == set(COORDINATOR_RANKS)

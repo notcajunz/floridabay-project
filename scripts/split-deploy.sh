@@ -25,6 +25,7 @@ readonly -a CONTROL_USER_UNITS=(
 ACTION="${1:-help}"
 REF="${2:-main}"
 NO_RESTART="${FBRP_DEPLOY_NO_RESTART:-0}"
+NO_START="${FBRP_DEPLOY_NO_START:-0}"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
@@ -42,12 +43,16 @@ Run on the CONTROL VPS:
   /home/ubuntu/fbrp/scripts/split-deploy.sh game [ref]
   /home/ubuntu/fbrp/scripts/split-deploy.sh all [ref]
   /home/ubuntu/fbrp/scripts/split-deploy.sh game|all [ref] --no-restart
+  /home/ubuntu/fbrp/scripts/split-deploy.sh control|game|all [ref] --no-start
 
 --no-restart (or FBRP_DEPLOY_NO_RESTART=1) puts every change live except the FiveM restart: the
 game files are fast-forwarded and the control plane is restarted as usual, but fbrp-server.service
 is left running. The new game files take effect when FXServer next restarts (txAdmin, a scheduled
 restart or a manual one). AI agents always deploy this way. status and verify say when a restart is
 still pending.
+
+--no-start (or FBRP_DEPLOY_NO_START=1) installs and verifies the revision while leaving every
+application service stopped. It implies --no-restart and is intended for maintenance windows.
 
 Use "control" for website/API/bot-only changes, "game" for FiveM-only changes,
 and "all" whenever one feature touches both sides or includes DB migrations.
@@ -429,17 +434,22 @@ deploy_control() {
     warn "Control Caddy configuration failed; services remain stopped for inspection."
     return 1
   fi
-  start_control
+  [[ "$NO_START" == 1 ]] || start_control
 }
 
 deploy_game() {
   backup_game_database
+  [[ "$NO_START" != 1 ]] || game_ssh 'systemctl --user stop fbrp-server.service'
   install_game_revision
 }
 
 deploy_all() {
   backup_game_database
-  if [[ "$NO_RESTART" == 1 ]]; then
+  if [[ "$NO_START" == 1 ]]; then
+    log "Stopping both application planes and leaving them stopped"
+    stop_control
+    game_ssh 'systemctl --user stop fbrp-server.service'
+  elif [[ "$NO_RESTART" == 1 ]]; then
     log "Stopping the control plane only (FiveM keeps running)"
     stop_control
   else
@@ -455,16 +465,45 @@ deploy_all() {
     warn "Game install failed; control applications remain stopped."
     return 1
   fi
-  start_control
+  [[ "$NO_START" == 1 ]] || start_control
+}
+
+verify_staged_deployment() {
+  log "Verifying the staged revision while application services remain stopped"
+  local unit state
+  for unit in fbrp-bot.service; do
+    state="$(sudo systemctl is-active "$unit" 2>/dev/null || true)"
+    printf '%-42s %s\n' "$unit" "$state"
+    [[ "$state" == inactive || "$state" == failed ]]
+  done
+  for unit in "${CONTROL_USER_UNITS[@]}"; do
+    state="$(systemctl --user is-active "$unit" 2>/dev/null || true)"
+    printf '%-42s %s\n' "$unit" "$state"
+    [[ "$state" == inactive || "$state" == failed ]]
+  done
+  if [[ "$ACTION" != control ]]; then
+    state="$(game_ssh 'systemctl --user is-active fbrp-server.service 2>/dev/null || true')"
+    printf '%-42s %s\n' fbrp-server.service "$state"
+    [[ "$state" == inactive || "$state" == failed ]]
+  fi
+  printf 'Control live commit: %s\n' "$(git -C "$ROOT" rev-parse --short=12 HEAD)"
+  [[ "$(git -C "$ROOT" rev-parse HEAD)" == "$TARGET_COMMIT" ]]
+  if [[ "$ACTION" != control ]]; then
+    printf 'Game live commit:    %s\n' "$(game_ssh "git -C '$ROOT' rev-parse --short=12 HEAD")"
+    [[ "$(game_ssh "git -C '$ROOT' rev-parse HEAD")" == "$TARGET_COMMIT" ]]
+  fi
 }
 
 for option in "${@:3}"; do
   case "$option" in
     --no-restart) NO_RESTART=1 ;;
+    --no-start) NO_START=1; NO_RESTART=1 ;;
     *) die "Unknown option: $option" ;;
   esac
 done
 [[ "$NO_RESTART" == 0 || "$NO_RESTART" == 1 ]] || die "FBRP_DEPLOY_NO_RESTART must be 0 or 1."
+[[ "$NO_START" == 0 || "$NO_START" == 1 ]] || die "FBRP_DEPLOY_NO_START must be 0 or 1."
+[[ "$NO_START" != 1 ]] || NO_RESTART=1
 
 case "$ACTION" in
   status)
@@ -483,9 +522,11 @@ case "$ACTION" in
     preflight_tests
     log "Deploying $TARGET_COMMIT to $ACTION"
     "deploy_${ACTION}"
-    verify_deployment
+    if [[ "$NO_START" == 1 ]]; then verify_staged_deployment; else verify_deployment; fi
     log "Deployment complete"
-    if [[ "$NO_RESTART" == 1 && "$ACTION" != control ]]; then
+    if [[ "$NO_START" == 1 ]]; then
+      warn "The revision is staged and all application services remain stopped."
+    elif [[ "$NO_RESTART" == 1 && "$ACTION" != control ]]; then
       warn "Game changes are live on disk but FiveM was not restarted. They apply at the next FXServer restart (txAdmin or a scheduled restart)."
     fi
     ;;

@@ -1,7 +1,7 @@
 export const OWNER_DISCORD_ID = "1090083387638812755";
 
 /** Accounts with full owner authority over the bot: owner-only commands, security, backups and ACE editing. */
-export const OWNER_DISCORD_IDS = Object.freeze([OWNER_DISCORD_ID, "1099651002208104488"]);
+export const OWNER_DISCORD_IDS = Object.freeze([OWNER_DISCORD_ID]);
 
 export const PROTECTED_ROLE_MANAGER_IDS = Object.freeze([...OWNER_DISCORD_IDS]);
 

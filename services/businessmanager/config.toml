@@ -1,82 +1,82 @@
 # FBRP | Businesses. Secrets stay in .env; Discord IDs remain numeric.
 [bot]
-guild_id = 1559682840411635813
-owner_ids = [1090083387638812755, 1099651002208104488]
-admin_role_id = 1559701131905728532
+guild_id = 1570219683137716254
+owner_ids = [1090083387638812755]
+admin_role_id = 1570224206354972865
 database_path = "business_manager.db"
 
 # Existing server channels.
-launch_channel_id = 1559701699013120164
-role_action_channel_id = 1559701774150139914
-role_conflict_channel_id = 1559701944308604990
-staff_bypass_channel_id = 1559701991213764720
-staff_bypass_reviewer_role_id = 1559701134686556190
-staff_bypass_grant_role_id = 1559701222846500885
-alliance_log_channel_id = 1559701903422783618
-punishment_channel_ids = [1559701778323349524, 1559701903422783618]
-suspension_log_channel_id = 1559701778323349524
+launch_channel_id = 1570224293021753426
+role_action_channel_id = 1570224323111813201
+role_conflict_channel_id = 1570224362122911786
+staff_bypass_channel_id = 1570224381723017338
+staff_bypass_reviewer_role_id = 1570224207260942336
+staff_bypass_grant_role_id = 1570224234154827910
+alliance_log_channel_id = 1570224351683285295
+punishment_channel_ids = [1570224324131164322, 1570224351683285295]
+suspension_log_channel_id = 1570224324131164322
 coord_chain_channel_id = 1559701676443566151
-business_tier_channel_id = 1559701694315499671
-hours_channel_id = 1559701689299378217
-shop_channel_id = 1559701712338686012
-leaderboard_channel_id = 1559701967125876797
-location_channel_id = 1559701911895277669
-market_log_channel_id = 1559702019017805886
-server_log_channel_id = 1559702123879342160
-voice_log_channel_id = 1559702128669229076
-message_log_channel_id = 1559702119228112976
-join_leave_log_channel_id = 1559702114979151922
-member_log_channel_id = 1559702106800394311
+business_tier_channel_id = 1570224282540445778
+hours_channel_id = 1570224280124268616
+shop_channel_id = 1570224298101178498
+leaderboard_channel_id = 1570224376274747403
+location_channel_id = 1570224353969307720
+market_log_channel_id = 1570224388316471367
+server_log_channel_id = 1570224406985187339
+voice_log_channel_id = 1570224407916453938
+message_log_channel_id = 1570224397673824366
+join_leave_log_channel_id = 1570224396596150384
+member_log_channel_id = 1570224394804924590
 
 # Existing server roles.
-suspension_role_id = 1559701191791747132
+suspension_role_id = 1570224223081992313
 parole_days = 3
-role_management_admin_role_id = 1559701149475536947
-business_role_blocker_role_id = 1559701186439815239
-business_command_role_blocker_role_id = 1559701188881023076
-business_member_role_id = 1559701354262302810
-business_coord_team_role_id = 1559701166261141534
-business_add_remove_role_id = 1559701149475536947
-multi_business_bypass_role_ids = [1559701222846500885]
-restricted_role_ids = [1559701222846500885]
-restricted_role_manager_role_ids = [1559701131905728532, 1559701134686556190]
-business_manager_plus_role_ids = [1559701131905728532, 1559701134686556190, 1559701141053513798, 1559701149475536947]
-voice_management_role_ids = [1559701168542847077, 1559701149475536947, 1559701141053513798, 1559701134686556190, 1559701131905728532]
+role_management_admin_role_id = 1570224209676996699
+business_role_blocker_role_id = 1570224221475442720
+business_command_role_blocker_role_id = 1570224222511435787
+business_member_role_id = 1570224238256848896
+business_coord_team_role_id = 1570224214571618307
+business_add_remove_role_id = 1570224209676996699
+multi_business_bypass_role_ids = [1570224234154827910]
+restricted_role_ids = [1570224234154827910]
+restricted_role_manager_role_ids = [1570224206354972865, 1570224207260942336]
+business_manager_plus_role_ids = [1570224206354972865, 1570224207260942336, 1570224208494076035, 1570224209676996699]
+voice_management_role_ids = [1570224215834234994, 1570224209676996699, 1570224208494076035, 1570224207260942336, 1570224206354972865]
 
 [bot.coordinator_role_ids]
-"Head of Businesses" = 1559701131905728532
-"Business Director" = 1559701134686556190
-"Assistant Business Director" = 1559701141053513798
-"Business Manager" = 1559701149475536947
-"Assistant Business Manager" = 1559701151723692174
-"Lead Business Coordinator" = 1559701155603423242
-"Senior Business Coordinator" = 1559701157994307676
-"Business Coordinator" = 1559701161248821318
-"Trial Business Coordinator" = 1559701163459354735
+"Head of Businesses" = 1570224206354972865
+"Business Director" = 1570224207260942336
+"Assistant Business Director" = 1570224208494076035
+"Business Manager" = 1570224209676996699
+"Assistant Business Manager" = 1570224211212116028
+"Lead Business Coordinator" = 1570224211530748037
+"Senior Business Coordinator" = 1570224212608819200
+"Business Coordinator" = 1570224213359337512
+"Trial Business Coordinator" = 1570224213900660859
 
 [bot.category_coordinator_role_ids]
-"Car Clubs & Automotive" = 1559701172909252711
-"Security & Protection" = 1559701174955933786
-"Trucking & Contracting" = 1559701177732698212
-"Miscellaneous" = 1559701179783708752
+"Car Clubs & Automotive" = 1570224217155182712
+"Security & Protection" = 1570224217784582274
+"Trucking & Contracting" = 1570224218417668240
+"Miscellaneous" = 1570224219336212571
 
 [bot.category_member_role_ids]
-"Car Clubs & Automotive" = 1559701356468510790
-"Security & Protection" = 1559701358536433756
-"Trucking & Contracting" = 1559701360931512480
-"Miscellaneous" = 1559701363867254865
+"Car Clubs & Automotive" = 1570224239020351560
+"Security & Protection" = 1570224241297588395
+"Trucking & Contracting" = 1570224241608101984
+"Miscellaneous" = 1570224242673328159
 
 [bot.parole_role_ids]
-"Car Clubs & Automotive" = 1559701211719139348
-"Security & Protection" = 1559701214504026194
-"Trucking & Contracting" = 1559701217842823208
-"Miscellaneous" = 1559701219780333629
+"Car Clubs & Automotive" = 1570224231231529111
+"Security & Protection" = 1570224231990698128
+"Trucking & Contracting" = 1570224233185812561
+"Miscellaneous" = 1570224233592656006
 
 [bot.coord_channel_ids]
-"Car Clubs & Automotive" = 1559701799500521472
-"Security & Protection" = 1559701830647160832
-"Trucking & Contracting" = 1559701855590817813
-"Miscellaneous" = 1559701885676552303
+"Car Clubs & Automotive" = 1570224328887505069
+"Security & Protection" = 1570224336462155908
+"Trucking & Contracting" = 1570224341793120400
+"Miscellaneous" = 1570224348042756096
 
 [access]
 administrators_bypass = true
@@ -85,7 +85,7 @@ owners_bypass = true
 [access.categories.administration]
 mode = "inherit"
 users = []
-roles = [1559701131905728532]
+roles = [1570224206354972865]
 commands = [
   "admin avatar", "admin business rolecheck", "admin info", "admin nick",
   "admin refreshbusinesstiers", "admin reloadcog", "admin username",
@@ -94,7 +94,7 @@ commands = [
 [access.categories.business_management]
 mode = "inherit"
 users = []
-roles = [1559701149475536947]
+roles = [1570224209676996699]
 commands = [
   "creation", "business add", "business balance", "business hours",
   "business info", "business remove", "business report", "business role",
@@ -104,37 +104,37 @@ commands = [
 [access.categories.coordination]
 mode = "inherit"
 users = []
-roles = [1559701149475536947]
+roles = [1570224209676996699]
 commands = ["coord activity", "coord add", "coord liaison", "coord remove", "coord update"]
 
 [access.categories.locations]
 mode = "inherit"
 users = []
-roles = [1559701149475536947]
+roles = [1570224209676996699]
 commands = ["location add", "location audit", "location refresh", "location remove", "location view"]
 
 [access.categories.member_discipline]
 mode = "inherit"
 users = []
-roles = [1559701161248821318]
+roles = [1570224213359337512]
 commands = ["member deletepunishment", "member editpunishment", "member history", "member logpunishment"]
 
 [access.categories.content]
 mode = "inherit"
 users = []
-roles = [1559701141053513798]
+roles = [1570224208494076035]
 commands = ["dm send", "embed edit", "embed get", "embed post"]
 
 [access.categories.permission_management]
 mode = "inherit"
 users = []
-roles = [1559701141053513798]
+roles = [1570224208494076035]
 commands = ["permissions set", "permissions view"]
 
 [access.categories.rewards]
 mode = "inherit"
 users = []
-roles = [1559701149475536947]
+roles = [1570224209676996699]
 commands = ["reward give", "reward manage", "reward refresh", "reward remove", "reward slots"]
 
 [access.categories.delegated_role_management]
@@ -146,13 +146,13 @@ commands = ["role add", "role remove", "rolewipe"]
 [access.categories.role_management_administration]
 mode = "allowlist"
 users = []
-roles = [1559701149475536947]
+roles = [1570224209676996699]
 commands = ["role protection", "useradd", "userdel"]
 
 [access.categories.quizzes]
 mode = "inherit"
 users = []
-roles = [1559701161248821318]
+roles = [1570224213359337512]
 commands = ["quiz"]
 
 [access.categories.public_help]
@@ -175,18 +175,18 @@ commands = [
 # are its staff_role_ids plus admin_role_ids; ping_role_ids are mentioned when a ticket opens.
 # transcript_channel_id also receives that type's open/close log unless log_channel_id is set.
 [tickets]
-panel_channel_id = 1559701738213212263        # Support & Requests / ticket-selection
+panel_channel_id = 1570224314286870683        # Support & Requests / ticket-selection
 log_channel_id = 0
 max_open = 3
 cooldown_seconds = 60
 delete_closed_after_hours = 24                # closed channels are removed after this long; 0 keeps them
 admin_role_ids = [
-  1559701131905728532,                        # Head of Businesses
-  1559701134686556190,                        # Business Director
-  1559701141053513798,                        # Assistant Business Director
-  1559769987470729370,                        # FBRP | Management Team
+  1570224206354972865,                        # Head of Businesses
+  1570224207260942336,                        # Business Director
+  1570224208494076035,                        # Assistant Business Director
+  1570224205746675845,                        # FBRP | Management Team
 ]
-blacklist_role_ids = [1559701193893220404]    # Blacklisted From Tickets
+blacklist_role_ids = [1570224223509811224]    # Blacklisted From Tickets
 panel_title = "FBRP | Businesses Support"
 panel_description = "Pick the kind of ticket you need. A private channel opens for you and the right staff."
 
@@ -194,51 +194,51 @@ panel_description = "Pick the kind of ticket you need. A private channel opens f
 key = "executive"
 label = "Executive Tickets"
 description = "Escalations and requests for Business Directors."
-category_id = 1559701586270486630
-transcript_channel_id = 1559702147149340672   # executive-archives
+category_id = 1570224258494500896
+transcript_channel_id = 1570224409011290202   # executive-archives
 staff_role_ids = []
 
 [[tickets.types]]
 key = "coord_report"
 label = "Coordinator Report Tickets"
 description = "Report a Business Coordinator for misconduct."
-category_id = 1559701593572769942
-transcript_channel_id = 1559702151897423932   # coord-report-transcripts
+category_id = 1570224259169648660
+transcript_channel_id = 1570224409992499300   # coord-report-transcripts
 staff_role_ids = []
 
 [[tickets.types]]
 key = "report"
 label = "Report Tickets"
 description = "Report a business, member or rule violation."
-category_id = 1559701600338182194
-transcript_channel_id = 1559702155924082798   # report-transcripts
-staff_role_ids = [1559701149475536947, 1559701151723692174, 1559701155603423242, 1559701157994307676, 1559701161248821318, 1559701166261141534]
-ping_role_ids = [1559701181750845451]         # Ticket Notified
+category_id = 1570224259601662137
+transcript_channel_id = 1570224410948927550   # report-transcripts
+staff_role_ids = [1570224209676996699, 1570224211212116028, 1570224211530748037, 1570224212608819200, 1570224213359337512, 1570224214571618307]
+ping_role_ids = [1570224220066156654]         # Ticket Notified
 
 [[tickets.types]]
 key = "support"
 label = "Support Tickets"
 description = "General questions and help with businesses."
-category_id = 1559701606897815612
-transcript_channel_id = 1560434184244437106   # support-transcripts
-staff_role_ids = [1559701149475536947, 1559701151723692174, 1559701155603423242, 1559701157994307676, 1559701161248821318, 1559701163459354735, 1559701166261141534]
-ping_role_ids = [1559701181750845451]
+category_id = 1570224260822077440
+transcript_channel_id = 1570224413771698217   # support-transcripts
+staff_role_ids = [1570224209676996699, 1570224211212116028, 1570224211530748037, 1570224212608819200, 1570224213359337512, 1570224213900660859, 1570224214571618307]
+ping_role_ids = [1570224220066156654]
 
 [[tickets.types]]
 key = "recruitment"
 label = "Recruitment Tickets"
 description = "Recruitment help and approvals for your business."
-category_id = 1559701613332009031
-transcript_channel_id = 1559702160378298448   # recruitment-transcripts
-staff_role_ids = [1559701149475536947, 1559701151723692174, 1559701155603423242, 1559701157994307676, 1559701161248821318, 1559701163459354735, 1559701166261141534]
-ping_role_ids = [1559701181750845451]
+category_id = 1570224261438771385
+transcript_channel_id = 1570224411754106921   # recruitment-transcripts
+staff_role_ids = [1570224209676996699, 1570224211212116028, 1570224211530748037, 1570224212608819200, 1570224213359337512, 1570224213900660859, 1570224214571618307]
+ping_role_ids = [1570224220066156654]
 
 [[tickets.types]]
 key = "creation"
 preset = "business_creation"
 label = "Creation Tickets"
 description = "Apply to create a new business."
-category_id = 1559701625826836571
-transcript_channel_id = 1559702166543794236   # creation-transcripts
-staff_role_ids = [1559701170644328558, 1559701149475536947, 1559701151723692174]  # BCT | Creation Coordinator, Business Manager, Assistant Business Manager
-ping_role_ids = [1559701181750845451]
+category_id = 1570224262470434826
+transcript_channel_id = 1570224412320337952   # creation-transcripts
+staff_role_ids = [1570224216551325736, 1570224209676996699, 1570224211212116028]  # BCT | Creation Coordinator, Business Manager, Assistant Business Manager
+ping_role_ids = [1570224220066156654]

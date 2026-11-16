@@ -101,20 +101,20 @@ Do not configure these inside Tebex; this table is only for verifying what the F
 
 | Package | Discord role behavior |
 |---|---|
-| Founder's Edition | Grants role `1558777557799801004` plus every paid role (all packs, Mk2 Weapons, DevOps+, Custom Weapons, Car Radio, etc.); only Any Organization `1558772560085262356` is excluded |
-| VIP Membership | Grants `1557689749198868520` |
-| Australian Vehicle Pack | Grants `1558237674412974221` |
-| UK Car Pack | Grants `1558237679353593927` |
-| JDM Car Pack | Grants `1558778406403964958` |
-| Aviation Pack | Grants `1558778407280447588` |
-| Queue Bypass | Grants `1557689749509120091` |
-| Whitelist Package | Grants `1557689750184398999` |
-| Streamer Package | Grants `1558778405724626964` |
-| Custom Weapons | Grants `1558772553789743214` |
-| Any Organization | Grants `1558772560085262356` |
-| German Car Pack | Grants `1564110361961959505` |
-| Mk2 Weapons | Grants `1564110293846724710` |
-| DevOps+ | Grants `1564380267617984552` while the subscription is active |
+| Founder's Edition | Grants role `1570227921061150810` plus every paid role (all packs, Mk2 Weapons, DevOps+, Custom Weapons, Car Radio, etc.); only Any Organization `1570228686274175110` is excluded |
+| VIP Membership | Grants `1570227967572054146` |
+| Australian Vehicle Pack | Grants `1570227968293343327` |
+| UK Car Pack | Grants `1570227969924931618` |
+| JDM Car Pack | Grants `1570227984428834879` |
+| Aviation Pack | Grants `1570227988119949438` |
+| Queue Bypass | Grants `1570227972646903853` |
+| Whitelist Package | Grants `1570227973292822558` |
+| Streamer Package | Grants `1570227975696420935` |
+| Custom Weapons | Grants `1570227975167942677` |
+| Any Organization | Grants `1570228686274175110` |
+| German Car Pack | Grants `1570227969048453171` |
+| Mk2 Weapons | Grants `1570227974018572288` |
+| DevOps+ | Grants `1570224070354542713` while the subscription is active |
 | Every DevOps Package and Business Slot | No role; fulfilled manually after the buyer supplies the transaction ID in a DevOps ticket |
 
 ## 5. Copy-ready package descriptions

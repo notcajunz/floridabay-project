@@ -54,11 +54,9 @@ test("the active seasonal loading screen receives the canonical staff config", (
     assert.match(source, /scripts\/sync-loading-config\.sh" "\$canonical_loading_config" "\$active_loading_config"/);
   }
   const config = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../server-data/resources/[fbrp]/fbrp_loading/web/assets/scripts/config.js"), "utf8");
-  assert.doesNotMatch(config, /! 103 Mercer/);
-  assert.doesNotMatch(config, /chronic/i);
-  assert.match(config, /name: "! 103 Scarface"/);
-  assert.match(config, /name: "! 104 Saif"[\s\S]{0,80}description: \["Co-Owner"\]/);
-  assert.match(config, /name: "! 106 Revan"[\s\S]{0,80}description: \["Executive Management"\]/);
+  assert.match(config, /name: "! 102 cajunz"[\s\S]{0,80}description: \["Owner"\]/);
+  assert.doesNotMatch(config, /description: \["Co-Owner"\]/);
+  assert.equal((config.match(/description: \["Owner"\]/g) || []).length, 1);
 });
 
 test("any other tracked change still blocks, even beside vehicle edits", () => {

@@ -16,7 +16,7 @@ from deptbot.database import Database
 from deptbot.dept_roles import ALL_ROLES, grant_decision
 from deptbot.services import DepartmentService, parse_guild_id
 
-HUB = 1558235113295315004
+HUB = 1570217077669757069
 DEPT = 1558238773958017024
 
 

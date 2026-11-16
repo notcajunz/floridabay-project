@@ -13,7 +13,7 @@ import { COLORS, card, clip, who } from "./ui.js";
  * gets a DM. The website shows the property as pending from DevOps until then.
  */
 
-export const SETUP_CHANNEL_ID = "1559610554430005398";
+export const SETUP_CHANNEL_ID = "1570224115569270964";
 const PREFIX = "propsetup";
 const RETRY_AFTER_MS = 45_000;
 const RETRY_WINDOW_MS = 7 * 86_400_000;

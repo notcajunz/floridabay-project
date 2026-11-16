@@ -56,14 +56,14 @@ FBRP.Config = {
     -- role raises the cap; the server publishes the allowed value in player state.
     vehicleSpeedLimitMph = 180,
     vehicleSpeedPrivilegedLimitMph = 250,
-    vehicleSpeedPrivilegedRoleId = '1559633446429786162',
+    vehicleSpeedPrivilegedRoleId = '1570227967022465184',
     -- This separate role is the only 330 MPH tier. It is deliberately not part
     -- of Owners Pass or the privileged-speed role above.
     vehicleSpeedTopLimitMph = 330,
-    vehicleSpeedTopRoleId = '1566098517427097731',
+    vehicleSpeedTopRoleId = '1570228685636767760',
     -- Only members with this Discord role may open or control vehicle audio.
     -- Playback remains audible to everyone nearby.
-    carRadioRoleId = '1560857811364356218',
+    carRadioRoleId = '1570227971908833381',
     -- Staff normally cannot clock in while already working an organization.
     -- This role and Head Administrator-or-higher staff ranks bypass that guard.
     staffOrgDutyBypassRoleId = '1559580245093253272',
@@ -72,11 +72,11 @@ FBRP.Config = {
     -- Discord roles or tag grants those normally require.
     executiveBypassMinGroup = 'executive_management',
     -- Holders of this role may clock in as staff while on duty as a gang (not other org types).
-    staffGangDutyBypassRoleId = '1559683033576247326',
+    staffGangDutyBypassRoleId = '1570223752002797688',
     -- Joining the game needs membership of this Discord server and this role (the Verified role the bot
     -- grants after website verification) on top of the website verification itself.
     joinGuildId = '1557594282976747550',
-    joinRoleId = '1557690864526954616',
+    joinRoleId = '1570228067501211648',
     -- Fuel is measured as a percentage. A typical car lasts roughly an hour
     -- of mixed driving, while an empty tank takes about 35 seconds to fill.
     fuelTickMs = 1000,

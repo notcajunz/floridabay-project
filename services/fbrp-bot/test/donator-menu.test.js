@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const read = (relative) => fs.readFileSync(path.join(root, "server-data", relative), "utf8");
 const dir = "resources/[fbrp]/fbrp_donatormenu";
-const GERMAN_ROLE = "1564110361961959505";
+const GERMAN_ROLE = "1570227969048453171";
 
 test("the donator menu and its companion resources are started with a manifest", () => {
   const phone = read("config/resources.cfg");
@@ -42,17 +42,17 @@ test("the donator menu's Car Radio entry opens the existing /carradio behind its
   const radio = read(`${dir}/data/addons_config.lua`).match(/\{ id = 'radiocar'[^}]*\}/)[0];
   assert.match(radio, /label = 'Car Radio'/);
   assert.match(radio, /command = 'carradio'/);
-  assert.match(radio, /role = '1560857811364356218'/);
-  assert.match(read("resources/[fbrp]/fbrp_core/config.lua"), /carRadioRoleId = '1560857811364356218'/);
+  assert.match(radio, /role = '1570227971908833381'/);
+  assert.match(read("resources/[fbrp]/fbrp_core/config.lua"), /carRadioRoleId = '1570227971908833381'/);
 });
 
 test("engine sound, siren and prop menus need DevOps+, owner keys its own role, and Founders get every paid pack", () => {
   const addons = read(`${dir}/data/addons_config.lua`);
   for (const id of ["enginesound", "sirenmenu", "props"])
-    assert.match(addons, new RegExp(`id = '${id}'[^}]*role = '1564380267617984552'`), id);
-  assert.match(read(`${dir}/data/core.lua`), /id = 'ownerkeys'[^}]*role = '1564129525850443867'/);
+    assert.match(addons, new RegExp(`id = '${id}'[^}]*role = '1570224070354542713'`), id);
+  assert.match(read(`${dir}/data/core.lua`), /id = 'ownerkeys'[^}]*role = '1570227922286153760'/);
   const server = read(`${dir}/server/main.lua`);
-  assert.match(server, /FOUNDER_ROLE = '1558777557799801004'/);
+  assert.match(server, /FOUNDER_ROLE = '1570227921061150810'/);
   assert.match(server, /roles\[FOUNDER_ROLE\] and not NOT_FOR_FOUNDERS\[entry\.id\]/);
   assert.match(server, /vehicles\[pack\.id\] = type\(VehicleList\[pack\.id\]\) == 'table' and VehicleList\[pack\.id\] or \{\}/);
 });
@@ -68,7 +68,7 @@ test("Owners Keys and the VIP Package list real fbrpCars models", () => {
 test("the Owner Vehicles category is hidden unless the player holds one of its two roles", () => {
   const core = read(`${dir}/data/core.lua`);
   const entry = core.match(/\{ id = 'ownerfleet'[^\n]*\}/)[0];
-  assert.match(entry, /roles = \{ '1557689734774390874', '1557596860208652338' \}/);
+  assert.match(entry, /roles = \{ '1570227894330855565', '1570227893056049194' \}/);
   assert.match(entry, /hidden = true/);
 
   const server = read(`${dir}/server/main.lua`);

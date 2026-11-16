@@ -1,7 +1,7 @@
 import { EmbedBuilder, PermissionFlagsBits } from "discord.js";
 import { COLORS, card, clip, humanize } from "./ui.js";
 
-const DEFAULT_CHANNEL_ID = "1558946985988595762";
+const DEFAULT_CHANNEL_ID = "1570228130877014140";
 const DEFAULT_GUILD_ID = "1557594282976747550";
 const DEFAULT_TITLE = "Florida Bay Roleplay | Chain of Command";
 const MINIMUM_RANK = "Assistant Community Manager";

@@ -5,10 +5,11 @@ import {
   EmbedBuilder,
 } from "discord.js";
 import { COLORS } from "./ui.js";
+import { currentDiscordId } from "./discord-ids.js";
 
 const CONFIG_KEY = "server_status_board";
 const TITLE = "Florida Bay Roleplay · Live Status";
-const DEFAULT_CHANNEL_ID = "1558171442250784798";
+const DEFAULT_CHANNEL_ID = "1570228138347077795";
 const DEFAULT_RESTART_TIMES = "06:00,18:00";
 const DEFAULT_TIMEZONE = "America/New_York";
 const DEFAULT_MAX_PLAYERS = 48;
@@ -218,7 +219,7 @@ export function createStatusBoard({ client, db, callGame, publicBase, connectUrl
     if (updating) return;
     updating = true;
     try {
-      const channelId = String(process.env.FBRP_STATUS_CHANNEL_ID || DEFAULT_CHANNEL_ID).trim();
+      const channelId = currentDiscordId(process.env.FBRP_STATUS_CHANNEL_ID || DEFAULT_CHANNEL_ID);
       if (!channelId) return;
       const channel = await client.channels.fetch(channelId).catch(() => null);
       if (!channel?.isTextBased() || !channel.guild)

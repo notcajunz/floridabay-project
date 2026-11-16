@@ -21,6 +21,12 @@ test('only known options are accepted and the environment switch is validated', 
   const ok = run(['help', 'main', '--no-restart']);
   assert.equal(ok.status, 0);
   assert.match(ok.stdout, /--no-restart/);
+  const staged = run(['help', 'main', '--no-start']);
+  assert.equal(staged.status, 0);
+  assert.match(staged.stdout, /--no-start/);
+  const badStartEnv = run(['help', 'main'], { FBRP_DEPLOY_NO_START: '2' });
+  assert.notEqual(badStartEnv.status, 0);
+  assert.match(badStartEnv.stderr, /FBRP_DEPLOY_NO_START must be 0 or 1/);
 });
 
 /** Runs the game-host part of install_game_revision against a throwaway repo with every system command stubbed. */
@@ -109,6 +115,13 @@ test('AI agents and the dev runner deploy without restarting FiveM', () => {
   assert.match(read('scripts/dev-submission-implement.sh'), /"\$DEPLOY" "\$target" main --no-restart/);
   assert.match(script, /FiveM restart PENDING/);
   assert.match(script, /Stopping the control plane only \(FiveM keeps running\)/);
+});
+
+test('maintenance-window deploys install code while leaving every application plane stopped', () => {
+  assert.match(script, /--no-start\) NO_START=1; NO_RESTART=1/);
+  assert.match(script, /\[\[ "\$NO_START" == 1 \]\] \|\| start_control/);
+  assert.match(script, /Stopping both application planes and leaving them stopped/);
+  assert.match(script, /verify_staged_deployment/);
 });
 
 test('control deploy installs an automatic recovery policy for Caddy', () => {

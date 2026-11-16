@@ -9,8 +9,8 @@ local KVP = 'johnf350:coal'
 local coalOn = C.enabled and GetResourceKvpInt(KVP) ~= 2
 
 local function notify(msg)
-    if GetResourceState('jaxtti_notify') == 'started' then
-        exports.jaxtti_notify:Notify({ type = 'vehicle', title = 'F-350', message = msg })
+    if GetResourceState('fbrp_notify') == 'started' then
+        exports.fbrp_notify:Notify({ type = 'vehicle', title = 'F-350', message = msg })
     else
         BeginTextCommandThefeedPost('STRING')
         AddTextComponentSubstringPlayerName(msg)

@@ -2,7 +2,7 @@
 -- vMenu strips the weapon_ prefix when it creates per-addon-weapon ACE names.
 local accessObject = 'vMenu.WeaponOptions.WhitelistedModels.mp9a'
 local guildId = '1557594282976747550'
-local roleId = '1558772553789743214'
+local roleId = '1570227975167942677'
 
 local function discordId(source)
     for _, identifier in ipairs(GetPlayerIdentifiers(source)) do

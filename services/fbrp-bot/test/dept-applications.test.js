@@ -13,7 +13,7 @@ import { APPLICATION_LOG_ACTIONS } from "../src/orgs-site.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const core = path.resolve(here, "../../../server-data/resources/[fbrp]/fbrp_core");
-const HUB = "1558235113295315004";
+const HUB = "1570217077669757069";
 const DEPT_GUILD = "1558238773958017024";
 const ORG = { id: 3, slug: "dhs", name: "Department of Homefront Security", type: "leo", color: "#2255aa", guild_id: null };
 

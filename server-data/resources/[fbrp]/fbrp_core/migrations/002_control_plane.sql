@@ -123,8 +123,7 @@ INSERT IGNORE INTO staff_roster_ranks(category_id,name,sort_order,weekly_seconds
 DELETE FROM ace_entries WHERE group_name <> 'owner';
 DELETE FROM ace_memberships WHERE group_name <> 'owner';
 INSERT IGNORE INTO ace_memberships(discord_id,group_name,origin,added_by,added_at) VALUES
- ('1090083387638812755','owner','bootstrap','1558518806417117305',UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000),
- ('1099651002208104488','owner','bootstrap','1558518806417117305',UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000);
+ ('1090083387638812755','owner','bootstrap','1558518806417117305',UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000);
 
 INSERT IGNORE INTO network_guilds(guild_id,name,kind,added_by,added_at) VALUES
  ('1557594282976747550','Florida Bay Roleplay','main','1558518806417117305',UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000),

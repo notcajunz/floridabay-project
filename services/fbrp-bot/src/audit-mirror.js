@@ -7,7 +7,7 @@ import { logEmbed } from "./ui.js";
  * channels are reused so the main Discord has one destination for each kind of activity. The footer
  * of each embed keeps the exact action name, so grouping loses no detail.
  */
-export const AUDIT_CATEGORY_ID = process.env.FBRP_AUDIT_CATEGORY_ID || "1559447048552587274";
+export const AUDIT_CATEGORY_ID = process.env.FBRP_AUDIT_CATEGORY_ID || "1570228106835271700";
 
 // The same look as the other log channels: an emoji, a box-drawing bar, then a hyphenated name ending in -logs.
 export const KILL_KEY = "kill-logs";

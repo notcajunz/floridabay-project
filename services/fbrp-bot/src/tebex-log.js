@@ -1,5 +1,5 @@
 /** Discord log for everything the Tebex store does: sales, refunds, disputes, subscriptions and checkout. */
-export const TEBEX_LOG_CHANNEL_ID = "1558258545672327188";
+export const TEBEX_LOG_CHANNEL_ID = "1570228210426183773";
 
 const COLOR = { green: 0x2ecc71, red: 0xe74c3c, orange: 0xf39c12, blue: 0x3498db, grey: 0x95a5a6 };
 

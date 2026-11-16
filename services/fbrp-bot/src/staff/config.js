@@ -54,7 +54,7 @@ export const MANAGER_ROLE_RULES = [
   {
     key: "dev",
     label: "Dev Manager+",
-    targetRole: "1559120256788861008",
+    targetRole: "1570227917504385096",
     // The DevOps server's own roster decides: active members at Development Manager (level 5) or above,
     // which is Development Manager and Development Director.
     devopsMinLevel: 5,

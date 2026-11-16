@@ -35,7 +35,7 @@ local function playerRoles(src)
 end
 
 -- Founder's Edition holders get every paid pack and menu (the owner-only keys and staff dev keys stay role-bound).
-local FOUNDER_ROLE = '1558777557799801004'
+local FOUNDER_ROLE = '1570227921061150810'
 local NOT_FOR_FOUNDERS = { ownerkeys = true, ownerfleet = true, acedevkeys = true }
 
 local function allowed(roles, entry)

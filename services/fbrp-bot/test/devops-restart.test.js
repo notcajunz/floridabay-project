@@ -6,11 +6,11 @@ import { RESTART_CHOICES, RESTART_OWNER_ID, RESTART_TARGETS, command, isRestartO
 test("restart command is restricted to the designated Discord owner", async () => {
   assert.equal(RESTART_OWNER_ID, "1090083387638812755");
   assert.equal(isRestartOwner(RESTART_OWNER_ID), true);
-  assert.equal(isRestartOwner("1099651002208104488"), false);
+  assert.equal(isRestartOwner("1090083387638812754"), false);
 
   let deferred = false;
   await assert.rejects(
-    command({ user: { id: "1099651002208104488" }, options: { getString: () => "game" }, deferReply: async () => { deferred = true; } }),
+    command({ user: { id: "1090083387638812754" }, options: { getString: () => "game" }, deferReply: async () => { deferred = true; } }),
     /Only the designated FBRP service owner/,
   );
   assert.equal(deferred, false, "authorization must happen before any restart work or acknowledgement");

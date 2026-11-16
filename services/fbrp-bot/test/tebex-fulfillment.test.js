@@ -24,9 +24,9 @@ test("catalog defines all 26 products and Founder excludes Any Organization", ()
   assert.equal(TEBEX_PRODUCTS.length, 26);
   const founder = productSpec({ name: "Founder’s Edition" });
   assert.deepEqual(founder.roles, [BUNDLE_SOURCE_ROLE_ID, ...BUNDLE_ROLE_IDS]);
-  assert.ok(!founder.roles.includes("1558772560085262356"));
+  assert.ok(!founder.roles.includes("1570228686274175110"));
   assert.equal(productSpec({ name: "Any Org" }), null);
-  assert.equal(productSpec({ name: "Any Organization" }).roles[0], "1558772560085262356");
+  assert.equal(productSpec({ name: "Any Organization" }).roles[0], "1570228686274175110");
   assert.equal(productSpec({ id: 7761881, name: "Renamed in Tebex" }).name, "VIP Membership");
   assert.equal(productSpec({ id: 9999999, name: "VIP Membership" }), null);
 });
@@ -58,7 +58,7 @@ test("completed payments create role activations and manual services create none
   const vip = webhookPlan({ id: "w1", type: "payment.completed", subject: payment("VIP Membership") });
   assert.equal(vip.kind, "activate");
   assert.equal(vip.discordId, DISCORD_ID);
-  assert.deepEqual(vip.entries.map((entry) => entry.roleId), ["1557689749198868520"]);
+  assert.deepEqual(vip.entries.map((entry) => entry.roleId), ["1570227967572054146"]);
 
   const manual = webhookPlan({ id: "w2", type: "payment.completed", subject: payment("Personal Vehicle") });
   assert.equal(manual.kind, "activate");
@@ -103,7 +103,7 @@ test("the fulfillment ledger migration is registered with the game schema", asyn
 });
 
 test("German Car Pack, Mk2 Weapons and DevOps+ purchases give exactly their Discord roles", () => {
-  for (const [id, name, role] of [[7767181, "German Car Pack", "1564110361961959505"], [7767259, "Mk2 Weapons", "1564110293846724710"], [7768904, "DevOps+", "1564380267617984552"]]) {
+  for (const [id, name, role] of [[7767181, "German Car Pack", "1570227969048453171"], [7767259, "Mk2 Weapons", "1570227974018572288"], [7768904, "DevOps+", "1570224070354542713"]]) {
     assert.deepEqual(productSpec({ id, name }).roles, [role]);
     const plan = webhookPlan({ id: `w-${id}`, type: "payment.completed", subject: payment(name, id) });
     assert.equal(plan.kind, "activate");

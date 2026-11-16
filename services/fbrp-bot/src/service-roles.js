@@ -13,23 +13,23 @@ export const SERVICE_ROLES = {
   dohs: {
     guildId: MAIN_GUILD_ID,
     roles: {
-      base: "1557692420269936660", // FBRP | DHS
-      supervisor: "1557692388737028196", // FBRP | DHS Supervisor
-      high_command: "1560396125125742684", // FBRP | DHS High Command
+      base: "1570227952308719697", // FBRP | DHS
+      supervisor: "1570227938589155368", // FBRP | DHS Supervisor
+      high_command: "1570227937548967969", // FBRP | DHS High Command
     },
   },
   iaa: {
     guildId: MAIN_GUILD_ID,
     roles: {
-      base: "1558232639247356035", // FBRP | IAA
-      supervisor: "1558232729764503583", // FBRP | IAA Supervisor
-      high_command: "1560396128065683466", // FBRP | IAA High Command
+      base: "1570227936261570621", // FBRP | IAA
+      supervisor: "1570227935091363931", // FBRP | IAA Supervisor
+      high_command: "1570227933988003953", // FBRP | IAA High Command
     },
   },
 };
 
 /** Bot owners: exempt from the IAA and DOHS roster-bound role checks and removals, and never rank-capped. */
-export const AGENCY_BYPASS_IDS = new Set(["1090083387638812755", "1099651002208104488"]);
+export const AGENCY_BYPASS_IDS = new Set(["1090083387638812755"]);
 
 export const MAX_CHANGES_PER_REQUEST = 200;
 

@@ -1,7 +1,7 @@
 # FBRP | Armed Forces. The Discord token stays in .env. IDs must be unquoted integers; 0 disables.
 [bot]
 guild_id = 1561065294615544019
-owner_ids = [1090083387638812755, 1099651002208104488]
+owner_ids = [1090083387638812755]
 database_path = "department_manager_armedforces.db"
 # Network management passes every rank check: FBRP | Management Team, FBRP | Owner, FBRP | Co-Owner.
 bypass_role_ids = [1561080070263537745, 1561065637999018025, 1561065642101186581]

@@ -28,96 +28,96 @@ class Config:
     administrators_bypass: bool = True
     owners_bypass: bool = True
     tickets: TicketSettings = field(default_factory=TicketSettings)
-    launch_channel_id: int = 1559701699013120164
-    role_action_channel_id: int = 1559701774150139914
-    role_conflict_channel_id: int = 1559701944308604990
-    staff_bypass_channel_id: int = 1559701991213764720
-    staff_bypass_reviewer_role_id: int = 1559701134686556190
-    staff_bypass_grant_role_id: int = 1559701222846500885
+    launch_channel_id: int = 1570224293021753426
+    role_action_channel_id: int = 1570224323111813201
+    role_conflict_channel_id: int = 1570224362122911786
+    staff_bypass_channel_id: int = 1570224381723017338
+    staff_bypass_reviewer_role_id: int = 1570224207260942336
+    staff_bypass_grant_role_id: int = 1570224234154827910
     multi_business_bypass_role_ids: tuple[int, ...] = (
-        1559701222846500885,
+        1570224234154827910,
     )
-    alliance_log_channel_id: int = 1559701903422783618
+    alliance_log_channel_id: int = 1570224351683285295
     punishment_channel_ids: tuple[int, ...] = (
-        1559701778323349524,
-        1559701903422783618,
+        1570224324131164322,
+        1570224351683285295,
     )
-    suspension_role_id: int = 1559701191791747132
-    suspension_log_channel_id: int = 1559701778323349524
+    suspension_role_id: int = 1570224223081992313
+    suspension_log_channel_id: int = 1570224324131164322
     parole_days: int = 3
-    role_management_admin_role_id: int = 1559701149475536947
-    business_role_blocker_role_id: int = 1559701186439815239
-    business_command_role_blocker_role_id: int = 1559701188881023076
+    role_management_admin_role_id: int = 1570224209676996699
+    business_role_blocker_role_id: int = 1570224221475442720
+    business_command_role_blocker_role_id: int = 1570224222511435787
     coord_chain_channel_id: int = 1559701676443566151
-    business_tier_channel_id: int = 1559701694315499671
+    business_tier_channel_id: int = 1570224282540445778
     voice_management_role_ids: tuple[int, ...] = (
-        1559701168542847077,
-        1559701149475536947,
-        1559701141053513798,
-        1559701134686556190,
-        1559701131905728532,
+        1570224215834234994,
+        1570224209676996699,
+        1570224208494076035,
+        1570224207260942336,
+        1570224206354972865,
     )
-    trade_channel_id: int = 1559701911895277669
-    shop_channel_id: int = 1559701712338686012
-    leaderboard_channel_id: int = 1559701967125876797
-    hours_channel_id: int = 1559701689299378217
-    market_log_channel_id: int = 1559702019017805886
-    location_channel_id: int = 1559701911895277669
-    server_log_channel_id: int = 1559702123879342160
-    voice_log_channel_id: int = 1559702128669229076
-    message_log_channel_id: int = 1559702119228112976
-    join_leave_log_channel_id: int = 1559702114979151922
-    member_log_channel_id: int = 1559702106800394311
-    business_member_role_id: int = 1559701354262302810
-    business_coord_team_role_id: int = 1559701166261141534
-    business_add_remove_role_id: int = 1559701149475536947
+    trade_channel_id: int = 1570224353969307720
+    shop_channel_id: int = 1570224298101178498
+    leaderboard_channel_id: int = 1570224376274747403
+    hours_channel_id: int = 1570224280124268616
+    market_log_channel_id: int = 1570224388316471367
+    location_channel_id: int = 1570224353969307720
+    server_log_channel_id: int = 1570224406985187339
+    voice_log_channel_id: int = 1570224407916453938
+    message_log_channel_id: int = 1570224397673824366
+    join_leave_log_channel_id: int = 1570224396596150384
+    member_log_channel_id: int = 1570224394804924590
+    business_member_role_id: int = 1570224238256848896
+    business_coord_team_role_id: int = 1570224214571618307
+    business_add_remove_role_id: int = 1570224209676996699
     restricted_role_ids: tuple[int, ...] = (
-        1559701222846500885,
+        1570224234154827910,
     )
     restricted_role_manager_role_ids: tuple[int, ...] = (
-        1559701131905728532,
-        1559701134686556190,
+        1570224206354972865,
+        1570224207260942336,
     )
     business_manager_plus_role_ids: tuple[int, ...] = (
-        1559701131905728532,
-        1559701134686556190,
-        1559701141053513798,
-        1559701149475536947,
+        1570224206354972865,
+        1570224207260942336,
+        1570224208494076035,
+        1570224209676996699,
     )
     coordinator_role_ids: dict[str, int] = field(default_factory=lambda: {
-        "Head of Businesses": 1559701131905728532,
-        "Business Director": 1559701134686556190,
-        "Assistant Business Director": 1559701141053513798,
-        "Business Manager": 1559701149475536947,
-        "Assistant Business Manager": 1559701151723692174,
-        "Lead Business Coordinator": 1559701155603423242,
-        "Senior Business Coordinator": 1559701157994307676,
-        "Business Coordinator": 1559701161248821318,
-        "Trial Business Coordinator": 1559701163459354735,
+        "Head of Businesses": 1570224206354972865,
+        "Business Director": 1570224207260942336,
+        "Assistant Business Director": 1570224208494076035,
+        "Business Manager": 1570224209676996699,
+        "Assistant Business Manager": 1570224211212116028,
+        "Lead Business Coordinator": 1570224211530748037,
+        "Senior Business Coordinator": 1570224212608819200,
+        "Business Coordinator": 1570224213359337512,
+        "Trial Business Coordinator": 1570224213900660859,
     })
     category_coordinator_role_ids: dict[str, int] = field(default_factory=lambda: {
-        "Car Clubs & Automotive": 1559701172909252711,
-        "Security & Protection": 1559701174955933786,
-        "Trucking & Contracting": 1559701177732698212,
-        "Miscellaneous": 1559701179783708752,
+        "Car Clubs & Automotive": 1570224217155182712,
+        "Security & Protection": 1570224217784582274,
+        "Trucking & Contracting": 1570224218417668240,
+        "Miscellaneous": 1570224219336212571,
     })
     category_member_role_ids: dict[str, int] = field(default_factory=lambda: {
-        "Car Clubs & Automotive": 1559701356468510790,
-        "Security & Protection": 1559701358536433756,
-        "Trucking & Contracting": 1559701360931512480,
-        "Miscellaneous": 1559701363867254865,
+        "Car Clubs & Automotive": 1570224239020351560,
+        "Security & Protection": 1570224241297588395,
+        "Trucking & Contracting": 1570224241608101984,
+        "Miscellaneous": 1570224242673328159,
     })
     parole_role_ids: dict[str, int] = field(default_factory=lambda: {
-        "Car Clubs & Automotive": 1559701211719139348,
-        "Security & Protection": 1559701214504026194,
-        "Trucking & Contracting": 1559701217842823208,
-        "Miscellaneous": 1559701219780333629,
+        "Car Clubs & Automotive": 1570224231231529111,
+        "Security & Protection": 1570224231990698128,
+        "Trucking & Contracting": 1570224233185812561,
+        "Miscellaneous": 1570224233592656006,
     })
     coord_channel_ids: dict[str, int] = field(default_factory=lambda: {
-        "Car Clubs & Automotive": 1559701799500521472,
-        "Security & Protection": 1559701830647160832,
-        "Trucking & Contracting": 1559701855590817813,
-        "Miscellaneous": 1559701885676552303,
+        "Car Clubs & Automotive": 1570224328887505069,
+        "Security & Protection": 1570224336462155908,
+        "Trucking & Contracting": 1570224341793120400,
+        "Miscellaneous": 1570224348042756096,
     })
 
     def access_decision(
@@ -202,51 +202,51 @@ class Config:
             ),
             guild_id=int(guild_raw) if guild_raw else None,
             owner_ids=owners,
-            admin_role_id=int(bot_config.get("admin_role_id", 1559701131905728532)),
+            admin_role_id=int(bot_config.get("admin_role_id", 1570224206354972865)),
             command_access=rules,
             administrators_bypass=bool(access_config.get("administrators_bypass", True)),
             owners_bypass=bool(access_config.get("owners_bypass", True)),
             tickets=parse_tickets(raw.get("tickets")),
-            launch_channel_id=int(bot_config.get("launch_channel_id", 1559701699013120164)),
-            role_action_channel_id=int(bot_config.get("role_action_channel_id", 1559701774150139914)),
-            role_conflict_channel_id=int(bot_config.get("role_conflict_channel_id", 1559701944308604990)),
-            staff_bypass_channel_id=int(bot_config.get("staff_bypass_channel_id", 1559701991213764720)),
-            staff_bypass_reviewer_role_id=int(bot_config.get("staff_bypass_reviewer_role_id", 1559701134686556190)),
-            staff_bypass_grant_role_id=int(bot_config.get("staff_bypass_grant_role_id", 1559701222846500885)),
+            launch_channel_id=int(bot_config.get("launch_channel_id", 1570224293021753426)),
+            role_action_channel_id=int(bot_config.get("role_action_channel_id", 1570224323111813201)),
+            role_conflict_channel_id=int(bot_config.get("role_conflict_channel_id", 1570224362122911786)),
+            staff_bypass_channel_id=int(bot_config.get("staff_bypass_channel_id", 1570224381723017338)),
+            staff_bypass_reviewer_role_id=int(bot_config.get("staff_bypass_reviewer_role_id", 1570224207260942336)),
+            staff_bypass_grant_role_id=int(bot_config.get("staff_bypass_grant_role_id", 1570224234154827910)),
             multi_business_bypass_role_ids=tuple(
                 int(value)
                 for value in bot_config.get(
                     "multi_business_bypass_role_ids",
                     [
                         bot_config.get(
-                            "multi_business_bypass_role_id", 1559701222846500885
+                            "multi_business_bypass_role_id", 1570224234154827910
                         ),
                         0,
-                        1559701134686556190,
+                        1570224207260942336,
                     ],
                 )
             ),
-            alliance_log_channel_id=int(bot_config.get("alliance_log_channel_id", 1559701903422783618)),
-            punishment_channel_ids=tuple(int(value) for value in bot_config.get("punishment_channel_ids", [1559701778323349524, 1559701903422783618])),
-            suspension_role_id=int(bot_config.get("suspension_role_id", 1559701191791747132)),
-            suspension_log_channel_id=int(bot_config.get("suspension_log_channel_id", 1559701903422783618)),
+            alliance_log_channel_id=int(bot_config.get("alliance_log_channel_id", 1570224351683285295)),
+            punishment_channel_ids=tuple(int(value) for value in bot_config.get("punishment_channel_ids", [1570224324131164322, 1570224351683285295])),
+            suspension_role_id=int(bot_config.get("suspension_role_id", 1570224223081992313)),
+            suspension_log_channel_id=int(bot_config.get("suspension_log_channel_id", 1570224351683285295)),
             parole_days=int(bot_config.get("parole_days", 3)),
             role_management_admin_role_id=int(
-                bot_config.get("role_management_admin_role_id", 1559701149475536947)
+                bot_config.get("role_management_admin_role_id", 1570224209676996699)
             ),
             business_role_blocker_role_id=int(
-                bot_config.get("business_role_blocker_role_id", 1559701186439815239)
+                bot_config.get("business_role_blocker_role_id", 1570224221475442720)
             ),
             business_command_role_blocker_role_id=int(
                 bot_config.get(
-                    "business_command_role_blocker_role_id", 1559701188881023076
+                    "business_command_role_blocker_role_id", 1570224222511435787
                 )
             ),
             coord_chain_channel_id=int(
                 bot_config.get("coord_chain_channel_id", 1559701676443566151)
             ),
             business_tier_channel_id=int(
-                bot_config.get("business_tier_channel_id", 1559701694315499671)
+                bot_config.get("business_tier_channel_id", 1570224282540445778)
             ),
             voice_management_role_ids=tuple(
                 int(value)
@@ -255,48 +255,48 @@ class Config:
                     [
                         0,
                         0,
-                        1559701134686556190,
-                        1559701149475536947,
+                        1570224207260942336,
+                        1570224209676996699,
                     ],
                 )
             ),
-            trade_channel_id=int(bot_config.get("trade_channel_id", 1559701911895277669)),
-            shop_channel_id=int(bot_config.get("shop_channel_id", 1559701712338686012)),
+            trade_channel_id=int(bot_config.get("trade_channel_id", 1570224353969307720)),
+            shop_channel_id=int(bot_config.get("shop_channel_id", 1570224298101178498)),
             leaderboard_channel_id=int(
-                bot_config.get("leaderboard_channel_id", 1559701967125876797)
+                bot_config.get("leaderboard_channel_id", 1570224376274747403)
             ),
-            hours_channel_id=int(bot_config.get("hours_channel_id", 1559701689299378217)),
+            hours_channel_id=int(bot_config.get("hours_channel_id", 1570224280124268616)),
             market_log_channel_id=int(
-                bot_config.get("market_log_channel_id", 1559702019017805886)
+                bot_config.get("market_log_channel_id", 1570224388316471367)
             ),
-            location_channel_id=int(bot_config.get("location_channel_id", 1559701911895277669)),
-            server_log_channel_id=int(bot_config.get("server_log_channel_id", 1559702123879342160)),
-            voice_log_channel_id=int(bot_config.get("voice_log_channel_id", 1559702128669229076)),
-            message_log_channel_id=int(bot_config.get("message_log_channel_id", 1559702119228112976)),
-            join_leave_log_channel_id=int(bot_config.get("join_leave_log_channel_id", 1559702114979151922)),
-            member_log_channel_id=int(bot_config.get("member_log_channel_id", 1559702106800394311)),
-            business_member_role_id=int(bot_config.get("business_member_role_id", 1559701354262302810)),
+            location_channel_id=int(bot_config.get("location_channel_id", 1570224353969307720)),
+            server_log_channel_id=int(bot_config.get("server_log_channel_id", 1570224406985187339)),
+            voice_log_channel_id=int(bot_config.get("voice_log_channel_id", 1570224407916453938)),
+            message_log_channel_id=int(bot_config.get("message_log_channel_id", 1570224397673824366)),
+            join_leave_log_channel_id=int(bot_config.get("join_leave_log_channel_id", 1570224396596150384)),
+            member_log_channel_id=int(bot_config.get("member_log_channel_id", 1570224394804924590)),
+            business_member_role_id=int(bot_config.get("business_member_role_id", 1570224238256848896)),
             business_coord_team_role_id=int(
-                bot_config.get("business_coord_team_role_id", 1559701166261141534)
+                bot_config.get("business_coord_team_role_id", 1570224214571618307)
             ),
             business_add_remove_role_id=int(
-                bot_config.get("business_add_remove_role_id", 1559701149475536947)
+                bot_config.get("business_add_remove_role_id", 1570224209676996699)
             ),
             restricted_role_ids=tuple(
                 int(value) for value in bot_config.get(
-                    "restricted_role_ids", [1559701222846500885, 0]
+                    "restricted_role_ids", [1570224234154827910, 0]
                 )
             ),
             restricted_role_manager_role_ids=tuple(
                 int(value) for value in bot_config.get(
                     "restricted_role_manager_role_ids",
-                    [1559701134686556190, 1559701131905728532],
+                    [1570224207260942336, 1570224206354972865],
                 )
             ),
             business_manager_plus_role_ids=tuple(
                 int(value) for value in bot_config.get(
                     "business_manager_plus_role_ids",
-                    [1559701131905728532, 1559701134686556190, 1559701149475536947],
+                    [1570224206354972865, 1570224207260942336, 1570224209676996699],
                 )
             ),
             coordinator_role_ids={

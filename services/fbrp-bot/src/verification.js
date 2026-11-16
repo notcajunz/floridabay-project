@@ -1,10 +1,11 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { isIPv4, isIPv6 } from "node:net";
+import { currentDiscordId } from "./discord-ids.js";
 
 /** The role the bot gives once someone has verified on the website. */
-export const VERIFIED_ROLE_ID = String(process.env.FBRP_VERIFIED_ROLE_ID || "1557690864526954616");
+export const VERIFIED_ROLE_ID = currentDiscordId(process.env.FBRP_VERIFIED_ROLE_ID || "1570228067501211648");
 /** Members waiting to verify can only see this channel. */
-export const VERIFICATION_CHANNEL_ID = String(process.env.FBRP_VERIFICATION_CHANNEL_ID || "1558919447014547546");
+export const VERIFICATION_CHANNEL_ID = String(process.env.FBRP_VERIFICATION_CHANNEL_ID || "1570228122874286130");
 export const UNVERIFIED_ROLE_NAME = String(process.env.FBRP_UNVERIFIED_ROLE_NAME || "FBRP | Unverified");
 export const verificationRequired = () => String(process.env.FBRP_REQUIRE_VERIFICATION || "true").toLowerCase() !== "false";
 

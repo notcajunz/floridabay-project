@@ -1,82 +1,82 @@
 # The Discord token stays in .env. IDs in this file must be unquoted integers.
 [bot]
-guild_id = 1558950044042797169
-owner_ids = [1090083387638812755,1099651002208104488]
-admin_role_id = 1559682494364647524
+guild_id = 1570217330124923040
+owner_ids = [1090083387638812755]
+admin_role_id = 1570223688689778728
 database_path = "gang_manager.db"
-launch_channel_id = 1559683475148112043
-role_action_channel_id = 1559683682594455654
-role_conflict_channel_id = 1559683822600061051
-staff_bypass_channel_id = 1559683804963278988
-staff_bypass_reviewer_role_id = 1559682517659943033
-staff_bypass_grant_role_id = 1559683033576247326
-multi_gang_bypass_role_ids = [1559682626011402332]
-alliance_log_channel_id = 1559683835439095908
-punishment_channel_ids = [1559683791583191151, 1559683676328034356]
-suspension_role_id = 1559682552145379408
-suspension_log_channel_id = 1559683676328034356
+launch_channel_id = 1570223789919174796
+role_action_channel_id = 1570223877018353755
+role_conflict_channel_id = 1570223903454920837
+staff_bypass_channel_id = 1570223895875821588
+staff_bypass_reviewer_role_id = 1570223694373199944
+staff_bypass_grant_role_id = 1570223752002797688
+multi_gang_bypass_role_ids = [1570223721417801819]
+alliance_log_channel_id = 1570223906847989952
+punishment_channel_ids = [1570223891757015103, 1570223876057862164]
+suspension_role_id = 1570223704946905098
+suspension_log_channel_id = 1570223876057862164
 parole_days = 3
-role_management_admin_role_id = 1559682499251146772
-gang_role_blocker_role_id = 1559682547099631696
-gang_command_role_blocker_role_id = 1559682550044037120
-coord_chain_channel_id = 1559683447470166157
-gang_tier_channel_id = 1559683469041471508
-trade_channel_id = 1559683574670692553
-shop_channel_id = 1559683570438635550
-leaderboard_channel_id = 1559683565007020072
-hours_channel_id = 1559683464347918366
-market_log_channel_id = 1559683584246153276
-location_channel_id = 1559683615875407912
-server_log_channel_id = 1559683839851241573
-voice_log_channel_id = 1559683844670750730
-message_log_channel_id = 1559683848982503434
-join_leave_log_channel_id = 1559683853524795423
-member_log_channel_id = 1559683857844936877
-gang_member_role_id = 1559682966467117066
-gang_coord_team_role_id = 1559682517659943033
-gang_add_remove_role_id = 1559682499251146772
+role_management_admin_role_id = 1570223690203926562
+gang_role_blocker_role_id = 1570223703537487943
+gang_command_role_blocker_role_id = 1570223704175018056
+coord_chain_channel_id = 1570223782780739665
+gang_tier_channel_id = 1570223787734073354
+trade_channel_id = 1570223829257818172
+shop_channel_id = 1570223827332632626
+leaderboard_channel_id = 1570223824627175559
+hours_channel_id = 1570223786609877162
+market_log_channel_id = 1570223833905106985
+location_channel_id = 1570223864812802178
+server_log_channel_id = 1570223907703759012
+voice_log_channel_id = 1570223908794404937
+message_log_channel_id = 1570223910199234642
+join_leave_log_channel_id = 1570223911063527445
+member_log_channel_id = 1570223911877087413
+gang_member_role_id = 1570223731496722472
+gang_coord_team_role_id = 1570223694373199944
+gang_add_remove_role_id = 1570223690203926562
 # TODO: restricted (hand-out-locked) roles not provided yet.
 restricted_role_ids = []
-restricted_role_manager_role_ids = [1559682496549879808, 1559682494364647524]
-gang_manager_plus_role_ids = [1559682494364647524, 1559682496549879808, 1559682499251146772]
-voice_management_role_ids = [1559682506033209404, 1559682499251146772, 1559682496549879808, 1559682494364647524]
+restricted_role_manager_role_ids = [1570223689096495206, 1570223688689778728]
+gang_manager_plus_role_ids = [1570223688689778728, 1570223689096495206, 1570223690203926562]
+voice_management_role_ids = [1570223690799644805, 1570223690203926562, 1570223689096495206, 1570223688689778728]
 
 [bot.coordinator_role_ids]
-"Gang Director" = 1559682494364647524
-"Assistant Gang Director" = 1559682496549879808
-"Gang Manager" = 1559682499251146772
-"Lead Gang Coordinator" = 1559682506033209404
-"Senior Gang Coordinator" = 1559682509233586266
-"Gang Coordinator" = 1559682511834189974
-"Trial Gang Coordinator" = 1559682514518544474
+"Gang Director" = 1570223688689778728
+"Assistant Gang Director" = 1570223689096495206
+"Gang Manager" = 1570223690203926562
+"Lead Gang Coordinator" = 1570223690799644805
+"Senior Gang Coordinator" = 1570223691751620628
+"Gang Coordinator" = 1570223692502278167
+"Trial Gang Coordinator" = 1570223693668552804
 
 [bot.category_coordinator_role_ids]
-"Cartel" = 1559682533405495336
-"Militia" = 1559682529915834382
-"Criminal Org" = 1559682522407768246
-"Street Gang" = 1559682525247439068
-"Motorcycle Club" = 1559682527638061106
+"Cartel" = 1570223699427332146
+"Militia" = 1570223698731081839
+"Criminal Org" = 1570223695551664193
+"Street Gang" = 1570223696164032536
+"Motorcycle Club" = 1570223697166602301
 
 [bot.category_member_role_ids]
-"Cartel" = 1559683006413934733
-"Militia" = 1559683004010463294
-"Criminal Org" = 1559683002051723386
-"Street Gang" = 1559682999149264896
-"Motorcycle Club" = 1559683010075299880
+"Cartel" = 1570223748534243371
+"Militia" = 1570223747275817022
+"Criminal Org" = 1570223746017529866
+"Street Gang" = 1570223745090715769
+"Motorcycle Club" = 1570223750186799204
 
 [bot.parole_role_ids]
-"Cartel" = 1559682576250179725
-"Militia" = 1559682579064553502
-"Criminal Org" = 1559682598349840414
-"Street Gang" = 1559682573247053989
-"Motorcycle Club" = 1559682594231291905
+"Cartel" = 1570223713968722091
+"Militia" = 1570223714572959906
+"Criminal Org" = 1570223715671605412
+"Street Gang" = 1570223713087922186
+"Motorcycle Club" = 1570223715227144243
 
 [bot.coord_channel_ids]
-"Cartel" = 1559684037797355551
-"Militia" = 1559684005564260454
-"Criminal Org" = 1559684064708005928
-"Street Gang" = 1559684130336284692
-"Motorcycle Club" = 1559684092163915876
+"Cartel" = 1570223962456334366
+"Militia" = 1570223953325072569
+"Criminal Org" = 1570223971876478976
+"Street Gang" = 1570223990008582154
+"Motorcycle Club" = 1570223979359248537
 
 [access]
 # When true, these two groups bypass command allowlists/denylists.
@@ -102,7 +102,7 @@ owners_bypass = true
 [access.categories.administration]
 mode = "inherit"
 users = []
-roles = [1559682494364647524]
+roles = [1570223688689778728]
 commands = [
   "admin avatar",
   "admin gang rolecheck",
@@ -116,7 +116,7 @@ commands = [
 [access.categories.bank]
 mode = "inherit"
 users = []
-roles = [1559682499251146772]
+roles = [1570223690203926562]
 commands = [
   "bank adjust",
   "bank disperse",
@@ -132,7 +132,7 @@ commands = [
 [access.categories.coordination]
 mode = "inherit"
 users = []
-roles = [1559682499251146772]
+roles = [1570223690203926562]
 commands = [
   "coord activity",
   "coord add",
@@ -144,7 +144,7 @@ commands = [
 [access.categories.content]
 mode = "inherit"
 users = []
-roles = [1559682496549879808]
+roles = [1570223689096495206]
 commands = [
   "dm send",
   "embed edit",
@@ -155,7 +155,7 @@ commands = [
 [access.categories.gang_management]
 mode = "inherit"
 users = []
-roles = [1559682499251146772]
+roles = [1570223690203926562]
 commands = [
   "creation",
   "gang add",
@@ -195,7 +195,7 @@ commands = [
 [access.categories.locations]
 mode = "inherit"
 users = []
-roles = [1559682499251146772]
+roles = [1570223690203926562]
 commands = [
   "location add",
   "location audit",
@@ -208,7 +208,7 @@ commands = [
 # /log transfer additionally requires Gang Manager or a higher coordinator rank.
 mode = "inherit"
 users = []
-roles = [1559682499251146772]
+roles = [1570223690203926562]
 commands = [
   "log purchase",
   "log transfer",
@@ -217,7 +217,7 @@ commands = [
 [access.categories.member_discipline]
 mode = "inherit"
 users = []
-roles = [1559682517659943033]
+roles = [1570223694373199944]
 commands = [
   "member deletepunishment",
   "member editpunishment",
@@ -228,7 +228,7 @@ commands = [
 [access.categories.permission_management]
 mode = "inherit"
 users = []
-roles = [1559682496549879808]
+roles = [1570223689096495206]
 commands = [
   "permissions set",
   "permissions view",
@@ -250,7 +250,7 @@ commands = ["relations set"]
 [access.categories.rewards]
 mode = "inherit"
 users = []
-roles = [1559682499251146772]
+roles = [1570223690203926562]
 commands = [
   "reward give",
   "reward manage",
@@ -274,7 +274,7 @@ commands = [
 # These commands also have a strict runtime check for this exact role ID.
 mode = "allowlist"
 users = []
-roles = [1559682499251146772]
+roles = [1570223690203926562]
 commands = [
   "role protection",
   "useradd",
@@ -284,7 +284,7 @@ commands = [
 [access.categories.shop]
 mode = "inherit"
 users = []
-roles = [1559682496549879808]
+roles = [1570223689096495206]
 commands = [
   "shop add",
   "shop modify",
@@ -307,7 +307,7 @@ commands = [
 [access.categories.temporary_roles]
 mode = "inherit"
 users = []
-roles = [1559682517659943033]
+roles = [1570223694373199944]
 commands = [
   "temprole delete",
   "temprole extend",
@@ -357,15 +357,15 @@ commands = [
 # are its staff_role_ids plus admin_role_ids; ping_role_ids are mentioned when a ticket opens.
 # transcript_channel_id also receives that type's open/close log unless log_channel_id is set.
 [tickets]
-panel_channel_id = 1559683530265460786        # Tickets / ticket-selection
+panel_channel_id = 1570223812379680788        # Tickets / ticket-selection
 log_channel_id = 0
 max_open = 3
 cooldown_seconds = 60
 delete_closed_after_hours = 24                # closed channels are removed after this long; 0 keeps them
 admin_role_ids = [
-  1559682494364647524,                        # Gang Director
-  1559682496549879808,                        # Assistant Gang Director
-  1558976247038484561,                        # FBRP | Management Team
+  1570223688689778728,                        # Gang Director
+  1570223689096495206,                        # Assistant Gang Director
+  1570223686378594494,                        # FBRP | Management Team
 ]
 blacklist_role_ids = []
 panel_title = "FBRP | Gangs Support"
@@ -376,69 +376,69 @@ key = "creation"
 preset = "gang_creation"
 label = "Creation Tickets"
 description = "Apply to create a new gang."
-category_id = 1559683329886916648
-transcript_channel_id = 1559683546971513043   # creation-transcripts
-staff_role_ids = [1559682499251146772, 1559682506033209404]   # Gang Manager, Lead Gang Coordinator
-ping_role_ids = [1559682540938207342]         # Ticket Notified
+category_id = 1570223771250335856
+transcript_channel_id = 1570223816767049798   # creation-transcripts
+staff_role_ids = [1570223690203926562, 1570223690799644805]   # Gang Manager, Lead Gang Coordinator
+ping_role_ids = [1570223701411106939]         # Ticket Notified
 
 [[tickets.types]]
 key = "merge"
 label = "Merge/Rebrand Tickets"
 description = "Merge gangs or rebrand an existing gang."
-category_id = 1559683336262258730
-transcript_channel_id = 1559683538163601479   # ticket-transcripts
-staff_role_ids = [1559682499251146772, 1559682506033209404]
-ping_role_ids = [1559682540938207342]
+category_id = 1570223772865138698
+transcript_channel_id = 1570223814732685472   # ticket-transcripts
+staff_role_ids = [1570223690203926562, 1570223690799644805]
+ping_role_ids = [1570223701411106939]
 
 [[tickets.types]]
 key = "coord_report"
 label = "Coordination Reports"
 description = "Report a Gang Coordinator for misconduct."
-category_id = 1559683342507581440
-transcript_channel_id = 1559683534569078814   # report-transcripts
+category_id = 1570223773431496904
+transcript_channel_id = 1570223813507944519   # report-transcripts
 staff_role_ids = []
 
 [[tickets.types]]
 key = "economy"
 label = "Economy"
 description = "Bank, market, tax and other gang economy requests."
-category_id = 1559683357531570276
-transcript_channel_id = 1559683538163601479
-staff_role_ids = [1559682499251146772, 1559682506033209404]
-ping_role_ids = [1559682540938207342]
+category_id = 1570223774211510354
+transcript_channel_id = 1570223814732685472
+staff_role_ids = [1570223690203926562, 1570223690799644805]
+ping_role_ids = [1570223701411106939]
 
 [[tickets.types]]
 key = "location"
 label = "Location Tickets"
 description = "Add, remove or move gang locations."
-category_id = 1559683368336097410
-transcript_channel_id = 1559683538163601479
-staff_role_ids = [1559682499251146772, 1559682506033209404]
-ping_role_ids = [1559682540938207342]
+category_id = 1570223774731608096
+transcript_channel_id = 1570223814732685472
+staff_role_ids = [1570223690203926562, 1570223690799644805]
+ping_role_ids = [1570223701411106939]
 
 [[tickets.types]]
 key = "appeal"
 label = "Punishment Appeal"
 description = "Appeal a gang punishment or suspension."
-category_id = 1559683374585487383
-transcript_channel_id = 1559683538163601479
-staff_role_ids = [1559682499251146772, 1559682506033209404]
-ping_role_ids = [1559682540938207342]
+category_id = 1570223775633375293
+transcript_channel_id = 1570223814732685472
+staff_role_ids = [1570223690203926562, 1570223690799644805]
+ping_role_ids = [1570223701411106939]
 
 [[tickets.types]]
 key = "support"
 label = "Gang Support Tickets"
 description = "General questions and help with gangs."
-category_id = 1559683381766262874
-transcript_channel_id = 1559683538163601479
-staff_role_ids = [1559682517659943033, 1559682536425398273]   # Gang Coordination Team, Ticket Coordinator
-ping_role_ids = [1559682540938207342]
+category_id = 1570223776392683540
+transcript_channel_id = 1570223814732685472
+staff_role_ids = [1570223694373199944, 1570223700035371051]   # Gang Coordination Team, Ticket Coordinator
+ping_role_ids = [1570223701411106939]
 
 [[tickets.types]]
 key = "report"
 label = "Report Tickets"
 description = "Report a gang, member or rule violation."
-category_id = 1559683391904022641
-transcript_channel_id = 1559683534569078814   # report-transcripts
-staff_role_ids = [1559682517659943033, 1559682536425398273]
-ping_role_ids = [1559682540938207342]
+category_id = 1570223779060121720
+transcript_channel_id = 1570223813507944519   # report-transcripts
+staff_role_ids = [1570223694373199944, 1570223700035371051]
+ping_role_ids = [1570223701411106939]

@@ -19,7 +19,7 @@ test('only the owner account can open dev review and only one account can transf
   assert.equal(TRANSFER_USER_ID, '1090083387638812755');
   assert.equal(isApprover('1090083387638812755'), true);
   assert.equal(canTransfer('1090083387638812755'), true);
-  for (const other of ['1099651002208104488', '', null, undefined, '1090083387638812756']) {
+  for (const other of ['1090083387638812754', '', null, undefined, '1090083387638812756']) {
     assert.equal(isApprover(other), false);
     assert.equal(canTransfer(other), false);
   }
@@ -87,7 +87,7 @@ test('dev review routes: strangers and staff are refused, the owner can list, th
   assert.equal(await routes.handle(call.args), true);
   assert.equal(call.out.status, 401);
 
-  for (const id of ['1099651002208104488', '123']) {
+  for (const id of ['1090083387638812754', '123']) {
     call = exchange('GET', '/api/dev-review/list', { session: { id } });
     await routes.handle(call.args);
     assert.equal(call.out.status, 403);

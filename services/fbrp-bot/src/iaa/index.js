@@ -15,6 +15,8 @@ import * as intel from "./intel.js";
 import * as awards from "./awards.js";
 import * as blacklist from "./blacklist.js";
 import * as admin from "./admin.js";
+import * as docs from "./docs-command.js";
+import { bindGuild, documents } from "./documents-runtime.js";
 import { refreshPanels } from "./panels.js";
 import { resequence, scheduleResequence } from "./callsigns.js";
 import { MAIN_GUILD_ID, logMainGuildLeave } from "./member-logs.js";
@@ -88,6 +90,8 @@ async function slash(i, actor) {
       return intel.command(i, actor, group, sub);
     case "iaa-admin":
       return admin.command(i, actor, sub);
+    case "iaa-docs":
+      return docs.command(i, actor, group, sub);
   }
   throw new UserError("Unknown command.");
 }
@@ -154,6 +158,7 @@ client.on(Events.GuildMemberRemove, (member) => {
     logMainGuildLeave(client, member).catch((e) => console.warn(`[IAA] main leave log: ${e.message}`));
   if (member.guild.id === GUILD_ID) {
     intel.onLeave(member).catch(() => null);
+    roster.autoSeparate(member.guild, member.user).catch((e) => console.warn(`[IAA] automatic offboarding: ${e.message}`));
     refreshPanels(member.guild, "chain", "directory");
     ranksync.queue(member.guild);
   }
@@ -196,6 +201,7 @@ client.once(Events.ClientReady, async () => {
   }
   await g.commands.set(definitions);
   await allMembers(g);
+  bindGuild(g);
   client.user.setPresence({ activities: [{ name: "the watchers 🦅", type: ActivityType.Watching }], status: "online" });
   if ((await config()).ready) {
     await resequence(g, { reason: "Startup sync" }).catch((e) => console.warn(`[IAA] startup resequence: ${e.message}`));
@@ -213,6 +219,17 @@ client.once(Events.ClientReady, async () => {
   every(3_600_000, "stale cases", investigations.remindStale, 120_000);
   every(600_000, "panels", async (gg) => refreshPanels(gg, "leaderboard", "board"), 30_000);
   every(6 * 3_600_000, "sweep", intel.sweep, 600_000);
+  // Documents: keep the private roster sheet current and make sure only current agents hold access.
+  every(600_000, "documents", async () => {
+    const svc = documents();
+    if (!(await svc.ready())) return;
+    await svc.reconcile();
+    await svc.syncRoster();
+  }, 90_000);
+  every(6 * 3_600_000, "document audit", async () => {
+    const svc = documents();
+    if (await svc.ready()) await svc.audit();
+  }, 900_000);
 });
 
 client.on(Events.Error, (e) => console.error("[IAA] client error:", e.message));

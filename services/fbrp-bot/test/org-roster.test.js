@@ -14,9 +14,9 @@ const COMMAND_ROLE = "223456789012345678";
 const GUILD = "323456789012345678";
 
 test("manager registry rows keep full Discord IDs and their organization link", () => {
-  const record = registryRecord("gang", { name: "Ballas", guild_id: 1559682840411635813n, owner_id: 1090083387638812755n, command_role_id: BigInt(COMMAND_ROLE), base_role_id: null, fbrp_org_id: " Ballas " });
+  const record = registryRecord("gang", { name: "Ballas", guild_id: 1570219683137716254n, owner_id: 1090083387638812755n, command_role_id: BigInt(COMMAND_ROLE), base_role_id: null, fbrp_org_id: " Ballas " });
   assert.equal(record.ownerId, "1090083387638812755");
-  assert.equal(record.guildId, "1559682840411635813");
+  assert.equal(record.guildId, "1570219683137716254");
   assert.equal(record.commandRoleId, COMMAND_ROLE);
   assert.equal(record.orgRef, "ballas");
   assert.equal(registryRecord("gang", { name: "Unlinked", fbrp_org_id: "" }), null);
