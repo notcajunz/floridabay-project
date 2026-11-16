@@ -89,7 +89,7 @@ for item in .env services/fbrp-bot/.env services/gangsmanager/.env services/gang
   [[ -e "$item" ]] && private_paths+=("$item")
 done
 if ((${#private_paths[@]})); then
-  tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --exclude='*.log' --exclude='*.pid' --exclude='.replxx_history' --exclude='backups/deploy' \
+  tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --exclude='*.log' --exclude='*.pid' --exclude='.replxx_history' \
       -cf - "${private_paths[@]}" 2>/dev/null | gzip -9n > "$config_dir/private.tar.gz.tmp"
   new="$(sha256sum "$config_dir/private.tar.gz.tmp" | cut -d' ' -f1)"
   if [[ ! -f "$snap/private-files.tar.gz.enc" || "$new" != "$(cat "$config_dir/private.sha256" 2>/dev/null)" ]]; then
@@ -98,11 +98,57 @@ if ((${#private_paths[@]})); then
   rm -f "$config_dir/private.tar.gz.tmp"
 fi
 
-# This host runs everything, so the private bundle above already covers the game-side files too
-# (server.cfg, secrets.cfg, txAdmin state and the service .env files). The server config copy below is read locally.
-game_cfg="" game_artifact="" game_note="" game_ok=true
+# ---- game host (the second VPS) ------------------------------------------------------------------
+# This script runs on the control host, so files that live only on the game host (server.cfg, secrets.cfg,
+# txAdmin state, the game-side .env files and non-database backups) are pulled over the same SSH link the
+# deploy script uses and stored as a second encrypted bundle. The database is already covered above through
+# the tunnel. Skipped on a host that is not the control plane or has no game link configured.
+split_env="${FBRP_SPLIT_ENV:-/home/ubuntu/.config/fbrp-split.env}"
+game_key="${FBRP_GAME_KEY:-/home/ubuntu/.ssh/fbrp-game}"
+game_target="" game_role=""
+if [[ -r "$split_env" ]]; then
+  game_role="$(grep -E '^FBRP_ROLE=' "$split_env" | tail -1 | cut -d= -f2- | tr -d "\"'")"
+  game_target="$(grep -E '^FBRP_GAME_SSH=' "$split_env" | tail -1 | cut -d= -f2- | tr -d "\"'")"
+fi
+game_run() {
+  ssh -i "$game_key" -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+      -o StrictHostKeyChecking=yes "$game_target" "$@"
+}
+game_note="" game_ok=true game_cfg="" game_artifact=""
+if [[ "$game_role" == control && -n "$game_target" && -r "$game_key" ]]; then
+  if game_run bash -s > "$config_dir/game-private.tar.gz.tmp" 2> "$config_dir/game.err" <<'REMOTE'
+set -u
+cd /home/ubuntu || exit 1
+paths=()
+for item in fbrp/.env fbrp/services/*/.env fbrp/server-data/secrets.cfg fbrp/server-data/server.cfg fbrp/server-data/server.cfg.* \
+            fbrp/txData fbrp/server-data/db fbrp/backups backups; do
+  [[ -e "$item" ]] && paths+=("$item")
+done
+# fbrp/backups/deploy holds the pre-deploy database dumps (hundreds of MB): the database has its own snapshot.
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --exclude='*.log' --exclude='*.pid' \
+    --exclude='.replxx_history' --exclude='fbrp/backups/deploy' -cf - "${paths[@]}" 2>/dev/null | gzip -9n
+exit "${PIPESTATUS[0]}"
+REMOTE
+  then rc=0; else rc=$?; fi
+  # tar exits 1 when a live file changed while it was read (txAdmin writes constantly): still a usable bundle.
+  if (( rc > 1 )) || [[ "$(stat -c %s "$config_dir/game-private.tar.gz.tmp" 2>/dev/null || echo 0)" -lt 100 ]] \
+      || ! gzip -t "$config_dir/game-private.tar.gz.tmp" 2>/dev/null; then
+    game_ok=false
+    game_note=" WARNING: the game host files could not be read ($(head -c 200 "$config_dir/game.err" | tr '\n' ' ')); the previous game bundle was kept."
+    echo "WARNING: game host bundle failed (exit $rc): $(head -c 300 "$config_dir/game.err")" >&2
+  else
+    new="$(sha256sum "$config_dir/game-private.tar.gz.tmp" | cut -d' ' -f1)"
+    if [[ ! -f "$snap/game-private-files.tar.gz.enc" || "$new" != "$(cat "$config_dir/game-private.sha256" 2>/dev/null)" ]]; then
+      encrypt "$config_dir/game-private.tar.gz.tmp" "$snap/game-private-files.tar.gz.enc" && echo "$new" > "$config_dir/game-private.sha256" && echo "Game host files bundle updated."
+    else echo "Game host files unchanged."; fi
+    game_cfg="$config_dir/game-server.cfg.tmp"
+    game_run 'cat /home/ubuntu/fbrp/server-data/server.cfg' > "$game_cfg" 2>/dev/null || { rm -f "$game_cfg"; game_cfg=""; }
+    game_artifact="$(game_run 'cat /home/ubuntu/fbrp/artifacts/alpine/.GITCOMMIT 2>/dev/null || ls /home/ubuntu/fbrp/artifacts/alpine 2>/dev/null | head -1' 2>/dev/null | head -1)"
+  fi
+  rm -f "$config_dir/game-private.tar.gz.tmp"
+fi
 
-# A readable copy of the server config with the license key removed (read from this host).
+# A readable copy of the server config with the license key removed (the game host's copy when available).
 cfg_source=""
 if [[ -n "$game_cfg" && -s "$game_cfg" ]]; then cfg_source="$game_cfg"; elif [[ -f server-data/server.cfg ]]; then cfg_source=server-data/server.cfg; fi
 if [[ -n "$cfg_source" ]]; then
@@ -114,14 +160,15 @@ rm -f "$config_dir/game-server.cfg.tmp"
   echo "fxserver_artifact: ${game_artifact:-$(cat artifacts/alpine/.GITCOMMIT 2>/dev/null || ls artifacts/alpine 2>/dev/null | head -1 || echo unknown)}"
   echo "node: $(node --version 2>/dev/null)"
   echo "mariadb_image: $(grep -E 'image:' docker-compose.yml | head -1 | sed 's/.*image: *//')"
-  echo "private-files.tar.gz.enc: secrets, service databases, txAdmin state and non-database backups (extract in /home/ubuntu/fbrp)"
+  echo "private-files.tar.gz.enc: control host secrets (extract in /home/ubuntu/fbrp)"
+  echo "game-private-files.tar.gz.enc: game host secrets, txAdmin state, non-database backups (paths fbrp/... and backups/..., extract in /home/ubuntu of the game host)"
   echo "EUP packs and pre-deploy database dumps are intentionally not in the backup; the database is in fbrp-db.sql.gz.enc."
 } > "$snap/RESTORE-INFO.txt"
 
 # ---- guard: never commit a known secret in plain text -------------------------------------------
 if git rev-parse -q --verify "$sync_ref" >/dev/null; then base_ref="$sync_ref"; else base_ref=HEAD; fi
 git read-tree "$base_ref" 2>/dev/null || rm -f "$GIT_INDEX_FILE"
-# The EUP packs (several GB, and an owner-managed directory) are deliberately left out of
+# The EUP packs (several GB, and an owner-managed mount of the game host) are deliberately left out of
 # the GitHub backup: keep whatever the backup branch already holds for them and never add new packs.
 # They are excluded from `git add` itself: adding them first and un-staging them afterwards still writes
 # every pack as a loose object, which git then keeps as unreachable garbage (gigabytes per sync).
@@ -152,7 +199,7 @@ for path in sys.argv[1:]:
         if not match or not secret_key.search(match.group(1)):
             continue
         value = match.group(2).strip().strip("\"'")
-        # Paths to key files (settings such as KEY_FILE=/home/...) are configuration, not secret material.
+        # Paths to key files (FBRP_GAME_SSH_KEY=/home/...) are configuration, not secret material.
         if re.match(r"^(/|~/|\./|\.\./)[^\s]*$", value):
             continue
         if len(value) >= 12:

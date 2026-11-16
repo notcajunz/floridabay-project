@@ -13,7 +13,7 @@ export const setClient = (client) => {
 };
 
 const SERVICES = [
-  { unit: "fbrp-server", label: "Game server", detail: "FXServer + txAdmin" },
+  { unit: "fbrp-server", manager: "game", label: "Game server", detail: "FXServer + txAdmin" },
   { unit: "fbrp-bot", manager: "system", label: "Main bot & website", detail: "Discord bot, portal and API" },
   { unit: "iaa-bot", label: "IAA Systems", detail: "Internal Affairs bot" },
   { unit: "staff-bot", label: "Staff Assistant", detail: "Staff roster, coordination team and staff commands bot" },
@@ -28,8 +28,13 @@ const SERVICES = [
 
 const systemctl = (manager, ...args) =>
   new Promise((resolve) => {
-    const file = "/usr/bin/systemctl";
-    const command = [...(manager === "system" ? [] : ["--user"]), ...args];
+    const target = String(process.env.FBRP_GAME_SSH || "").trim();
+    const key = String(process.env.FBRP_GAME_SSH_KEY || "/home/ubuntu/.ssh/fbrp-game").trim();
+    const remote = manager === "game" && target;
+    const file = remote ? "/usr/bin/ssh" : "/usr/bin/systemctl";
+    const command = remote
+      ? ["-i", key, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", target, "/usr/bin/systemctl", "--user", ...args]
+      : [...(manager === "system" ? [] : ["--user"]), ...args];
     execFile(
       file,
       command,

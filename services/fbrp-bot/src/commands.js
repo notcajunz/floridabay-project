@@ -699,18 +699,6 @@ const role = new SlashCommandBuilder()
       ),
   );
 
-const roleall = new SlashCommandBuilder()
-  .setName("roleall")
-  .setDescription("Executive Management and above: give a role to every member of the main server")
-  .setDMPermission(false)
-  .addRoleOption((o) => o.setName("role").setDescription("Role to give everyone (bots are skipped)").setRequired(true));
-
-const unroleall = new SlashCommandBuilder()
-  .setName("unroleall")
-  .setDescription("Executive Management and above: remove a role from every member of the main server")
-  .setDMPermission(false)
-  .addRoleOption((o) => o.setName("role").setDescription("Role to take from everyone").setRequired(true));
-
 const temp = new SlashCommandBuilder()
   .setName("temp")
   .setDescription("Assistant Community Manager and above: temporary access")
@@ -1394,8 +1382,6 @@ export const commands = [
   mod,
   server,
   role,
-  roleall,
-  unroleall,
   temp,
   invites,
   protectrole,

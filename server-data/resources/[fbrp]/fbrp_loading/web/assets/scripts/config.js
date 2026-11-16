@@ -56,39 +56,11 @@ Config.Updates = [
 // "image" is optional - without it a coloured letter is shown instead.
 Config.Team = [
   {
-    name: "! 101 cajunz",
+    name: "! 102 cajunz",
     description: ["Owner"],
     quote: "Community ownership and operations",
     color: "#9d4dff",
     image: "https://cdn.discordapp.com/avatars/1090083387638812755/18a188b05c43be268a528ef1e3ae44de.webp?size=1024",
-  },
-  {
-    name: "! 102 Jaxtti",
-    description: ["Owner"],
-    quote: "Community ownership and operations",
-    color: "#9d4dff",
-    image: "https://cdn.discordapp.com/avatars/1467063344140779601/b645a30153872d95b450de97480a3646.webp?size=1024",
-  },
-  {
-    name: "! 103 Loafy",
-    description: ["Owner"],
-    quote: "Community ownership and operations",
-    color: "#9d4dff",
-    image: "https://cdn.discordapp.com/avatars/926270204193964062/296b48ce598d4481b1698249548a1f78.webp?size=1024",
-  },
-  {
-    name: "! 104 Tucker",
-    description: ["Co-Owner"],
-    quote: "Community leadership and operations",
-    color: "#ff8a3d",
-    image: "https://cdn.discordapp.com/avatars/1099651002208104488/a_75b903d03d9644eaa91cc96390eb6409.gif?size=1024",
-  },
-  {
-    name: "! 105 Scarface",
-    description: ["Co-Owner"],
-    quote: "Community leadership and operations",
-    color: "#ff8a3d",
-    image: "https://cdn.discordapp.com/avatars/618108970086694928/0e7e257856add2521dd9be96d551b855.webp?size=1024",
   },
 ];
 

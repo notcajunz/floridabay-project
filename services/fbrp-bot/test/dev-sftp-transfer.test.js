@@ -146,16 +146,12 @@ test("the runner script passes a validated --model to the chosen CLI", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fbrp-model-"));
   fs.mkdirSync(path.join(dir, "repo"));
   for (const name of ["PROMPT.md", "SUBMISSION.md"]) fs.writeFileSync(path.join(dir, name), "x");
-  const stubs = path.join(dir, "stub-bin");
-  fs.mkdirSync(stubs);
-  // The runner only checks that its CLIs exist in dry-run mode; stub them so the test passes on any host.
-  for (const tool of ["claude", "codex", "bwrap"]) fs.writeFileSync(path.join(stubs, tool), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-  const live = path.join(dir, "live");
-  fs.mkdirSync(path.join(live, ".git"), { recursive: true });
+  const split = path.join(dir, "split.env");
+  fs.writeFileSync(split, "FBRP_ROLE=control\n");
   const workspace = path.join(dir, "ws");
   execFileSync("git", ["init", "-q", workspace]);
   const run = (agent, ...extra) => spawnSync("bash", [path.join(root, "scripts/dev-submission-implement.sh"), "--id", "5", "--agent", agent, "--dir", dir, ...extra], {
-    env: { ...process.env, FBRP_LIVE_ROOT: live, DEV_SUBMISSION_PATH_PREFIX: stubs, DEV_SUBMISSION_DRY_RUN: "1", DEV_SUBMISSION_WORKSPACE_CODEX: workspace, DEV_SUBMISSION_WORKSPACE_CLAUDE: workspace },
+    env: { ...process.env, FBRP_SPLIT_ENV: split, DEV_SUBMISSION_DRY_RUN: "1", DEV_SUBMISSION_WORKSPACE_CODEX: workspace, DEV_SUBMISSION_WORKSPACE_CLAUDE: workspace },
     encoding: "utf8",
   });
   const claude = run("claude", "--model", "claude-opus-5-5");

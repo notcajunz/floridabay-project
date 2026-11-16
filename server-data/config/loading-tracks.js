@@ -1,3 +1,6 @@
+// Songs of the active seasonal loading screen (resource fbrp-LChalloween). scripts/sync-loading-config.sh puts this
+// block into that resource's config.js on every deploy and start, because the canonical fbrp_loading config lists
+// other songs. The files must exist under that resource's assets/media/music and assets/media/posters.
 Config.Tracks = [
 { title: "Sprinter", artist: "Central Cee x Dave", file: "assets/media/music/sprinter.webm", poster: "assets/media/posters/sprinter.jpg", length: "3:49" },
 { title: "Dai Dai", artist: "Shakira, Burna Boy", file: "assets/media/music/daidai.webm", poster: "assets/media/posters/daidai.jpg", length: "4:00" },

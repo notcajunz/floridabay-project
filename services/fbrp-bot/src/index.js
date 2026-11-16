@@ -34,7 +34,7 @@ import {
   oauthJoinToken,
   clearOAuthAuthorization,
 } from "./verification.js";
-import { currentDiscordId, MAIN_GUILD_ID } from "./discord-ids.js";
+import { currentDiscordId } from "./discord-ids.js";
 import { saveAll, listBackups, restoreAll, backupBusy } from "./backup.js";
 import {
   OWNER_DISCORD_ID,
@@ -86,8 +86,6 @@ import {
   ROLE_SOURCED_GROUPS,
   reconcileManagementMembership,
   reconcileAllManagementMemberships,
-  DANGEROUS_ROLE_PERMISSIONS,
-  isBotOwner,
 } from "./sync.js";
 import {
   EVENT_LABEL,
@@ -4095,15 +4093,9 @@ async function grandfatherVerifiedMembers() {
  * Unverified accounts are kept in a private verification lobby. Verified accounts get the
  * community-member role. Returns true when normal join syncing should stop for this member.
  */
-/** The main server always enforces verification; other servers only while they are on the network list. */
-async function verificationApplies(guildId, rows = networkRows) {
-  if (String(guildId) === MAIN_GUILD_ID) return true;
-  return (await rows()).some((row) => String(row.guild_id) === String(guildId));
-}
-
 async function enforceVerificationOnJoin(member) {
   if (!verificationRequired() || member.user.bot) return false;
-  if (!(await verificationApplies(member.guild.id))) return false;
+  if (!(await networkRows()).some((row) => String(row.guild_id) === member.guild.id)) return false;
   const id = member.id;
   const role = member.guild.roles.cache.get(VERIFIED_ROLE_ID);
   if (await isVerified(db, id)) {
@@ -4433,9 +4425,6 @@ const roleMembership = createRoleMembershipCommands({
   roleRef,
   who,
   log,
-  mainGuildId: MAIN_GUILD_ID,
-  dangerousPermissions: DANGEROUS_ROLE_PERMISSIONS,
-  isBotOwner,
 });
 const temporaryRoles = createTemporaryRoles({ client, db, audit, log });
 const inviteTracker = createInviteTracker({ client, db, log });
@@ -5075,8 +5064,6 @@ const handlers = {
   mod: moderationCommand,
   server: serverCommand,
   role: roleMembership.command,
-  roleall: (i) => roleMembership.bulk(i, "assign"),
-  unroleall: (i) => roleMembership.bulk(i, "unassign"),
   temp: async (i, sub) => {
     if (sub !== "role") throw new Error("Unknown temporary-access action.");
     await requireMinimumStaffRank(i, "Assistant Community Manager", "grant temporary roles");

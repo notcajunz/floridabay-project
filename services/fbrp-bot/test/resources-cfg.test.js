@@ -25,7 +25,7 @@ test("phone.cfg starts only the phone and resources.cfg starts everything else i
 });
 
 test("the deploy script keeps exec config/resources.cfg right after exec config/phone.cfg", () => {
-  const script = read("scripts/apply-game-files.sh");
+  const script = read("scripts/split-deploy.sh");
   assert.match(script, /exec config\/resources\.cfg/);
   const awk = /awk '(\{ print \} \$0 == "exec config\/phone\.cfg"[^']*)'/.exec(script)[1];
   const cfg = "ensure fbrp_core\nexec config/phone.cfg\nensure x\n";
@@ -40,11 +40,4 @@ test("CarPlay depends on the patched xsound that exports setMuffle", () => {
   assert.match(read(`${dir}/[deps]/xsound/client/exports/manipulation.lua`), /setMuffle/);
   assert.match(read(`${dir}/[deps]/xsound/fxmanifest.lua`), /html\/scripts\/FxAudio\.js/);
   assert.ok(fs.existsSync(path.join(root, dir, "[deps]/xsound/html/scripts/FxAudio.js")));
-});
-
-test("the normal loading screen is never stopped for a resource that does not ship", () => {
-  const cfg = read("server-data/config/resources.cfg");
-  assert.doesNotMatch(cfg, /^stop fbrp_loading\b/m, "stopping fbrp_loading leaves players with no loading screen");
-  assert.doesNotMatch(cfg, /^ensure fbrp-LChalloween\b/m, "the Halloween loading screen resource no longer exists");
-  assert.ok(fs.existsSync(path.join(root, "server-data/resources/[fbrp]/fbrp_loading/fxmanifest.lua")));
 });

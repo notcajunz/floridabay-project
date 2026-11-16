@@ -5,9 +5,9 @@ import { C, EPHEMERAL, UserError, card, clip, sleep } from "./util.js";
 export const RESTART_OWNER_ID = "1090083387638812755";
 
 export const RESTART_TARGETS = Object.freeze({
-  game: { label: "Game server", unit: "fbrp-server.service" },
+  game: { label: "Game server", unit: "fbrp-server.service", manager: "game" },
   main: { label: "Main bot, website & API", unit: "fbrp-bot.service", manager: "system" },
-  database: { label: "MariaDB", container: "fbrp-mariadb" },
+  database: { label: "MariaDB", container: "fbrp-mariadb", manager: "game" },
   businesses: { label: "Business Manager", unit: "businesses-bot.service" },
   departments: { label: "Department Manager", unit: "departments-bot.service" },
   dohs: { label: "DOHS Assistant", unit: "dohs-bot.service" },
@@ -26,6 +26,8 @@ export const RESTART_CHOICES = Object.freeze([
 
 const ALL_ORDER = Object.freeze(["database", "game", "main", "businesses", "departments", "dohs", "gangs", "iaa", "personals", "roles", "staff"]);
 const processEnv = () => ({ ...process.env, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 1000}` });
+const gameSsh = () => String(process.env.FBRP_GAME_SSH || "").trim();
+const gameKey = () => String(process.env.FBRP_GAME_SSH_KEY || "/home/ubuntu/.ssh/fbrp-game").trim();
 
 const run = (file, args, timeout = 150_000) =>
   new Promise((resolve, reject) => {
@@ -64,16 +66,23 @@ async function restartSystemUnit(target) {
 
 async function restartUnit(target) {
   if (target.manager === "system") return restartSystemUnit(target);
-  const file = "/usr/bin/systemctl";
-  const prefix = ["--user"];
+  let file = "/usr/bin/systemctl";
+  let prefix = ["--user"];
+  if (target.manager === "game" && gameSsh()) {
+    file = "/usr/bin/ssh";
+    prefix = ["-i", gameKey(), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", gameSsh(), "/usr/bin/systemctl", "--user"];
+  }
   await run(file, [...prefix, "restart", target.unit]);
   const state = await run(file, [...prefix, "is-active", target.unit], 10_000);
   if (state !== "active") throw new Error(`${target.unit} is ${state || "not active"} after restart`);
 }
 
 async function restartDatabase(target) {
-  const file = "/usr/bin/docker";
-  const prefix = [];
+  const remote = target.manager === "game" && gameSsh();
+  const file = remote ? "/usr/bin/ssh" : "/usr/bin/docker";
+  const prefix = remote
+    ? ["-i", gameKey(), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", gameSsh(), "/usr/bin/sudo", "-n", "/usr/bin/docker"]
+    : [];
   await run(file, [...prefix, "restart", target.container]);
   for (let attempt = 0; attempt < 90; attempt += 1) {
     const health = await run(file, [...prefix, "inspect", "--format", "{{.State.Health.Status}}", target.container], 10_000);
